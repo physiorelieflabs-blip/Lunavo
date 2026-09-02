@@ -61,6 +61,10 @@ import {
   AcceptSupplierRefreshParams,
   AcceptSupplierRefreshBody,
   AcceptSupplierRefreshResponse,
+  UpdateSupplierProductParams,
+  UpdateSupplierProductBody,
+  UpdateSupplierProductResponse,
+  ListSupplierImportHistoryResponse,
   ListSuppliersResponse,
   UpdateSupplierParams,
   UpdateSupplierBody,
@@ -127,6 +131,21 @@ const SUPPORTED_CURRENCIES = [
 ] as const;
 const MONTHLY_FEE = 30;
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
+const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
+const SUPPLIER_IMPORT_LIMIT = 60;
+const supplierImportQuota = new Map<string, { startedAt: number; count: number }>();
+
+function consumeSupplierImportQuota(clerkUserId: string, requested: number): boolean {
+  const now = Date.now();
+  const current = supplierImportQuota.get(clerkUserId);
+  if (!current || now - current.startedAt >= SUPPLIER_IMPORT_WINDOW_MS) {
+    supplierImportQuota.set(clerkUserId, { startedAt: now, count: requested });
+    return requested <= SUPPLIER_IMPORT_LIMIT;
+  }
+  if (current.count + requested > SUPPLIER_IMPORT_LIMIT) return false;
+  current.count += requested;
+  return true;
+}
 
 type Identity = {
   clerkUserId: string;
@@ -1139,7 +1158,12 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
     })
     .from(withdrawalsTable)
-    .where(eq(withdrawalsTable.merchantId, enforced.merchant.id));
+    .where(
+      and(
+        eq(withdrawalsTable.merchantId, enforced.merchant.id),
+        eq(withdrawalsTable.currency, enforced.merchant.currency),
+      ),
+    );
   const seriesStart = new Date(now);
   seriesStart.setHours(0, 0, 0, 0);
   seriesStart.setDate(seriesStart.getDate() - 6);
@@ -1443,6 +1467,16 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
     });
     return;
   }
+  if (
+    identity.isAdmin &&
+    parsed.data.confirmation?.trim().toUpperCase() !==
+      `REQUEST WITHDRAWAL ${amount.toFixed(2)} ${currency}`
+  ) {
+    res.status(403).json({
+      error: `Type REQUEST WITHDRAWAL ${amount.toFixed(2)} ${currency} to confirm this admin payout`,
+    });
+    return;
+  }
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(
@@ -1477,12 +1511,24 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
         )[0];
         if (existing) return existing;
       }
-      const [revenue] = await tx
-        .select({
-          total: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} in ('paid', 'fulfilled')), 0)`,
-        })
-        .from(ordersTable)
-        .where(eq(ordersTable.merchantId, merchant.id));
+      const [revenue] = identity.isAdmin
+        ? await tx
+            .select({
+              total: sql<string>`coalesce(sum(${paymentsTable.amount}) filter (where ${paymentsTable.status} = 'confirmed'), 0)`,
+            })
+            .from(paymentsTable)
+            .where(eq(paymentsTable.currency, merchant.currency))
+        : await tx
+            .select({
+              total: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} in ('paid', 'fulfilled')), 0)`,
+            })
+            .from(ordersTable)
+            .where(
+              and(
+                eq(ordersTable.merchantId, merchant.id),
+                eq(ordersTable.currency, merchant.currency),
+              ),
+            );
       const [subscription] = await tx
         .select()
         .from(subscriptionsTable)
@@ -1493,10 +1539,15 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
           total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
         })
         .from(withdrawalsTable)
-        .where(eq(withdrawalsTable.merchantId, merchant.id));
+        .where(
+          and(
+            eq(withdrawalsTable.merchantId, merchant.id),
+            eq(withdrawalsTable.currency, merchant.currency),
+          ),
+        );
       const available =
         toNumber(revenue?.total) -
-        toNumber(subscription?.earningsHeld) -
+        (identity.isAdmin ? 0 : toNumber(subscription?.earningsHeld)) -
         toNumber(reserved?.total);
       if (amount > available) {
         throw new Error(`Only ${Math.max(0, available).toFixed(2)} is available to withdraw`);
@@ -1544,8 +1595,8 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "withdrawal_requested",
-        title: "Withdrawal request submitted",
-        description: `A ${currency} withdrawal request is waiting for review.`,
+        title: "TS Pay withdrawal queued",
+        description: `A ${currency} TS Pay withdrawal request is waiting for review.`,
         amount: amount.toFixed(2),
         currency,
         tone: "neutral",
@@ -1579,9 +1630,39 @@ router.get("/supplier-products", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/supplier-import-history", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const attempts = await db
+    .select()
+    .from(supplierImportAttemptsTable)
+    .where(eq(supplierImportAttemptsTable.merchantId, merchant.id))
+    .orderBy(desc(supplierImportAttemptsTable.createdAt))
+    .limit(100);
+  res.json(
+    ListSupplierImportHistoryResponse.parse(
+      attempts.map((attempt) => ({
+        id: attempt.id,
+        supplierProductId: attempt.supplierProductId,
+        batchId: attempt.batchId,
+        sourceUrl: attempt.sourceUrl,
+        status: attempt.status,
+        message: attempt.message,
+        changes: Array.isArray(attempt.changes) ? attempt.changes : [],
+        createdAt: attempt.createdAt,
+      })),
+    ),
+  );
+});
+
 router.post("/supplier-products", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
+    res.status(429).json({ error: "Supplier import limit reached. Try again later." });
+    return;
+  }
   const parsed = ImportSupplierProductBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Enter a public supplier product URL" });
@@ -1667,6 +1748,10 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
 router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
+    res.status(429).json({ error: "Supplier import limit reached. Try again later." });
+    return;
+  }
   const parsed = AnalyzeSupplierProductBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Enter a public supplier product URL" });
@@ -1724,6 +1809,10 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter one or more valid supplier URLs" });
     return;
   }
+  if (!consumeSupplierImportQuota(identity.clerkUserId, parsed.data.sourceUrls.length)) {
+    res.status(429).json({ error: "Supplier import limit reached. Try again later." });
+    return;
+  }
   const merchant = await getOrCreateMerchant(identity);
   const [batch] = await db
     .insert(supplierImportBatchesTable)
@@ -1746,6 +1835,71 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
         merchant.id,
         new URL(imported.sourceUrl).origin,
       );
+      const duplicateConditions = [
+        eq(supplierProductsTable.sourceUrl, imported.sourceUrl),
+      ];
+      if (imported.sourceProductId) {
+        duplicateConditions.push(
+          eq(supplierProductsTable.sourceProductId, imported.sourceProductId),
+        );
+      }
+      if (imported.sku) {
+        duplicateConditions.push(eq(supplierProductsTable.sku, imported.sku));
+      }
+      const duplicates = await db
+        .select()
+        .from(supplierProductsTable)
+        .where(
+          and(eq(supplierProductsTable.merchantId, merchant.id), or(...duplicateConditions)),
+        )
+        .limit(10);
+      const duplicateAction = parsed.data.duplicateAction ?? "review";
+      if (duplicates.length && duplicateAction === "review") {
+        await db.insert(supplierImportAttemptsTable).values({
+          merchantId: merchant.id,
+          batchId: batch.id,
+          sourceUrl: imported.sourceUrl,
+          status: "duplicate",
+          message: "A matching product needs a duplicate decision",
+          changes: duplicates.map((candidate) => ({
+            id: candidate.id,
+            title: candidate.title,
+            matchReason:
+              candidate.sourceUrl === imported.sourceUrl
+                ? "same source URL"
+                : candidate.sku === imported.sku
+                  ? "same SKU"
+                  : "same source product ID",
+          })),
+        });
+        results.push({
+          sourceUrl,
+          status: "duplicate",
+          message: "A matching product needs your decision",
+          duplicates: duplicates.map((candidate) => ({
+            id: candidate.id,
+            title: candidate.title,
+            sourceUrl: candidate.sourceUrl,
+          })),
+        });
+        continue;
+      }
+      if (duplicates.length && duplicateAction === "skip") {
+        await db.insert(supplierImportAttemptsTable).values({
+          merchantId: merchant.id,
+          batchId: batch.id,
+          supplierProductId: duplicates[0].id,
+          sourceUrl: imported.sourceUrl,
+          status: "skipped",
+          message: "Skipped because a matching product already exists",
+        });
+        results.push({
+          sourceUrl,
+          status: "skipped",
+          product: serializeSupplierProduct(duplicates[0]),
+        });
+        continue;
+      }
       const values = importedProductValues(imported, {
         supplierUrl: supplier.website,
         profitType: parsed.data.profitType,
@@ -1753,17 +1907,26 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
         inventoryStrategy: parsed.data.inventoryStrategy,
         visibility: "draft",
       }, supplier.id);
-      const [product] = await db
-        .insert(supplierProductsTable)
-        .values({ merchantId: merchant.id, ...values })
-        .returning();
+      const existing =
+        duplicateAction === "create_new" ? undefined : duplicates[0];
+      const [product] = existing
+        ? await db
+            .update(supplierProductsTable)
+            .set(values)
+            .where(eq(supplierProductsTable.id, existing.id))
+            .returning()
+        : await db
+            .insert(supplierProductsTable)
+            .values({ merchantId: merchant.id, ...values })
+            .returning();
       if (!product) throw new Error("Product could not be saved");
       await db.insert(supplierImportAttemptsTable).values({
         merchantId: merchant.id,
         supplierProductId: product.id,
         batchId: batch.id,
         sourceUrl: imported.sourceUrl,
-        status: "imported",
+        status: existing ? "updated" : "imported",
+        message: existing ? "Updated from batch source" : "Imported from batch source",
       });
       completedCount += 1;
       results.push({ sourceUrl, status: "imported", product: serializeSupplierProduct(product) });
@@ -1863,9 +2026,200 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
   }
 });
 
+router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdateSupplierProductParams.safeParse(req.params);
+  const parsed = UpdateSupplierProductBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Enter valid product details" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const product = (
+    await db
+      .select()
+      .from(supplierProductsTable)
+      .where(
+        and(
+          eq(supplierProductsTable.id, params.data.id),
+          eq(supplierProductsTable.merchantId, merchant.id),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!product) {
+    res.status(404).json({ error: "Supplier product not found" });
+    return;
+  }
+
+  const input = parsed.data;
+  const has = (key: keyof typeof input) =>
+    Object.prototype.hasOwnProperty.call(input, key);
+  const nextVisibility = input.visibility ?? product.visibility;
+  const nextSellingPrice =
+    input.sellingPrice === undefined
+      ? product.sellingPrice === null
+        ? null
+        : toNumber(product.sellingPrice)
+      : input.sellingPrice;
+  if (nextVisibility === "active" && (!nextSellingPrice || nextSellingPrice <= 0)) {
+    res.status(422).json({
+      error: "An active product must have a selling price greater than zero",
+    });
+    return;
+  }
+  if (input.pricingMode === "custom" && (input.sellingPrice === null || input.sellingPrice === undefined)) {
+    res.status(422).json({ error: "Custom pricing requires a selling price" });
+    return;
+  }
+
+  try {
+    const supplierUrl =
+      input.supplierUrl === undefined
+        ? product.supplierUrl
+        : normalizedSupplierUrl(product.sourceUrl, input.supplierUrl).url;
+    const sourceFields: Record<string, unknown> = {
+      supplierUrl,
+      title: input.title,
+      description: input.description,
+      imageUrl: input.imageUrl,
+      imageUrls: input.imageUrls,
+      videoUrls: input.videoUrls,
+      salePrice: input.salePrice === null ? null : input.salePrice?.toFixed(2),
+      currency: input.currency?.toUpperCase(),
+      sku: input.sku,
+      sourceProductId: input.sourceProductId,
+      variants: input.variants,
+      attributes: input.attributes,
+      availability: input.availability,
+      availabilityQuantity:
+        input.inventoryQuantity === undefined
+          ? input.availabilityQuantity
+          : input.inventoryQuantity,
+      inventoryStrategy: input.inventoryStrategy,
+      inventoryStatus: input.inventoryStatus,
+      category: input.category,
+      tags: input.tags,
+      specifications: input.specifications,
+      brand: input.brand,
+      shippingInformation: input.shippingInformation,
+      taxConfiguration: input.taxConfiguration,
+      shippingConfiguration: input.shippingConfiguration,
+      seoConfiguration: input.seoConfiguration,
+      profitType: input.profitType,
+      profitValue:
+        input.profitValue === undefined
+          ? undefined
+          : input.profitValue.toFixed(2),
+      pricingMode: input.pricingMode,
+      price:
+        input.costPrice === undefined
+          ? undefined
+          : input.costPrice === null
+            ? null
+            : input.costPrice.toFixed(2),
+      sellingPrice:
+        input.sellingPrice === undefined
+          ? undefined
+          : input.sellingPrice === null
+            ? null
+            : input.sellingPrice.toFixed(2),
+      visibility: nextVisibility,
+      marketplaceVisibility: input.marketplaceVisibility,
+      status: nextVisibility === "active" ? "active" : "draft",
+      importStatus: nextVisibility === "active" ? "imported" : "needs_review",
+      importError: null,
+      publishedAt: nextVisibility === "active" ? product.publishedAt ?? new Date() : null,
+      updatedAt: new Date(),
+    };
+    const updates = Object.fromEntries(
+      Object.entries(sourceFields).filter(([key, value]) => {
+        if (["visibility", "status", "importStatus", "importError", "publishedAt", "updatedAt"].includes(key)) {
+          return true;
+        }
+        if (key === "supplierUrl") return true;
+        const inputKey = key === "price" ? "costPrice" : key;
+        return has(inputKey as keyof typeof input);
+      }),
+    );
+    const currentOverrides =
+      product.merchantOverrides &&
+      typeof product.merchantOverrides === "object" &&
+      !Array.isArray(product.merchantOverrides)
+        ? product.merchantOverrides as Record<string, unknown>
+        : {};
+    const overrideKeys = [
+      "title",
+      "description",
+      "imageUrl",
+      "imageUrls",
+      "videoUrls",
+      "salePrice",
+      "currency",
+      "sku",
+      "sourceProductId",
+      "variants",
+      "attributes",
+      "availability",
+      "availabilityQuantity",
+      "inventoryQuantity",
+      "inventoryStrategy",
+      "inventoryStatus",
+      "category",
+      "tags",
+      "specifications",
+      "brand",
+      "shippingInformation",
+      "taxConfiguration",
+      "shippingConfiguration",
+      "seoConfiguration",
+      "costPrice",
+      "profitType",
+      "profitValue",
+      "pricingMode",
+      "sellingPrice",
+      "visibility",
+      "marketplaceVisibility",
+    ];
+    for (const key of overrideKeys) {
+      if (has(key as keyof typeof input)) currentOverrides[key] = true;
+    }
+    updates.merchantOverrides = currentOverrides;
+    const [updated] = await db
+      .update(supplierProductsTable)
+      .set(updates)
+      .where(
+        and(
+          eq(supplierProductsTable.id, product.id),
+          eq(supplierProductsTable.merchantId, merchant.id),
+        ),
+      )
+      .returning();
+    if (!updated) throw new Error("Supplier product could not be updated");
+    await db.insert(supplierImportAttemptsTable).values({
+      merchantId: merchant.id,
+      supplierProductId: updated.id,
+      sourceUrl: updated.sourceUrl,
+      status: nextVisibility === "active" ? "published" : "edited",
+      message: "Merchant-edited product fields saved",
+      changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+    });
+    res.json(UpdateSupplierProductResponse.parse(serializeSupplierProduct(updated)));
+  } catch (error) {
+    res.status(422).json({
+      error: error instanceof Error ? error.message : "Supplier product could not be updated",
+    });
+  }
+});
+
 router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
+    res.status(429).json({ error: "Supplier import limit reached. Try again later." });
+    return;
+  }
   const params = RefreshSupplierProductParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: "Invalid supplier product" });
@@ -2768,11 +3122,45 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
         .limit(1)
     )[0];
     if (!existing) throw new Error("Dropshipping order not found");
+    const currentStatus = existing.order.fulfillmentStatus;
+    const allowedTransitions: Record<string, string[]> = {
+      not_submitted: ["not_submitted", "submitted", "canceled", "failed"],
+      submitted: ["submitted", "accepted", "processing", "canceled", "failed"],
+      accepted: ["accepted", "processing", "canceled", "failed"],
+      processing: ["processing", "shipped", "canceled", "failed"],
+      shipped: ["shipped", "in_transit", "delivered", "failed"],
+      in_transit: ["in_transit", "delivered", "failed"],
+      delivered: ["delivered"],
+      canceled: ["canceled"],
+      failed: ["failed", "submitted"],
+    };
+    if (!(allowedTransitions[currentStatus] ?? []).includes(nextStatus)) {
+      throw new Error(
+        `Cannot move supplier fulfillment from ${currentStatus.replaceAll("_", " ")} to ${nextStatus.replaceAll("_", " ")}`,
+      );
+    }
+    const fulfillmentStarted =
+      existing.order.fulfillmentSubmittedAt ??
+      (nextStatus !== "not_submitted" ? new Date() : null);
     const [order] = await tx
       .update(ordersTable)
       .set({
         fulfillmentStatus: nextStatus,
-         status: nextStatus === "delivered" ? "fulfilled" : existing.order.status,
+        status: nextStatus === "delivered" ? "fulfilled" : existing.order.status,
+        supplierOrderReference:
+          parsed.data.supplierOrderReference === undefined
+            ? existing.order.supplierOrderReference
+            : parsed.data.supplierOrderReference,
+        trackingNumber:
+          parsed.data.trackingNumber === undefined
+            ? existing.order.trackingNumber
+            : parsed.data.trackingNumber,
+        fulfillmentNote:
+          parsed.data.fulfillmentNote === undefined
+            ? existing.order.fulfillmentNote
+            : parsed.data.fulfillmentNote,
+        fulfillmentSubmittedAt: fulfillmentStarted,
+        fulfillmentUpdatedAt: new Date(),
       })
       .where(eq(ordersTable.id, existing.order.id))
       .returning();
@@ -2781,8 +3169,8 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
       merchantId: merchant.id,
       type: "dropship_status_updated",
       title: `Order ${order.orderNumber} supplier status updated`,
-      description: `Supplier handoff marked ${nextStatus.replaceAll("_", " ")}.`,
-       tone: nextStatus === "delivered" ? "positive" : "neutral",
+      description: `Supplier handoff marked ${nextStatus.replaceAll("_", " ")}${order.supplierOrderReference ? ` with reference ${order.supplierOrderReference}.` : "."}`,
+      tone: nextStatus === "delivered" ? "positive" : "neutral",
     });
     return { order, customer: existing.customer, product: existing.product };
   });
@@ -3051,6 +3439,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
 router.get("/admin/overview", async (req, res): Promise<void> => {
   const identity = await requireAdmin(req, res);
   if (!identity) return;
+  const adminMerchant = await getOrCreateMerchant(identity);
   const merchants = await db.select().from(merchantsTable);
   const subs = await db.select().from(subscriptionsTable);
   const payments = await db
@@ -3065,7 +3454,12 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
   const confirmedPayments = await db
     .select({ amount: paymentsTable.amount })
     .from(paymentsTable)
-    .where(eq(paymentsTable.status, "confirmed"));
+    .where(
+      and(
+        eq(paymentsTable.status, "confirmed"),
+        eq(paymentsTable.currency, adminMerchant.currency),
+      ),
+    );
   const nonAdminMerchants = merchants.filter(
     (merchant) => merchant.clerkUserId !== identity.clerkUserId,
   );
@@ -3076,10 +3470,27 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
     (sum, payment) => sum + toNumber(payment.amount),
     0,
   );
+  const [adminWithdrawalReserve] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
+    })
+    .from(withdrawalsTable)
+    .where(
+      and(
+        eq(withdrawalsTable.merchantId, adminMerchant.id),
+        eq(withdrawalsTable.currency, adminMerchant.currency),
+      ),
+    );
   res.json(
     GetAdminOverviewResponse.parse({
+      currency: adminMerchant.currency,
       platformRevenue: confirmedRevenue,
       subscriptionRevenue: confirmedRevenue,
+      availableBalance: Math.max(
+        0,
+        confirmedRevenue - toNumber(adminWithdrawalReserve?.total),
+      ),
+      withdrawalReserved: toNumber(adminWithdrawalReserve?.total),
       heldMerchantRevenue: subs.reduce(
         (sum, sub) => sum + toNumber(sub.earningsHeld),
         0,

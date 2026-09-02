@@ -1,5 +1,6 @@
 import {
   ArrowUpRight,
+  Banknote,
   Check,
   CircleAlert,
   CircleDollarSign,
@@ -86,13 +87,22 @@ export default function Admin() {
               Only verified payments and real merchant records appear here.
             </p>
           </div>
-          <Link
-            href="/admin/merchants"
-            className="rounded-lg bg-[#182333] px-4 py-3 text-sm font-extrabold text-[#f8f3e8] hover:bg-[#25354a]"
-            data-testid="link-admin-merchants"
-          >
-            Manage merchants
-          </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+               href="/admin/withdrawals"
+               className="inline-flex items-center gap-2 rounded-lg bg-[#2f6958] px-4 py-3 text-sm font-extrabold text-white hover:bg-[#245746]"
+               data-testid="button-admin-withdraw"
+             >
+               <Banknote className="h-4 w-4" /> Withdraw platform funds
+             </Link>
+             <Link
+               href="/admin/merchants"
+               className="rounded-lg bg-[#182333] px-4 py-3 text-sm font-extrabold text-[#f8f3e8] hover:bg-[#25354a]"
+               data-testid="link-admin-merchants"
+             >
+               Manage merchants
+             </Link>
+            </div>
         </div>
 
         {review.isError && (

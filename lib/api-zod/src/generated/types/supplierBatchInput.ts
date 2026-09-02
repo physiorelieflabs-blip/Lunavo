@@ -5,6 +5,7 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { SupplierBatchInputDuplicateAction } from './supplierBatchInputDuplicateAction';
 import type { SupplierBatchInputInventoryStrategy } from './supplierBatchInputInventoryStrategy';
 import type { SupplierBatchInputProfitType } from './supplierBatchInputProfitType';
 
@@ -22,4 +23,5 @@ export interface SupplierBatchInput {
      */
   profitValue: number;
   inventoryStrategy?: SupplierBatchInputInventoryStrategy;
+  duplicateAction?: SupplierBatchInputDuplicateAction;
 }

@@ -332,6 +332,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SupplierBatchResponse"
+  /supplier-import-history:
+    get:
+      operationId: listSupplierImportHistory
+      tags: [suppliers]
+      summary: List supplier import attempts and refresh history
+      responses:
+        "200":
+          description: Supplier import history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupplierImportAttempt"
   /supplier-products/manual:
     post:
       operationId: createManualSupplierProduct
@@ -346,6 +360,29 @@ paths:
       responses:
         "201":
           description: Manually created product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierProductRecord"
+  /supplier-products/{id}:
+    patch:
+      operationId: updateSupplierProduct
+      tags: [suppliers]
+      summary: Edit an imported supplier product before or after publishing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierProductUpdateInput"
+      responses:
+        "200":
+          description: Updated supplier product
           content:
             application/json:
               schema:
@@ -886,8 +923,11 @@ components:
     AdminOverview:
       type: object
       properties:
+        currency: { type: string }
         platformRevenue: { type: number }
         subscriptionRevenue: { type: number }
+        availableBalance: { type: number }
+        withdrawalReserved: { type: number }
         heldMerchantRevenue: { type: number }
         activeMerchants: { type: integer }
         attentionRequired: { type: integer }
@@ -897,8 +937,11 @@ components:
           items:
             $ref: "#/components/schemas/PaymentRecord"
       required:
+        - currency
         - platformRevenue
         - subscriptionRevenue
+        - availableBalance
+        - withdrawalReserved
         - heldMerchantRevenue
         - activeMerchants
         - attentionRequired
@@ -974,6 +1017,7 @@ components:
         amount: { type: number, exclusiveMinimum: 0 }
         currency: { type: string, minLength: 3, maxLength: 3 }
         totpCode: { type: string, pattern: "^[0-9]{6}$" }
+        confirmation: { type: string, minLength: 12, maxLength: 120 }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [amount, totpCode]
     BankAccountInput:
@@ -1099,6 +1143,61 @@ components:
           type: string
           enum: [create_new, update_existing, skip, review]
       required: [sourceUrl, supplierUrl, profitType, profitValue]
+    SupplierProductUpdateInput:
+      type: object
+      properties:
+        supplierUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        title: { type: string, minLength: 2, maxLength: 240 }
+        description: { type: ["string", "null"], maxLength: 10000 }
+        imageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        imageUrls:
+          type: array
+          items: { type: string, format: uri, maxLength: 2000 }
+          maxItems: 20
+        videoUrls:
+          type: array
+          items: { type: string, format: uri, maxLength: 2000 }
+          maxItems: 20
+        salePrice: { type: ["number", "null"], minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        sku: { type: ["string", "null"], maxLength: 160 }
+        sourceProductId: { type: ["string", "null"], maxLength: 240 }
+        variants:
+          type: array
+          items: { type: object, additionalProperties: true }
+          maxItems: 100
+        attributes: { type: object, additionalProperties: { type: string } }
+        availability: { type: ["string", "null"], maxLength: 80 }
+        availabilityQuantity: { type: ["integer", "null"], minimum: 0 }
+        category: { type: ["string", "null"], maxLength: 240 }
+        tags:
+          type: array
+          items: { type: string, maxLength: 80 }
+          maxItems: 50
+        specifications: { type: object, additionalProperties: { type: string } }
+        brand: { type: ["string", "null"], maxLength: 160 }
+        shippingInformation: { type: ["object", "null"], additionalProperties: true }
+        taxConfiguration: { type: ["object", "null"], additionalProperties: true }
+        shippingConfiguration: { type: ["object", "null"], additionalProperties: true }
+        seoConfiguration: { type: ["object", "null"], additionalProperties: true }
+        profitType:
+          type: string
+          enum: [fixed, percentage]
+        profitValue: { type: number, minimum: 0, maximum: 1000000 }
+        costPrice: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+        pricingMode:
+          type: string
+          enum: [same_price, fixed_markup, percentage_markup, fixed_margin, custom]
+        sellingPrice: { type: ["number", "null"], minimum: 0 }
+        visibility:
+          type: string
+          enum: [draft, active, hidden]
+        marketplaceVisibility: { type: boolean }
+        inventoryStrategy:
+          type: string
+          enum: [manual, source_based, synchronized]
+        inventoryStatus: { type: string, maxLength: 80 }
+        inventoryQuantity: { type: ["integer", "null"], minimum: 0 }
     SupplierAnalyzeInput:
       type: object
       properties:
@@ -1164,6 +1263,9 @@ components:
         inventoryStrategy:
           type: string
           enum: [manual, source_based, synchronized]
+        duplicateAction:
+          type: string
+          enum: [create_new, update_existing, skip, review]
       required: [sourceUrls, profitType, profitValue]
     SupplierBatchResponse:
       type: object
@@ -1176,6 +1278,20 @@ components:
             type: object
             additionalProperties: true
       required: [batchId, status, results]
+    SupplierImportAttempt:
+      type: object
+      properties:
+        id: { type: integer }
+        supplierProductId: { type: ["integer", "null"] }
+        batchId: { type: ["integer", "null"] }
+        sourceUrl: { type: string, format: uri }
+        status: { type: string }
+        message: { type: ["string", "null"] }
+        changes:
+          type: array
+          items: {}
+        createdAt: { type: string, format: date-time }
+      required: [id, supplierProductId, batchId, sourceUrl, status, message, changes, createdAt]
     ManualSupplierProductInput:
       type: object
       properties:

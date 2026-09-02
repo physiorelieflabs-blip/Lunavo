@@ -17,6 +17,11 @@ export interface WithdrawalInput {
   /** @pattern ^[0-9]{6}$ */
   totpCode: string;
   /**
+     * @minLength 12
+     * @maxLength 120
+     */
+  confirmation?: string;
+  /**
      * @minLength 8
      * @maxLength 120
      */

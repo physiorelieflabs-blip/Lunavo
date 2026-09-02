@@ -192,8 +192,11 @@ export interface PaymentRecord {
 }
 
 export interface AdminOverview {
+  currency: string;
   platformRevenue: number;
   subscriptionRevenue: number;
+  availableBalance: number;
+  withdrawalReserved: number;
   heldMerchantRevenue: number;
   activeMerchants: number;
   attentionRequired: number;
@@ -275,6 +278,11 @@ export interface WithdrawalInput {
   currency?: string;
   /** @pattern ^[0-9]{6}$ */
   totpCode: string;
+  /**
+     * @minLength 12
+     * @maxLength 120
+     */
+  confirmation?: string;
   /**
      * @minLength 8
      * @maxLength 120
@@ -565,6 +573,186 @@ export interface SupplierProductInput {
   duplicateAction?: SupplierProductInputDuplicateAction;
 }
 
+export type SupplierProductUpdateInputVariantsItem = { [key: string]: unknown };
+
+export type SupplierProductUpdateInputAttributes = {[key: string]: string};
+
+export type SupplierProductUpdateInputSpecifications = {[key: string]: string};
+
+/**
+ * @nullable
+ */
+export type SupplierProductUpdateInputShippingInformation = { [key: string]: unknown } | null;
+
+/**
+ * @nullable
+ */
+export type SupplierProductUpdateInputTaxConfiguration = { [key: string]: unknown } | null;
+
+/**
+ * @nullable
+ */
+export type SupplierProductUpdateInputShippingConfiguration = { [key: string]: unknown } | null;
+
+/**
+ * @nullable
+ */
+export type SupplierProductUpdateInputSeoConfiguration = { [key: string]: unknown } | null;
+
+export type SupplierProductUpdateInputProfitType = typeof SupplierProductUpdateInputProfitType[keyof typeof SupplierProductUpdateInputProfitType];
+
+
+export const SupplierProductUpdateInputProfitType = {
+  fixed: 'fixed',
+  percentage: 'percentage',
+} as const;
+
+export type SupplierProductUpdateInputPricingMode = typeof SupplierProductUpdateInputPricingMode[keyof typeof SupplierProductUpdateInputPricingMode];
+
+
+export const SupplierProductUpdateInputPricingMode = {
+  same_price: 'same_price',
+  fixed_markup: 'fixed_markup',
+  percentage_markup: 'percentage_markup',
+  fixed_margin: 'fixed_margin',
+  custom: 'custom',
+} as const;
+
+export type SupplierProductUpdateInputVisibility = typeof SupplierProductUpdateInputVisibility[keyof typeof SupplierProductUpdateInputVisibility];
+
+
+export const SupplierProductUpdateInputVisibility = {
+  draft: 'draft',
+  active: 'active',
+  hidden: 'hidden',
+} as const;
+
+export type SupplierProductUpdateInputInventoryStrategy = typeof SupplierProductUpdateInputInventoryStrategy[keyof typeof SupplierProductUpdateInputInventoryStrategy];
+
+
+export const SupplierProductUpdateInputInventoryStrategy = {
+  manual: 'manual',
+  source_based: 'source_based',
+  synchronized: 'synchronized',
+} as const;
+
+export interface SupplierProductUpdateInput {
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  supplierUrl?: string | null;
+  /**
+     * @minLength 2
+     * @maxLength 240
+     */
+  title?: string;
+  /**
+     * @maxLength 10000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  imageUrl?: string | null;
+  /**
+     * @maxItems 20
+     * @items.maxLength 2000
+     */
+  imageUrls?: string[];
+  /**
+     * @maxItems 20
+     * @items.maxLength 2000
+     */
+  videoUrls?: string[];
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  salePrice?: number | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency?: string;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  sku?: string | null;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  sourceProductId?: string | null;
+  /** @maxItems 100 */
+  variants?: SupplierProductUpdateInputVariantsItem[];
+  attributes?: SupplierProductUpdateInputAttributes;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  availability?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  availabilityQuantity?: number | null;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  category?: string | null;
+  /**
+     * @maxItems 50
+     * @items.maxLength 80
+     */
+  tags?: string[];
+  specifications?: SupplierProductUpdateInputSpecifications;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  brand?: string | null;
+  /** @nullable */
+  shippingInformation?: SupplierProductUpdateInputShippingInformation;
+  /** @nullable */
+  taxConfiguration?: SupplierProductUpdateInputTaxConfiguration;
+  /** @nullable */
+  shippingConfiguration?: SupplierProductUpdateInputShippingConfiguration;
+  /** @nullable */
+  seoConfiguration?: SupplierProductUpdateInputSeoConfiguration;
+  profitType?: SupplierProductUpdateInputProfitType;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  profitValue?: number;
+  /**
+     * @maximum 1000000000
+     * @exclusiveMinimum 0
+     */
+  costPrice?: number;
+  pricingMode?: SupplierProductUpdateInputPricingMode;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  sellingPrice?: number | null;
+  visibility?: SupplierProductUpdateInputVisibility;
+  marketplaceVisibility?: boolean;
+  inventoryStrategy?: SupplierProductUpdateInputInventoryStrategy;
+  /** @maxLength 80 */
+  inventoryStatus?: string;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  inventoryQuantity?: number | null;
+}
+
 export interface SupplierAnalyzeInput {
   /** @maxLength 2000 */
   sourceUrl: string;
@@ -649,6 +837,16 @@ export const SupplierBatchInputInventoryStrategy = {
   synchronized: 'synchronized',
 } as const;
 
+export type SupplierBatchInputDuplicateAction = typeof SupplierBatchInputDuplicateAction[keyof typeof SupplierBatchInputDuplicateAction];
+
+
+export const SupplierBatchInputDuplicateAction = {
+  create_new: 'create_new',
+  update_existing: 'update_existing',
+  skip: 'skip',
+  review: 'review',
+} as const;
+
 export interface SupplierBatchInput {
   /**
      * @minItems 1
@@ -663,6 +861,7 @@ export interface SupplierBatchInput {
      */
   profitValue: number;
   inventoryStrategy?: SupplierBatchInputInventoryStrategy;
+  duplicateAction?: SupplierBatchInputDuplicateAction;
 }
 
 export type SupplierBatchResponseResultsItem = { [key: string]: unknown };
@@ -671,6 +870,20 @@ export interface SupplierBatchResponse {
   batchId: number;
   status: string;
   results: SupplierBatchResponseResultsItem[];
+}
+
+export interface SupplierImportAttempt {
+  id: number;
+  /** @nullable */
+  supplierProductId: number | null;
+  /** @nullable */
+  batchId: number | null;
+  sourceUrl: string;
+  status: string;
+  /** @nullable */
+  message: string | null;
+  changes: unknown[];
+  createdAt: string;
 }
 
 export type ManualSupplierProductInputInventoryStrategy = typeof ManualSupplierProductInputInventoryStrategy[keyof typeof ManualSupplierProductInputInventoryStrategy];

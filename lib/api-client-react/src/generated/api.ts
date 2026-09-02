@@ -52,8 +52,10 @@ import type {
   SupplierAnalyzeResponse,
   SupplierBatchInput,
   SupplierBatchResponse,
+  SupplierImportAttempt,
   SupplierProductInput,
   SupplierProductRecord,
+  SupplierProductUpdateInput,
   SupplierRecord,
   SupplierRefreshAcceptInput,
   SupplierRefreshResponse,
@@ -1646,6 +1648,83 @@ export const useImportSupplierProductBatch = <TError = ErrorType<unknown>,
       return useMutation(getImportSupplierProductBatchMutationOptions(options));
     }
 
+export const getListSupplierImportHistoryUrl = () => {
+
+
+
+
+  return `/api/supplier-import-history`
+}
+
+/**
+ * @summary List supplier import attempts and refresh history
+ */
+export const listSupplierImportHistory = async ( options?: Parameters<typeof customFetch>[1]): Promise<SupplierImportAttempt[]> => {
+
+  return customFetch<SupplierImportAttempt[]>(getListSupplierImportHistoryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSupplierImportHistoryQueryKey = () => {
+    return [
+    `/api/supplier-import-history`
+    ] as const;
+    }
+
+
+export const getListSupplierImportHistoryQueryOptions = <TData = Awaited<ReturnType<typeof listSupplierImportHistory>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSupplierImportHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSupplierImportHistoryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSupplierImportHistory>>> = ({ signal }) => listSupplierImportHistory({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSupplierImportHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSupplierImportHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof listSupplierImportHistory>>>
+export type ListSupplierImportHistoryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List supplier import attempts and refresh history
+ */
+
+export function useListSupplierImportHistory<TData = Awaited<ReturnType<typeof listSupplierImportHistory>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSupplierImportHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSupplierImportHistoryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getCreateManualSupplierProductUrl = () => {
 
 
@@ -1715,6 +1794,78 @@ export const useCreateManualSupplierProduct = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateManualSupplierProductMutationOptions(options));
+    }
+
+export const getUpdateSupplierProductUrl = (id: number,) => {
+
+
+
+
+  return `/api/supplier-products/${id}`
+}
+
+/**
+ * @summary Edit an imported supplier product before or after publishing
+ */
+export const updateSupplierProduct = async (id: number,
+    supplierProductUpdateInput: SupplierProductUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierProductRecord> => {
+
+  return customFetch<SupplierProductRecord>(getUpdateSupplierProductUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(supplierProductUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateSupplierProductMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSupplierProduct>>, TError,{id: number;data: BodyType<SupplierProductUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSupplierProduct>>, TError,{id: number;data: BodyType<SupplierProductUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateSupplierProduct'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSupplierProduct>>, {id: number;data: BodyType<SupplierProductUpdateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateSupplierProduct(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSupplierProductMutationResult = NonNullable<Awaited<ReturnType<typeof updateSupplierProduct>>>
+    export type UpdateSupplierProductMutationBody = BodyType<SupplierProductUpdateInput>
+    export type UpdateSupplierProductMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Edit an imported supplier product before or after publishing
+ */
+export const useUpdateSupplierProduct = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSupplierProduct>>, TError,{id: number;data: BodyType<SupplierProductUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSupplierProduct>>,
+        TError,
+        {id: number;data: BodyType<SupplierProductUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateSupplierProductMutationOptions(options));
     }
 
 export const getRefreshSupplierProductUrl = (id: number,) => {

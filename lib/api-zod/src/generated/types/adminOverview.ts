@@ -8,8 +8,11 @@
 import type { PaymentRecord } from './paymentRecord';
 
 export interface AdminOverview {
+  currency: string;
   platformRevenue: number;
   subscriptionRevenue: number;
+  availableBalance: number;
+  withdrawalReserved: number;
   heldMerchantRevenue: number;
   activeMerchants: number;
   attentionRequired: number;

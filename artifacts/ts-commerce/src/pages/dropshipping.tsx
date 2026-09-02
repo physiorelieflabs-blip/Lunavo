@@ -1,52 +1,78 @@
 import { useState } from 'react';
-import { ExternalLink, RefreshCw, Route } from 'lucide-react';
+import { Clipboard, Copy, ExternalLink, PackageCheck, RefreshCw, Route, ShieldAlert } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getListDropshipQueueQueryKey, getListOrdersQueryKey, useListDropshipQueue, useUpdateDropshipStatus } from '@workspace/api-client-react';
+import type { DropshipStatusInputFulfillmentStatus } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
-import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading } from '@/components/primitives';
+import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 import { money, timeAgo } from '@/lib/format';
 
-const nextStatus = {
-  not_submitted: { value: 'submitted' as const, label: 'Mark submitted' },
-  submitted: { value: 'accepted' as const, label: 'Mark accepted' },
-  accepted: { value: 'processing' as const, label: 'Mark processing' },
-  processing: { value: 'shipped' as const, label: 'Mark shipped' },
-  shipped: { value: 'in_transit' as const, label: 'Mark in transit' },
-  in_transit: { value: 'delivered' as const, label: 'Mark delivered' },
-  delivered: null,
-  canceled: null,
-  failed: null,
-};
+const legalStatuses: DropshipStatusInputFulfillmentStatus[] = ['not_submitted', 'submitted', 'accepted', 'processing', 'shipped', 'in_transit', 'delivered', 'canceled', 'failed'];
+const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none placeholder:text-[#8994a2] focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
+type FulfillmentDraft = { status: DropshipStatusInputFulfillmentStatus; reference: string; tracking: string; note: string };
+
+function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' | 'neutral' {
+  if (status === 'delivered') return 'success';
+  if (status === 'canceled' || status === 'failed') return 'danger';
+  if (status === 'shipped' || status === 'in_transit') return 'info';
+  if (status === 'not_submitted') return 'warning';
+  return 'neutral';
+}
+
+function statusLabel(status: string) {
+  return status.replaceAll('_', ' ');
+}
 
 export default function Dropshipping() {
   const queue = useListDropshipQueue();
   const updateStatus = useUpdateDropshipStatus();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
+  const [drafts, setDrafts] = useState<Record<number, FulfillmentDraft>>({});
+  const [copied, setCopied] = useState<number | null>(null);
 
-  if (queue.isLoading) return <AppShell><LoadingState label="Loading fulfillment queue" /></AppShell>;
-  if (queue.isError || !queue.data) return <AppShell><ErrorState onRetry={() => void queue.refetch()} /></AppShell>;
+  const draftFor = (item: NonNullable<typeof queue.data>[number]): FulfillmentDraft => drafts[item.id] ?? {
+    status: legalStatuses.includes(item.fulfillmentStatus as DropshipStatusInputFulfillmentStatus) ? item.fulfillmentStatus as DropshipStatusInputFulfillmentStatus : 'not_submitted',
+    reference: item.supplierOrderReference ?? '',
+    tracking: item.trackingNumber ?? '',
+    note: item.fulfillmentNote ?? '',
+  };
 
-  const advance = (id: number, fulfillmentStatus: 'not_submitted' | 'submitted' | 'accepted' | 'processing' | 'shipped' | 'in_transit' | 'delivered' | 'canceled' | 'failed') => {
+  const setDraft = (id: number, updates: Partial<FulfillmentDraft>) => setDrafts((current) => ({ ...current, [id]: { ...draftFor(queue.data?.find((item) => item.id === id)!), ...updates } }));
+
+  const saveFulfillment = (id: number) => {
+    const draft = drafts[id] ?? draftFor(queue.data!.find((item) => item.id === id)!);
     setMessage('');
-    updateStatus.mutate({ id, data: { fulfillmentStatus } }, {
+    updateStatus.mutate({ id, data: { fulfillmentStatus: draft.status, supplierOrderReference: draft.reference || null, trackingNumber: draft.tracking || null, fulfillmentNote: draft.note || null } }, {
       onSuccess: () => {
-        setMessage(`Order marked ${fulfillmentStatus.replaceAll('_', ' ')}.`);
+        setMessage(`Fulfillment marked ${statusLabel(draft.status)}. The order record now includes the supplier handoff details.`);
         void Promise.all([
           queryClient.invalidateQueries({ queryKey: getListDropshipQueueQueryKey() }),
           queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() }),
         ]);
       },
-      onError: () => setMessage('That fulfillment update could not be saved.'),
+      onError: () => setMessage('That fulfillment update could not be saved. Check the status and supplier details, then try again.'),
     });
   };
 
+  const copyText = (id: number, value: string, label: string) => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(id);
+      setMessage(`${label} copied. Paste it into the supplier checkout or your shipping workflow.`);
+      window.setTimeout(() => setCopied(null), 1800);
+    });
+  };
+
+  if (queue.isLoading) return <AppShell><LoadingState label="Loading fulfillment queue" /></AppShell>;
+  if (queue.isError || !queue.data) return <AppShell><ErrorState onRetry={() => void queue.refetch()} /></AppShell>;
+
   return <AppShell>
     <div className="mx-auto max-w-[1180px]">
-      <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Internal auto DS</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Fulfillment without supplier API keys.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Product-linked paid orders arrive here automatically. TS Commerce prepares the supplier handoff and tracks every state; supplier checkout remains a deliberate manual step when the public link cannot support automation.</p></div><Badge tone="info">{queue.data.length} queued</Badge></div>
-      {message && <div className="mt-7"><Notice tone={message.startsWith('That') ? 'danger' : 'success'} title={message.startsWith('That') ? 'Update not completed' : 'Queue updated'}>{message}</Notice></div>}
-      <section className="mt-8"><SectionHeading eyebrow="Order routing" title="Supplier fulfillment queue" action={<Button variant="ghost" onClick={() => void queue.refetch()}><RefreshCw className="h-4 w-4" />Refresh</Button>} />
-        {queue.data.length ? <div className="space-y-4">{queue.data.map((item) => { const action = nextStatus[item.fulfillmentStatus as keyof typeof nextStatus] ?? null; return <article key={item.id} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 md:p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e8e0cd] text-[#85601b]"><Route className="h-4 w-4" /></div><div><div className="flex flex-wrap items-center gap-2"><p className="font-mono text-sm font-bold">{item.orderNumber}</p><Badge tone={item.fulfillmentStatus === 'fulfilled' ? 'success' : 'warning'}>{item.fulfillmentStatus.replaceAll('_', ' ')}</Badge></div><h2 className="mt-2 font-extrabold">{item.productTitle}</h2><p className="mt-1 text-xs text-[#697687]">{item.customerName} · {item.customerEmail} · {timeAgo(item.createdAt)}</p></div></div><div className="text-right"><p className="font-mono text-lg font-bold">{money(item.total, item.currency)}</p><p className="text-xs text-[#697687]">{item.quantity} item{item.quantity === 1 ? '' : 's'}</p></div></div><div className="mt-5 grid gap-3 rounded-lg bg-[#f3efe5] p-4 text-xs sm:grid-cols-3"><div><p className="text-[#697687]">Supplier cost</p><p className="mt-1 font-mono font-bold">{item.supplierCost === null ? 'Unavailable' : money(item.supplierCost, item.currency)}</p></div><div><p className="text-[#697687]">Configured profit</p><p className="mt-1 font-mono font-bold text-[#2f6958]">{item.profit === null ? 'Unavailable' : money(item.profit, item.currency)}</p></div><div><p className="text-[#697687]">Ship to</p><p className="mt-1 font-bold text-[#182333]">{item.shippingAddress || 'Not provided'}</p></div></div><div className="mt-5 flex flex-wrap gap-3">{action && <Button onClick={() => advance(item.id, action.value)} disabled={updateStatus.isPending}>{action.label}</Button>}<a href={item.supplierUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-4 text-sm font-bold text-[#182333] hover:border-[#bca26a]"><ExternalLink className="h-4 w-4" />Open supplier link</a></div></article>; })}</div> : <EmptyState title="Nothing needs fulfillment yet" description="Confirm payment on a product-linked checkout order and it will appear here automatically." />}
+      <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Manual fulfillment</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">A clear handoff, even without an API.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Paid product-linked orders arrive here. Open the supplier page, copy the customer details, place the order manually, then keep every legal fulfillment status and reference in one place.</p></div><Badge tone="info">{queue.data.length} in queue</Badge></div>
+      {message && <div className="mt-7"><Notice tone={message.includes('could not') ? 'danger' : 'success'} title={message.includes('could not') ? 'Update not completed' : 'Queue updated'}>{message}</Notice></div>}
+      <div className="mt-8 rounded-xl border border-[#bfd6dc] bg-[#eef7f8] p-4 text-sm text-[#315e6c]"><div className="flex items-start gap-3"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" /><p><strong>Manual mode is intentional.</strong> Supplier checkouts, delivery promises, and tracking remain external until you record them here. Never mark an order delivered until the supplier or carrier confirms it.</p></div></div>
+      <section className="mt-8"><SectionHeading eyebrow="Order routing" title="Supplier fulfillment queue" description="Update status, supplier order reference, tracking number, and your internal note together." action={<Button variant="ghost" onClick={() => void queue.refetch()} data-testid="button-refresh-queue"><RefreshCw className="h-4 w-4" />Refresh</Button>} />
+        {queue.data.length ? <div className="space-y-4">{queue.data.map((item) => { const draft = draftFor(item); return <article data-testid={`card-fulfillment-${item.id}`} key={item.id} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 md:p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e8e0cd] text-[#85601b]"><Route className="h-4 w-4" /></div><div><div className="flex flex-wrap items-center gap-2"><p data-testid={`text-order-number-${item.id}`} className="font-mono text-sm font-bold">{item.orderNumber}</p><Badge tone={statusTone(item.fulfillmentStatus)}>{statusLabel(item.fulfillmentStatus)}</Badge><Badge tone={item.orderStatus === 'paid' ? 'success' : 'warning'}>{item.orderStatus}</Badge></div><h2 className="mt-2 font-extrabold">{item.productTitle}</h2><p className="mt-1 text-xs text-[#697687]">{item.customerName} · {item.customerEmail} · {timeAgo(item.createdAt)}</p></div></div><div className="text-right"><p data-testid={`text-fulfillment-total-${item.id}`} className="font-mono text-lg font-bold">{money(item.total, item.currency)}</p><p className="text-xs text-[#697687]">{item.quantity} item{item.quantity === 1 ? '' : 's'}</p></div></div><div className="mt-5 grid gap-3 rounded-lg bg-[#f3efe5] p-4 text-xs sm:grid-cols-3"><div><p className="text-[#697687]">Supplier cost</p><p className="mt-1 font-mono font-bold">{item.supplierCost === null ? 'Unavailable' : money(item.supplierCost, item.currency)}</p></div><div><p className="text-[#697687]">Your profit</p><p className="mt-1 font-mono font-bold text-[#2f6958]">{item.profit === null ? 'Unavailable' : money(item.profit, item.currency)}</p></div><div><p className="text-[#697687]">Ship to</p><p className="mt-1 whitespace-pre-line font-bold text-[#182333]">{item.shippingAddress || 'Not provided'}</p></div></div><div className="mt-4 flex flex-wrap gap-2"><a data-testid={`link-supplier-${item.id}`} href={item.supplierUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-3 text-xs font-bold text-[#182333] hover:border-[#bca26a]"><ExternalLink className="h-3.5 w-3.5" />Open supplier checkout</a><Button variant="secondary" className="min-h-9 px-3 text-xs" onClick={() => copyText(item.id, item.shippingAddress || `${item.customerName}\n${item.customerEmail}`, 'Customer handoff details')} data-testid={`button-copy-customer-${item.id}`}><Copy className="h-3.5 w-3.5" />{copied === item.id ? 'Copied' : 'Copy customer details'}</Button><Button variant="secondary" className="min-h-9 px-3 text-xs" onClick={() => copyText(item.id, item.shippingAddress || '', 'Shipping address')} disabled={!item.shippingAddress} data-testid={`button-copy-address-${item.id}`}><Clipboard className="h-3.5 w-3.5" />Copy address</Button></div><div className="mt-5 border-t border-[#ded8cd] pt-5"><p className="flex items-center gap-2 text-sm font-extrabold"><PackageCheck className="h-4 w-4 text-[#a2772e]" />Record supplier handoff</p><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="text-sm font-bold">Fulfillment status<select data-testid={`select-fulfillment-status-${item.id}`} value={draft.status} onChange={(event) => setDraft(item.id, { status: event.target.value as DropshipStatusInputFulfillmentStatus })} className={inputClass}>{legalStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><label className="text-sm font-bold">Supplier order reference<input data-testid={`input-supplier-reference-${item.id}`} value={draft.reference} onChange={(event) => setDraft(item.id, { reference: event.target.value })} maxLength={240} placeholder="Order number from supplier checkout" className={inputClass} /></label><label className="text-sm font-bold">Tracking number<input data-testid={`input-tracking-number-${item.id}`} value={draft.tracking} onChange={(event) => setDraft(item.id, { tracking: event.target.value })} maxLength={240} placeholder="Carrier tracking reference" className={inputClass} /></label><label className="text-sm font-bold">Fulfillment note<textarea data-testid={`input-fulfillment-note-${item.id}`} value={draft.note} onChange={(event) => setDraft(item.id, { note: event.target.value })} maxLength={2000} rows={2} placeholder="What you confirmed, or what needs attention" className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 text-sm outline-none focus:border-[#bca26a]" /></label></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-[#697687]">Status history stays attached to this order. You can record canceled or failed handoffs without deleting the order.</p><SubmitButton loading={updateStatus.isPending}><PackageCheck className="h-4 w-4" />Save fulfillment update</SubmitButton></div></div></article>; })}</div> : <EmptyState title="Nothing needs fulfillment yet" description="Confirm payment on a product-linked checkout order and it will appear here automatically." />}
       </section>
     </div>
   </AppShell>;

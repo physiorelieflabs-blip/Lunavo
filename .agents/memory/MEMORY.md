@@ -1,3 +1,4 @@
 - [Tailwind data URI parsing](tailwind-data-uri.md) — avoid quoted inline SVG data URIs in CSS utility projects; Tailwind’s parser can treat them as unterminated strings.
 - [Vite artifact build environment](vite-artifact-build-env.md) — static builds need safe PORT/BASE_PATH defaults; workflows still provide mounted preview values at runtime.
 - [Merchant currency settlement](currency-settlement.md) — currency changes must not silently relabel or convert historical money.
+- [TS Pay payout boundary](ts-pay-payouts.md) — internal orchestration must not claim external bank settlement without a real regulated rail.

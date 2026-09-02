@@ -3,6 +3,11 @@ import { isIP } from "node:net";
 
 const MAX_HTML_BYTES = 1_000_000;
 const MAX_REDIRECTS = 3;
+const CACHE_TTL_MS = 2 * 60 * 1000;
+const MIN_HOST_REQUEST_GAP_MS = 250;
+const pageCache = new Map<string, { expiresAt: number; value: { url: URL; html: string } }>();
+const inFlightPages = new Map<string, Promise<{ url: URL; html: string }>>();
+const lastHostRequest = new Map<string, number>();
 
 export type ImportedSupplierProduct = {
   sourceUrl: string;
@@ -106,7 +111,29 @@ async function readLimitedBody(response: Response): Promise<string> {
 
 async function fetchPublicPage(initialUrl: string): Promise<{ url: URL; html: string }> {
   let url = await assertPublicUrl(initialUrl);
+  const cacheKey = url.toString();
+  const cached = pageCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const pending = inFlightPages.get(cacheKey);
+  if (pending) return pending;
+  const request = fetchPublicPageUncached(url);
+  inFlightPages.set(cacheKey, request);
+  try {
+    const value = await request;
+    pageCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+    return value;
+  } finally {
+    inFlightPages.delete(cacheKey);
+  }
+}
+
+async function fetchPublicPageUncached(initialUrl: URL): Promise<{ url: URL; html: string }> {
+  let url = initialUrl;
   for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
+    const previousRequest = lastHostRequest.get(url.hostname) ?? 0;
+    const waitMs = MIN_HOST_REQUEST_GAP_MS - (Date.now() - previousRequest);
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    lastHostRequest.set(url.hostname, Date.now());
     const response = await fetch(url, {
       headers: {
         accept: "text/html,application/xhtml+xml",
@@ -312,6 +339,18 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
   const videoUrls = stringList(product?.video);
   const variants = product ? variantRecords(product) : [];
   const specifications = properties(product?.additionalProperty);
+  const hasUsableProductData = Boolean(
+    product ||
+      meta(html, "og:title") ||
+      meta(html, "product:name") ||
+      rawPrice ||
+      imageUrls.length,
+  );
+  if (!hasUsableProductData) {
+    throw new Error(
+      "This public page did not expose usable product information. Enter the details manually or use a direct product page.",
+    );
+  }
   const sourceMetadata = {
     structuredData: Boolean(product),
     priceValidUntil: textValue(offer.priceValidUntil),
