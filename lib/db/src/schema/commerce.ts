@@ -305,6 +305,78 @@ export const ordersTable = pgTable(
   ],
 );
 
+export const aiModelsTable = pgTable(
+  "ai_models",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    modelType: text("model_type").notNull(),
+    status: text("status").notNull().default("untrained"),
+    trainingExamples: integer("training_examples").notNull().default(0),
+    evaluationScore: numeric("evaluation_score", { precision: 5, scale: 4 }),
+    weights: jsonb("weights"),
+    trainedAt: timestamp("trained_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("ai_models_merchant_name_version_unique").on(
+      table.merchantId,
+      table.name,
+      table.version,
+    ),
+  ],
+);
+
+export const aiSettingsTable = pgTable(
+  "ai_settings",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    autonomyLevel: integer("autonomy_level").notNull().default(1),
+    runMyBusiness: boolean("run_my_business").notNull().default(false),
+    trainingOptIn: boolean("training_opt_in").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("ai_settings_merchant_id_unique").on(table.merchantId),
+  ],
+);
+
+export const aiActionsTable = pgTable("ai_actions", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id")
+    .notNull()
+    .references(() => merchantsTable.id),
+  agent: text("agent").notNull(),
+  actionType: text("action_type").notNull(),
+  title: text("title").notNull(),
+  reason: text("reason").notNull(),
+  dataUsed: jsonb("data_used"),
+  result: jsonb("result"),
+  status: text("status").notNull().default("awaiting_approval"),
+  risk: text("risk").notNull().default("low"),
+  reversible: boolean("reversible").notNull().default(true),
+  approvalRequired: boolean("approval_required").notNull().default(true),
+  rollbackAvailable: boolean("rollback_available").notNull().default(true),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  executedAt: timestamp("executed_at", { withTimezone: true }),
+  rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const merchantBankAccountsTable = pgTable(
   "merchant_bank_accounts",
   {
@@ -444,6 +516,18 @@ export const insertSupplierProductSchema = createInsertSchema(
   importedAt: true,
   updatedAt: true,
 });
+export const insertAiModelSchema = createInsertSchema(aiModelsTable).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertAiSettingsSchema = createInsertSchema(aiSettingsTable).omit({
+  id: true,
+  updatedAt: true,
+});
+export const insertAiActionSchema = createInsertSchema(aiActionsTable).omit({
+  id: true,
+  createdAt: true,
+});
 
 export type Merchant = typeof merchantsTable.$inferSelect;
 export type Subscription = typeof subscriptionsTable.$inferSelect;
@@ -469,3 +553,9 @@ export type InsertWithdrawalSecurity = z.infer<
 >;
 export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
 export type InsertSupplierProduct = z.infer<typeof insertSupplierProductSchema>;
+export type AiModel = typeof aiModelsTable.$inferSelect;
+export type AiSettings = typeof aiSettingsTable.$inferSelect;
+export type AiAction = typeof aiActionsTable.$inferSelect;
+export type InsertAiModel = z.infer<typeof insertAiModelSchema>;
+export type InsertAiSettings = z.infer<typeof insertAiSettingsSchema>;
+export type InsertAiAction = z.infer<typeof insertAiActionSchema>;
