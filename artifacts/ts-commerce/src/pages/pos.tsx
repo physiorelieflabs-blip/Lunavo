@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Banknote, CheckCircle2, Clipboard, CreditCard, Printer, Search, ShoppingBag, Smartphone, Trash2, UsersRound, WifiOff } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getGetDashboardOverviewQueryKey, getListCustomersQueryKey, getListDashboardActivityQueryKey, getListDropshipQueueQueryKey, getListOrdersQueryKey, useCreateOrder, useListCustomers, useListSupplierProducts } from '@workspace/api-client-react';
+import { getGetDashboardOverviewQueryKey, getListCustomersQueryKey, getListDashboardActivityQueryKey, getListDropshipQueueQueryKey, getListOrdersQueryKey, useCreateOrder, useCreatePaymentIntent, useListCustomers, useListSupplierProducts, useVerifyPayment } from '@workspace/api-client-react';
 import type { CreateOrderInput } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
@@ -10,7 +10,8 @@ import { money } from '@/lib/format';
 
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none placeholder:text-[#8994a2] focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
 const offlineQueueKey = 'ts-commerce-pos-queue';
-type QueuedSale = { id: string; payload: CreateOrderInput; createdAt: string };
+type PosPaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'mobile_money';
+type QueuedSale = { id: string; payload: CreateOrderInput; paymentMethod?: PosPaymentMethod; currency?: string; createdAt: string };
 
 function readQueue(key: string): QueuedSale[] {
   try {
@@ -29,6 +30,8 @@ export default function Pos() {
   const products = useListSupplierProducts();
   const customers = useListCustomers();
   const createOrder = useCreateOrder();
+  const createPayment = useCreatePaymentIntent();
+  const verifyPayment = useVerifyPayment();
   const queryClient = useQueryClient();
   const { user } = useUser();
   const queueKey = `${offlineQueueKey}:${user?.id ?? 'anonymous'}`;
@@ -40,7 +43,7 @@ export default function Pos() {
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'card' | 'mobile_money'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>('cash');
   const [queue, setQueue] = useState<QueuedSale[]>([]);
   const [lastReceipt, setLastReceipt] = useState<{ orderNumber: string; total: number; method: string; customerName: string; productTitle: string } | null>(null);
   const [message, setMessage] = useState('');
@@ -105,18 +108,40 @@ export default function Pos() {
     setPaymentMethod('cash');
   };
 
-  const submitPayload = (payload: CreateOrderInput, receiptProductTitle: string, method: string, fromQueue = false) => {
+  const paymentCode = (method: PosPaymentMethod): 'manual_cash' | 'manual_bank_transfer' | 'manual_other' => method === 'cash' ? 'manual_cash' : method === 'bank_transfer' ? 'manual_bank_transfer' : 'manual_other';
+  const submitPayload = (payload: CreateOrderInput, receiptProductTitle: string, method: PosPaymentMethod, currency: string, fromQueue = false) => {
     createOrder.mutate({ data: payload }, {
       onSuccess: (order) => {
-        if (fromQueue) {
-          const next = queue.filter((item) => item.payload.idempotencyKey !== payload.idempotencyKey);
-          persistQueue(next);
-        } else {
-          setLastReceipt({ orderNumber: order.orderNumber, total: order.total, method, customerName: payload.customerName, productTitle: receiptProductTitle });
-          resetSale();
-        }
-        setMessage(fromQueue ? 'Offline sale synced successfully.' : 'Sale recorded and inventory/ledger views updated.');
-        invalidateSales();
+        const evidenceReference = `pos:${method}:${payload.idempotencyKey}`;
+        createPayment.mutate({ data: {
+          orderId: order.id,
+          currency,
+          method: paymentCode(method),
+          evidenceReference,
+          idempotencyKey: `${payload.idempotencyKey}:payment`,
+        } }, {
+          onSuccess: (payment) => {
+            verifyPayment.mutate({ id: payment.id, data: { evidenceReference, note: `Verified at TS POS using ${method.replace('_', ' ')}.` } }, {
+              onSuccess: (verified) => {
+                if (verified.status !== 'verified') {
+                  setMessage('The payment was not verified. The order remains pending.');
+                  return;
+                }
+                if (fromQueue) {
+                  const next = queue.filter((item) => item.payload.idempotencyKey !== payload.idempotencyKey);
+                  persistQueue(next);
+                } else {
+                  setLastReceipt({ orderNumber: order.orderNumber, total: order.total, method, customerName: payload.customerName, productTitle: receiptProductTitle });
+                  resetSale();
+                }
+                setMessage(fromQueue ? 'Offline sale synced and payment verified.' : 'Sale recorded, payment verified, and inventory/ledger views updated.');
+                invalidateSales();
+              },
+              onError: () => setMessage(fromQueue ? 'The queued order synced, but payment verification is still pending.' : 'The order was created, but payment verification failed. Review it in Finance before treating it as paid.'),
+            });
+          },
+          onError: () => setMessage(fromQueue ? 'The queued order synced, but its payment record could not be created.' : 'The order was created, but its payment record could not be created.'),
+        });
       },
       onError: () => {
         setMessage(fromQueue ? 'A queued sale could not sync yet; it remains safely queued.' : 'The sale could not be recorded. Check the customer and product details.');
@@ -133,25 +158,25 @@ export default function Pos() {
       customerPhone: customerPhone.trim() || undefined,
       total: Number(total.toFixed(2)),
       quantity: Math.max(1, Number(quantity) || 1),
-      status: 'paid',
+      status: 'pending',
       supplierProductId: selectedProduct.id,
       idempotencyKey: crypto.randomUUID(),
     };
     if (!online) {
-      const next = [...queue, { id: payload.idempotencyKey!, payload, createdAt: new Date().toISOString() }];
+      const next = [...queue, { id: payload.idempotencyKey!, payload, paymentMethod, currency: selectedProduct.currency, createdAt: new Date().toISOString() }];
       persistQueue(next);
       setMessage('You are offline. This sale is queued on this device and will sync when connection returns.');
       setLastReceipt({ orderNumber: 'OFFLINE QUEUED', total, method: paymentMethod, customerName: payload.customerName, productTitle: selectedProduct.title });
       resetSale();
       return;
     }
-    submitPayload(payload, selectedProduct.title, paymentMethod);
+    submitPayload(payload, selectedProduct.title, paymentMethod, selectedProduct.currency);
   };
 
   const syncQueue = () => {
-    if (!online || !queue.length || createOrder.isPending) return;
+    if (!online || !queue.length || createOrder.isPending || createPayment.isPending || verifyPayment.isPending) return;
     const [item] = queue;
-    if (item) submitPayload(item.payload, 'Queued sale', 'offline sync', true);
+    if (item) submitPayload(item.payload, 'Queued sale', item.paymentMethod ?? 'cash', item.currency ?? 'USD', true);
   };
 
   if (products.isLoading || customers.isLoading) return <AppShell><LoadingState label="Loading point of sale" /></AppShell>;
@@ -177,10 +202,10 @@ export default function Pos() {
             <label className="text-sm font-bold">Phone <span className="font-normal text-[#8994a2]">(optional)</span><input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className={inputClass} autoComplete="tel" data-testid="input-pos-customer-phone" /></label>
             <fieldset><legend className="text-sm font-bold">Payment method</legend><div className="mt-2 grid grid-cols-2 gap-2">{([['cash', Banknote], ['bank_transfer', Smartphone], ['card', CreditCard], ['mobile_money', Smartphone]] as const).map(([method, Icon]) => <button type="button" key={method} onClick={() => setPaymentMethod(method)} className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-xs font-bold ${paymentMethod === method ? 'border-[#bba15e] bg-[#f5edda]' : 'border-[#d9d2c4] bg-[#f7f4ed]'}`}><Icon className="h-4 w-4 text-[#a2772e]" />{method.replace('_', ' ')}</button>)}</div></fieldset>
           </div>
-          <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-[#d9d2c4] pt-5"><div><p className="text-xs uppercase tracking-[.12em] text-[#697687]">Ticket total</p><p className="mt-1 font-mono text-3xl font-bold">{money(total, selectedProduct?.currency)}</p><p className="text-xs text-[#697687]">{money(lineSubtotal, selectedProduct?.currency)} subtotal · {money(discountAmount, selectedProduct?.currency)} discount</p></div><SubmitButton loading={createOrder.isPending || !selectedProduct || inventoryWarning}>{online ? 'Complete sale' : 'Queue sale offline'}</SubmitButton></div>
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-[#d9d2c4] pt-5"><div><p className="text-xs uppercase tracking-[.12em] text-[#697687]">Ticket total</p><p className="mt-1 font-mono text-3xl font-bold">{money(total, selectedProduct?.currency)}</p><p className="text-xs text-[#697687]">{money(lineSubtotal, selectedProduct?.currency)} subtotal · {money(discountAmount, selectedProduct?.currency)} discount</p></div><SubmitButton loading={createOrder.isPending || createPayment.isPending || verifyPayment.isPending || !selectedProduct || inventoryWarning}>{online ? 'Complete sale' : 'Queue sale offline'}</SubmitButton></div>
         </form>
         <aside className="space-y-5">
-          <section className="rounded-2xl border border-[#bba15e] bg-[#f5edda] p-5"><div className="flex items-center gap-2 text-[#85601b]"><Clipboard className="h-5 w-5" /><p className="font-mono text-[10px] uppercase tracking-[.16em]">Receipt desk</p></div>{lastReceipt ? <><p className="mt-5 text-xs uppercase tracking-[.12em] text-[#697687]">{lastReceipt.orderNumber}</p><h2 className="mt-2 text-xl font-extrabold">{lastReceipt.productTitle}</h2><div className="mt-5 space-y-2 border-y border-[#d8c68f] py-4 text-sm"><div className="flex justify-between"><span>Customer</span><strong>{lastReceipt.customerName}</strong></div><div className="flex justify-between"><span>Payment</span><strong className="capitalize">{lastReceipt.method.replace('_', ' ')}</strong></div><div className="flex justify-between"><span>Total</span><strong className="font-mono">{money(lastReceipt.total)}</strong></div></div><Button variant="secondary" className="mt-5 w-full" onClick={() => window.print()}><Printer className="h-4 w-4" />Print receipt</Button></> : <EmptyState title="No receipt yet" description="Complete a sale to create a print-ready receipt summary." />}</section>
+          <section className="rounded-2xl border border-[#bba15e] bg-[#f5edda] p-5"><div className="flex items-center gap-2 text-[#85601b]"><Clipboard className="h-5 w-5" /><p className="font-mono text-[10px] uppercase tracking-[.16em]">Receipt desk</p></div>{lastReceipt ? <><p className="mt-5 text-xs uppercase tracking-[.12em] text-[#697687]">{lastReceipt.orderNumber}</p><h2 className="mt-2 text-xl font-extrabold">{lastReceipt.productTitle}</h2><div className="mt-5 space-y-2 border-y border-[#d8c68f] py-4 text-sm"><div className="flex justify-between"><span>Customer</span><strong>{lastReceipt.customerName}</strong></div><div className="flex justify-between"><span>Payment</span><strong className="capitalize">{lastReceipt.method.replace('_', ' ')}</strong></div><div className="flex justify-between"><span>Total</span><strong className="font-mono">{money(lastReceipt.total)}</strong></div></div><Button variant="secondary" className="mt-5 w-full" onClick={() => window.print()}><Printer className="h-4 w-4" />Print receipt</Button></> : <EmptyState title="No receipt yet" description="Complete a verified sale to create a print-ready receipt summary." />}</section>
           <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><SectionHeading eyebrow="Queue safety" title="Offline sync" description="Queued tickets are stored only on this device until they are accepted by the server." />{queue.length ? <><div className="space-y-2">{queue.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f7f4ed] p-3 text-xs"><span className="min-w-0 truncate font-bold">{item.payload.customerName} · {money(item.payload.total)}</span><button type="button" onClick={() => persistQueue(queue.filter((candidate) => candidate.id !== item.id))} className="ml-3 text-[#943b35]" aria-label={`Remove queued sale for ${item.payload.customerName}`}><Trash2 className="h-4 w-4" /></button></div>)}</div><Button className="mt-4 w-full" onClick={syncQueue} disabled={!online || createOrder.isPending}><CheckCircle2 className="h-4 w-4" />{online ? 'Sync queued sales' : 'Waiting for connection'}</Button></> : <p className="text-sm text-[#697687]">No tickets waiting to sync.</p>}</section>
           <div className="rounded-2xl border border-[#bfd6dc] bg-[#eef7f8] p-4 text-sm text-[#315e6c]"><UsersRound className="mb-2 h-5 w-5" /><strong>Customer lookup is live.</strong><p className="mt-1 text-xs leading-5">Returning customers keep their order history and spend totals in the same merchant-owned CRM record.</p></div>
         </aside>

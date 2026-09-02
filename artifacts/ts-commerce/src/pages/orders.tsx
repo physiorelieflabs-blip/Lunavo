@@ -63,11 +63,11 @@ export default function Orders() {
       orderNumber: orderNumber || undefined,
       supplierProductId: supplierProductId ? Number(supplierProductId) : undefined,
       shippingAddress: shippingAddress || undefined,
-      status: 'paid',
+      status: 'pending',
       idempotencyKey: idempotencyKey.current,
     } }, {
       onSuccess: () => {
-        setMessage('Sale recorded. Your ledger and supplier fulfillment queue are up to date.');
+        setMessage('Order recorded as pending. Create and verify its payment from Finance before treating it as a sale.');
         setCustomerName('');
         setCustomerEmail('');
         setCustomerPhone('');

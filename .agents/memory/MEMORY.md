@@ -5,3 +5,4 @@
 - [AI migration runner](ai-migration-runner.md) — new SQL migrations also need registration in the explicit ordered runner list.
 - [Inventory reservation semantics](inventory-reservation-semantics.md) — manual numeric stock is held at checkout and decremented only on verified sale; source-based stock stays non-authoritative.
 - [Source-attributed AI research](ai-research-boundaries.md) — web research is read-only evidence with citations and limitations; it must not imply exhaustive or verified truth.
+- [POS accounting boundary](pos-accounting-boundary.md) — orders start pending; only verified payment creates sale revenue, and reservation holds stay separate from stock movements.

@@ -3313,7 +3313,10 @@ router.post("/orders", async (req, res): Promise<void> => {
       const orderNumber =
         parsed.data.orderNumber?.trim().toUpperCase() ||
         `ORD-${randomUUID().slice(0, 8).toUpperCase()}`;
-      const status = parsed.data.status ?? "paid";
+      // A client-provided status is not accounting evidence. All manually
+      // created orders enter the ledger as pending and must be paid through
+      // the payment-intent verification flow.
+      const status = "pending";
       let supplierProduct: typeof supplierProductsTable.$inferSelect | undefined;
       if (parsed.data.supplierProductId) {
         supplierProduct = (
@@ -3378,28 +3381,6 @@ router.post("/orders", async (req, res): Promise<void> => {
           if (replay) return replay;
         }
         throw new Error("Order number is already in use");
-      }
-
-      if (status === "paid" || status === "fulfilled") {
-        const outstanding = Math.max(
-          0,
-          toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
-        );
-        const availableToHold = Math.max(
-          0,
-          outstanding - toNumber(subscription.earningsHeld),
-        );
-        const holdAmount = Math.min(parsed.data.total, availableToHold);
-        if (holdAmount > 0) {
-          await tx
-            .update(subscriptionsTable)
-            .set({
-              earningsHeld: (
-                toNumber(subscription.earningsHeld) + holdAmount
-              ).toFixed(2),
-            })
-            .where(eq(subscriptionsTable.id, subscription.id));
-        }
       }
 
       await tx.insert(activityTable).values({
@@ -3477,7 +3458,6 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
         const reservation = (await tx.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.orderId, order.id), eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.status, "reserved"))).limit(1))[0];
         if (reservation) {
           await tx.update(inventoryReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(eq(inventoryReservationsTable.id, reservation.id), eq(inventoryReservationsTable.status, "reserved")));
-          await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: reservation.supplierProductId, orderId: order.id, quantityDelta: reservation.quantity, reason: "reservation_release", referenceKey: `release:${order.id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
         }
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
@@ -3776,14 +3756,6 @@ router.post(
           quantity,
           status: "reserved",
           expiresAt,
-        });
-        await tx.insert(inventoryMovementsTable).values({
-          merchantId: merchant.id,
-          supplierProductId: product.id,
-          orderId: order.id,
-          quantityDelta: -quantity,
-          reason: "checkout_reservation",
-          referenceKey: `reservation:${order.id}`,
         });
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
@@ -4796,6 +4768,23 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
       const [updated] = await tx.update(paymentIntentsTable).set({ status: "verified", evidenceReference: evidence }).where(eq(paymentIntentsTable.id, id)).returning();
       await tx.update(paymentRecordsTable).set({ status: "verified", evidenceReference: evidence, verifiedBy: identity.clerkUserId, verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, payment.id));
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: payment.id, amountMinor: current.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `payment:${id}` });
+      await tx.execute(sql`select id from ${subscriptionsTable} where merchant_id=${merchant.id} for update`);
+      const subscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1))[0];
+      if (subscription) {
+        const outstanding = Math.max(0, toNumber(subscription.amountDue) - toNumber(subscription.amountPaid));
+        const availableToHold = Math.max(0, outstanding - toNumber(subscription.earningsHeld));
+        const holdAmount = Math.min(Number(current.amountMinor) / 100, availableToHold);
+        if (holdAmount > 0) {
+          const [heldSubscription] = await tx.update(subscriptionsTable).set({
+            earningsHeld: (toNumber(subscription.earningsHeld) + holdAmount).toFixed(2),
+          }).where(and(
+            eq(subscriptionsTable.id, subscription.id),
+            eq(subscriptionsTable.amountPaid, subscription.amountPaid),
+            eq(subscriptionsTable.earningsHeld, subscription.earningsHeld),
+          )).returning();
+          if (!heldSubscription) throw new Error("Subscription changed while sale was being verified");
+        }
+      }
       await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, current.orderId), eq(ordersTable.merchantId, merchant.id)));
       await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentIntentId: id, entityType: "payment_intent", fromStatus: current.status, toStatus: "verified", actorId: identity.clerkUserId, note: body.data.note ?? null });
       return updated;
