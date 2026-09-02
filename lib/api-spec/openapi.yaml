@@ -42,6 +42,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardOverview"
+  /settings/currency:
+    get:
+      operationId: getCurrencySettings
+      tags: [settings]
+      summary: Get the merchant settlement currency
+      responses:
+        "200":
+          description: Currency settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrencySettings"
+    put:
+      operationId: updateCurrencySettings
+      tags: [settings]
+      summary: Change the merchant settlement currency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrencySettingsInput"
+      responses:
+        "200":
+          description: Updated currency settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrencySettings"
   /dashboard/activity:
     get:
       operationId: listDashboardActivity
@@ -253,7 +282,7 @@ paths:
     post:
       operationId: importSupplierProduct
       tags: [suppliers]
-      summary: Import a product from a public supplier URL
+      summary: Save a reviewed product imported from a public supplier URL
       requestBody:
         required: true
         content:
@@ -267,6 +296,137 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SupplierProductRecord"
+  /supplier-products/analyze:
+    post:
+      operationId: analyzeSupplierProduct
+      tags: [suppliers]
+      summary: Analyze a public supplier URL without saving it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierAnalyzeInput"
+      responses:
+        "200":
+          description: Extracted product preview and duplicate candidates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierAnalyzeResponse"
+  /supplier-products/batch:
+    post:
+      operationId: importSupplierProductBatch
+      tags: [suppliers]
+      summary: Analyze and save multiple public supplier URLs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierBatchInput"
+      responses:
+        "200":
+          description: Per-URL batch results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierBatchResponse"
+  /supplier-products/manual:
+    post:
+      operationId: createManualSupplierProduct
+      tags: [suppliers]
+      summary: Create a product manually when automatic extraction is unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualSupplierProductInput"
+      responses:
+        "201":
+          description: Manually created product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierProductRecord"
+  /supplier-products/{id}/refresh:
+    post:
+      operationId: refreshSupplierProduct
+      tags: [suppliers]
+      summary: Refresh a product source and return a reviewable diff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Source refresh diff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierRefreshResponse"
+  /supplier-products/{id}/refresh/accept:
+    post:
+      operationId: acceptSupplierRefresh
+      tags: [suppliers]
+      summary: Accept selected source refresh fields
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierRefreshAcceptInput"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierProductRecord"
+  /suppliers:
+    get:
+      operationId: listSuppliers
+      tags: [suppliers]
+      summary: List supplier records
+      responses:
+        "200":
+          description: Supplier records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupplierRecord"
+  /suppliers/{id}:
+    patch:
+      operationId: updateSupplier
+      tags: [suppliers]
+      summary: Update supplier notes and contact details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierUpdateInput"
+      responses:
+        "200":
+          description: Updated supplier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierRecord"
   /dropship/queue:
     get:
       operationId: listDropshipQueue
@@ -548,6 +708,19 @@ paths:
                 $ref: "#/components/schemas/WithdrawalDetails"
 components:
   schemas:
+    CurrencySettings:
+      type: object
+      properties:
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        availableCurrencies:
+          type: array
+          items: { type: string }
+      required: [currency, availableCurrencies]
+    CurrencySettingsInput:
+      type: object
+      properties:
+        currency: { type: string, minLength: 3, maxLength: 3 }
+      required: [currency]
     HealthStatus:
       type: object
       properties:
@@ -648,6 +821,7 @@ components:
     DashboardOverview:
       type: object
       properties:
+        currency: { type: string }
         storeName: { type: string }
         storeSlug: { type: string }
         revenue: { type: number }
@@ -664,6 +838,7 @@ components:
           items:
             $ref: "#/components/schemas/RevenuePoint"
       required:
+        - currency
         - storeName
         - storeSlug
         - revenue
@@ -872,13 +1047,201 @@ components:
       type: object
       properties:
         sourceUrl: { type: string, format: uri, maxLength: 2000 }
-        supplierUrl: { type: string, format: uri, maxLength: 2000 }
+        supplierUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        title: { type: string, minLength: 2, maxLength: 240 }
+        description: { type: ["string", "null"], maxLength: 10000 }
+        imageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        imageUrls:
+          type: array
+          items: { type: string, format: uri, maxLength: 2000 }
+          maxItems: 20
+        salePrice: { type: ["number", "null"], minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        sku: { type: ["string", "null"], maxLength: 160 }
+        sourceProductId: { type: ["string", "null"], maxLength: 240 }
+        variants:
+          type: array
+          items: { type: object, additionalProperties: true }
+          maxItems: 100
+        attributes: { type: object, additionalProperties: { type: string } }
+        availability: { type: ["string", "null"], maxLength: 80 }
+        availabilityQuantity: { type: ["integer", "null"], minimum: 0 }
+        category: { type: ["string", "null"], maxLength: 240 }
+        tags:
+          type: array
+          items: { type: string, maxLength: 80 }
+          maxItems: 50
+        specifications: { type: object, additionalProperties: { type: string } }
+        brand: { type: ["string", "null"], maxLength: 160 }
+        shippingInformation: { type: ["object", "null"], additionalProperties: true }
+        taxConfiguration: { type: ["object", "null"], additionalProperties: true }
+        shippingConfiguration: { type: ["object", "null"], additionalProperties: true }
+        seoConfiguration: { type: ["object", "null"], additionalProperties: true }
         profitType:
           type: string
           enum: [fixed, percentage]
         profitValue: { type: number, minimum: 0, maximum: 1000000 }
         costPrice: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+        pricingMode:
+          type: string
+          enum: [same_price, fixed_markup, percentage_markup, fixed_margin, custom]
+        sellingPrice: { type: ["number", "null"], minimum: 0 }
+        visibility:
+          type: string
+          enum: [draft, active, hidden]
+        marketplaceVisibility: { type: boolean }
+        inventoryStrategy:
+          type: string
+          enum: [manual, source_based, synchronized]
+        inventoryStatus: { type: string, maxLength: 80 }
+        inventoryQuantity: { type: ["integer", "null"], minimum: 0 }
+        duplicateAction:
+          type: string
+          enum: [create_new, update_existing, skip, review]
       required: [sourceUrl, supplierUrl, profitType, profitValue]
+    SupplierAnalyzeInput:
+      type: object
+      properties:
+        sourceUrl: { type: string, format: uri, maxLength: 2000 }
+      required: [sourceUrl]
+    SupplierProductPreview:
+      type: object
+      properties:
+        sourceUrl: { type: string, format: uri }
+        sourceDomain: { type: string }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        imageUrl: { type: ["string", "null"], format: uri }
+        imageUrls: { type: array, items: { type: string, format: uri } }
+        videoUrls: { type: array, items: { type: string, format: uri } }
+        price: { type: ["number", "null"] }
+        salePrice: { type: ["number", "null"] }
+        currency: { type: string }
+        sku: { type: ["string", "null"] }
+        sourceProductId: { type: ["string", "null"] }
+        variants: { type: array, items: { type: object, additionalProperties: true } }
+        attributes: { type: object, additionalProperties: { type: string } }
+        availability: { type: ["string", "null"] }
+        availabilityQuantity: { type: ["integer", "null"] }
+        category: { type: ["string", "null"] }
+        specifications: { type: object, additionalProperties: { type: string } }
+        brand: { type: ["string", "null"] }
+        shippingInformation: { type: ["object", "null"], additionalProperties: true }
+        sourceMetadata: { type: object, additionalProperties: true }
+      required: [sourceUrl, sourceDomain, title, description, imageUrl, imageUrls, videoUrls, price, salePrice, currency, sku, sourceProductId, variants, attributes, availability, availabilityQuantity, category, specifications, brand, shippingInformation, sourceMetadata]
+    DuplicateCandidate:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        sourceUrl: { type: string, format: uri }
+        matchReason: { type: string }
+      required: [id, title, sourceUrl, matchReason]
+    SupplierAnalyzeResponse:
+      type: object
+      properties:
+        status: { type: string }
+        preview:
+          $ref: "#/components/schemas/SupplierProductPreview"
+        duplicates:
+          type: array
+          items:
+            $ref: "#/components/schemas/DuplicateCandidate"
+        message: { type: string }
+      required: [status, preview, duplicates, message]
+    SupplierBatchInput:
+      type: object
+      properties:
+        sourceUrls:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string, format: uri, maxLength: 2000 }
+        profitType:
+          type: string
+          enum: [fixed, percentage]
+        profitValue: { type: number, minimum: 0, maximum: 1000000 }
+        inventoryStrategy:
+          type: string
+          enum: [manual, source_based, synchronized]
+      required: [sourceUrls, profitType, profitValue]
+    SupplierBatchResponse:
+      type: object
+      properties:
+        batchId: { type: integer }
+        status: { type: string }
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [batchId, status, results]
+    ManualSupplierProductInput:
+      type: object
+      properties:
+        supplierUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        supplierName: { type: ["string", "null"], maxLength: 240 }
+        title: { type: string, minLength: 2, maxLength: 240 }
+        description: { type: ["string", "null"], maxLength: 10000 }
+        imageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        price: { type: ["number", "null"], minimum: 0 }
+        sellingPrice: { type: number, exclusiveMinimum: 0 }
+        salePrice: { type: ["number", "null"], minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        sku: { type: ["string", "null"], maxLength: 160 }
+        category: { type: ["string", "null"], maxLength: 240 }
+        tags: { type: array, items: { type: string, maxLength: 80 }, maxItems: 50 }
+        inventoryStrategy:
+          type: string
+          enum: [manual, source_based, synchronized]
+        inventoryStatus: { type: string, maxLength: 80 }
+        inventoryQuantity: { type: ["integer", "null"], minimum: 0 }
+      required: [title, sellingPrice, currency]
+    SupplierRefreshResponse:
+      type: object
+      properties:
+        product:
+          $ref: "#/components/schemas/SupplierProductRecord"
+        changes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        message: { type: string }
+      required: [product, changes, message]
+    SupplierRefreshAcceptInput:
+      type: object
+      properties:
+        fields:
+          type: array
+          items:
+            type: string
+            enum: [title, description, imageUrl, imageUrls, price, salePrice, currency, sku, sourceProductId, variants, attributes, availability, availabilityQuantity, category, specifications, brand, shippingInformation]
+          maxItems: 20
+      required: [fields]
+    SupplierRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        website: { type: string, format: uri }
+        domain: { type: string }
+        contactEmail: { type: ["string", "null"], format: email }
+        contactPhone: { type: ["string", "null"] }
+        category: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        productCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, website, domain, contactEmail, contactPhone, category, notes, productCount, createdAt, updatedAt]
+    SupplierUpdateInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 240 }
+        contactEmail: { type: ["string", "null"], format: email }
+        contactPhone: { type: ["string", "null"], maxLength: 80 }
+        category: { type: ["string", "null"], maxLength: 160 }
+        notes: { type: ["string", "null"], maxLength: 2000 }
     SupplierProductRecord:
       type: object
       properties:
@@ -886,17 +1249,43 @@ components:
         sourceUrl: { type: string, format: uri }
         supplierUrl: { type: string, format: uri }
         sourceDomain: { type: string }
+        sourceProductId: { type: ["string", "null"] }
         title: { type: string }
         description: { type: ["string", "null"] }
         imageUrl: { type: ["string", "null"], format: uri }
+        imageUrls: { type: array, items: { type: string, format: uri } }
+        videoUrls: { type: array, items: { type: string, format: uri } }
         price: { type: ["number", "null"] }
+        salePrice: { type: ["number", "null"] }
         currency: { type: string }
+        sku: { type: ["string", "null"] }
+        variants: { type: array, items: { type: object, additionalProperties: true } }
+        attributes: { type: object, additionalProperties: { type: string } }
+        availability: { type: ["string", "null"] }
+        availabilityQuantity: { type: ["integer", "null"] }
+        inventoryStrategy: { type: string }
+        inventoryStatus: { type: string }
+        category: { type: ["string", "null"] }
+        tags: { type: array, items: { type: string } }
+        specifications: { type: object, additionalProperties: { type: string } }
+        brand: { type: ["string", "null"] }
+        shippingInformation: { type: ["object", "null"], additionalProperties: true }
+        taxConfiguration: { type: ["object", "null"], additionalProperties: true }
+        shippingConfiguration: { type: ["object", "null"], additionalProperties: true }
+        seoConfiguration: { type: ["object", "null"], additionalProperties: true }
         profitType: { type: string, enum: [fixed, percentage] }
+        pricingMode: { type: string }
         profitValue: { type: number }
         sellingPrice: { type: ["number", "null"] }
+        visibility: { type: string }
+        marketplaceVisibility: { type: boolean }
         status: { type: string }
+        importStatus: { type: string }
+        importError: { type: ["string", "null"] }
         importedAt: { type: string, format: date-time }
-      required: [id, sourceUrl, supplierUrl, sourceDomain, title, description, imageUrl, price, currency, profitType, profitValue, sellingPrice, status, importedAt]
+        lastAttemptedSync: { type: ["string", "null"], format: date-time }
+        publishedAt: { type: ["string", "null"], format: date-time }
+      required: [id, sourceUrl, supplierUrl, sourceDomain, sourceProductId, title, description, imageUrl, imageUrls, videoUrls, price, salePrice, currency, sku, variants, attributes, availability, availabilityQuantity, inventoryStrategy, inventoryStatus, category, tags, specifications, brand, shippingInformation, taxConfiguration, shippingConfiguration, seoConfiguration, profitType, pricingMode, profitValue, sellingPrice, visibility, marketplaceVisibility, status, importStatus, importError, importedAt, lastAttemptedSync, publishedAt]
     DropshipQueueRecord:
       type: object
       properties:
@@ -908,6 +1297,12 @@ components:
         shippingAddress: { type: ["string", "null"] }
         productTitle: { type: string }
         supplierUrl: { type: string, format: uri }
+        sourceUrl: { type: string, format: uri }
+        supplierOrderReference: { type: ["string", "null"] }
+        trackingNumber: { type: ["string", "null"] }
+        fulfillmentNote: { type: ["string", "null"] }
+        fulfillmentSubmittedAt: { type: ["string", "null"], format: date-time }
+        fulfillmentUpdatedAt: { type: ["string", "null"], format: date-time }
         supplierCost: { type: ["number", "null"] }
         profit: { type: ["number", "null"] }
         sellingPrice: { type: ["number", "null"] }
@@ -917,13 +1312,16 @@ components:
         orderStatus: { type: string }
         fulfillmentStatus: { type: string }
         createdAt: { type: string, format: date-time }
-      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, supplierCost, profit, sellingPrice, total, quantity, currency, orderStatus, fulfillmentStatus, createdAt]
+      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, sourceUrl, supplierCost, profit, sellingPrice, total, quantity, currency, orderStatus, fulfillmentStatus, supplierOrderReference, trackingNumber, fulfillmentNote, fulfillmentSubmittedAt, fulfillmentUpdatedAt, createdAt]
     DropshipStatusInput:
       type: object
       properties:
         fulfillmentStatus:
           type: string
-          enum: [awaiting_supplier, prepared, submitted, fulfilled]
+          enum: [not_submitted, submitted, accepted, processing, shipped, in_transit, delivered, canceled, failed]
+        supplierOrderReference: { type: ["string", "null"], maxLength: 240 }
+        trackingNumber: { type: ["string", "null"], maxLength: 240 }
+        fulfillmentNote: { type: ["string", "null"], maxLength: 2000 }
       required: [fulfillmentStatus]
     PublicStore:
       type: object
@@ -943,8 +1341,15 @@ components:
         description: { type: ["string", "null"] }
         imageUrl: { type: ["string", "null"], format: uri }
         price: { type: number }
+        salePrice: { type: ["number", "null"] }
         currency: { type: string }
-      required: [id, title, description, imageUrl, price, currency]
+        sku: { type: ["string", "null"] }
+        availability: { type: ["string", "null"] }
+        inventoryStatus: { type: string }
+        inventoryQuantity: { type: ["integer", "null"] }
+        variants: { type: array, items: { type: object, additionalProperties: true } }
+        category: { type: ["string", "null"] }
+      required: [id, title, description, imageUrl, price, salePrice, currency, sku, availability, inventoryStatus, inventoryQuantity, variants, category]
     PublicCheckoutInput:
       type: object
       properties:

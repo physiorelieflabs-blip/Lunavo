@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  jsonb,
   numeric,
   pgTable,
   serial,
@@ -25,6 +26,7 @@ export const merchantsTable = pgTable("merchants", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   storeName: text("store_name").notNull(),
+  currency: text("currency").notNull().default("USD"),
   status: text("status").notNull().default("active"),
   registeredAt: timestamp("registered_at", { withTimezone: true })
     .notNull()
@@ -128,28 +130,21 @@ export const customersTable = pgTable(
   ],
 );
 
-export const supplierProductsTable = pgTable(
-  "supplier_products",
+export const suppliersTable = pgTable(
+  "suppliers",
   {
     id: serial("id").primaryKey(),
     merchantId: integer("merchant_id")
       .notNull()
       .references(() => merchantsTable.id),
-    sourceUrl: text("source_url").notNull(),
-    supplierUrl: text("supplier_url").notNull(),
-    sourceDomain: text("source_domain").notNull(),
-    title: text("title").notNull(),
-    description: text("description"),
-    imageUrl: text("image_url"),
-    price: numeric("price", { precision: 12, scale: 2 }),
-    currency: text("currency").notNull().default("USD"),
-    profitType: text("profit_type").notNull().default("fixed"),
-    profitValue: numeric("profit_value", { precision: 12, scale: 2 })
-      .notNull()
-      .default("0"),
-    sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }),
-    status: text("status").notNull().default("draft"),
-    importedAt: timestamp("imported_at", { withTimezone: true })
+    name: text("name").notNull(),
+    website: text("website").notNull(),
+    domain: text("domain").notNull(),
+    contactEmail: text("contact_email"),
+    contactPhone: text("contact_phone"),
+    category: text("category"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -158,12 +153,105 @@ export const supplierProductsTable = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex("supplier_products_merchant_url_unique").on(
+    uniqueIndex("suppliers_merchant_domain_unique").on(
       table.merchantId,
-      table.sourceUrl,
+      table.domain,
     ),
   ],
 );
+
+export const supplierImportBatchesTable = pgTable("supplier_import_batches", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id")
+    .notNull()
+    .references(() => merchantsTable.id),
+  status: text("status").notNull().default("analyzing"),
+  sourceCount: integer("source_count").notNull().default(0),
+  completedCount: integer("completed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const supplierProductsTable = pgTable(
+  "supplier_products",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    supplierId: integer("supplier_id").references(() => suppliersTable.id),
+    sourceUrl: text("source_url").notNull(),
+    supplierUrl: text("supplier_url").notNull(),
+    sourceDomain: text("source_domain").notNull(),
+    sourceProductId: text("source_product_id"),
+    title: text("title").notNull(),
+    description: text("description"),
+    imageUrl: text("image_url"),
+    imageUrls: jsonb("image_urls"),
+    videoUrls: jsonb("video_urls"),
+    price: numeric("price", { precision: 12, scale: 2 }),
+    salePrice: numeric("sale_price", { precision: 12, scale: 2 }),
+    currency: text("currency").notNull().default("USD"),
+    sku: text("sku"),
+    variants: jsonb("variants"),
+    attributes: jsonb("attributes"),
+    availability: text("availability"),
+    availabilityQuantity: integer("availability_quantity"),
+    inventoryStrategy: text("inventory_strategy").notNull().default("source_based"),
+    inventoryStatus: text("inventory_status").notNull().default("unknown"),
+    category: text("category"),
+    tags: jsonb("tags"),
+    specifications: jsonb("specifications"),
+    brand: text("brand"),
+    shippingInformation: jsonb("shipping_information"),
+    taxConfiguration: jsonb("tax_configuration"),
+    shippingConfiguration: jsonb("shipping_configuration"),
+    seoConfiguration: jsonb("seo_configuration"),
+    sourceMetadata: jsonb("source_metadata"),
+    merchantOverrides: jsonb("merchant_overrides"),
+    profitType: text("profit_type").notNull().default("fixed"),
+    pricingMode: text("pricing_mode").notNull().default("fixed_markup"),
+    profitValue: numeric("profit_value", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }),
+    visibility: text("visibility").notNull().default("draft"),
+    marketplaceVisibility: boolean("marketplace_visibility").notNull().default(false),
+    status: text("status").notNull().default("draft"),
+    importStatus: text("import_status").notNull().default("imported"),
+    importError: text("import_error"),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastAttemptedSync: timestamp("last_attempted_sync", { withTimezone: true }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+);
+
+export const supplierImportAttemptsTable = pgTable("supplier_import_attempts", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id")
+    .notNull()
+    .references(() => merchantsTable.id),
+  supplierProductId: integer("supplier_product_id").references(
+    () => supplierProductsTable.id,
+  ),
+  batchId: integer("batch_id").references(() => supplierImportBatchesTable.id),
+  sourceUrl: text("source_url").notNull(),
+  status: text("status").notNull(),
+  message: text("message"),
+  changes: jsonb("changes"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const ordersTable = pgTable(
   "orders",
@@ -187,6 +275,15 @@ export const ordersTable = pgTable(
     fulfillmentStatus: text("fulfillment_status")
       .notNull()
       .default("not_applicable"),
+    supplierOrderReference: text("supplier_order_reference"),
+    trackingNumber: text("tracking_number"),
+    fulfillmentNote: text("fulfillment_note"),
+    fulfillmentSubmittedAt: timestamp("fulfillment_submitted_at", {
+      withTimezone: true,
+    }),
+    fulfillmentUpdatedAt: timestamp("fulfillment_updated_at", {
+      withTimezone: true,
+    }),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

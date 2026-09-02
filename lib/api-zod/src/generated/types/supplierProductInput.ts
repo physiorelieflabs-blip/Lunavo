@@ -5,13 +5,104 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { SupplierProductInputAttributes } from './supplierProductInputAttributes';
+import type { SupplierProductInputDuplicateAction } from './supplierProductInputDuplicateAction';
+import type { SupplierProductInputInventoryStrategy } from './supplierProductInputInventoryStrategy';
+import type { SupplierProductInputPricingMode } from './supplierProductInputPricingMode';
 import type { SupplierProductInputProfitType } from './supplierProductInputProfitType';
+import type { SupplierProductInputSeoConfiguration } from './supplierProductInputSeoConfiguration';
+import type { SupplierProductInputShippingConfiguration } from './supplierProductInputShippingConfiguration';
+import type { SupplierProductInputShippingInformation } from './supplierProductInputShippingInformation';
+import type { SupplierProductInputSpecifications } from './supplierProductInputSpecifications';
+import type { SupplierProductInputTaxConfiguration } from './supplierProductInputTaxConfiguration';
+import type { SupplierProductInputVariantsItem } from './supplierProductInputVariantsItem';
+import type { SupplierProductInputVisibility } from './supplierProductInputVisibility';
 
 export interface SupplierProductInput {
   /** @maxLength 2000 */
   sourceUrl: string;
-  /** @maxLength 2000 */
-  supplierUrl: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  supplierUrl: string | null;
+  /**
+     * @minLength 2
+     * @maxLength 240
+     */
+  title?: string;
+  /**
+     * @maxLength 10000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  imageUrl?: string | null;
+  /**
+     * @maxItems 20
+     * @items.maxLength 2000
+     */
+  imageUrls?: string[];
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  salePrice?: number | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency?: string;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  sku?: string | null;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  sourceProductId?: string | null;
+  /** @maxItems 100 */
+  variants?: SupplierProductInputVariantsItem[];
+  attributes?: SupplierProductInputAttributes;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  availability?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  availabilityQuantity?: number | null;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  category?: string | null;
+  /**
+     * @maxItems 50
+     * @items.maxLength 80
+     */
+  tags?: string[];
+  specifications?: SupplierProductInputSpecifications;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  brand?: string | null;
+  /** @nullable */
+  shippingInformation?: SupplierProductInputShippingInformation;
+  /** @nullable */
+  taxConfiguration?: SupplierProductInputTaxConfiguration;
+  /** @nullable */
+  shippingConfiguration?: SupplierProductInputShippingConfiguration;
+  /** @nullable */
+  seoConfiguration?: SupplierProductInputSeoConfiguration;
   profitType: SupplierProductInputProfitType;
   /**
      * @minimum 0
@@ -23,4 +114,21 @@ export interface SupplierProductInput {
      * @exclusiveMinimum 0
      */
   costPrice?: number;
+  pricingMode?: SupplierProductInputPricingMode;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  sellingPrice?: number | null;
+  visibility?: SupplierProductInputVisibility;
+  marketplaceVisibility?: boolean;
+  inventoryStrategy?: SupplierProductInputInventoryStrategy;
+  /** @maxLength 80 */
+  inventoryStatus?: string;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  inventoryQuantity?: number | null;
+  duplicateAction?: SupplierProductInputDuplicateAction;
 }

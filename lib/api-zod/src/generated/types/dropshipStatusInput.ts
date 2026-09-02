@@ -9,4 +9,19 @@ import type { DropshipStatusInputFulfillmentStatus } from './dropshipStatusInput
 
 export interface DropshipStatusInput {
   fulfillmentStatus: DropshipStatusInputFulfillmentStatus;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  supplierOrderReference?: string | null;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  trackingNumber?: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  fulfillmentNote?: string | null;
 }

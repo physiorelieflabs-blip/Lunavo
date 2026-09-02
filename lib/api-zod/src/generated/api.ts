@@ -21,6 +21,7 @@ export const HealthCheckResponse = zod.object({
  * @summary Get merchant dashboard overview
  */
 export const GetDashboardOverviewResponse = zod.object({
+  "currency": zod.string(),
   "storeName": zod.string(),
   "storeSlug": zod.string(),
   "revenue": zod.number(),
@@ -49,6 +50,43 @@ export const GetDashboardOverviewResponse = zod.object({
   "label": zod.string(),
   "amount": zod.number()
 }))
+})
+
+
+/**
+ * @summary Get the merchant settlement currency
+ */
+export const getCurrencySettingsResponseCurrencyMin = 3;
+export const getCurrencySettingsResponseCurrencyMax = 3;
+
+
+
+export const GetCurrencySettingsResponse = zod.object({
+  "currency": zod.string().min(getCurrencySettingsResponseCurrencyMin).max(getCurrencySettingsResponseCurrencyMax),
+  "availableCurrencies": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Change the merchant settlement currency
+ */
+export const updateCurrencySettingsBodyCurrencyMin = 3;
+export const updateCurrencySettingsBodyCurrencyMax = 3;
+
+
+
+export const UpdateCurrencySettingsBody = zod.object({
+  "currency": zod.string().min(updateCurrencySettingsBodyCurrencyMin).max(updateCurrencySettingsBodyCurrencyMax)
+})
+
+export const updateCurrencySettingsResponseCurrencyMin = 3;
+export const updateCurrencySettingsResponseCurrencyMax = 3;
+
+
+
+export const UpdateCurrencySettingsResponse = zod.object({
+  "currency": zod.string().min(updateCurrencySettingsResponseCurrencyMin).max(updateCurrencySettingsResponseCurrencyMax),
+  "availableCurrencies": zod.array(zod.string())
 })
 
 
@@ -347,26 +385,86 @@ export const ListSupplierProductsResponseItem = zod.object({
   "sourceUrl": zod.url(),
   "supplierUrl": zod.url(),
   "sourceDomain": zod.string(),
+  "sourceProductId": zod.string().nullable(),
   "title": zod.string(),
   "description": zod.string().nullable(),
   "imageUrl": zod.url().nullable(),
+  "imageUrls": zod.array(zod.url()),
+  "videoUrls": zod.array(zod.url()),
   "price": zod.number().nullable(),
+  "salePrice": zod.number().nullable(),
   "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "attributes": zod.record(zod.string(), zod.string()),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable(),
+  "inventoryStrategy": zod.string(),
+  "inventoryStatus": zod.string(),
+  "category": zod.string().nullable(),
+  "tags": zod.array(zod.string()),
+  "specifications": zod.record(zod.string(), zod.string()),
+  "brand": zod.string().nullable(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullable(),
+  "taxConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "shippingConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "seoConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
   "profitType": zod.enum(['fixed', 'percentage']),
+  "pricingMode": zod.string(),
   "profitValue": zod.number(),
   "sellingPrice": zod.number().nullable(),
+  "visibility": zod.string(),
+  "marketplaceVisibility": zod.boolean(),
   "status": zod.string(),
-  "importedAt": zod.coerce.date()
+  "importStatus": zod.string(),
+  "importError": zod.string().nullable(),
+  "importedAt": zod.coerce.date(),
+  "lastAttemptedSync": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable()
 })
 export const ListSupplierProductsResponse = zod.array(ListSupplierProductsResponseItem)
 
 
 /**
- * @summary Import a product from a public supplier URL
+ * @summary Save a reviewed product imported from a public supplier URL
  */
 export const importSupplierProductBodySourceUrlMax = 2000;
 
 export const importSupplierProductBodySupplierUrlMax = 2000;
+
+export const importSupplierProductBodyTitleMin = 2;
+export const importSupplierProductBodyTitleMax = 240;
+
+export const importSupplierProductBodyDescriptionMax = 10000;
+
+export const importSupplierProductBodyImageUrlMax = 2000;
+
+export const importSupplierProductBodyImageUrlsItemMax = 2000;
+
+export const importSupplierProductBodyImageUrlsMax = 20;
+
+export const importSupplierProductBodySalePriceMin = 0;
+
+export const importSupplierProductBodyCurrencyMin = 3;
+export const importSupplierProductBodyCurrencyMax = 3;
+
+export const importSupplierProductBodySkuMax = 160;
+
+export const importSupplierProductBodySourceProductIdMax = 240;
+
+export const importSupplierProductBodyVariantsMax = 100;
+
+export const importSupplierProductBodyAvailabilityMax = 80;
+
+export const importSupplierProductBodyAvailabilityQuantityMin = 0;
+
+export const importSupplierProductBodyCategoryMax = 240;
+
+export const importSupplierProductBodyTagsItemMax = 80;
+
+export const importSupplierProductBodyTagsMax = 50;
+
+export const importSupplierProductBodyBrandMax = 160;
 
 export const importSupplierProductBodyProfitValueMin = 0;
 export const importSupplierProductBodyProfitValueMax = 1000000;
@@ -374,14 +472,48 @@ export const importSupplierProductBodyProfitValueMax = 1000000;
 export const importSupplierProductBodyCostPriceExclusiveMin = 0;
 export const importSupplierProductBodyCostPriceMax = 1000000000;
 
+export const importSupplierProductBodySellingPriceMin = 0;
+
+export const importSupplierProductBodyInventoryStatusMax = 80;
+
+export const importSupplierProductBodyInventoryQuantityMin = 0;
+
 
 
 export const ImportSupplierProductBody = zod.object({
   "sourceUrl": zod.url().max(importSupplierProductBodySourceUrlMax),
-  "supplierUrl": zod.url().max(importSupplierProductBodySupplierUrlMax),
+  "supplierUrl": zod.url().max(importSupplierProductBodySupplierUrlMax).nullable(),
+  "title": zod.string().min(importSupplierProductBodyTitleMin).max(importSupplierProductBodyTitleMax).optional(),
+  "description": zod.string().max(importSupplierProductBodyDescriptionMax).nullish(),
+  "imageUrl": zod.url().max(importSupplierProductBodyImageUrlMax).nullish(),
+  "imageUrls": zod.array(zod.url().max(importSupplierProductBodyImageUrlsItemMax)).max(importSupplierProductBodyImageUrlsMax).optional(),
+  "salePrice": zod.number().min(importSupplierProductBodySalePriceMin).nullish(),
+  "currency": zod.string().min(importSupplierProductBodyCurrencyMin).max(importSupplierProductBodyCurrencyMax).optional(),
+  "sku": zod.string().max(importSupplierProductBodySkuMax).nullish(),
+  "sourceProductId": zod.string().max(importSupplierProductBodySourceProductIdMax).nullish(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())).max(importSupplierProductBodyVariantsMax).optional(),
+  "attributes": zod.record(zod.string(), zod.string()).optional(),
+  "availability": zod.string().max(importSupplierProductBodyAvailabilityMax).nullish(),
+  "availabilityQuantity": zod.int().min(importSupplierProductBodyAvailabilityQuantityMin).nullish(),
+  "category": zod.string().max(importSupplierProductBodyCategoryMax).nullish(),
+  "tags": zod.array(zod.string().max(importSupplierProductBodyTagsItemMax)).max(importSupplierProductBodyTagsMax).optional(),
+  "specifications": zod.record(zod.string(), zod.string()).optional(),
+  "brand": zod.string().max(importSupplierProductBodyBrandMax).nullish(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullish(),
+  "taxConfiguration": zod.record(zod.string(), zod.unknown()).nullish(),
+  "shippingConfiguration": zod.record(zod.string(), zod.unknown()).nullish(),
+  "seoConfiguration": zod.record(zod.string(), zod.unknown()).nullish(),
   "profitType": zod.enum(['fixed', 'percentage']),
   "profitValue": zod.number().min(importSupplierProductBodyProfitValueMin).max(importSupplierProductBodyProfitValueMax),
-  "costPrice": zod.number().gt(importSupplierProductBodyCostPriceExclusiveMin).max(importSupplierProductBodyCostPriceMax).optional()
+  "costPrice": zod.number().gt(importSupplierProductBodyCostPriceExclusiveMin).max(importSupplierProductBodyCostPriceMax).optional(),
+  "pricingMode": zod.enum(['same_price', 'fixed_markup', 'percentage_markup', 'fixed_margin', 'custom']).optional(),
+  "sellingPrice": zod.number().min(importSupplierProductBodySellingPriceMin).nullish(),
+  "visibility": zod.enum(['draft', 'active', 'hidden']).optional(),
+  "marketplaceVisibility": zod.boolean().optional(),
+  "inventoryStrategy": zod.enum(['manual', 'source_based', 'synchronized']).optional(),
+  "inventoryStatus": zod.string().max(importSupplierProductBodyInventoryStatusMax).optional(),
+  "inventoryQuantity": zod.int().min(importSupplierProductBodyInventoryQuantityMin).nullish(),
+  "duplicateAction": zod.enum(['create_new', 'update_existing', 'skip', 'review']).optional()
 })
 
 export const ImportSupplierProductResponse = zod.object({
@@ -389,16 +521,387 @@ export const ImportSupplierProductResponse = zod.object({
   "sourceUrl": zod.url(),
   "supplierUrl": zod.url(),
   "sourceDomain": zod.string(),
+  "sourceProductId": zod.string().nullable(),
   "title": zod.string(),
   "description": zod.string().nullable(),
   "imageUrl": zod.url().nullable(),
+  "imageUrls": zod.array(zod.url()),
+  "videoUrls": zod.array(zod.url()),
   "price": zod.number().nullable(),
+  "salePrice": zod.number().nullable(),
   "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "attributes": zod.record(zod.string(), zod.string()),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable(),
+  "inventoryStrategy": zod.string(),
+  "inventoryStatus": zod.string(),
+  "category": zod.string().nullable(),
+  "tags": zod.array(zod.string()),
+  "specifications": zod.record(zod.string(), zod.string()),
+  "brand": zod.string().nullable(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullable(),
+  "taxConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "shippingConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "seoConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
   "profitType": zod.enum(['fixed', 'percentage']),
+  "pricingMode": zod.string(),
   "profitValue": zod.number(),
   "sellingPrice": zod.number().nullable(),
+  "visibility": zod.string(),
+  "marketplaceVisibility": zod.boolean(),
   "status": zod.string(),
-  "importedAt": zod.coerce.date()
+  "importStatus": zod.string(),
+  "importError": zod.string().nullable(),
+  "importedAt": zod.coerce.date(),
+  "lastAttemptedSync": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Analyze a public supplier URL without saving it
+ */
+export const analyzeSupplierProductBodySourceUrlMax = 2000;
+
+
+
+export const AnalyzeSupplierProductBody = zod.object({
+  "sourceUrl": zod.url().max(analyzeSupplierProductBodySourceUrlMax)
+})
+
+export const AnalyzeSupplierProductResponse = zod.object({
+  "status": zod.string(),
+  "preview": zod.object({
+  "sourceUrl": zod.url(),
+  "sourceDomain": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "imageUrls": zod.array(zod.url()),
+  "videoUrls": zod.array(zod.url()),
+  "price": zod.number().nullable(),
+  "salePrice": zod.number().nullable(),
+  "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "sourceProductId": zod.string().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "attributes": zod.record(zod.string(), zod.string()),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable(),
+  "category": zod.string().nullable(),
+  "specifications": zod.record(zod.string(), zod.string()),
+  "brand": zod.string().nullable(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullable(),
+  "sourceMetadata": zod.record(zod.string(), zod.unknown())
+}),
+  "duplicates": zod.array(zod.object({
+  "id": zod.int(),
+  "title": zod.string(),
+  "sourceUrl": zod.url(),
+  "matchReason": zod.string()
+})),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Analyze and save multiple public supplier URLs
+ */
+export const importSupplierProductBatchBodySourceUrlsItemMax = 2000;
+
+export const importSupplierProductBatchBodySourceUrlsMax = 20;
+
+export const importSupplierProductBatchBodyProfitValueMin = 0;
+export const importSupplierProductBatchBodyProfitValueMax = 1000000;
+
+
+
+export const ImportSupplierProductBatchBody = zod.object({
+  "sourceUrls": zod.array(zod.url().max(importSupplierProductBatchBodySourceUrlsItemMax)).min(1).max(importSupplierProductBatchBodySourceUrlsMax),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "profitValue": zod.number().min(importSupplierProductBatchBodyProfitValueMin).max(importSupplierProductBatchBodyProfitValueMax),
+  "inventoryStrategy": zod.enum(['manual', 'source_based', 'synchronized']).optional()
+})
+
+export const ImportSupplierProductBatchResponse = zod.object({
+  "batchId": zod.int(),
+  "status": zod.string(),
+  "results": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+/**
+ * @summary Create a product manually when automatic extraction is unavailable
+ */
+export const createManualSupplierProductBodySupplierUrlMax = 2000;
+
+export const createManualSupplierProductBodySupplierNameMax = 240;
+
+export const createManualSupplierProductBodyTitleMin = 2;
+export const createManualSupplierProductBodyTitleMax = 240;
+
+export const createManualSupplierProductBodyDescriptionMax = 10000;
+
+export const createManualSupplierProductBodyImageUrlMax = 2000;
+
+export const createManualSupplierProductBodyPriceMin = 0;
+
+export const createManualSupplierProductBodySellingPriceExclusiveMin = 0;
+
+export const createManualSupplierProductBodySalePriceMin = 0;
+
+export const createManualSupplierProductBodyCurrencyMin = 3;
+export const createManualSupplierProductBodyCurrencyMax = 3;
+
+export const createManualSupplierProductBodySkuMax = 160;
+
+export const createManualSupplierProductBodyCategoryMax = 240;
+
+export const createManualSupplierProductBodyTagsItemMax = 80;
+
+export const createManualSupplierProductBodyTagsMax = 50;
+
+export const createManualSupplierProductBodyInventoryStatusMax = 80;
+
+export const createManualSupplierProductBodyInventoryQuantityMin = 0;
+
+
+
+export const CreateManualSupplierProductBody = zod.object({
+  "supplierUrl": zod.url().max(createManualSupplierProductBodySupplierUrlMax).nullish(),
+  "supplierName": zod.string().max(createManualSupplierProductBodySupplierNameMax).nullish(),
+  "title": zod.string().min(createManualSupplierProductBodyTitleMin).max(createManualSupplierProductBodyTitleMax),
+  "description": zod.string().max(createManualSupplierProductBodyDescriptionMax).nullish(),
+  "imageUrl": zod.url().max(createManualSupplierProductBodyImageUrlMax).nullish(),
+  "price": zod.number().min(createManualSupplierProductBodyPriceMin).nullish(),
+  "sellingPrice": zod.number().gt(createManualSupplierProductBodySellingPriceExclusiveMin),
+  "salePrice": zod.number().min(createManualSupplierProductBodySalePriceMin).nullish(),
+  "currency": zod.string().min(createManualSupplierProductBodyCurrencyMin).max(createManualSupplierProductBodyCurrencyMax),
+  "sku": zod.string().max(createManualSupplierProductBodySkuMax).nullish(),
+  "category": zod.string().max(createManualSupplierProductBodyCategoryMax).nullish(),
+  "tags": zod.array(zod.string().max(createManualSupplierProductBodyTagsItemMax)).max(createManualSupplierProductBodyTagsMax).optional(),
+  "inventoryStrategy": zod.enum(['manual', 'source_based', 'synchronized']).optional(),
+  "inventoryStatus": zod.string().max(createManualSupplierProductBodyInventoryStatusMax).optional(),
+  "inventoryQuantity": zod.int().min(createManualSupplierProductBodyInventoryQuantityMin).nullish()
+})
+
+export const CreateManualSupplierProductResponse = zod.object({
+  "id": zod.int(),
+  "sourceUrl": zod.url(),
+  "supplierUrl": zod.url(),
+  "sourceDomain": zod.string(),
+  "sourceProductId": zod.string().nullable(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "imageUrls": zod.array(zod.url()),
+  "videoUrls": zod.array(zod.url()),
+  "price": zod.number().nullable(),
+  "salePrice": zod.number().nullable(),
+  "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "attributes": zod.record(zod.string(), zod.string()),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable(),
+  "inventoryStrategy": zod.string(),
+  "inventoryStatus": zod.string(),
+  "category": zod.string().nullable(),
+  "tags": zod.array(zod.string()),
+  "specifications": zod.record(zod.string(), zod.string()),
+  "brand": zod.string().nullable(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullable(),
+  "taxConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "shippingConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "seoConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "pricingMode": zod.string(),
+  "profitValue": zod.number(),
+  "sellingPrice": zod.number().nullable(),
+  "visibility": zod.string(),
+  "marketplaceVisibility": zod.boolean(),
+  "status": zod.string(),
+  "importStatus": zod.string(),
+  "importError": zod.string().nullable(),
+  "importedAt": zod.coerce.date(),
+  "lastAttemptedSync": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Refresh a product source and return a reviewable diff
+ */
+export const RefreshSupplierProductParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RefreshSupplierProductResponse = zod.object({
+  "product": zod.object({
+  "id": zod.int(),
+  "sourceUrl": zod.url(),
+  "supplierUrl": zod.url(),
+  "sourceDomain": zod.string(),
+  "sourceProductId": zod.string().nullable(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "imageUrls": zod.array(zod.url()),
+  "videoUrls": zod.array(zod.url()),
+  "price": zod.number().nullable(),
+  "salePrice": zod.number().nullable(),
+  "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "attributes": zod.record(zod.string(), zod.string()),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable(),
+  "inventoryStrategy": zod.string(),
+  "inventoryStatus": zod.string(),
+  "category": zod.string().nullable(),
+  "tags": zod.array(zod.string()),
+  "specifications": zod.record(zod.string(), zod.string()),
+  "brand": zod.string().nullable(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullable(),
+  "taxConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "shippingConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "seoConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "pricingMode": zod.string(),
+  "profitValue": zod.number(),
+  "sellingPrice": zod.number().nullable(),
+  "visibility": zod.string(),
+  "marketplaceVisibility": zod.boolean(),
+  "status": zod.string(),
+  "importStatus": zod.string(),
+  "importError": zod.string().nullable(),
+  "importedAt": zod.coerce.date(),
+  "lastAttemptedSync": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable()
+}),
+  "changes": zod.array(zod.record(zod.string(), zod.unknown())),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Accept selected source refresh fields
+ */
+export const AcceptSupplierRefreshParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const acceptSupplierRefreshBodyFieldsMax = 20;
+
+
+
+export const AcceptSupplierRefreshBody = zod.object({
+  "fields": zod.array(zod.enum(['title', 'description', 'imageUrl', 'imageUrls', 'price', 'salePrice', 'currency', 'sku', 'sourceProductId', 'variants', 'attributes', 'availability', 'availabilityQuantity', 'category', 'specifications', 'brand', 'shippingInformation'])).max(acceptSupplierRefreshBodyFieldsMax)
+})
+
+export const AcceptSupplierRefreshResponse = zod.object({
+  "id": zod.int(),
+  "sourceUrl": zod.url(),
+  "supplierUrl": zod.url(),
+  "sourceDomain": zod.string(),
+  "sourceProductId": zod.string().nullable(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "imageUrls": zod.array(zod.url()),
+  "videoUrls": zod.array(zod.url()),
+  "price": zod.number().nullable(),
+  "salePrice": zod.number().nullable(),
+  "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "attributes": zod.record(zod.string(), zod.string()),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable(),
+  "inventoryStrategy": zod.string(),
+  "inventoryStatus": zod.string(),
+  "category": zod.string().nullable(),
+  "tags": zod.array(zod.string()),
+  "specifications": zod.record(zod.string(), zod.string()),
+  "brand": zod.string().nullable(),
+  "shippingInformation": zod.record(zod.string(), zod.unknown()).nullable(),
+  "taxConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "shippingConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "seoConfiguration": zod.record(zod.string(), zod.unknown()).nullable(),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "pricingMode": zod.string(),
+  "profitValue": zod.number(),
+  "sellingPrice": zod.number().nullable(),
+  "visibility": zod.string(),
+  "marketplaceVisibility": zod.boolean(),
+  "status": zod.string(),
+  "importStatus": zod.string(),
+  "importError": zod.string().nullable(),
+  "importedAt": zod.coerce.date(),
+  "lastAttemptedSync": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary List supplier records
+ */
+export const ListSuppliersResponseItem = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "website": zod.url(),
+  "domain": zod.string(),
+  "contactEmail": zod.email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "category": zod.string().nullable(),
+  "notes": zod.string().nullable(),
+  "productCount": zod.int(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListSuppliersResponse = zod.array(ListSuppliersResponseItem)
+
+
+/**
+ * @summary Update supplier notes and contact details
+ */
+export const UpdateSupplierParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const updateSupplierBodyNameMin = 2;
+export const updateSupplierBodyNameMax = 240;
+
+export const updateSupplierBodyContactPhoneMax = 80;
+
+export const updateSupplierBodyCategoryMax = 160;
+
+export const updateSupplierBodyNotesMax = 2000;
+
+
+
+export const UpdateSupplierBody = zod.object({
+  "name": zod.string().min(updateSupplierBodyNameMin).max(updateSupplierBodyNameMax).optional(),
+  "contactEmail": zod.email().nullish(),
+  "contactPhone": zod.string().max(updateSupplierBodyContactPhoneMax).nullish(),
+  "category": zod.string().max(updateSupplierBodyCategoryMax).nullish(),
+  "notes": zod.string().max(updateSupplierBodyNotesMax).nullish()
+})
+
+export const UpdateSupplierResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "website": zod.url(),
+  "domain": zod.string(),
+  "contactEmail": zod.email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "category": zod.string().nullable(),
+  "notes": zod.string().nullable(),
+  "productCount": zod.int(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
 })
 
 
@@ -414,6 +917,12 @@ export const ListDropshipQueueResponseItem = zod.object({
   "shippingAddress": zod.string().nullable(),
   "productTitle": zod.string(),
   "supplierUrl": zod.url(),
+  "sourceUrl": zod.url(),
+  "supplierOrderReference": zod.string().nullable(),
+  "trackingNumber": zod.string().nullable(),
+  "fulfillmentNote": zod.string().nullable(),
+  "fulfillmentSubmittedAt": zod.coerce.date().nullable(),
+  "fulfillmentUpdatedAt": zod.coerce.date().nullable(),
   "supplierCost": zod.number().nullable(),
   "profit": zod.number().nullable(),
   "sellingPrice": zod.number().nullable(),
@@ -434,8 +943,19 @@ export const UpdateDropshipStatusParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const updateDropshipStatusBodySupplierOrderReferenceMax = 240;
+
+export const updateDropshipStatusBodyTrackingNumberMax = 240;
+
+export const updateDropshipStatusBodyFulfillmentNoteMax = 2000;
+
+
+
 export const UpdateDropshipStatusBody = zod.object({
-  "fulfillmentStatus": zod.enum(['awaiting_supplier', 'prepared', 'submitted', 'fulfilled'])
+  "fulfillmentStatus": zod.enum(['not_submitted', 'submitted', 'accepted', 'processing', 'shipped', 'in_transit', 'delivered', 'canceled', 'failed']),
+  "supplierOrderReference": zod.string().max(updateDropshipStatusBodySupplierOrderReferenceMax).nullish(),
+  "trackingNumber": zod.string().max(updateDropshipStatusBodyTrackingNumberMax).nullish(),
+  "fulfillmentNote": zod.string().max(updateDropshipStatusBodyFulfillmentNoteMax).nullish()
 })
 
 export const UpdateDropshipStatusResponse = zod.object({
@@ -447,6 +967,12 @@ export const UpdateDropshipStatusResponse = zod.object({
   "shippingAddress": zod.string().nullable(),
   "productTitle": zod.string(),
   "supplierUrl": zod.url(),
+  "sourceUrl": zod.url(),
+  "supplierOrderReference": zod.string().nullable(),
+  "trackingNumber": zod.string().nullable(),
+  "fulfillmentNote": zod.string().nullable(),
+  "fulfillmentSubmittedAt": zod.coerce.date().nullable(),
+  "fulfillmentUpdatedAt": zod.coerce.date().nullable(),
   "supplierCost": zod.number().nullable(),
   "profit": zod.number().nullable(),
   "sellingPrice": zod.number().nullable(),
@@ -479,7 +1005,14 @@ export const GetPublicStoreResponse = zod.object({
   "description": zod.string().nullable(),
   "imageUrl": zod.url().nullable(),
   "price": zod.number(),
-  "currency": zod.string()
+  "salePrice": zod.number().nullable(),
+  "currency": zod.string(),
+  "sku": zod.string().nullable(),
+  "availability": zod.string().nullable(),
+  "inventoryStatus": zod.string(),
+  "inventoryQuantity": zod.int().nullable(),
+  "variants": zod.array(zod.record(zod.string(), zod.unknown())),
+  "category": zod.string().nullable()
 }))
 })
 

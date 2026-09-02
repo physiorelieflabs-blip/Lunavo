@@ -7,10 +7,15 @@ import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHea
 import { money, timeAgo } from '@/lib/format';
 
 const nextStatus = {
-  awaiting_supplier: { value: 'prepared' as const, label: 'Prepare supplier order' },
-  prepared: { value: 'submitted' as const, label: 'Mark submitted' },
-  submitted: { value: 'fulfilled' as const, label: 'Mark fulfilled' },
-  fulfilled: null,
+  not_submitted: { value: 'submitted' as const, label: 'Mark submitted' },
+  submitted: { value: 'accepted' as const, label: 'Mark accepted' },
+  accepted: { value: 'processing' as const, label: 'Mark processing' },
+  processing: { value: 'shipped' as const, label: 'Mark shipped' },
+  shipped: { value: 'in_transit' as const, label: 'Mark in transit' },
+  in_transit: { value: 'delivered' as const, label: 'Mark delivered' },
+  delivered: null,
+  canceled: null,
+  failed: null,
 };
 
 export default function Dropshipping() {
@@ -22,7 +27,7 @@ export default function Dropshipping() {
   if (queue.isLoading) return <AppShell><LoadingState label="Loading fulfillment queue" /></AppShell>;
   if (queue.isError || !queue.data) return <AppShell><ErrorState onRetry={() => void queue.refetch()} /></AppShell>;
 
-  const advance = (id: number, fulfillmentStatus: 'prepared' | 'submitted' | 'fulfilled') => {
+  const advance = (id: number, fulfillmentStatus: 'not_submitted' | 'submitted' | 'accepted' | 'processing' | 'shipped' | 'in_transit' | 'delivered' | 'canceled' | 'failed') => {
     setMessage('');
     updateStatus.mutate({ id, data: { fulfillmentStatus } }, {
       onSuccess: () => {

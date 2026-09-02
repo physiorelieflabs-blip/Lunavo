@@ -10,8 +10,13 @@ export type DropshipStatusInputFulfillmentStatus = typeof DropshipStatusInputFul
 
 
 export const DropshipStatusInputFulfillmentStatus = {
-  awaiting_supplier: 'awaiting_supplier',
-  prepared: 'prepared',
+  not_submitted: 'not_submitted',
   submitted: 'submitted',
-  fulfilled: 'fulfilled',
+  accepted: 'accepted',
+  processing: 'processing',
+  shipped: 'shipped',
+  in_transit: 'in_transit',
+  delivered: 'delivered',
+  canceled: 'canceled',
+  failed: 'failed',
 } as const;

@@ -5,6 +5,7 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { PublicStoreProductVariantsItem } from './publicStoreProductVariantsItem';
 
 export interface PublicStoreProduct {
   id: number;
@@ -14,5 +15,17 @@ export interface PublicStoreProduct {
   /** @nullable */
   imageUrl: string | null;
   price: number;
+  /** @nullable */
+  salePrice: number | null;
   currency: string;
+  /** @nullable */
+  sku: string | null;
+  /** @nullable */
+  availability: string | null;
+  inventoryStatus: string;
+  /** @nullable */
+  inventoryQuantity: number | null;
+  variants: PublicStoreProductVariantsItem[];
+  /** @nullable */
+  category: string | null;
 }

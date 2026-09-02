@@ -17,6 +17,17 @@ export interface DropshipQueueRecord {
   shippingAddress: string | null;
   productTitle: string;
   supplierUrl: string;
+  sourceUrl: string;
+  /** @nullable */
+  supplierOrderReference: string | null;
+  /** @nullable */
+  trackingNumber: string | null;
+  /** @nullable */
+  fulfillmentNote: string | null;
+  /** @nullable */
+  fulfillmentSubmittedAt: Date | null;
+  /** @nullable */
+  fulfillmentUpdatedAt: Date | null;
   /** @nullable */
   supplierCost: number | null;
   /** @nullable */

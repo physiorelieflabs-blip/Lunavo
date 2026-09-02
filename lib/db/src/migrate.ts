@@ -15,6 +15,8 @@ const migrations = [
   "0004_linked_bank_accounts",
   "0005_auto_dropshipping",
   "0006_checkout_quantity",
+  "0007_supplier_import_workflows",
+  "0008_merchant_currency",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

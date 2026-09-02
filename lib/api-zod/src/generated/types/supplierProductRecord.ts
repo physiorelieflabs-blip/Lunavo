@@ -5,25 +5,72 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { SupplierProductRecordAttributes } from './supplierProductRecordAttributes';
 import type { SupplierProductRecordProfitType } from './supplierProductRecordProfitType';
+import type { SupplierProductRecordSeoConfiguration } from './supplierProductRecordSeoConfiguration';
+import type { SupplierProductRecordShippingConfiguration } from './supplierProductRecordShippingConfiguration';
+import type { SupplierProductRecordShippingInformation } from './supplierProductRecordShippingInformation';
+import type { SupplierProductRecordSpecifications } from './supplierProductRecordSpecifications';
+import type { SupplierProductRecordTaxConfiguration } from './supplierProductRecordTaxConfiguration';
+import type { SupplierProductRecordVariantsItem } from './supplierProductRecordVariantsItem';
 
 export interface SupplierProductRecord {
   id: number;
   sourceUrl: string;
   supplierUrl: string;
   sourceDomain: string;
+  /** @nullable */
+  sourceProductId: string | null;
   title: string;
   /** @nullable */
   description: string | null;
   /** @nullable */
   imageUrl: string | null;
+  imageUrls: string[];
+  videoUrls: string[];
   /** @nullable */
   price: number | null;
+  /** @nullable */
+  salePrice: number | null;
   currency: string;
+  /** @nullable */
+  sku: string | null;
+  variants: SupplierProductRecordVariantsItem[];
+  attributes: SupplierProductRecordAttributes;
+  /** @nullable */
+  availability: string | null;
+  /** @nullable */
+  availabilityQuantity: number | null;
+  inventoryStrategy: string;
+  inventoryStatus: string;
+  /** @nullable */
+  category: string | null;
+  tags: string[];
+  specifications: SupplierProductRecordSpecifications;
+  /** @nullable */
+  brand: string | null;
+  /** @nullable */
+  shippingInformation: SupplierProductRecordShippingInformation;
+  /** @nullable */
+  taxConfiguration: SupplierProductRecordTaxConfiguration;
+  /** @nullable */
+  shippingConfiguration: SupplierProductRecordShippingConfiguration;
+  /** @nullable */
+  seoConfiguration: SupplierProductRecordSeoConfiguration;
   profitType: SupplierProductRecordProfitType;
+  pricingMode: string;
   profitValue: number;
   /** @nullable */
   sellingPrice: number | null;
+  visibility: string;
+  marketplaceVisibility: boolean;
   status: string;
+  importStatus: string;
+  /** @nullable */
+  importError: string | null;
   importedAt: Date;
+  /** @nullable */
+  lastAttemptedSync: Date | null;
+  /** @nullable */
+  publishedAt: Date | null;
 }

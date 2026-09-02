@@ -1,0 +1,607 @@
+# SUPPLIER / PRODUCT LINK IMPORT SYSTEM
+
+TS Commerce must allow merchants to connect suppliers and import products **without requiring supplier API keys**.
+
+The merchant must NOT be limited to a predefined list of suppliers.
+
+The merchant must NOT be required to request that TS Commerce add a supplier before using it.
+
+The merchant must NOT be required to obtain an API key from the supplier.
+
+The merchant should be able to paste:
+
+* a supplier website URL;
+* a supplier product URL;
+* a product page URL;
+* a catalog/product URL where publicly accessible.
+
+Example:
+
+```text
+https://supplier-example.com/product/example-product
+```
+
+or:
+
+```text
+https://supplier-example.com/catalog
+```
+
+TS Commerce must then attempt to analyze the supplied URL.
+
+---
+
+# URL PRODUCT IMPORT WORKFLOW
+
+When a merchant pastes a URL:
+
+1. Validate the URL.
+2. Normalize the URL.
+3. Check that the URL is reachable using permitted methods.
+4. Retrieve publicly accessible page information where technically and legally permitted.
+5. Analyze available structured/public product information.
+6. Extract available product fields.
+7. Present the extracted information to the merchant.
+8. Allow the merchant to review and edit the information.
+9. Allow the merchant to select the destination store.
+10. Allow the merchant to configure selling price, margins, inventory behavior and other merchant-specific settings.
+11. Import the product into TS Commerce.
+12. Record the source URL.
+13. Record the import timestamp.
+14. Record the import status.
+15. Preserve the supplier/source reference for future management.
+
+---
+
+# PRODUCT INFORMATION EXTRACTION
+
+Where publicly accessible and technically available, attempt to identify:
+
+* product title;
+* product description;
+* images;
+* product videos where permitted;
+* product price;
+* sale price;
+* currency;
+* SKU;
+* product ID;
+* variants;
+* sizes;
+* colors;
+* attributes;
+* stock/availability;
+* categories;
+* specifications;
+* brand;
+* shipping information where publicly available;
+* product metadata;
+* structured product information.
+
+Do not assume every field will always be available.
+
+The merchant must be able to edit every imported field before publishing.
+
+---
+
+# PRODUCT IMPORT PREVIEW
+
+Before importing, display:
+
+## SOURCE PRODUCT
+
+Source URL
+
+Supplier/site name where determinable
+
+Product title
+
+Images
+
+Description
+
+Price
+
+Currency
+
+SKU
+
+Variants
+
+Availability
+
+---
+
+## TS COMMERCE PRODUCT
+
+Allow merchant to configure:
+
+Product title
+
+Description
+
+Product images
+
+Selling price
+
+Sale price
+
+Currency
+
+SKU
+
+Variants
+
+Inventory
+
+Category
+
+Tags
+
+Tax configuration
+
+Shipping configuration
+
+SEO
+
+Product visibility
+
+Marketplace visibility
+
+Supplier/source information
+
+---
+
+# PRICE MANAGEMENT
+
+Give merchants flexible pricing controls.
+
+Allow:
+
+* same supplier price;
+* fixed markup;
+* percentage markup;
+* fixed margin;
+* custom selling price.
+
+Examples:
+
+```text
+Supplier price: $20
+
+10% markup → $22
+
+50% markup → $30
+
+Fixed markup → $35
+```
+
+The merchant must have final control over the selling price.
+
+Never assume the supplier's displayed price is automatically the merchant's selling price.
+
+---
+
+# INVENTORY IMPORT
+
+Where publicly accessible availability information exists, attempt to identify:
+
+* in stock;
+* out of stock;
+* limited stock;
+* quantity where publicly exposed.
+
+Allow the merchant to choose an inventory strategy:
+
+### Manual Inventory
+
+Merchant controls stock manually.
+
+### Source-Based Status
+
+Use the imported supplier availability information.
+
+### Synchronized Inventory
+
+Only use ongoing automatic synchronization where technically and legally supported.
+
+Do not promise live synchronization from an arbitrary website when the source does not provide a supported mechanism.
+
+---
+
+# SOURCE PRODUCT RECORD
+
+Every imported product should retain:
+
+* source URL;
+* source domain;
+* original product identifier where available;
+* import timestamp;
+* last attempted sync;
+* import status;
+* source information.
+
+This allows the merchant to understand where the product originated.
+
+---
+
+# RE-IMPORT / REFRESH
+
+Allow the merchant to request:
+
+**Refresh Product**
+
+The system can revisit the supplied URL and compare publicly accessible information against the TS Commerce product.
+
+Show changes such as:
+
+* price changed;
+* description changed;
+* image changed;
+* variant changed;
+* availability changed.
+
+The merchant must control whether imported changes are accepted.
+
+Never overwrite merchant-customized data silently.
+
+---
+
+# IMPORT STATUS
+
+Possible states:
+
+```text
+Pending
+Analyzing
+Imported
+Needs Review
+Partially Imported
+Failed
+Blocked
+Source Unavailable
+Manual Import Required
+```
+
+Show a useful explanation for failures.
+
+---
+
+# MANUAL FALLBACK
+
+If automatic extraction cannot retrieve a usable product:
+
+do NOT create fake information.
+
+Instead show:
+
+**“We couldn't automatically extract this product. Enter the product information manually or upload the product details.”**
+
+Allow:
+
+* manual entry;
+* CSV import;
+* spreadsheet import;
+* image upload;
+* document upload;
+* copy/paste product information.
+
+The merchant can still create the product without an API.
+
+---
+
+# MULTIPLE PRODUCTS
+
+Allow merchants to paste multiple product URLs.
+
+Support:
+
+* one URL;
+* multiple URLs;
+* newline-separated URLs;
+* uploaded lists where appropriate.
+
+Example:
+
+```text
+https://supplier.com/product/a
+https://supplier.com/product/b
+https://supplier.com/product/c
+```
+
+Process them as an import batch.
+
+Display:
+
+* successful imports;
+* failed imports;
+* partial imports;
+* duplicates;
+* products requiring review.
+
+---
+
+# DUPLICATE DETECTION
+
+Before creating a new product, attempt to detect duplicates using combinations of:
+
+* source URL;
+* source product ID;
+* SKU;
+* merchant product ID;
+* normalized product identity.
+
+Do not silently create duplicates.
+
+Allow the merchant to choose:
+
+* create new;
+* update existing;
+* skip;
+* review.
+
+---
+
+# SUPPLIER RECORD
+
+Create a supplier record automatically when appropriate based on the supplied source.
+
+The merchant should be able to provide:
+
+* supplier name;
+* website;
+* contact information;
+* notes;
+* supplier category.
+
+The supplier record does NOT require an API connection.
+
+---
+
+# SUPPLIER DASHBOARD
+
+Merchant supplier area should show:
+
+* suppliers;
+* imported products;
+* source URLs;
+* import history;
+* synchronization status where applicable;
+* failed imports;
+* product mapping;
+* supplier notes.
+
+---
+
+# ARBITRARY SUPPLIER SUPPORT
+
+Do not hard-code a supplier whitelist.
+
+Do not require TS Commerce administrators to manually add every supplier.
+
+Any publicly accessible supplier/product webpage that can be processed through permitted methods should be eligible for attempted import.
+
+TS Commerce must therefore support arbitrary supplier URLs rather than only predefined suppliers.
+
+---
+
+# SUPPLIER API ADAPTERS
+
+Optional supplier APIs may still be supported internally for suppliers that provide a legitimate integration.
+
+However:
+
+## API KEYS MUST NOT BE REQUIRED FROM MERCHANTS.
+
+An API integration is an optional backend capability.
+
+The normal merchant workflow is:
+
+```text
+Paste Supplier/Product URL
+        ↓
+TS Commerce analyzes page
+        ↓
+Extract available product data
+        ↓
+Merchant reviews/edits
+        ↓
+Import
+        ↓
+Publish
+```
+
+If a supplier later has a supported native integration, TS Commerce may use it automatically or offer it as an optional enhancement.
+
+The merchant must not be forced to manually obtain API credentials.
+
+---
+
+# NO SUPPLIER API DEPENDENCY
+
+TS Commerce must remain capable of importing and managing products without supplier APIs.
+
+The system must not contain logic such as:
+
+```text
+if supplier_api_key_missing:
+    supplier_feature_disabled
+```
+
+Instead:
+
+```text
+if supplier_url_available:
+    attempt URL-based product import
+
+if supported supplier integration exists:
+    optionally use native integration
+
+if automatic extraction fails:
+    provide manual fallback
+```
+
+---
+
+# LEGAL AND TECHNICAL ACCESS REQUIREMENTS
+
+URL-based importing must operate only through permitted access mechanisms.
+
+Do NOT:
+
+* bypass authentication;
+* bypass paywalls;
+* bypass CAPTCHAs;
+* bypass robots restrictions;
+* bypass rate limits;
+* bypass anti-bot protections;
+* defeat technical access controls;
+* access private supplier systems without authorization.
+
+Respect:
+
+* website terms;
+* access restrictions;
+* copyright;
+* privacy;
+* applicable laws;
+* reasonable request rates.
+
+Do not promise that every website can be automatically imported.
+
+---
+
+# RATE LIMITING
+
+URL import must use responsible request controls.
+
+Implement:
+
+* request throttling;
+* per-merchant limits;
+* retry limits;
+* timeout;
+* caching where appropriate;
+* duplicate-request prevention.
+
+Do not overload supplier websites.
+
+---
+
+# IMPORT SECURITY
+
+Treat external webpage content as untrusted input.
+
+Protect against:
+
+* malicious HTML;
+* script injection;
+* unsafe URLs;
+* SSRF;
+* malicious redirects;
+* oversized responses;
+* malicious files.
+
+Never execute arbitrary supplier webpage code inside the TS Commerce server environment.
+
+---
+
+# PRODUCT IMAGE HANDLING
+
+When importing images, respect applicable rights and source restrictions.
+
+Where direct reuse is not appropriate, allow the merchant to replace the imported image with their own image before publishing.
+
+Do not represent third-party copyrighted media as TS Commerce-owned content.
+
+---
+
+# SUPPLIER ORDER WORKFLOW
+
+When a merchant receives a customer order for a supplier-sourced product, support:
+
+```text
+Customer Order
+↓
+TS Commerce Order
+↓
+Merchant Review
+↓
+Supplier Fulfillment Workflow
+↓
+Supplier Order Reference
+↓
+Fulfillment Status
+↓
+Tracking
+↓
+Customer
+```
+
+Where the supplier provides an API, the order can optionally be forwarded automatically.
+
+Where no API exists, provide a manual supplier-order workflow.
+
+---
+
+# MANUAL SUPPLIER ORDER
+
+Without an API, merchant can view:
+
+* supplier;
+* supplier URL;
+* supplier product;
+* quantity;
+* supplier price;
+* customer order;
+* shipping information required for fulfillment.
+
+Provide:
+
+**Mark Supplier Order Submitted**
+
+**Add Supplier Order Reference**
+
+**Mark Supplier Fulfillment Status**
+
+**Add Tracking Number**
+
+This makes supplier-based commerce usable even when the supplier has no API.
+
+---
+
+# SUPPLIER FULFILLMENT STATES
+
+Support:
+
+```text
+Not Submitted
+Submitted
+Accepted
+Processing
+Shipped
+In Transit
+Delivered
+Canceled
+Failed
+```
+
+---
+
+# SUPPLIER TRACKING
+
+If a supplier page publicly exposes a tracking reference and it can be retrieved through permitted mechanisms, store it.
+
+Otherwise allow manual tracking entry.
+
+Do not require a carrier API.
+
+---
+
+# SUPPLIER API MEMORY RULE
+
+The merchant-facing supplier workflow should be:
+
+# PASTE A LINK — NOT PASTE AN API KEY.
+
+Supplier APIs are optional internal adapters and must never be the only mechanism for supplier usage.

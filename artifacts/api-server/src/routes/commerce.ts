@@ -8,6 +8,7 @@ import {
   inArray,
   isNull,
   lt,
+  or,
   sql,
 } from "drizzle-orm";
 import { createClerkClient, getAuth } from "@clerk/express";
@@ -20,6 +21,9 @@ import {
   ordersTable,
   paymentsTable,
   supplierProductsTable,
+  supplierImportAttemptsTable,
+  supplierImportBatchesTable,
+  suppliersTable,
   subscriptionsTable,
   withdrawalSecurityTable,
   withdrawalsTable,
@@ -38,6 +42,7 @@ import {
   UpdateDropshipStatusBody,
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
+  GetCurrencySettingsResponse,
   GetLinkedBankAccountResponse,
   GetPublicStoreParams,
   GetPublicStoreResponse,
@@ -45,6 +50,21 @@ import {
   GetWithdrawalSecurityResponse,
   ImportSupplierProductBody,
   ImportSupplierProductResponse,
+  AnalyzeSupplierProductBody,
+  AnalyzeSupplierProductResponse,
+  ImportSupplierProductBatchBody,
+  ImportSupplierProductBatchResponse,
+  CreateManualSupplierProductBody,
+  CreateManualSupplierProductResponse,
+  RefreshSupplierProductParams,
+  RefreshSupplierProductResponse,
+  AcceptSupplierRefreshParams,
+  AcceptSupplierRefreshBody,
+  AcceptSupplierRefreshResponse,
+  ListSuppliersResponse,
+  UpdateSupplierParams,
+  UpdateSupplierBody,
+  UpdateSupplierResponse,
   ListAdminWithdrawalsResponse,
   ListCustomersResponse,
   ListDashboardActivityResponse,
@@ -72,6 +92,8 @@ import {
   UpdateMerchantStatusBody,
   UpdateMerchantStatusParams,
   UpdateMerchantStatusResponse,
+  UpdateCurrencySettingsBody,
+  UpdateCurrencySettingsResponse,
   UpdateOrderStatusBody,
   UpdateOrderStatusParams,
   UpdateOrderStatusResponse,
@@ -85,10 +107,24 @@ import {
   generateTotpSecret,
   verifyTotp,
 } from "../lib/withdrawal-security";
-import { importPublicSupplierProduct } from "../lib/public-supplier";
+import {
+  importPublicSupplierProduct,
+  type ImportedSupplierProduct,
+} from "../lib/public-supplier";
 
 const router: IRouter = Router();
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
+const SUPPORTED_CURRENCIES = [
+  "USD",
+  "NGN",
+  "GHS",
+  "KES",
+  "ZAR",
+  "GBP",
+  "EUR",
+  "CAD",
+  "AUD",
+] as const;
 const MONTHLY_FEE = 30;
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
@@ -107,6 +143,7 @@ type Customer = typeof customersTable.$inferSelect;
 type Order = typeof ordersTable.$inferSelect;
 type Withdrawal = typeof withdrawalsTable.$inferSelect;
 type MerchantBankAccount = typeof merchantBankAccountsTable.$inferSelect;
+type Supplier = typeof suppliersTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
@@ -441,14 +478,58 @@ function calculateSellingPrice(
   cost: string | number | null,
   profitType: string,
   profitValue: string | number,
+  pricingMode = profitType === "percentage" ? "percentage_markup" : "fixed_markup",
+  customSellingPrice: string | number | null | undefined = null,
 ): number | null {
+  if (pricingMode === "custom") {
+    return customSellingPrice === null || customSellingPrice === undefined
+      ? null
+      : Number(toNumber(customSellingPrice).toFixed(2));
+  }
   if (cost === null) return null;
   const costAmount = toNumber(cost);
+  if (pricingMode === "same_price") return Number(costAmount.toFixed(2));
   const profitAmount =
-    profitType === "percentage"
+    pricingMode === "percentage_markup" || profitType === "percentage"
       ? (costAmount * toNumber(profitValue)) / 100
       : toNumber(profitValue);
   return Number((costAmount + profitAmount).toFixed(2));
+}
+
+function jsonArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function serializeSupplierPreview(imported: Awaited<ReturnType<typeof importPublicSupplierProduct>>) {
+  return {
+    sourceUrl: imported.sourceUrl,
+    sourceDomain: imported.sourceDomain,
+    title: imported.title,
+    description: imported.description,
+    imageUrl: imported.imageUrl,
+    imageUrls: imported.imageUrls,
+    videoUrls: imported.videoUrls,
+    price: imported.price === null ? null : toNumber(imported.price),
+    salePrice: imported.salePrice === null ? null : toNumber(imported.salePrice),
+    currency: imported.currency,
+    sku: imported.sku,
+    sourceProductId: imported.sourceProductId,
+    variants: imported.variants,
+    attributes: imported.attributes,
+    availability: imported.availability,
+    availabilityQuantity: imported.availabilityQuantity,
+    category: imported.category,
+    specifications: imported.specifications,
+    brand: imported.brand,
+    shippingInformation: imported.shippingInformation,
+    sourceMetadata: imported.sourceMetadata,
+  };
 }
 
 function serializeOrder(
@@ -479,17 +560,230 @@ function serializeSupplierProduct(product: typeof supplierProductsTable.$inferSe
     sourceUrl: product.sourceUrl,
     supplierUrl: product.supplierUrl,
     sourceDomain: product.sourceDomain,
+    sourceProductId: product.sourceProductId,
     title: product.title,
     description: product.description,
     imageUrl: product.imageUrl,
+    imageUrls: jsonArray(product.imageUrls),
+    videoUrls: jsonArray(product.videoUrls),
     price: product.price === null ? null : toNumber(product.price),
+    salePrice: product.salePrice === null ? null : toNumber(product.salePrice),
     currency: product.currency,
+    sku: product.sku,
+    variants: jsonArray(product.variants),
+    attributes: jsonRecord(product.attributes),
+    availability: product.availability,
+    availabilityQuantity: product.availabilityQuantity,
+    inventoryStrategy: product.inventoryStrategy,
+    inventoryStatus: product.inventoryStatus,
+    category: product.category,
+    tags: jsonArray(product.tags),
+    specifications: jsonRecord(product.specifications),
+    brand: product.brand,
+    shippingInformation: product.shippingInformation,
+    taxConfiguration: product.taxConfiguration,
+    shippingConfiguration: product.shippingConfiguration,
+    seoConfiguration: product.seoConfiguration,
+    sourceMetadata: jsonRecord(product.sourceMetadata),
     profitType: product.profitType,
+    pricingMode: product.pricingMode,
     profitValue: toNumber(product.profitValue),
     sellingPrice:
       product.sellingPrice === null ? null : toNumber(product.sellingPrice),
     status: product.status,
+    importStatus: product.importStatus,
+    importError: product.importError,
+    visibility: product.visibility,
+    marketplaceVisibility: product.marketplaceVisibility,
     importedAt: product.importedAt,
+    lastAttemptedSync: product.lastAttemptedSync,
+    publishedAt: product.publishedAt,
+  };
+}
+
+function serializeSupplier(supplier: Supplier, productCount: number) {
+  return {
+    id: supplier.id,
+    name: supplier.name,
+    website: supplier.website,
+    domain: supplier.domain,
+    contactEmail: supplier.contactEmail,
+    contactPhone: supplier.contactPhone,
+    category: supplier.category,
+    notes: supplier.notes,
+    productCount,
+    createdAt: supplier.createdAt,
+    updatedAt: supplier.updatedAt,
+  };
+}
+
+type ImportedProductOptions = {
+  supplierUrl?: string | null;
+  supplierName?: string | null;
+  title?: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  imageUrls?: unknown;
+  salePrice?: number | null;
+  currency?: string;
+  sku?: string | null;
+  sourceProductId?: string | null;
+  variants?: unknown;
+  attributes?: unknown;
+  availability?: string | null;
+  availabilityQuantity?: number | null;
+  category?: string | null;
+  tags?: unknown;
+  specifications?: unknown;
+  brand?: string | null;
+  shippingInformation?: unknown;
+  taxConfiguration?: unknown;
+  shippingConfiguration?: unknown;
+  seoConfiguration?: unknown;
+  costPrice?: number | null;
+  profitType?: string;
+  profitValue?: number;
+  pricingMode?: string;
+  sellingPrice?: number | null;
+  visibility?: string;
+  marketplaceVisibility?: boolean;
+  inventoryStrategy?: string;
+  inventoryStatus?: string;
+  inventoryQuantity?: number | null;
+  duplicateAction?: string;
+};
+
+function normalizedSupplierUrl(sourceUrl: string, supplierUrl?: string | null): {
+  url: string;
+  domain: string;
+} {
+  const url = new URL(supplierUrl || new URL(sourceUrl).origin);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Supplier link must use http or https");
+  }
+  return { url: url.toString(), domain: url.hostname.toLowerCase() };
+}
+
+async function ensureSupplierRecord(
+  merchantId: number,
+  supplierUrl: string,
+  supplierName?: string | null,
+): Promise<Supplier> {
+  const parsed = new URL(supplierUrl);
+  const domain = parsed.hostname.toLowerCase();
+  const existing = (
+    await db
+      .select()
+      .from(suppliersTable)
+      .where(
+        and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)),
+      )
+      .limit(1)
+  )[0];
+  if (existing) return existing;
+  const [created] = await db
+    .insert(suppliersTable)
+    .values({
+      merchantId,
+      name: supplierName?.trim() || domain,
+      website: parsed.origin,
+      domain,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (created) return created;
+  const [afterConflict] = await db
+    .select()
+    .from(suppliersTable)
+    .where(
+      and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)),
+    )
+    .limit(1);
+  if (!afterConflict) throw new Error("Supplier record could not be created");
+  return afterConflict;
+}
+
+function importedProductValues(
+  imported: ImportedSupplierProduct,
+  options: ImportedProductOptions,
+  supplierId: number,
+) {
+  const cost = options.costPrice === undefined ? imported.price : options.costPrice;
+  const profitType = options.profitType ?? "fixed";
+  const profitValue = options.profitValue ?? 0;
+  const pricingMode =
+    options.pricingMode ??
+    (profitType === "percentage" ? "percentage_markup" : "fixed_markup");
+  const sellingPrice = calculateSellingPrice(
+    cost,
+    profitType,
+    profitValue,
+    pricingMode,
+    options.sellingPrice,
+  );
+  const visibility = options.visibility ?? "active";
+  return {
+    supplierId,
+    sourceUrl: imported.sourceUrl,
+    supplierUrl: normalizedSupplierUrl(imported.sourceUrl, options.supplierUrl).url,
+    sourceDomain: imported.sourceDomain,
+    sourceProductId: options.sourceProductId ?? imported.sourceProductId,
+    title: options.title ?? imported.title,
+    description: options.description === undefined ? imported.description : options.description,
+    imageUrl: options.imageUrl === undefined ? imported.imageUrl : options.imageUrl,
+    imageUrls: options.imageUrls ?? imported.imageUrls,
+    videoUrls: imported.videoUrls,
+    price: cost === null ? null : Number(cost).toFixed(2),
+    salePrice:
+      options.salePrice === undefined
+        ? imported.salePrice
+        : options.salePrice === null
+          ? null
+          : Number(options.salePrice).toFixed(2),
+    currency: (options.currency ?? imported.currency).toUpperCase(),
+    sku: options.sku === undefined ? imported.sku : options.sku,
+    variants: options.variants ?? imported.variants,
+    attributes: options.attributes ?? imported.attributes,
+    availability: options.availability === undefined ? imported.availability : options.availability,
+    availabilityQuantity:
+      options.availabilityQuantity === undefined
+        ? imported.availabilityQuantity
+        : options.availabilityQuantity,
+    inventoryStrategy: options.inventoryStrategy ?? "source_based",
+    inventoryStatus:
+      options.inventoryStatus ??
+      (imported.availability ?? "unknown"),
+    category: options.category === undefined ? imported.category : options.category,
+    tags: options.tags ?? [],
+    specifications: options.specifications ?? imported.specifications,
+    brand: options.brand === undefined ? imported.brand : options.brand,
+    shippingInformation:
+      options.shippingInformation === undefined
+        ? imported.shippingInformation
+        : options.shippingInformation,
+    taxConfiguration: options.taxConfiguration ?? null,
+    shippingConfiguration: options.shippingConfiguration ?? null,
+    seoConfiguration: options.seoConfiguration ?? null,
+    sourceMetadata: imported.sourceMetadata,
+    merchantOverrides: {
+      ...(options.title !== undefined ? { title: true } : {}),
+      ...(options.description !== undefined ? { description: true } : {}),
+      ...(options.imageUrl !== undefined ? { imageUrl: true } : {}),
+      ...(options.salePrice !== undefined ? { salePrice: true } : {}),
+      ...(options.sellingPrice !== undefined ? { sellingPrice: true } : {}),
+      ...(options.tags !== undefined ? { tags: true } : {}),
+    },
+    profitType,
+    pricingMode,
+    profitValue: Number(profitValue).toFixed(2),
+    sellingPrice: sellingPrice === null ? null : sellingPrice.toFixed(2),
+    visibility,
+    marketplaceVisibility: options.marketplaceVisibility ?? false,
+    status: visibility === "active" ? "active" : "draft",
+    importStatus: visibility === "active" ? "imported" : "needs_review",
+    importError: null,
+    lastAttemptedSync: new Date(),
+    publishedAt: visibility === "active" ? new Date() : null,
   };
 }
 
@@ -510,6 +804,12 @@ function serializeDropshipQueueItem(
     shippingAddress: order.shippingAddress,
     productTitle: product.title,
     supplierUrl: product.supplierUrl,
+    sourceUrl: product.sourceUrl,
+    supplierOrderReference: order.supplierOrderReference,
+    trackingNumber: order.trackingNumber,
+    fulfillmentNote: order.fulfillmentNote,
+    fulfillmentSubmittedAt: order.fulfillmentSubmittedAt,
+    fulfillmentUpdatedAt: order.fulfillmentUpdatedAt,
     supplierCost,
     profit:
       supplierCost === null || sellingPrice === null
@@ -708,6 +1008,7 @@ async function payFromEarnings(merchant: Merchant) {
       .values({
         merchantId: merchant.id,
         amount: remaining.toFixed(2),
+        currency: merchant.currency,
         method: "earnings",
         reference,
         status: "confirmed",
@@ -726,11 +1027,57 @@ async function payFromEarnings(merchant: Merchant) {
       title: "Platform fee paid from earnings",
       description: "Held earnings were applied to your platform fee.",
       amount: remaining.toFixed(2),
+      currency: merchant.currency,
       tone: "negative",
     });
     return { payment, subscription: updatedSubscription };
   });
 }
+
+router.get("/settings/currency", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  res.json(
+    GetCurrencySettingsResponse.parse({
+      currency: merchant.currency,
+      availableCurrencies: [...SUPPORTED_CURRENCIES],
+    }),
+  );
+});
+
+router.put("/settings/currency", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = UpdateCurrencySettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose a valid three-letter currency code" });
+    return;
+  }
+  const currency = parsed.data.currency.trim().toUpperCase();
+  if (!SUPPORTED_CURRENCIES.includes(currency as (typeof SUPPORTED_CURRENCIES)[number])) {
+    res.status(400).json({
+      error: `Supported currencies: ${SUPPORTED_CURRENCIES.join(", ")}`,
+    });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [updated] = await db
+    .update(merchantsTable)
+    .set({ currency })
+    .where(eq(merchantsTable.id, merchant.id))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Merchant account not found" });
+    return;
+  }
+  res.json(
+    UpdateCurrencySettingsResponse.parse({
+      currency: updated.currency,
+      availableCurrencies: [...SUPPORTED_CURRENCIES],
+    }),
+  );
+});
 
 router.get("/dashboard/overview", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
@@ -754,7 +1101,12 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       pendingBalance: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} = 'pending'), 0)`,
     })
     .from(ordersTable)
-    .where(eq(ordersTable.merchantId, enforced.merchant.id));
+    .where(
+      and(
+        eq(ordersTable.merchantId, enforced.merchant.id),
+        eq(ordersTable.currency, enforced.merchant.currency),
+      ),
+    );
   const [currentPeriod] = await db
     .select({
       total: sql<string>`coalesce(sum(${ordersTable.total}), 0)`,
@@ -763,6 +1115,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
     .where(
       and(
         eq(ordersTable.merchantId, enforced.merchant.id),
+        eq(ordersTable.currency, enforced.merchant.currency),
         inArray(ordersTable.status, paidStatuses),
         gte(ordersTable.createdAt, currentPeriodStart),
       ),
@@ -775,6 +1128,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
     .where(
       and(
         eq(ordersTable.merchantId, enforced.merchant.id),
+        eq(ordersTable.currency, enforced.merchant.currency),
         inArray(ordersTable.status, paidStatuses),
         gte(ordersTable.createdAt, previousPeriodStart),
         lt(ordersTable.createdAt, currentPeriodStart),
@@ -830,6 +1184,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
   res.json(
     GetDashboardOverviewResponse.parse({
       storeName: enforced.merchant.storeName,
+      currency: enforced.merchant.currency,
       storeSlug: enforced.merchant.storeName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
@@ -1081,7 +1436,13 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
   }
 
   const amount = Number(parsed.data.amount.toFixed(2));
-  const currency = (parsed.data.currency ?? "USD").toUpperCase();
+  const currency = (parsed.data.currency ?? merchant.currency).toUpperCase();
+  if (currency !== merchant.currency) {
+    res.status(400).json({
+      error: `Withdrawal currency must match your dashboard currency (${merchant.currency})`,
+    });
+    return;
+  }
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(
@@ -1229,50 +1590,52 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   try {
     const imported = await importPublicSupplierProduct(parsed.data.sourceUrl);
-    let supplierUrl: string;
-    try {
-      const parsedSupplierUrl = new URL(parsed.data.supplierUrl);
-      if (!["http:", "https:"].includes(parsedSupplierUrl.protocol)) {
-        throw new Error("Supplier link must use http or https");
-      }
-      supplierUrl = parsedSupplierUrl.toString();
-    } catch {
-      throw new Error("Enter a valid supplier website link");
+    const supplierUrl = normalizedSupplierUrl(
+      imported.sourceUrl,
+      parsed.data.supplierUrl,
+    ).url;
+    const supplier = await ensureSupplierRecord(merchant.id, supplierUrl);
+    const duplicateConditions = [eq(supplierProductsTable.sourceUrl, imported.sourceUrl)];
+    if (imported.sourceProductId) {
+      duplicateConditions.push(
+        eq(supplierProductsTable.sourceProductId, imported.sourceProductId),
+      );
     }
-    const sellingPrice = calculateSellingPrice(
-      parsed.data.costPrice ?? imported.price,
-      parsed.data.profitType,
-      parsed.data.profitValue,
-    );
-    const existing = (
-      await db
-        .select()
-        .from(supplierProductsTable)
-        .where(
-          and(
-            eq(supplierProductsTable.merchantId, merchant.id),
-            eq(supplierProductsTable.sourceUrl, imported.sourceUrl),
-          ),
-        )
-        .limit(1)
-    )[0];
-    const values = {
-      sourceUrl: imported.sourceUrl,
-      supplierUrl,
-      sourceDomain: imported.sourceDomain,
-      title: imported.title,
-      description: imported.description,
-      imageUrl: imported.imageUrl,
-      price:
-        parsed.data.costPrice === undefined
-          ? imported.price
-          : parsed.data.costPrice.toFixed(2),
-      currency: imported.currency,
-      profitType: parsed.data.profitType,
-      profitValue: parsed.data.profitValue.toFixed(2),
-      sellingPrice: sellingPrice === null ? null : sellingPrice.toFixed(2),
-      status: "active",
-    } as const;
+    if (imported.sku) {
+      duplicateConditions.push(eq(supplierProductsTable.sku, imported.sku));
+    }
+    const duplicates = await db
+      .select()
+      .from(supplierProductsTable)
+      .where(
+        and(eq(supplierProductsTable.merchantId, merchant.id), or(...duplicateConditions)),
+      )
+      .limit(10);
+    const duplicateAction = parsed.data.duplicateAction ?? "update_existing";
+    if (duplicates.length && duplicateAction === "review") {
+      res.status(409).json({
+        error: "A matching supplier product needs your decision",
+        duplicates: duplicates.map((product) => ({
+          id: product.id,
+          title: product.title,
+          sourceUrl: product.sourceUrl,
+          matchReason:
+            product.sourceUrl === imported.sourceUrl
+              ? "same source URL"
+              : product.sku === imported.sku
+                ? "same SKU"
+                : "same source product ID",
+        })),
+      });
+      return;
+    }
+    if (duplicates.length && duplicateAction === "skip") {
+      res.status(200).json(ImportSupplierProductResponse.parse(serializeSupplierProduct(duplicates[0])));
+      return;
+    }
+    const existing =
+      duplicateAction === "create_new" ? undefined : duplicates[0];
+    const values = importedProductValues(imported, parsed.data, supplier.id);
     const [product] = existing
       ? await db
           .update(supplierProductsTable)
@@ -1284,16 +1647,446 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
           .values({ merchantId: merchant.id, ...values })
           .returning();
     if (!product) throw new Error("Supplier product could not be saved");
-    res.status(201).json(
-      ImportSupplierProductResponse.parse({
-        ...serializeSupplierProduct(product),
-      }),
+    await db.insert(supplierImportAttemptsTable).values({
+      merchantId: merchant.id,
+      supplierProductId: product.id,
+      sourceUrl: imported.sourceUrl,
+      status: product.importStatus,
+      message: existing ? "Product updated from source" : "Product imported from source",
+    });
+    res.status(existing ? 200 : 201).json(
+      ImportSupplierProductResponse.parse(serializeSupplierProduct(product)),
     );
   } catch (error) {
     res.status(422).json({
       error: error instanceof Error ? error.message : "Supplier page could not be imported",
     });
   }
+});
+
+router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = AnalyzeSupplierProductBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a public supplier product URL" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const imported = await importPublicSupplierProduct(parsed.data.sourceUrl);
+    const duplicateConditions = [eq(supplierProductsTable.sourceUrl, imported.sourceUrl)];
+    if (imported.sourceProductId) {
+      duplicateConditions.push(
+        eq(supplierProductsTable.sourceProductId, imported.sourceProductId),
+      );
+    }
+    if (imported.sku) duplicateConditions.push(eq(supplierProductsTable.sku, imported.sku));
+    const duplicates = await db
+      .select()
+      .from(supplierProductsTable)
+      .where(
+        and(eq(supplierProductsTable.merchantId, merchant.id), or(...duplicateConditions)),
+      )
+      .limit(10);
+    res.json(
+      AnalyzeSupplierProductResponse.parse({
+        status: "needs_review",
+        preview: serializeSupplierPreview(imported),
+        duplicates: duplicates.map((product) => ({
+          id: product.id,
+          title: product.title,
+          sourceUrl: product.sourceUrl,
+          matchReason:
+            product.sourceUrl === imported.sourceUrl
+              ? "same source URL"
+              : product.sku === imported.sku
+                ? "same SKU"
+                : "same source product ID",
+        })),
+        message: duplicates.length
+          ? "Review the matching product before importing."
+          : "Review the extracted fields before importing.",
+      }),
+    );
+  } catch (error) {
+    res.status(422).json({
+      error: error instanceof Error ? error.message : "Supplier page could not be analyzed",
+    });
+  }
+});
+
+router.post("/supplier-products/batch", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = ImportSupplierProductBatchBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter one or more valid supplier URLs" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [batch] = await db
+    .insert(supplierImportBatchesTable)
+    .values({
+      merchantId: merchant.id,
+      sourceCount: parsed.data.sourceUrls.length,
+      status: "analyzing",
+    })
+    .returning();
+  if (!batch) {
+    res.status(500).json({ error: "Import batch could not be created" });
+    return;
+  }
+  const results: Array<Record<string, unknown>> = [];
+  let completedCount = 0;
+  for (const sourceUrl of parsed.data.sourceUrls) {
+    try {
+      const imported = await importPublicSupplierProduct(sourceUrl);
+      const supplier = await ensureSupplierRecord(
+        merchant.id,
+        new URL(imported.sourceUrl).origin,
+      );
+      const values = importedProductValues(imported, {
+        supplierUrl: supplier.website,
+        profitType: parsed.data.profitType,
+        profitValue: parsed.data.profitValue,
+        inventoryStrategy: parsed.data.inventoryStrategy,
+        visibility: "draft",
+      }, supplier.id);
+      const [product] = await db
+        .insert(supplierProductsTable)
+        .values({ merchantId: merchant.id, ...values })
+        .returning();
+      if (!product) throw new Error("Product could not be saved");
+      await db.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: product.id,
+        batchId: batch.id,
+        sourceUrl: imported.sourceUrl,
+        status: "imported",
+      });
+      completedCount += 1;
+      results.push({ sourceUrl, status: "imported", product: serializeSupplierProduct(product) });
+    } catch (error) {
+      await db.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        batchId: batch.id,
+        sourceUrl,
+        status: "failed",
+        message: error instanceof Error ? error.message : "Source could not be imported",
+      });
+      results.push({
+        sourceUrl,
+        status: "failed",
+        message: error instanceof Error ? error.message : "Source could not be imported",
+      });
+    }
+  }
+  const failedCount = results.length - completedCount;
+  await db
+    .update(supplierImportBatchesTable)
+    .set({
+      status: failedCount ? (completedCount ? "partially_imported" : "failed") : "imported",
+      completedCount,
+      failedCount,
+      completedAt: new Date(),
+    })
+    .where(eq(supplierImportBatchesTable.id, batch.id));
+  res.json(
+    ImportSupplierProductBatchResponse.parse({
+      batchId: batch.id,
+      status: failedCount ? (completedCount ? "partially_imported" : "failed") : "imported",
+      results,
+    }),
+  );
+});
+
+router.post("/supplier-products/manual", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateManualSupplierProductBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a title and selling price for the manual product" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const supplierUrl = normalizedSupplierUrl(
+      parsed.data.supplierUrl ?? "https://manual.local",
+      parsed.data.supplierUrl,
+    );
+    const supplier = parsed.data.supplierUrl
+      ? await ensureSupplierRecord(merchant.id, supplierUrl.url, parsed.data.supplierName)
+      : null;
+    const sourceUrl = parsed.data.supplierUrl ?? `https://manual.invalid/product/${randomUUID()}`;
+    const [product] = await db
+      .insert(supplierProductsTable)
+      .values({
+        merchantId: merchant.id,
+        supplierId: supplier?.id ?? null,
+        sourceUrl,
+        supplierUrl: supplier?.website ?? "https://manual.invalid",
+        sourceDomain: supplier?.domain ?? "manual",
+        title: parsed.data.title,
+        description: parsed.data.description ?? null,
+        imageUrl: parsed.data.imageUrl ?? null,
+        price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
+        salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
+        currency: parsed.data.currency.toUpperCase(),
+        sku: parsed.data.sku ?? null,
+        category: parsed.data.category ?? null,
+        tags: parsed.data.tags ?? [],
+        sellingPrice: parsed.data.sellingPrice.toFixed(2),
+        inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
+        inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
+        availabilityQuantity: parsed.data.inventoryQuantity ?? null,
+        status: "active",
+        visibility: "active",
+        importStatus: "manual_import_required",
+        importedAt: new Date(),
+        publishedAt: new Date(),
+      })
+      .returning();
+    if (!product) throw new Error("Manual product could not be saved");
+    await db.insert(supplierImportAttemptsTable).values({
+      merchantId: merchant.id,
+      supplierProductId: product.id,
+      sourceUrl,
+      status: "manual_import_required",
+      message: "Created with merchant-supplied product details",
+    });
+    res.status(201).json(CreateManualSupplierProductResponse.parse(serializeSupplierProduct(product)));
+  } catch (error) {
+    res.status(422).json({
+      error: error instanceof Error ? error.message : "Manual product could not be saved",
+    });
+  }
+});
+
+router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = RefreshSupplierProductParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid supplier product" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const product = (
+      await db
+        .select()
+        .from(supplierProductsTable)
+        .where(
+          and(
+            eq(supplierProductsTable.merchantId, merchant.id),
+            eq(supplierProductsTable.id, params.data.id),
+          ),
+        )
+        .limit(1)
+    )[0];
+  if (!product) {
+    res.status(404).json({ error: "Supplier product not found" });
+    return;
+  }
+  try {
+    const imported = await importPublicSupplierProduct(product.sourceUrl);
+    const source = serializeSupplierPreview(imported);
+    const current = serializeSupplierProduct(product);
+    const fields = ["title", "description", "imageUrl", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
+    const changes = fields
+      .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(source[field]))
+      .map((field) => ({
+        field,
+        current: current[field],
+        incoming: source[field],
+        customized: Boolean(jsonRecord(product.merchantOverrides)[field]),
+      }));
+    await db
+      .update(supplierProductsTable)
+      .set({ lastAttemptedSync: new Date(), importStatus: changes.length ? "needs_review" : "imported" })
+      .where(eq(supplierProductsTable.id, product.id));
+    await db.insert(supplierImportAttemptsTable).values({
+      merchantId: merchant.id,
+      supplierProductId: product.id,
+      sourceUrl: product.sourceUrl,
+      status: changes.length ? "needs_review" : "imported",
+      changes,
+    });
+    res.json(
+      RefreshSupplierProductResponse.parse({
+        product: serializeSupplierProduct(product),
+        changes,
+        message: changes.length ? "Review source changes before accepting them." : "Source is unchanged.",
+      }),
+    );
+  } catch (error) {
+    await db
+      .update(supplierProductsTable)
+      .set({ lastAttemptedSync: new Date(), importStatus: "source_unavailable", importError: error instanceof Error ? error.message : "Source unavailable" })
+      .where(eq(supplierProductsTable.id, product.id));
+    res.status(422).json({ error: error instanceof Error ? error.message : "Supplier source could not be refreshed" });
+  }
+});
+
+router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = AcceptSupplierRefreshParams.safeParse(req.params);
+  const parsed = AcceptSupplierRefreshBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose at least one refresh field to accept" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const product = (
+    await db
+      .select()
+      .from(supplierProductsTable)
+      .where(
+        and(
+          eq(supplierProductsTable.id, params.data.id),
+          eq(supplierProductsTable.merchantId, merchant.id),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!product) {
+    res.status(404).json({ error: "Supplier product not found" });
+    return;
+  }
+  try {
+    const imported = await importPublicSupplierProduct(product.sourceUrl);
+    const accepted = new Set(parsed.data.fields);
+    const updates: Record<string, unknown> = {
+      importStatus: "imported",
+      importError: null,
+      lastAttemptedSync: new Date(),
+    };
+    const sourceFields = {
+      title: imported.title,
+      description: imported.description,
+      imageUrl: imported.imageUrl,
+      imageUrls: imported.imageUrls,
+      price: imported.price === null ? null : Number(imported.price).toFixed(2),
+      salePrice:
+        imported.salePrice === null
+          ? null
+          : Number(imported.salePrice).toFixed(2),
+      currency: imported.currency,
+      sku: imported.sku,
+      sourceProductId: imported.sourceProductId,
+      variants: imported.variants,
+      attributes: imported.attributes,
+      availability: imported.availability,
+      availabilityQuantity: imported.availabilityQuantity,
+      category: imported.category,
+      specifications: imported.specifications,
+      brand: imported.brand,
+      shippingInformation: imported.shippingInformation,
+    };
+    for (const [field, value] of Object.entries(sourceFields)) {
+      if ((parsed.data.fields as readonly string[]).includes(field)) {
+        updates[field] = value;
+      }
+    }
+    const [updated] = await db
+      .update(supplierProductsTable)
+      .set(updates)
+      .where(eq(supplierProductsTable.id, product.id))
+      .returning();
+    if (!updated) throw new Error("Supplier product could not be updated");
+    await db.insert(supplierImportAttemptsTable).values({
+      merchantId: merchant.id,
+      supplierProductId: product.id,
+      sourceUrl: product.sourceUrl,
+      status: "imported",
+      message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
+      changes: parsed.data.fields,
+    });
+    res.json(
+      AcceptSupplierRefreshResponse.parse({
+        product: serializeSupplierProduct(updated),
+        acceptedFields: parsed.data.fields,
+        message: "Selected source changes were accepted.",
+      }),
+    );
+  } catch (error) {
+    res.status(422).json({
+      error: error instanceof Error ? error.message : "Source refresh could not be accepted",
+    });
+  }
+});
+
+router.get("/suppliers", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const suppliers = await db
+    .select({
+      supplier: suppliersTable,
+      productCount: sql<string>`count(${supplierProductsTable.id})`,
+    })
+    .from(suppliersTable)
+    .leftJoin(
+      supplierProductsTable,
+      eq(supplierProductsTable.supplierId, suppliersTable.id),
+    )
+    .where(eq(suppliersTable.merchantId, merchant.id))
+    .groupBy(suppliersTable.id)
+    .orderBy(desc(suppliersTable.updatedAt));
+  res.json(
+    ListSuppliersResponse.parse(
+      suppliers.map(({ supplier, productCount }) =>
+        serializeSupplier(supplier, Number(productCount)),
+      ),
+    ),
+  );
+});
+
+router.patch("/suppliers/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdateSupplierParams.safeParse(req.params);
+  const parsed = UpdateSupplierBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Enter valid supplier details" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const existing = (
+    await db
+      .select()
+      .from(suppliersTable)
+      .where(
+        and(
+          eq(suppliersTable.id, params.data.id),
+          eq(suppliersTable.merchantId, merchant.id),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!existing) {
+    res.status(404).json({ error: "Supplier not found" });
+    return;
+  }
+  const [supplier] = await db
+    .update(suppliersTable)
+    .set({ ...parsed.data, updatedAt: new Date() })
+    .where(eq(suppliersTable.id, existing.id))
+    .returning();
+  if (!supplier) {
+    res.status(500).json({ error: "Supplier could not be updated" });
+    return;
+  }
+  const [{ productCount }] = await db
+    .select({ productCount: sql<string>`count(${supplierProductsTable.id})` })
+    .from(supplierProductsTable)
+    .where(eq(supplierProductsTable.supplierId, supplier.id));
+  res.json(
+    UpdateSupplierResponse.parse(
+      serializeSupplier(supplier, Number(productCount)),
+    ),
+  );
 });
 
 router.get("/customers", async (req, res): Promise<void> => {
@@ -1491,6 +2284,7 @@ router.post("/orders", async (req, res): Promise<void> => {
           customerId: customer.id,
           orderNumber,
           total,
+          currency: merchant.currency,
           status,
           supplierProductId: supplierProduct?.id ?? null,
           shippingAddress: parsed.data.shippingAddress?.trim() || null,
@@ -1978,7 +2772,7 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
       .update(ordersTable)
       .set({
         fulfillmentStatus: nextStatus,
-        status: nextStatus === "fulfilled" ? "fulfilled" : existing.order.status,
+         status: nextStatus === "delivered" ? "fulfilled" : existing.order.status,
       })
       .where(eq(ordersTable.id, existing.order.id))
       .returning();
@@ -1988,7 +2782,7 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
       type: "dropship_status_updated",
       title: `Order ${order.orderNumber} supplier status updated`,
       description: `Supplier handoff marked ${nextStatus.replaceAll("_", " ")}.`,
-      tone: nextStatus === "fulfilled" ? "positive" : "neutral",
+       tone: nextStatus === "delivered" ? "positive" : "neutral",
     });
     return { order, customer: existing.customer, product: existing.product };
   });
@@ -2197,6 +2991,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
       .values({
         merchantId: merchant.id,
         amount: amount.toFixed(2),
+        currency: merchant.currency,
         method: "bank_transfer",
         reference,
         senderName: parsed.data.senderName.trim(),
@@ -2231,6 +3026,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
       title: "Bank transfer submitted",
       description: `Transfer ${reference} is waiting for admin review.`,
       amount: amount.toFixed(2),
+      currency: merchant.currency,
       tone: "neutral",
     });
     return created;

@@ -9,6 +9,7 @@ import type { RevenuePoint } from './revenuePoint';
 import type { Subscription } from './subscription';
 
 export interface DashboardOverview {
+  currency: string;
   storeName: string;
   storeSlug: string;
   revenue: number;
