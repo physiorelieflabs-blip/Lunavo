@@ -5,6 +5,230 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+export type InventoryReservationStatus = typeof InventoryReservationStatus[keyof typeof InventoryReservationStatus];
+
+
+export const InventoryReservationStatus = {
+  reserved: 'reserved',
+  consumed: 'consumed',
+  released: 'released',
+  expired: 'expired',
+} as const;
+
+export interface InventoryReservation {
+  id: number;
+  merchantId: number;
+  supplierProductId: number;
+  orderId: number;
+  /** @minimum 1 */
+  quantity: number;
+  status: InventoryReservationStatus;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InventoryMovement {
+  id: number;
+  merchantId: number;
+  supplierProductId: number;
+  /** @nullable */
+  orderId: number | null;
+  quantityDelta: number;
+  reason: string;
+  referenceKey: string;
+  createdAt: string;
+}
+
+export interface InventoryAdjustmentInput {
+  /** @minimum 1 */
+  supplierProductId: number;
+  quantityDelta: number;
+  /**
+     * @minLength 2
+     * @maxLength 500
+     */
+  reason: string;
+  /**
+     * @minLength 8
+     * @maxLength 160
+     */
+  referenceKey: string;
+}
+
+export type PaymentIntentInputMethod = typeof PaymentIntentInputMethod[keyof typeof PaymentIntentInputMethod];
+
+
+export const PaymentIntentInputMethod = {
+  manual_bank_transfer: 'manual_bank_transfer',
+  manual_cash: 'manual_cash',
+  manual_other: 'manual_other',
+} as const;
+
+export interface PaymentIntentInput {
+  /** @minimum 1 */
+  orderId: number;
+  /**
+     * Must equal the server-computed order amount; never trusted from the client.
+     * @minimum 1
+     */
+  amountMinor?: number;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+  method: PaymentIntentInputMethod;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  evidenceReference?: string | null;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     * @nullable
+     */
+  idempotencyKey?: string | null;
+}
+
+export interface PaymentVerificationInput {
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  evidenceReference?: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  note?: string | null;
+}
+
+export type PaymentIntentStatus = typeof PaymentIntentStatus[keyof typeof PaymentIntentStatus];
+
+
+export const PaymentIntentStatus = {
+  created: 'created',
+  submitted: 'submitted',
+  verified: 'verified',
+  failed: 'failed',
+  canceled: 'canceled',
+  refunded: 'refunded',
+  partially_refunded: 'partially_refunded',
+  disputed: 'disputed',
+} as const;
+
+export interface PaymentIntent {
+  id: number;
+  orderId: number;
+  amountMinor: number;
+  currency: string;
+  method: string;
+  status: PaymentIntentStatus;
+  /** @nullable */
+  evidenceReference: string | null;
+  createdAt: string;
+}
+
+export interface MerchantBalance {
+  currency: string;
+  ledgerBalanceMinor: number;
+  availableBalanceMinor: number;
+  heldBalanceMinor: number;
+}
+
+export interface RefundInput {
+  /** @minimum 1 */
+  orderId: number;
+  /** @minimum 1 */
+  amountMinor: number;
+  /**
+     * @minLength 2
+     * @maxLength 2000
+     */
+  reason: string;
+  inventoryRestock?: boolean;
+}
+
+export type RefundRecordStatus = typeof RefundRecordStatus[keyof typeof RefundRecordStatus];
+
+
+export const RefundRecordStatus = {
+  requested: 'requested',
+  approved: 'approved',
+  rejected: 'rejected',
+  processed: 'processed',
+  canceled: 'canceled',
+} as const;
+
+export interface RefundRecord {
+  id: number;
+  orderId: number;
+  amountMinor: number;
+  currency: string;
+  status: RefundRecordStatus;
+  reason: string;
+  inventoryRestock: boolean;
+  createdAt: string;
+}
+
+export interface ReconciliationInput {
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+  expectedMinor: number;
+  observedMinor: number;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  note?: string | null;
+}
+
+export type ReconciliationRecordStatus = typeof ReconciliationRecordStatus[keyof typeof ReconciliationRecordStatus];
+
+
+export const ReconciliationRecordStatus = {
+  open: 'open',
+  investigating: 'investigating',
+  resolved: 'resolved',
+  void: 'void',
+} as const;
+
+export interface ReconciliationRecord {
+  id: number;
+  currency: string;
+  expectedMinor: number;
+  observedMinor: number;
+  discrepancyMinor: number;
+  status: ReconciliationRecordStatus;
+  /** @nullable */
+  note: string | null;
+  createdAt: string;
+}
+
+export type ReconciliationUpdateInputStatus = typeof ReconciliationUpdateInputStatus[keyof typeof ReconciliationUpdateInputStatus];
+
+
+export const ReconciliationUpdateInputStatus = {
+  open: 'open',
+  investigating: 'investigating',
+  resolved: 'resolved',
+  void: 'void',
+} as const;
+
+export interface ReconciliationUpdateInput {
+  status: ReconciliationUpdateInputStatus;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  note?: string | null;
+}
+
 export interface CurrencySettings {
   /**
      * @minLength 3

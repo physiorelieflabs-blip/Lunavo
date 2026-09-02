@@ -899,8 +899,311 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithdrawalDetails"
+  /payments:
+    post:
+      operationId: createPaymentIntent
+      tags: [payments]
+      summary: Create an authoritative internal payment intent for an order
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 120 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentIntentInput"
+      responses:
+        "201":
+          description: Payment intent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentIntent" }
+  /payments/{id}/verify:
+    post:
+      operationId: verifyPayment
+      tags: [payments]
+      summary: Verify submitted manual payment evidence
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentVerificationInput" }
+      responses:
+        "200":
+          description: Verified payment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentIntent" }
+  /balances:
+    get:
+      operationId: getMerchantBalances
+      tags: [payments]
+      summary: Get ledger-derived merchant balances
+      responses:
+        "200":
+          description: Currency-separated balances
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MerchantBalance" }
+  /refunds:
+    post:
+      operationId: createRefund
+      tags: [payments]
+      summary: Request a full or partial refund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefundInput" }
+      responses:
+        "201":
+          description: Refund request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefundRecord" }
+  /refunds/{id}/approve:
+    post:
+      operationId: approveRefund
+      tags: [payments]
+      summary: Approve and post a refund reversal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Approved refund
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefundRecord" }
+  /reconciliation:
+    post:
+      operationId: createReconciliation
+      tags: [payments]
+      summary: Record a reconciliation discrepancy without rewriting ledger history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReconciliationInput" }
+      responses:
+        "201":
+          description: Reconciliation record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReconciliationRecord" }
+    get:
+      operationId: listReconciliations
+      tags: [payments]
+      summary: List reconciliation records
+      responses:
+        "200":
+          description: Reconciliation records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ReconciliationRecord" }
+  /reconciliation/{id}:
+    patch:
+      operationId: updateReconciliation
+      tags: [payments]
+      summary: Update reconciliation workflow status without changing ledger history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReconciliationUpdateInput" }
+      responses:
+        "200":
+          description: Updated reconciliation record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReconciliationRecord" }
+  /inventory/reservations:
+    get:
+      operationId: listInventoryReservations
+      tags: [inventory]
+      summary: List tenant-scoped inventory reservations
+      responses:
+        "200":
+          description: Inventory reservations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InventoryReservation" }
+  /inventory/movements:
+    get:
+      operationId: listInventoryMovements
+      tags: [inventory]
+      summary: List immutable tenant-scoped inventory movements
+      responses:
+        "200":
+          description: Inventory movement history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InventoryMovement" }
+  /inventory/adjustments:
+    post:
+      operationId: createInventoryAdjustment
+      tags: [inventory]
+      summary: Apply an idempotent manual stock adjustment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InventoryAdjustmentInput" }
+      responses:
+        "201":
+          description: Stock adjustment movement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InventoryMovement" }
 components:
   schemas:
+    InventoryReservation:
+      type: object
+      properties:
+        id: { type: integer }
+        merchantId: { type: integer }
+        supplierProductId: { type: integer }
+        orderId: { type: integer }
+        quantity: { type: integer, minimum: 1 }
+        status: { type: string, enum: [reserved, consumed, released, expired] }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, merchantId, supplierProductId, orderId, quantity, status, expiresAt, createdAt, updatedAt]
+    InventoryMovement:
+      type: object
+      properties:
+        id: { type: integer }
+        merchantId: { type: integer }
+        supplierProductId: { type: integer }
+        orderId: { type: ["integer", "null"] }
+        quantityDelta:
+          oneOf:
+            - { type: integer, maximum: -1 }
+            - { type: integer, minimum: 1 }
+        reason: { type: string }
+        referenceKey: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, merchantId, supplierProductId, orderId, quantityDelta, reason, referenceKey, createdAt]
+    InventoryAdjustmentInput:
+      type: object
+      properties:
+        supplierProductId: { type: integer, minimum: 1 }
+        quantityDelta: { type: integer, not: 0 }
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        referenceKey: { type: string, minLength: 8, maxLength: 160 }
+      required: [supplierProductId, quantityDelta, reason, referenceKey]
+    PaymentIntentInput:
+      type: object
+      properties:
+        orderId: { type: integer, minimum: 1 }
+        amountMinor:
+          type: integer
+          minimum: 1
+          description: Must equal the server-computed order amount; never trusted from the client.
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        method:
+          type: string
+          enum: [manual_bank_transfer, manual_cash, manual_other]
+        evidenceReference: { type: ["string", "null"], maxLength: 500 }
+        idempotencyKey: { type: ["string", "null"], minLength: 8, maxLength: 120 }
+      required: [orderId, currency, method]
+    PaymentVerificationInput:
+      type: object
+      properties:
+        evidenceReference: { type: ["string", "null"], maxLength: 500 }
+        note: { type: ["string", "null"], maxLength: 2000 }
+    PaymentIntent:
+      type: object
+      properties:
+        id: { type: integer }
+        orderId: { type: integer }
+        amountMinor: { type: integer }
+        currency: { type: string }
+        method: { type: string }
+        status:
+          type: string
+          enum: [created, submitted, verified, failed, canceled, refunded, partially_refunded, disputed]
+        evidenceReference: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, orderId, amountMinor, currency, method, status, evidenceReference, createdAt]
+    MerchantBalance:
+      type: object
+      properties:
+        currency: { type: string }
+        ledgerBalanceMinor: { type: integer }
+        availableBalanceMinor: { type: integer }
+        heldBalanceMinor: { type: integer }
+      required: [currency, ledgerBalanceMinor, availableBalanceMinor, heldBalanceMinor]
+    RefundInput:
+      type: object
+      properties:
+        orderId: { type: integer, minimum: 1 }
+        amountMinor: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 2, maxLength: 2000 }
+        inventoryRestock: { type: boolean, default: false }
+      required: [orderId, amountMinor, reason]
+    RefundRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        orderId: { type: integer }
+        amountMinor: { type: integer }
+        currency: { type: string }
+        status: { type: string, enum: [requested, approved, rejected, processed, canceled] }
+        reason: { type: string }
+        inventoryRestock: { type: boolean }
+        createdAt: { type: string, format: date-time }
+      required: [id, orderId, amountMinor, currency, status, reason, inventoryRestock, createdAt]
+    ReconciliationInput:
+      type: object
+      properties:
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        expectedMinor: { type: integer }
+        observedMinor: { type: integer }
+        note: { type: ["string", "null"], maxLength: 2000 }
+      required: [currency, expectedMinor, observedMinor]
+    ReconciliationRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        currency: { type: string }
+        expectedMinor: { type: integer }
+        observedMinor: { type: integer }
+        discrepancyMinor: { type: integer }
+        status: { type: string, enum: [open, investigating, resolved, void] }
+        note: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, currency, expectedMinor, observedMinor, discrepancyMinor, status, note, createdAt]
+    ReconciliationUpdateInput:
+      type: object
+      properties:
+        status: { type: string, enum: [open, investigating, resolved, void] }
+        note: { type: ["string", "null"], maxLength: 2000 }
+      required: [status]
     CurrencySettings:
       type: object
       properties:

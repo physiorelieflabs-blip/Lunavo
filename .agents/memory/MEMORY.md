@@ -3,3 +3,4 @@
 - [Merchant currency settlement](currency-settlement.md) — currency changes must not silently relabel or convert historical money.
 - [TS Pay payout boundary](ts-pay-payouts.md) — internal orchestration must not claim external bank settlement without a real regulated rail.
 - [AI migration runner](ai-migration-runner.md) — new SQL migrations also need registration in the explicit ordered runner list.
+- [Inventory reservation semantics](inventory-reservation-semantics.md) — manual numeric stock is held at checkout and decremented only on verified sale; source-based stock stays non-authoritative.

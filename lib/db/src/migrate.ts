@@ -18,6 +18,8 @@ const migrations = [
   "0007_supplier_import_workflows",
   "0008_merchant_currency",
   "0009_ai_operating_layer",
+  "0010_authoritative_accounting",
+  "0011_inventory_reservations_movements",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

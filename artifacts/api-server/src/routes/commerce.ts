@@ -22,6 +22,12 @@ import {
   merchantsTable,
   ordersTable,
   paymentsTable,
+  paymentIntentsTable,
+  paymentRecordsTable,
+  ledgerEntriesTable,
+  refundRecordsTable,
+  commerceTransitionHistoryTable,
+  reconciliationRecordsTable,
   supplierProductsTable,
   supplierImportAttemptsTable,
   supplierImportBatchesTable,
@@ -29,6 +35,8 @@ import {
   subscriptionsTable,
   withdrawalSecurityTable,
   withdrawalsTable,
+  inventoryReservationsTable,
+  inventoryMovementsTable,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -121,6 +129,24 @@ import {
   ExecuteAiActionResponse,
   RollbackAiActionParams,
   RollbackAiActionResponse,
+  CreatePaymentIntentBody,
+  CreatePaymentIntentResponse,
+  CreatePaymentIntentHeader,
+  VerifyPaymentBody,
+  VerifyPaymentResponse,
+  GetMerchantBalancesResponse,
+  CreateRefundBody,
+  CreateRefundResponse,
+  ApproveRefundResponse,
+  CreateReconciliationBody,
+  CreateReconciliationResponse,
+  ListReconciliationsResponse,
+  UpdateReconciliationBody,
+  UpdateReconciliationResponse,
+  ListInventoryReservationsResponse,
+  ListInventoryMovementsResponse,
+  CreateInventoryAdjustmentBody,
+  CreateInventoryAdjustmentResponse,
 } from "@workspace/api-zod";
 import {
   createTotpUri,
@@ -1931,6 +1957,18 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
         )[0];
         if (existing) return existing;
       }
+      // Compatibility boundary: legacy paid orders have no authoritative
+      // ledger entry. Refuse withdrawals rather than treating order status as
+      // settled revenue until those orders are verified through /payments.
+      if (!identity.isAdmin) {
+        const [unaccounted] = await tx.select({ count: sql<string>`count(*)` })
+          .from(ordersTable)
+          .leftJoin(ledgerEntriesTable, and(eq(ledgerEntriesTable.orderId, ordersTable.id), eq(ledgerEntriesTable.entryType, "sale")))
+          .where(and(eq(ordersTable.merchantId, merchant.id), inArray(ordersTable.status, ["paid", "fulfilled"]), isNull(ledgerEntriesTable.id)));
+        if (Number(unaccounted?.count ?? 0) > 0) {
+          throw new Error("Withdrawals are unavailable until paid orders have verified accounting records");
+        }
+      }
       const [revenue] = identity.isAdmin
         ? await tx
             .select({
@@ -3193,6 +3231,11 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
           .where(eq(ordersTable.id, existing.order.id))
           .returning();
         if (!order) throw new Error("Order could not be cancelled");
+        const reservation = (await tx.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.orderId, order.id), eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.status, "reserved"))).limit(1))[0];
+        if (reservation) {
+          await tx.update(inventoryReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(eq(inventoryReservationsTable.id, reservation.id), eq(inventoryReservationsTable.status, "reserved")));
+          await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: reservation.supplierProductId, orderId: order.id, quantityDelta: reservation.quantity, reason: "reservation_release", referenceKey: `release:${order.id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
+        }
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
           type: "order_cancelled",
@@ -3202,6 +3245,10 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
         });
         return { ...existing, order };
       }
+
+      // A status toggle is not accounting evidence. Payment verification is
+      // the only path that may create an authoritative sale ledger entry.
+      throw new Error("Submit and verify payment evidence before confirming this order");
 
       await tx.execute(
         sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${merchant.id} for update`,
@@ -3366,7 +3413,42 @@ router.post(
         if (!product || product.sellingPrice === null) {
           throw new Error("That product is no longer available");
         }
+        await tx.execute(
+          sql`select id from ${supplierProductsTable} where id=${product.id} and merchant_id=${merchant.id} for update`,
+        );
+        await tx
+          .update(inventoryReservationsTable)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(
+            and(
+              eq(inventoryReservationsTable.merchantId, merchant.id),
+              eq(inventoryReservationsTable.supplierProductId, product.id),
+              eq(inventoryReservationsTable.status, "reserved"),
+              lt(inventoryReservationsTable.expiresAt, new Date()),
+            ),
+          );
         const quantity = parsed.data.quantity;
+        if (!Number.isInteger(quantity) || quantity < 1) {
+          throw new Error("Quantity must be a positive integer");
+        }
+        if (product.inventoryStrategy !== "source_based" && product.availabilityQuantity !== null) {
+          const [reserved] = await tx
+            .select({
+              quantity: sql<string>`coalesce(sum(${inventoryReservationsTable.quantity}), 0)`,
+            })
+            .from(inventoryReservationsTable)
+            .where(
+              and(
+                eq(inventoryReservationsTable.merchantId, merchant.id),
+                eq(inventoryReservationsTable.supplierProductId, product.id),
+                eq(inventoryReservationsTable.status, "reserved"),
+                gte(inventoryReservationsTable.expiresAt, new Date()),
+              ),
+            );
+          if (quantity > product.availabilityQuantity - Number(reserved?.quantity ?? 0)) {
+            throw new Error("Insufficient inventory");
+          }
+        }
         const total = Number(
           (toNumber(product.sellingPrice) * quantity).toFixed(2),
         );
@@ -3443,6 +3525,23 @@ router.post(
           if (replay) return replay;
           throw new Error("Checkout order could not be created");
         }
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        await tx.insert(inventoryReservationsTable).values({
+          merchantId: merchant.id,
+          supplierProductId: product.id,
+          orderId: order.id,
+          quantity,
+          status: "reserved",
+          expiresAt,
+        });
+        await tx.insert(inventoryMovementsTable).values({
+          merchantId: merchant.id,
+          supplierProductId: product.id,
+          orderId: order.id,
+          quantityDelta: -quantity,
+          reason: "checkout_reservation",
+          referenceKey: `reservation:${order.id}`,
+        });
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
           type: "checkout_submitted",
@@ -3462,6 +3561,7 @@ router.post(
           ),
         );
     } catch (error) {
+      req.log.error({ err: error }, "public checkout failed");
       res.status(409).json({
         error:
           error instanceof Error
@@ -4383,6 +4483,218 @@ router.post("/admin/withdrawals/:id/details", async (req, res): Promise<void> =>
   } catch {
     res.status(500).json({ error: "Withdrawal destination could not be decrypted" });
   }
+});
+
+/* Authoritative accounting endpoints. Legacy order status cannot create revenue. */
+router.post("/payments", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const body = CreatePaymentIntentBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid payment intent" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const header = CreatePaymentIntentHeader.safeParse(req.headers);
+  const key = (header.success ? header.data["Idempotency-Key"] : undefined) ?? body.data.idempotencyKey ?? `order:${body.data.orderId}`;
+  try {
+    const intent = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${ordersTable} where id=${body.data.orderId} and merchant_id=${merchant.id} for update`);
+      const order = (await tx.select().from(ordersTable).where(and(eq(ordersTable.id, body.data.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
+      if (!order) throw new Error("Order not found");
+      if (order.currency !== body.data.currency.toUpperCase()) throw new Error("Payment currency does not match order");
+      const old = (await tx.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.merchantId, merchant.id), eq(paymentIntentsTable.idempotencyKey, key))).limit(1))[0];
+      if (old) return old;
+      const [created] = await tx.insert(paymentIntentsTable).values({ merchantId: merchant.id, orderId: order.id, amountMinor: Math.round(Number(order.total) * 100), currency: order.currency, method: body.data.method, evidenceReference: body.data.evidenceReference ?? null, idempotencyKey: key, status: body.data.evidenceReference ? "submitted" : "created" }).returning();
+      if (!created) throw new Error("Payment intent could not be created");
+      await tx.insert(paymentRecordsTable).values({ intentId: created.id, merchantId: merchant.id, orderId: order.id, amountMinor: created.amountMinor, currency: order.currency, method: created.method, evidenceReference: created.evidenceReference, status: created.status });
+      return created;
+    });
+    res.status(201).json(CreatePaymentIntentResponse.parse(intent));
+  } catch (error) { req.log.error({ err: error }, "payment intent creation failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Payment intent failed" }); }
+});
+
+router.post("/payments/:id/verify", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const body = VerifyPaymentBody.safeParse(req.body ?? {}); const id = Number(req.params.id);
+  if (!body.success || !Number.isInteger(id)) { res.status(400).json({ error: "Invalid verification" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const intent = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${paymentIntentsTable} where id=${id} and merchant_id=${merchant.id} for update`);
+      const current = (await tx.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.id, id), eq(paymentIntentsTable.merchantId, merchant.id))).limit(1))[0];
+      if (!current) throw new Error("Payment intent not found");
+       if (current.status === "verified") return current;
+      if (!["created", "submitted"].includes(current.status)) throw new Error("Payment is not awaiting verification");
+      const evidence = body.data.evidenceReference ?? current.evidenceReference;
+      if (!evidence) throw new Error("Evidence/reference is required");
+      const payment = (await tx.select({ id: paymentRecordsTable.id }).from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, id)).limit(1))[0];
+      if (!payment) throw new Error("Payment record not found");
+       const order = (await tx.select().from(ordersTable).where(and(eq(ordersTable.id, current.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
+       if (!order) throw new Error("Order not found");
+       if (order.supplierProductId) {
+         await tx.execute(sql`select id from ${supplierProductsTable} where id=${order.supplierProductId} and merchant_id=${merchant.id} for update`);
+         await tx.execute(sql`select id from ${inventoryReservationsTable} where order_id=${order.id} and merchant_id=${merchant.id} for update`);
+         const reservation = (await tx.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.orderId, order.id), eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.supplierProductId, order.supplierProductId))).limit(1))[0];
+         const product = (await tx.select().from(supplierProductsTable).where(and(eq(supplierProductsTable.id, order.supplierProductId), eq(supplierProductsTable.merchantId, merchant.id))).limit(1))[0];
+         if (reservation?.status === "reserved" && reservation.expiresAt <= new Date()) {
+           await tx.update(inventoryReservationsTable).set({ status: "expired", updatedAt: new Date() }).where(eq(inventoryReservationsTable.id, reservation.id));
+           throw new Error("Inventory reservation has expired");
+         }
+         if (product?.inventoryStrategy !== "source_based" && product.availabilityQuantity !== null && (!reservation || reservation.status !== "reserved")) throw new Error("Inventory reservation is missing or no longer active");
+         if (reservation?.status === "reserved") {
+           await tx.update(inventoryReservationsTable).set({ status: "consumed", updatedAt: new Date() }).where(and(eq(inventoryReservationsTable.id, reservation.id), eq(inventoryReservationsTable.status, "reserved")));
+            if (product?.inventoryStrategy !== "source_based" && product.availabilityQuantity !== null) {
+             const [updatedProduct] = await tx.update(supplierProductsTable)
+               .set({ availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} - ${reservation.quantity}` })
+               .where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id), sql`${supplierProductsTable.availabilityQuantity} >= ${reservation.quantity}`))
+               .returning();
+              if (!updatedProduct) throw new Error("Inventory changed before payment verification");
+           }
+           await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: reservation.supplierProductId, orderId: order.id, quantityDelta: -reservation.quantity, reason: "sale", referenceKey: `sale:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
+         }
+       }
+      const [updated] = await tx.update(paymentIntentsTable).set({ status: "verified", evidenceReference: evidence }).where(eq(paymentIntentsTable.id, id)).returning();
+      await tx.update(paymentRecordsTable).set({ status: "verified", evidenceReference: evidence, verifiedBy: identity.clerkUserId, verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, payment.id));
+      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: payment.id, amountMinor: current.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `payment:${id}` });
+      await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, current.orderId), eq(ordersTable.merchantId, merchant.id)));
+      await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentIntentId: id, entityType: "payment_intent", fromStatus: current.status, toStatus: "verified", actorId: identity.clerkUserId, note: body.data.note ?? null });
+      return updated;
+    });
+    res.json(VerifyPaymentResponse.parse(intent));
+  } catch (error) { req.log.error({ err: error }, "payment verification failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Payment verification failed" }); }
+});
+
+router.get("/balances", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity);
+  const rows = await db.select({ currency: ledgerEntriesTable.currency, balance: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}),0)` }).from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).groupBy(ledgerEntriesTable.currency);
+  res.json(GetMerchantBalancesResponse.parse(rows.map((r) => ({ currency: r.currency, ledgerBalanceMinor: Number(r.balance), availableBalanceMinor: Number(r.balance), heldBalanceMinor: 0 }))));
+});
+
+router.post("/refunds", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const body = CreateRefundBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid refund" }); return; } const merchant = await getOrCreateMerchant(identity);
+  try {
+    const refund = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${ordersTable} where id=${body.data.orderId} and merchant_id=${merchant.id} for update`);
+      const order = (await tx.select().from(ordersTable).where(and(eq(ordersTable.id, body.data.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
+      const intent = order && (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.orderId, order.id)).limit(1))[0];
+      if (!order || !intent || intent.status !== "verified") throw new Error("Only verified orders can be refunded");
+      const payment = (await tx.select({ id: paymentRecordsTable.id }).from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1))[0]; if (!payment) throw new Error("Payment record not found");
+      const previous = await tx.select({ total: sql<string>`coalesce(sum(${refundRecordsTable.amountMinor}),0)` }).from(refundRecordsTable).where(and(eq(refundRecordsTable.paymentRecordId, payment.id), inArray(refundRecordsTable.status, ["requested", "approved", "processed"])));
+      if (body.data.amountMinor + Number(previous[0]?.total ?? 0) > intent.amountMinor) throw new Error("Refund exceeds verified payment");
+       if (body.data.inventoryRestock && body.data.amountMinor !== intent.amountMinor) throw new Error("Inventory restock requires a full refund");
+      const [created] = await tx.insert(refundRecordsTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: payment.id, amountMinor: body.data.amountMinor, currency: intent.currency, reason: body.data.reason, inventoryRestock: body.data.inventoryRestock ?? false, requestedBy: identity.clerkUserId }).returning();
+      if (!created) throw new Error("Refund could not be created"); return created;
+    });
+    res.status(201).json(CreateRefundResponse.parse(refund));
+  } catch (error) { req.log.error({ err: error }, "refund creation failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Refund failed" }); }
+});
+
+router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const id = Number(req.params.id); const merchant = await getOrCreateMerchant(identity);
+  try {
+    const refund = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${refundRecordsTable} where id=${id} and merchant_id=${merchant.id} for update`);
+      const current = (await tx.select().from(refundRecordsTable).where(and(eq(refundRecordsTable.id, id), eq(refundRecordsTable.merchantId, merchant.id))).limit(1))[0];
+       if (!current) throw new Error("Refund not found");
+       if (current.status === "processed") return current;
+       if (current.status !== "requested") throw new Error("Refund is not awaiting approval");
+      await tx.execute(sql`select id from ${ordersTable} where id=${current.orderId} and merchant_id=${merchant.id} for update`);
+      const order = (await tx.select().from(ordersTable).where(eq(ordersTable.id, current.orderId)).limit(1))[0];
+      const [updated] = await tx.update(refundRecordsTable).set({ status: "processed", approvedBy: identity.clerkUserId, approvedAt: new Date() }).where(eq(refundRecordsTable.id, id)).returning();
+      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: current.paymentRecordId, refundId: id, amountMinor: -current.amountMinor, currency: current.currency, entryType: "refund", referenceKey: `refund:${id}` });
+      if (current.inventoryRestock && order?.supplierProductId) {
+        await tx.execute(sql`select id from ${supplierProductsTable} where id=${order.supplierProductId} and merchant_id=${merchant.id} for update`);
+         await tx.execute(sql`select id from ${inventoryReservationsTable} where order_id=${order.id} and merchant_id=${merchant.id} for update`);
+         const reservation = (await tx.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.orderId, order.id), eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.supplierProductId, order.supplierProductId))).limit(1))[0];
+          if (reservation && reservation.status !== "consumed") throw new Error("Only consumed inventory can be restocked");
+         const [movement] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: order.supplierProductId, orderId: order.id, quantityDelta: order.quantity, reason: "refund_restock", referenceKey: `restock:refund:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey }).returning();
+         if (movement) {
+           await tx.update(supplierProductsTable).set({ availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} + ${reservation?.quantity ?? order.quantity}` }).where(and(eq(supplierProductsTable.id, order.supplierProductId), eq(supplierProductsTable.merchantId, merchant.id), sql`${supplierProductsTable.availabilityQuantity} is not null`));
+         }
+      }
+      const refunded = await tx.select({ total: sql<string>`coalesce(sum(${refundRecordsTable.amountMinor}),0)` }).from(refundRecordsTable).where(and(eq(refundRecordsTable.paymentRecordId, current.paymentRecordId), inArray(refundRecordsTable.status, ["approved", "processed"])));
+      const payment = (await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.id, current.paymentRecordId)).limit(1))[0];
+      if (payment) {
+        const paymentStatus = Number(refunded[0]?.total ?? 0) >= payment.amountMinor ? "refunded" : "partially_refunded";
+        await tx.update(paymentRecordsTable).set({ status: paymentStatus }).where(eq(paymentRecordsTable.id, payment.id));
+        await tx.update(paymentIntentsTable).set({ status: paymentStatus }).where(eq(paymentIntentsTable.id, payment.intentId));
+      }
+      await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, refundId: id, entityType: "refund", fromStatus: "requested", toStatus: "processed", actorId: identity.clerkUserId });
+      return updated;
+    }); res.json(ApproveRefundResponse.parse(refund));
+  } catch (error) { req.log.error({ err: error }, "refund approval failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Refund failed" }); }
+});
+
+router.get("/inventory/reservations", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const rows = await db.select().from(inventoryReservationsTable)
+    .where(eq(inventoryReservationsTable.merchantId, merchant.id))
+    .orderBy(desc(inventoryReservationsTable.createdAt)).limit(500);
+  res.json(ListInventoryReservationsResponse.parse(rows));
+});
+
+router.get("/inventory/movements", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const rows = await db.select().from(inventoryMovementsTable)
+    .where(eq(inventoryMovementsTable.merchantId, merchant.id))
+    .orderBy(desc(inventoryMovementsTable.createdAt)).limit(500);
+  res.json(ListInventoryMovementsResponse.parse(rows));
+});
+
+router.post("/inventory/adjustments", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const body = CreateInventoryAdjustmentBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid inventory adjustment" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const movement = await db.transaction(async (tx) => {
+      const prior = (await tx.select().from(inventoryMovementsTable).where(and(eq(inventoryMovementsTable.merchantId, merchant.id), eq(inventoryMovementsTable.referenceKey, body.data.referenceKey))).limit(1))[0];
+      if (prior) return prior;
+      await tx.execute(sql`select id from ${supplierProductsTable} where id=${body.data.supplierProductId} and merchant_id=${merchant.id} for update`);
+      const product = (await tx.select().from(supplierProductsTable).where(and(eq(supplierProductsTable.id, body.data.supplierProductId), eq(supplierProductsTable.merchantId, merchant.id))).limit(1))[0];
+      if (!product) throw new Error("Product not found");
+      if (product.inventoryStrategy === "source_based" || product.availabilityQuantity === null) throw new Error("Product inventory is source-based or unknown");
+       const [reserved] = await tx.select({
+         quantity: sql<string>`coalesce(sum(${inventoryReservationsTable.quantity}), 0)`,
+       }).from(inventoryReservationsTable).where(and(
+         eq(inventoryReservationsTable.merchantId, merchant.id),
+         eq(inventoryReservationsTable.supplierProductId, product.id),
+         eq(inventoryReservationsTable.status, "reserved"),
+         gte(inventoryReservationsTable.expiresAt, new Date()),
+       ));
+       const activeReserved = Number(reserved?.quantity ?? 0);
+       if (product.availabilityQuantity + body.data.quantityDelta < activeReserved) throw new Error("Adjustment would undercut active reservations");
+      const [created] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: product.id, quantityDelta: body.data.quantityDelta, reason: body.data.reason.trim(), referenceKey: body.data.referenceKey.trim() }).returning();
+      if (!created) throw new Error("Adjustment could not be recorded");
+      await tx.update(supplierProductsTable).set({ availabilityQuantity: product.availabilityQuantity + body.data.quantityDelta }).where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)));
+      return created;
+    });
+    res.status(201).json(CreateInventoryAdjustmentResponse.parse(movement));
+  } catch (error) {
+    req.log.error({ err: error }, "inventory adjustment failed");
+    res.status(409).json({ error: error instanceof Error ? error.message : "Inventory adjustment failed" });
+  }
+});
+
+router.post("/reconciliation", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const body = CreateReconciliationBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid reconciliation" }); return; } const merchant = await getOrCreateMerchant(identity);
+  const [record] = await db.insert(reconciliationRecordsTable).values({ merchantId: merchant.id, currency: body.data.currency.toUpperCase(), expectedMinor: body.data.expectedMinor, observedMinor: body.data.observedMinor, discrepancyMinor: body.data.observedMinor - body.data.expectedMinor, note: body.data.note ?? null, createdBy: identity.clerkUserId }).returning();
+  res.status(201).json(CreateReconciliationResponse.parse(record));
+});
+router.get("/reconciliation", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity);
+  const records = await db.select().from(reconciliationRecordsTable).where(eq(reconciliationRecordsTable.merchantId, merchant.id)).orderBy(desc(reconciliationRecordsTable.createdAt));
+  res.json(ListReconciliationsResponse.parse(records));
+});
+router.patch("/reconciliation/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const body = UpdateReconciliationBody.safeParse(req.body); const id = Number(req.params.id);
+  if (!body.success || !Number.isInteger(id)) { res.status(400).json({ error: "Invalid reconciliation update" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const [record] = await db.update(reconciliationRecordsTable).set({ status: body.data.status, note: body.data.note ?? null, ...(body.data.status === "resolved" ? { resolvedBy: identity.clerkUserId, resolvedAt: new Date() } : {}) }).where(and(eq(reconciliationRecordsTable.id, id), eq(reconciliationRecordsTable.merchantId, merchant.id))).returning();
+  if (!record) { res.status(404).json({ error: "Reconciliation record not found" }); return; }
+  res.json(UpdateReconciliationResponse.parse(record));
 });
 
 export default router;

@@ -1791,3 +1791,288 @@ export const RevealWithdrawalDetailsResponse = zod.object({
 })
 
 
+/**
+ * @summary Create an authoritative internal payment intent for an order
+ */
+export const createPaymentIntentHeaderIdempotencyKeyMin = 8;
+export const createPaymentIntentHeaderIdempotencyKeyMax = 120;
+
+
+
+export const CreatePaymentIntentHeader = zod.object({
+  "Idempotency-Key": zod.string().min(createPaymentIntentHeaderIdempotencyKeyMin).max(createPaymentIntentHeaderIdempotencyKeyMax).optional()
+})
+
+
+
+export const createPaymentIntentBodyCurrencyMin = 3;
+export const createPaymentIntentBodyCurrencyMax = 3;
+
+export const createPaymentIntentBodyEvidenceReferenceMax = 500;
+
+export const createPaymentIntentBodyIdempotencyKeyMin = 8;
+export const createPaymentIntentBodyIdempotencyKeyMax = 120;
+
+
+
+export const CreatePaymentIntentBody = zod.object({
+  "orderId": zod.int().min(1),
+  "amountMinor": zod.int().min(1).optional().describe('Must equal the server-computed order amount; never trusted from the client.'),
+  "currency": zod.string().min(createPaymentIntentBodyCurrencyMin).max(createPaymentIntentBodyCurrencyMax),
+  "method": zod.enum(['manual_bank_transfer', 'manual_cash', 'manual_other']),
+  "evidenceReference": zod.string().max(createPaymentIntentBodyEvidenceReferenceMax).nullish(),
+  "idempotencyKey": zod.string().min(createPaymentIntentBodyIdempotencyKeyMin).max(createPaymentIntentBodyIdempotencyKeyMax).nullish()
+})
+
+export const CreatePaymentIntentResponse = zod.object({
+  "id": zod.int(),
+  "orderId": zod.int(),
+  "amountMinor": zod.int(),
+  "currency": zod.string(),
+  "method": zod.string(),
+  "status": zod.enum(['created', 'submitted', 'verified', 'failed', 'canceled', 'refunded', 'partially_refunded', 'disputed']),
+  "evidenceReference": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Verify submitted manual payment evidence
+ */
+export const VerifyPaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const verifyPaymentBodyEvidenceReferenceMax = 500;
+
+export const verifyPaymentBodyNoteMax = 2000;
+
+
+
+export const VerifyPaymentBody = zod.object({
+  "evidenceReference": zod.string().max(verifyPaymentBodyEvidenceReferenceMax).nullish(),
+  "note": zod.string().max(verifyPaymentBodyNoteMax).nullish()
+})
+
+export const VerifyPaymentResponse = zod.object({
+  "id": zod.int(),
+  "orderId": zod.int(),
+  "amountMinor": zod.int(),
+  "currency": zod.string(),
+  "method": zod.string(),
+  "status": zod.enum(['created', 'submitted', 'verified', 'failed', 'canceled', 'refunded', 'partially_refunded', 'disputed']),
+  "evidenceReference": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get ledger-derived merchant balances
+ */
+export const GetMerchantBalancesResponseItem = zod.object({
+  "currency": zod.string(),
+  "ledgerBalanceMinor": zod.int(),
+  "availableBalanceMinor": zod.int(),
+  "heldBalanceMinor": zod.int()
+})
+export const GetMerchantBalancesResponse = zod.array(GetMerchantBalancesResponseItem)
+
+
+/**
+ * @summary Request a full or partial refund
+ */
+
+
+export const createRefundBodyReasonMin = 2;
+export const createRefundBodyReasonMax = 2000;
+
+export const createRefundBodyInventoryRestockDefault = false;
+
+export const CreateRefundBody = zod.object({
+  "orderId": zod.int().min(1),
+  "amountMinor": zod.int().min(1),
+  "reason": zod.string().min(createRefundBodyReasonMin).max(createRefundBodyReasonMax),
+  "inventoryRestock": zod.boolean().default(createRefundBodyInventoryRestockDefault)
+})
+
+export const CreateRefundResponse = zod.object({
+  "id": zod.int(),
+  "orderId": zod.int(),
+  "amountMinor": zod.int(),
+  "currency": zod.string(),
+  "status": zod.enum(['requested', 'approved', 'rejected', 'processed', 'canceled']),
+  "reason": zod.string(),
+  "inventoryRestock": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Approve and post a refund reversal
+ */
+export const ApproveRefundParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ApproveRefundResponse = zod.object({
+  "id": zod.int(),
+  "orderId": zod.int(),
+  "amountMinor": zod.int(),
+  "currency": zod.string(),
+  "status": zod.enum(['requested', 'approved', 'rejected', 'processed', 'canceled']),
+  "reason": zod.string(),
+  "inventoryRestock": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Record a reconciliation discrepancy without rewriting ledger history
+ */
+export const createReconciliationBodyCurrencyMin = 3;
+export const createReconciliationBodyCurrencyMax = 3;
+
+export const createReconciliationBodyNoteMax = 2000;
+
+
+
+export const CreateReconciliationBody = zod.object({
+  "currency": zod.string().min(createReconciliationBodyCurrencyMin).max(createReconciliationBodyCurrencyMax),
+  "expectedMinor": zod.int(),
+  "observedMinor": zod.int(),
+  "note": zod.string().max(createReconciliationBodyNoteMax).nullish()
+})
+
+export const CreateReconciliationResponse = zod.object({
+  "id": zod.int(),
+  "currency": zod.string(),
+  "expectedMinor": zod.int(),
+  "observedMinor": zod.int(),
+  "discrepancyMinor": zod.int(),
+  "status": zod.enum(['open', 'investigating', 'resolved', 'void']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List reconciliation records
+ */
+export const ListReconciliationsResponseItem = zod.object({
+  "id": zod.int(),
+  "currency": zod.string(),
+  "expectedMinor": zod.int(),
+  "observedMinor": zod.int(),
+  "discrepancyMinor": zod.int(),
+  "status": zod.enum(['open', 'investigating', 'resolved', 'void']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const ListReconciliationsResponse = zod.array(ListReconciliationsResponseItem)
+
+
+/**
+ * @summary Update reconciliation workflow status without changing ledger history
+ */
+export const UpdateReconciliationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const updateReconciliationBodyNoteMax = 2000;
+
+
+
+export const UpdateReconciliationBody = zod.object({
+  "status": zod.enum(['open', 'investigating', 'resolved', 'void']),
+  "note": zod.string().max(updateReconciliationBodyNoteMax).nullish()
+})
+
+export const UpdateReconciliationResponse = zod.object({
+  "id": zod.int(),
+  "currency": zod.string(),
+  "expectedMinor": zod.int(),
+  "observedMinor": zod.int(),
+  "discrepancyMinor": zod.int(),
+  "status": zod.enum(['open', 'investigating', 'resolved', 'void']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List tenant-scoped inventory reservations
+ */
+
+
+
+export const ListInventoryReservationsResponseItem = zod.object({
+  "id": zod.int(),
+  "merchantId": zod.int(),
+  "supplierProductId": zod.int(),
+  "orderId": zod.int(),
+  "quantity": zod.int().min(1),
+  "status": zod.enum(['reserved', 'consumed', 'released', 'expired']),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListInventoryReservationsResponse = zod.array(ListInventoryReservationsResponseItem)
+
+
+/**
+ * @summary List immutable tenant-scoped inventory movements
+ */
+export const listInventoryMovementsResponseQuantityDeltaOneMax = -1;
+
+
+
+
+export const ListInventoryMovementsResponseItem = zod.object({
+  "id": zod.int(),
+  "merchantId": zod.int(),
+  "supplierProductId": zod.int(),
+  "orderId": zod.int().nullable(),
+  "quantityDelta": zod.union([zod.int().max(listInventoryMovementsResponseQuantityDeltaOneMax),zod.int().min(1)]),
+  "reason": zod.string(),
+  "referenceKey": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListInventoryMovementsResponse = zod.array(ListInventoryMovementsResponseItem)
+
+
+/**
+ * @summary Apply an idempotent manual stock adjustment
+ */
+
+export const createInventoryAdjustmentBodyReasonMin = 2;
+export const createInventoryAdjustmentBodyReasonMax = 500;
+
+export const createInventoryAdjustmentBodyReferenceKeyMin = 8;
+export const createInventoryAdjustmentBodyReferenceKeyMax = 160;
+
+
+
+export const CreateInventoryAdjustmentBody = zod.object({
+  "supplierProductId": zod.int().min(1),
+  "quantityDelta": zod.int(),
+  "reason": zod.string().min(createInventoryAdjustmentBodyReasonMin).max(createInventoryAdjustmentBodyReasonMax),
+  "referenceKey": zod.string().min(createInventoryAdjustmentBodyReferenceKeyMin).max(createInventoryAdjustmentBodyReferenceKeyMax)
+})
+
+export const createInventoryAdjustmentResponseQuantityDeltaOneMax = -1;
+
+
+
+
+export const CreateInventoryAdjustmentResponse = zod.object({
+  "id": zod.int(),
+  "merchantId": zod.int(),
+  "supplierProductId": zod.int(),
+  "orderId": zod.int().nullable(),
+  "quantityDelta": zod.union([zod.int().max(createInventoryAdjustmentResponseQuantityDeltaOneMax),zod.int().min(1)]),
+  "reason": zod.string(),
+  "referenceKey": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+

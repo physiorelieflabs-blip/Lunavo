@@ -21,6 +21,8 @@ import AdminWithdrawals from '@/pages/admin-withdrawals';
 import Dropshipping from '@/pages/dropshipping';
 import Checkout from '@/pages/checkout';
 import AiControlRoom from '@/pages/ai';
+import Finance from '@/pages/finance';
+import Inventory from '@/pages/inventory';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -84,6 +86,8 @@ function AuthRoutes() {
     <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
     <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
+     <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
+      <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
      <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />

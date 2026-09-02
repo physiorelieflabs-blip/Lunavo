@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -235,6 +236,45 @@ export const supplierProductsTable = pgTable(
   },
 );
 
+export const inventoryReservationsTable = pgTable(
+  "inventory_reservations",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id),
+    orderId: integer("order_id").notNull().references(() => ordersTable.id),
+    quantity: integer("quantity").notNull(),
+    status: text("status").notNull().default("reserved"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("inventory_reservations_active_order_product_unique")
+      .on(table.orderId, table.supplierProductId)
+      .where(sql`${table.status} = 'reserved'`),
+    index("inventory_reservations_merchant_product_idx").on(table.merchantId, table.supplierProductId),
+  ],
+);
+
+export const inventoryMovementsTable = pgTable(
+  "inventory_movements",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id),
+    orderId: integer("order_id").references(() => ordersTable.id),
+    quantityDelta: integer("quantity_delta").notNull(),
+    reason: text("reason").notNull(),
+    referenceKey: text("reference_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("inventory_movements_reference_unique").on(table.referenceKey),
+    index("inventory_movements_merchant_product_idx").on(table.merchantId, table.supplierProductId),
+  ],
+);
+
 export const supplierImportAttemptsTable = pgTable("supplier_import_attempts", {
   id: serial("id").primaryKey(),
   merchantId: integer("merchant_id")
@@ -465,6 +505,119 @@ export const withdrawalsTable = pgTable(
   ],
 );
 
+/**
+ * Authoritative commerce accounting records. Amounts are integer minor units;
+ * the currency column is intentionally stored on every record so historical
+ * values are never re-labelled when a merchant changes currency.
+ */
+export const paymentIntentsTable = pgTable(
+  "payment_intents",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    orderId: integer("order_id").notNull().references(() => ordersTable.id),
+    amountMinor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    method: text("method").notNull(),
+    status: text("status").notNull().default("created"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    evidenceReference: text("evidence_reference"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("payment_intents_merchant_idempotency_unique").on(table.merchantId, table.idempotencyKey),
+    uniqueIndex("payment_intents_order_unique").on(table.orderId),
+  ],
+);
+
+export const paymentRecordsTable = pgTable("payment_records", {
+  id: serial("id").primaryKey(),
+  intentId: integer("intent_id").notNull().references(() => paymentIntentsTable.id),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+  orderId: integer("order_id").notNull().references(() => ordersTable.id),
+  amountMinor: integer("amount_minor").notNull(),
+  currency: text("currency").notNull(),
+  method: text("method").notNull(),
+  status: text("status").notNull().default("created"),
+  evidenceReference: text("evidence_reference"),
+  verifiedBy: text("verified_by"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const ledgerEntriesTable = pgTable("ledger_entries", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+  orderId: integer("order_id").references(() => ordersTable.id),
+  paymentRecordId: integer("payment_record_id").references(() => paymentRecordsTable.id),
+  withdrawalId: integer("withdrawal_id").references(() => withdrawalsTable.id),
+  refundId: integer("refund_id"),
+  amountMinor: integer("amount_minor").notNull(),
+  currency: text("currency").notNull(),
+  entryType: text("entry_type").notNull(),
+  referenceKey: text("reference_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ledger_entries_reference_unique").on(table.referenceKey),
+]);
+
+export const refundRecordsTable = pgTable("refund_records", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+  orderId: integer("order_id").notNull().references(() => ordersTable.id),
+  paymentRecordId: integer("payment_record_id").notNull().references(() => paymentRecordsTable.id),
+  amountMinor: integer("amount_minor").notNull(),
+  currency: text("currency").notNull(),
+  status: text("status").notNull().default("requested"),
+  reason: text("reason").notNull(),
+  inventoryRestock: boolean("inventory_restock").notNull().default(false),
+  requestedBy: text("requested_by").notNull(),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const commerceTransitionHistoryTable = pgTable("commerce_transition_history", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+  orderId: integer("order_id").references(() => ordersTable.id),
+  paymentIntentId: integer("payment_intent_id").references(() => paymentIntentsTable.id),
+  refundId: integer("refund_id").references(() => refundRecordsTable.id),
+  withdrawalId: integer("withdrawal_id").references(() => withdrawalsTable.id),
+  entityType: text("entity_type").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  actorId: text("actor_id").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const merchantBalanceSnapshotsTable = pgTable("merchant_balance_snapshots", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+  currency: text("currency").notNull(),
+  ledgerBalanceMinor: integer("ledger_balance_minor").notNull().default(0),
+  availableBalanceMinor: integer("available_balance_minor").notNull().default(0),
+  heldBalanceMinor: integer("held_balance_minor").notNull().default(0),
+  asOf: timestamp("as_of", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const reconciliationRecordsTable = pgTable("reconciliation_records", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+  currency: text("currency").notNull(),
+  expectedMinor: integer("expected_minor").notNull(),
+  observedMinor: integer("observed_minor").notNull(),
+  discrepancyMinor: integer("discrepancy_minor").notNull(),
+  status: text("status").notNull().default("open"),
+  note: text("note"),
+  createdBy: text("created_by").notNull(),
+  resolvedBy: text("resolved_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertMerchantSchema = createInsertSchema(merchantsTable).omit({
   id: true,
   registeredAt: true,
@@ -509,12 +662,25 @@ export const insertWithdrawalSchema = createInsertSchema(withdrawalsTable).omit(
   createdAt: true,
   updatedAt: true,
 });
+export const insertPaymentIntentSchema = createInsertSchema(paymentIntentsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPaymentRecordSchema = createInsertSchema(paymentRecordsTable).omit({ id: true, createdAt: true });
+export const insertLedgerEntrySchema = createInsertSchema(ledgerEntriesTable).omit({ id: true, createdAt: true });
+export const insertRefundRecordSchema = createInsertSchema(refundRecordsTable).omit({ id: true, createdAt: true });
+export const insertCommerceTransitionSchema = createInsertSchema(commerceTransitionHistoryTable).omit({ id: true, createdAt: true });
+export const insertBalanceSnapshotSchema = createInsertSchema(merchantBalanceSnapshotsTable).omit({ id: true, asOf: true });
+export const insertReconciliationSchema = createInsertSchema(reconciliationRecordsTable).omit({ id: true, createdAt: true });
 export const insertSupplierProductSchema = createInsertSchema(
   supplierProductsTable,
 ).omit({
   id: true,
   importedAt: true,
   updatedAt: true,
+});
+export const insertInventoryReservationSchema = createInsertSchema(inventoryReservationsTable).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export const insertInventoryMovementSchema = createInsertSchema(inventoryMovementsTable).omit({
+  id: true, createdAt: true,
 });
 export const insertAiModelSchema = createInsertSchema(aiModelsTable).omit({
   id: true,
@@ -552,7 +718,25 @@ export type InsertWithdrawalSecurity = z.infer<
   typeof insertWithdrawalSecuritySchema
 >;
 export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
+export type PaymentIntent = typeof paymentIntentsTable.$inferSelect;
+export type PaymentRecord = typeof paymentRecordsTable.$inferSelect;
+export type LedgerEntry = typeof ledgerEntriesTable.$inferSelect;
+export type RefundRecord = typeof refundRecordsTable.$inferSelect;
+export type CommerceTransition = typeof commerceTransitionHistoryTable.$inferSelect;
+export type MerchantBalanceSnapshot = typeof merchantBalanceSnapshotsTable.$inferSelect;
+export type ReconciliationRecord = typeof reconciliationRecordsTable.$inferSelect;
+export type InsertPaymentIntent = z.infer<typeof insertPaymentIntentSchema>;
+export type InsertPaymentRecord = z.infer<typeof insertPaymentRecordSchema>;
+export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
+export type InsertRefundRecord = z.infer<typeof insertRefundRecordSchema>;
+export type InsertCommerceTransition = z.infer<typeof insertCommerceTransitionSchema>;
+export type InsertBalanceSnapshot = z.infer<typeof insertBalanceSnapshotSchema>;
+export type InsertReconciliation = z.infer<typeof insertReconciliationSchema>;
 export type InsertSupplierProduct = z.infer<typeof insertSupplierProductSchema>;
+export type InventoryReservation = typeof inventoryReservationsTable.$inferSelect;
+export type InventoryMovement = typeof inventoryMovementsTable.$inferSelect;
+export type InsertInventoryReservation = z.infer<typeof insertInventoryReservationSchema>;
+export type InsertInventoryMovement = z.infer<typeof insertInventoryMovementSchema>;
 export type AiModel = typeof aiModelsTable.$inferSelect;
 export type AiSettings = typeof aiSettingsTable.$inferSelect;
 export type AiAction = typeof aiActionsTable.$inferSelect;
