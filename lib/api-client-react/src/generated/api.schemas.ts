@@ -123,6 +123,137 @@ export interface OrderStatusInput {
   status: OrderStatusInputStatus;
 }
 
+export interface AiModel {
+  id: number;
+  name: string;
+  version: string;
+  modelType: string;
+  status: string;
+  trainingExamples: number;
+  /** @nullable */
+  evaluationScore: number | null;
+  /** @nullable */
+  trainedAt: string | null;
+}
+
+export interface AiSettings {
+  /**
+     * @minimum 0
+     * @maximum 4
+     */
+  autonomyLevel: number;
+  runMyBusiness: boolean;
+  trainingOptIn: boolean;
+}
+
+export interface AiSettingsInput {
+  /**
+     * @minimum 0
+     * @maximum 4
+     */
+  autonomyLevel: number;
+  runMyBusiness: boolean;
+  trainingOptIn: boolean;
+}
+
+export interface AiMetric {
+  key: string;
+  label: string;
+  value: number;
+  detail: string;
+}
+
+export interface AiSignal {
+  title: string;
+  detail: string;
+  severity: string;
+  agent: string;
+}
+
+export interface AiRecommendation {
+  id: string;
+  title: string;
+  detail: string;
+  reason: string;
+  agent: string;
+  risk: string;
+  reversible: boolean;
+}
+
+export interface AiAgent {
+  key: string;
+  name: string;
+  focus: string;
+  status: string;
+  insight: string;
+}
+
+export interface AiAction {
+  id: number;
+  agent: string;
+  actionType: string;
+  title: string;
+  reason: string;
+  status: string;
+  risk: string;
+  reversible: boolean;
+  approvalRequired: boolean;
+  rollbackAvailable: boolean;
+  createdAt: string;
+  /** @nullable */
+  approvedAt: string | null;
+  /** @nullable */
+  executedAt: string | null;
+  /** @nullable */
+  rolledBackAt: string | null;
+}
+
+export type AiActionInputRisk = typeof AiActionInputRisk[keyof typeof AiActionInputRisk];
+
+
+export const AiActionInputRisk = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+} as const;
+
+export interface AiActionInput {
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  agent: string;
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  actionType: string;
+  /**
+     * @minLength 2
+     * @maxLength 240
+     */
+  title: string;
+  /**
+     * @minLength 2
+     * @maxLength 2000
+     */
+  reason: string;
+  risk: AiActionInputRisk;
+  reversible: boolean;
+}
+
+export interface AiOverview {
+  model: AiModel;
+  settings: AiSettings;
+  healthScore: number;
+  brief: string;
+  metrics: AiMetric[];
+  signals: AiSignal[];
+  recommendations: AiRecommendation[];
+  agents: AiAgent[];
+  awaitingApproval: number;
+}
+
 export interface Subscription {
   id: number;
   email: string;

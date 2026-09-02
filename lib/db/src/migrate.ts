@@ -17,6 +17,7 @@ const migrations = [
   "0006_checkout_quantity",
   "0007_supplier_import_workflows",
   "0008_merchant_currency",
+  "0009_ai_operating_layer",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

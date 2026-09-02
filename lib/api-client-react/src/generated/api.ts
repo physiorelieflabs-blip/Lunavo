@@ -25,6 +25,12 @@ import type {
   AdminWithdrawalDetailsInput,
   AdminWithdrawalRecord,
   AdminWithdrawalReviewInput,
+  AiAction,
+  AiActionInput,
+  AiModel,
+  AiOverview,
+  AiSettings,
+  AiSettingsInput,
   BankAccountInput,
   BankTransferInput,
   CreateOrderInput,
@@ -474,6 +480,734 @@ export function useListDashboardActivity<TData = Awaited<ReturnType<typeof listD
 
 
 
+
+export const getGetAiOverviewUrl = () => {
+
+
+
+
+  return `/api/ai/overview`
+}
+
+/**
+ * @summary Get first-party AI business intelligence
+ */
+export const getAiOverview = async ( options?: Parameters<typeof customFetch>[1]): Promise<AiOverview> => {
+
+  return customFetch<AiOverview>(getGetAiOverviewUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiOverviewQueryKey = () => {
+    return [
+    `/api/ai/overview`
+    ] as const;
+    }
+
+
+export const getGetAiOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getAiOverview>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiOverviewQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiOverview>>> = ({ signal }) => getAiOverview({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof getAiOverview>>>
+export type GetAiOverviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get first-party AI business intelligence
+ */
+
+export function useGetAiOverview<TData = Awaited<ReturnType<typeof getAiOverview>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiOverviewQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getTrainAiModelUrl = () => {
+
+
+
+
+  return `/api/ai/train`
+}
+
+/**
+ * @summary Train the local commerce signals model
+ */
+export const trainAiModel = async ( options?: Parameters<typeof customFetch>[1]): Promise<AiModel> => {
+
+  return customFetch<AiModel>(getTrainAiModelUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainAiModelMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainAiModel>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainAiModel>>, TError,void, TContext> => {
+
+const mutationKey = ['trainAiModel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainAiModel>>, void> = () => {
+
+
+          return  trainAiModel(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainAiModelMutationResult = NonNullable<Awaited<ReturnType<typeof trainAiModel>>>
+
+    export type TrainAiModelMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Train the local commerce signals model
+ */
+export const useTrainAiModel = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainAiModel>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainAiModel>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTrainAiModelMutationOptions(options));
+    }
+
+export const getGetAiSettingsUrl = () => {
+
+
+
+
+  return `/api/ai/settings`
+}
+
+/**
+ * @summary Get AI autonomy and training settings
+ */
+export const getAiSettings = async ( options?: Parameters<typeof customFetch>[1]): Promise<AiSettings> => {
+
+  return customFetch<AiSettings>(getGetAiSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiSettingsQueryKey = () => {
+    return [
+    `/api/ai/settings`
+    ] as const;
+    }
+
+
+export const getGetAiSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getAiSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiSettings>>> = ({ signal }) => getAiSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getAiSettings>>>
+export type GetAiSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get AI autonomy and training settings
+ */
+
+export function useGetAiSettings<TData = Awaited<ReturnType<typeof getAiSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAiSettingsUrl = () => {
+
+
+
+
+  return `/api/ai/settings`
+}
+
+/**
+ * @summary Update AI autonomy and training settings
+ */
+export const updateAiSettings = async (aiSettingsInput: AiSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<AiSettings> => {
+
+  return customFetch<AiSettings>(getUpdateAiSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateAiSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiSettings>>, TError,{data: BodyType<AiSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiSettings>>, TError,{data: BodyType<AiSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateAiSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiSettings>>, {data: BodyType<AiSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAiSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiSettings>>>
+    export type UpdateAiSettingsMutationBody = BodyType<AiSettingsInput>
+    export type UpdateAiSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update AI autonomy and training settings
+ */
+export const useUpdateAiSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiSettings>>, TError,{data: BodyType<AiSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiSettings>>,
+        TError,
+        {data: BodyType<AiSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateAiSettingsMutationOptions(options));
+    }
+
+export const getListAiActionsUrl = () => {
+
+
+
+
+  return `/api/ai/actions`
+}
+
+/**
+ * @summary List AI actions and approvals
+ */
+export const listAiActions = async ( options?: Parameters<typeof customFetch>[1]): Promise<AiAction[]> => {
+
+  return customFetch<AiAction[]>(getListAiActionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiActionsQueryKey = () => {
+    return [
+    `/api/ai/actions`
+    ] as const;
+    }
+
+
+export const getListAiActionsQueryOptions = <TData = Awaited<ReturnType<typeof listAiActions>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiActions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiActionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiActions>>> = ({ signal }) => listAiActions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiActions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiActionsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiActions>>>
+export type ListAiActionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List AI actions and approvals
+ */
+
+export function useListAiActions<TData = Awaited<ReturnType<typeof listAiActions>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiActions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiActionsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAiActionUrl = () => {
+
+
+
+
+  return `/api/ai/actions`
+}
+
+/**
+ * @summary Send an AI recommendation to the approval center
+ */
+export const createAiAction = async (aiActionInput: AiActionInput, options?: Parameters<typeof customFetch>[1]): Promise<AiAction> => {
+
+  return customFetch<AiAction>(getCreateAiActionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiActionInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAiActionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiAction>>, TError,{data: BodyType<AiActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAiAction>>, TError,{data: BodyType<AiActionInput>}, TContext> => {
+
+const mutationKey = ['createAiAction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiAction>>, {data: BodyType<AiActionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAiAction(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAiActionMutationResult = NonNullable<Awaited<ReturnType<typeof createAiAction>>>
+    export type CreateAiActionMutationBody = BodyType<AiActionInput>
+    export type CreateAiActionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Send an AI recommendation to the approval center
+ */
+export const useCreateAiAction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiAction>>, TError,{data: BodyType<AiActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAiAction>>,
+        TError,
+        {data: BodyType<AiActionInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAiActionMutationOptions(options));
+    }
+
+export const getApproveAiActionUrl = (id: number,) => {
+
+
+
+
+  return `/api/ai/actions/${id}/approve`
+}
+
+/**
+ * @summary Approve a reversible AI action
+ */
+export const approveAiAction = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AiAction> => {
+
+  return customFetch<AiAction>(getApproveAiActionUrl(id),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveAiActionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveAiAction>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['approveAiAction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveAiAction>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  approveAiAction(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveAiActionMutationResult = NonNullable<Awaited<ReturnType<typeof approveAiAction>>>
+
+    export type ApproveAiActionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Approve a reversible AI action
+ */
+export const useApproveAiAction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveAiAction>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getApproveAiActionMutationOptions(options));
+    }
+
+export const getRejectAiActionUrl = (id: number,) => {
+
+
+
+
+  return `/api/ai/actions/${id}/reject`
+}
+
+/**
+ * @summary Reject an AI action before execution
+ */
+export const rejectAiAction = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AiAction> => {
+
+  return customFetch<AiAction>(getRejectAiActionUrl(id),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+
+export const getRejectAiActionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectAiAction>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['rejectAiAction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectAiAction>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  rejectAiAction(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectAiActionMutationResult = NonNullable<Awaited<ReturnType<typeof rejectAiAction>>>
+
+    export type RejectAiActionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Reject an AI action before execution
+ */
+export const useRejectAiAction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectAiAction>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRejectAiActionMutationOptions(options));
+    }
+
+export const getExecuteAiActionUrl = (id: number,) => {
+
+
+
+
+  return `/api/ai/actions/${id}/execute`
+}
+
+/**
+ * @summary Execute an approved, reversible AI preparation action
+ */
+export const executeAiAction = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AiAction> => {
+
+  return customFetch<AiAction>(getExecuteAiActionUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getExecuteAiActionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof executeAiAction>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['executeAiAction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof executeAiAction>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  executeAiAction(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExecuteAiActionMutationResult = NonNullable<Awaited<ReturnType<typeof executeAiAction>>>
+
+    export type ExecuteAiActionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Execute an approved, reversible AI preparation action
+ */
+export const useExecuteAiAction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof executeAiAction>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getExecuteAiActionMutationOptions(options));
+    }
+
+export const getRollbackAiActionUrl = (id: number,) => {
+
+
+
+
+  return `/api/ai/actions/${id}/rollback`
+}
+
+/**
+ * @summary Roll back an executed AI preparation action
+ */
+export const rollbackAiAction = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AiAction> => {
+
+  return customFetch<AiAction>(getRollbackAiActionUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRollbackAiActionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rollbackAiAction>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['rollbackAiAction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rollbackAiAction>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  rollbackAiAction(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RollbackAiActionMutationResult = NonNullable<Awaited<ReturnType<typeof rollbackAiAction>>>
+
+    export type RollbackAiActionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Roll back an executed AI preparation action
+ */
+export const useRollbackAiAction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackAiAction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rollbackAiAction>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRollbackAiActionMutationOptions(options));
+    }
 
 export const getListCustomersUrl = () => {
 

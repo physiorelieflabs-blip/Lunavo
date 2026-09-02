@@ -107,6 +107,286 @@ export const ListDashboardActivityResponse = zod.array(ListDashboardActivityResp
 
 
 /**
+ * @summary Get first-party AI business intelligence
+ */
+export const getAiOverviewResponseSettingsAutonomyLevelMin = 0;
+export const getAiOverviewResponseSettingsAutonomyLevelMax = 4;
+
+
+
+export const GetAiOverviewResponse = zod.object({
+  "model": zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "version": zod.string(),
+  "modelType": zod.string(),
+  "status": zod.string(),
+  "trainingExamples": zod.int(),
+  "evaluationScore": zod.number().nullable(),
+  "trainedAt": zod.coerce.date().nullable()
+}),
+  "settings": zod.object({
+  "autonomyLevel": zod.int().min(getAiOverviewResponseSettingsAutonomyLevelMin).max(getAiOverviewResponseSettingsAutonomyLevelMax),
+  "runMyBusiness": zod.boolean(),
+  "trainingOptIn": zod.boolean()
+}),
+  "healthScore": zod.number(),
+  "brief": zod.string(),
+  "metrics": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "value": zod.number(),
+  "detail": zod.string()
+})),
+  "signals": zod.array(zod.object({
+  "title": zod.string(),
+  "detail": zod.string(),
+  "severity": zod.string(),
+  "agent": zod.string()
+})),
+  "recommendations": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "detail": zod.string(),
+  "reason": zod.string(),
+  "agent": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean()
+})),
+  "agents": zod.array(zod.object({
+  "key": zod.string(),
+  "name": zod.string(),
+  "focus": zod.string(),
+  "status": zod.string(),
+  "insight": zod.string()
+})),
+  "awaitingApproval": zod.int()
+})
+
+
+/**
+ * @summary Train the local commerce signals model
+ */
+export const TrainAiModelResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "version": zod.string(),
+  "modelType": zod.string(),
+  "status": zod.string(),
+  "trainingExamples": zod.int(),
+  "evaluationScore": zod.number().nullable(),
+  "trainedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Get AI autonomy and training settings
+ */
+export const getAiSettingsResponseAutonomyLevelMin = 0;
+export const getAiSettingsResponseAutonomyLevelMax = 4;
+
+
+
+export const GetAiSettingsResponse = zod.object({
+  "autonomyLevel": zod.int().min(getAiSettingsResponseAutonomyLevelMin).max(getAiSettingsResponseAutonomyLevelMax),
+  "runMyBusiness": zod.boolean(),
+  "trainingOptIn": zod.boolean()
+})
+
+
+/**
+ * @summary Update AI autonomy and training settings
+ */
+export const updateAiSettingsBodyAutonomyLevelMin = 0;
+export const updateAiSettingsBodyAutonomyLevelMax = 4;
+
+
+
+export const UpdateAiSettingsBody = zod.object({
+  "autonomyLevel": zod.int().min(updateAiSettingsBodyAutonomyLevelMin).max(updateAiSettingsBodyAutonomyLevelMax),
+  "runMyBusiness": zod.boolean(),
+  "trainingOptIn": zod.boolean()
+})
+
+export const updateAiSettingsResponseAutonomyLevelMin = 0;
+export const updateAiSettingsResponseAutonomyLevelMax = 4;
+
+
+
+export const UpdateAiSettingsResponse = zod.object({
+  "autonomyLevel": zod.int().min(updateAiSettingsResponseAutonomyLevelMin).max(updateAiSettingsResponseAutonomyLevelMax),
+  "runMyBusiness": zod.boolean(),
+  "trainingOptIn": zod.boolean()
+})
+
+
+/**
+ * @summary List AI actions and approvals
+ */
+export const ListAiActionsResponseItem = zod.object({
+  "id": zod.int(),
+  "agent": zod.string(),
+  "actionType": zod.string(),
+  "title": zod.string(),
+  "reason": zod.string(),
+  "status": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean(),
+  "approvalRequired": zod.boolean(),
+  "rollbackAvailable": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "executedAt": zod.coerce.date().nullable(),
+  "rolledBackAt": zod.coerce.date().nullable()
+})
+export const ListAiActionsResponse = zod.array(ListAiActionsResponseItem)
+
+
+/**
+ * @summary Send an AI recommendation to the approval center
+ */
+export const createAiActionBodyAgentMin = 2;
+export const createAiActionBodyAgentMax = 80;
+
+export const createAiActionBodyActionTypeMin = 2;
+export const createAiActionBodyActionTypeMax = 80;
+
+export const createAiActionBodyTitleMin = 2;
+export const createAiActionBodyTitleMax = 240;
+
+export const createAiActionBodyReasonMin = 2;
+export const createAiActionBodyReasonMax = 2000;
+
+
+
+export const CreateAiActionBody = zod.object({
+  "agent": zod.string().min(createAiActionBodyAgentMin).max(createAiActionBodyAgentMax),
+  "actionType": zod.string().min(createAiActionBodyActionTypeMin).max(createAiActionBodyActionTypeMax),
+  "title": zod.string().min(createAiActionBodyTitleMin).max(createAiActionBodyTitleMax),
+  "reason": zod.string().min(createAiActionBodyReasonMin).max(createAiActionBodyReasonMax),
+  "risk": zod.enum(['low', 'medium', 'high']),
+  "reversible": zod.boolean()
+})
+
+export const CreateAiActionResponse = zod.object({
+  "id": zod.int(),
+  "agent": zod.string(),
+  "actionType": zod.string(),
+  "title": zod.string(),
+  "reason": zod.string(),
+  "status": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean(),
+  "approvalRequired": zod.boolean(),
+  "rollbackAvailable": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "executedAt": zod.coerce.date().nullable(),
+  "rolledBackAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Approve a reversible AI action
+ */
+export const ApproveAiActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ApproveAiActionResponse = zod.object({
+  "id": zod.int(),
+  "agent": zod.string(),
+  "actionType": zod.string(),
+  "title": zod.string(),
+  "reason": zod.string(),
+  "status": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean(),
+  "approvalRequired": zod.boolean(),
+  "rollbackAvailable": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "executedAt": zod.coerce.date().nullable(),
+  "rolledBackAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Reject an AI action before execution
+ */
+export const RejectAiActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RejectAiActionResponse = zod.object({
+  "id": zod.int(),
+  "agent": zod.string(),
+  "actionType": zod.string(),
+  "title": zod.string(),
+  "reason": zod.string(),
+  "status": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean(),
+  "approvalRequired": zod.boolean(),
+  "rollbackAvailable": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "executedAt": zod.coerce.date().nullable(),
+  "rolledBackAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Execute an approved, reversible AI preparation action
+ */
+export const ExecuteAiActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ExecuteAiActionResponse = zod.object({
+  "id": zod.int(),
+  "agent": zod.string(),
+  "actionType": zod.string(),
+  "title": zod.string(),
+  "reason": zod.string(),
+  "status": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean(),
+  "approvalRequired": zod.boolean(),
+  "rollbackAvailable": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "executedAt": zod.coerce.date().nullable(),
+  "rolledBackAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Roll back an executed AI preparation action
+ */
+export const RollbackAiActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RollbackAiActionResponse = zod.object({
+  "id": zod.int(),
+  "agent": zod.string(),
+  "actionType": zod.string(),
+  "title": zod.string(),
+  "reason": zod.string(),
+  "status": zod.string(),
+  "risk": zod.string(),
+  "reversible": zod.boolean(),
+  "approvalRequired": zod.boolean(),
+  "rollbackAvailable": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "executedAt": zod.coerce.date().nullable(),
+  "rolledBackAt": zod.coerce.date().nullable()
+})
+
+
+/**
  * @summary List the merchant's customers
  */
 export const ListCustomersResponseItem = zod.object({

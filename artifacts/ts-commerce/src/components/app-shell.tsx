@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { BarChart3, Building2, CreditCard, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, X } from 'lucide-react';
+import { BarChart3, BrainCircuit, Building2, CreditCard, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, X } from 'lucide-react';
 import { useClerk, useUser } from '@clerk/react';
 import { Logo } from '@/components/primitives';
 import { initials } from '@/lib/format';
@@ -13,7 +13,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
   const [open, setOpen] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
-  const merchantLinks = [{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard }, { href: '/orders', label: 'Orders', icon: PackageCheck }, { href: '/customers', label: 'Customers', icon: UsersRound }, { href: '/dropshipping', label: 'Auto DS', icon: Route }, { href: '/withdrawals', label: 'Withdrawals', icon: ShieldCheck }, { href: '/suppliers', label: 'Suppliers', icon: Store }, { href: '/billing', label: 'Billing', icon: CreditCard }];
+  const merchantLinks = [{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard }, { href: '/ai', label: 'AI control room', icon: BrainCircuit }, { href: '/orders', label: 'Orders', icon: PackageCheck }, { href: '/customers', label: 'Customers', icon: UsersRound }, { href: '/dropshipping', label: 'Auto DS', icon: Route }, { href: '/withdrawals', label: 'Withdrawals', icon: ShieldCheck }, { href: '/suppliers', label: 'Suppliers', icon: Store }, { href: '/billing', label: 'Billing', icon: CreditCard }];
   const adminLinks = [{ href: '/admin', label: 'Control room', icon: BarChart3 }, { href: '/admin/merchants', label: 'Merchants', icon: Users }, { href: '/admin/withdrawals', label: 'Withdrawals', icon: ShieldCheck }];
   const links = admin ? adminLinks : merchantLinks;
   return <div className="noise min-h-[100dvh] bg-[#f1eee7] text-[#182333]">

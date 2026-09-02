@@ -25,6 +25,7 @@ import {
   useImportSupplierProductBatch,
   useUpdateSupplierProduct,
   useListSupplierProducts,
+  useListSupplierImportHistory,
   useListSuppliers,
   useRefreshSupplierProduct,
   useUpdateSupplier,
@@ -319,7 +320,7 @@ export default function Suppliers() {
         sellingPrice: numberOrNull(productEdit.sellingPrice),
         visibility: productEdit.visibility,
         inventoryStrategy: productEdit.inventoryStrategy,
-        inventoryStatus: productEdit.inventoryStatus || null,
+        inventoryStatus: productEdit.inventoryStatus || undefined,
         inventoryQuantity: numberOrNull(productEdit.inventoryQuantity),
       },
     }, {

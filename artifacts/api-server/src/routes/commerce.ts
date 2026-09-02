@@ -14,6 +14,8 @@ import {
 import { createClerkClient, getAuth } from "@clerk/express";
 import {
   activityTable,
+  aiActionsTable,
+  aiSettingsTable,
   customersTable,
   db,
   merchantBankAccountsTable,
@@ -103,6 +105,22 @@ import {
   UpdateOrderStatusResponse,
   UpdateDropshipStatusParams,
   UpdateDropshipStatusResponse,
+  GetAiOverviewResponse,
+  TrainAiModelResponse,
+  GetAiSettingsResponse,
+  UpdateAiSettingsBody,
+  UpdateAiSettingsResponse,
+  ListAiActionsResponse,
+  CreateAiActionBody,
+  CreateAiActionResponse,
+  ApproveAiActionParams,
+  ApproveAiActionResponse,
+  RejectAiActionParams,
+  RejectAiActionResponse,
+  ExecuteAiActionParams,
+  ExecuteAiActionResponse,
+  RollbackAiActionParams,
+  RollbackAiActionResponse,
 } from "@workspace/api-zod";
 import {
   createTotpUri,
@@ -115,6 +133,15 @@ import {
   importPublicSupplierProduct,
   type ImportedSupplierProduct,
 } from "../lib/public-supplier";
+import {
+  allowedActionType,
+  getAiActionForMerchant,
+  getAiOverviewForMerchant,
+  getAiSettingsForMerchant,
+  listAiActionsForMerchant,
+  serializeAiAction,
+  trainMerchantAiModel,
+} from "../lib/ai";
 
 const router: IRouter = Router();
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
@@ -1245,6 +1272,399 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
       })),
     ),
   );
+});
+
+router.get("/ai/overview", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const overview = await getAiOverviewForMerchant({
+      id: merchant.id,
+      currency: merchant.currency,
+      storeName: merchant.storeName,
+    });
+    res.json(GetAiOverviewResponse.parse(overview));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not load AI overview");
+    res.status(500).json({ error: "AI overview could not be loaded" });
+  }
+});
+
+router.post("/ai/train", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const settings = await getAiSettingsForMerchant(merchant.id);
+    if (!settings.trainingOptIn) {
+      res.status(403).json({ error: "Enable local AI training before training a model" });
+      return;
+    }
+    const model = await trainMerchantAiModel({
+      id: merchant.id,
+      currency: merchant.currency,
+      storeName: merchant.storeName,
+    });
+    await addActivity(merchant.id, {
+      type: "ai_model_trained",
+      title: "Local AI model evaluated",
+      description:
+        model.status === "trained"
+          ? `Commerce signals model trained on ${model.trainingExamples} persisted examples.`
+          : `Training needs more persisted commerce data (${model.trainingExamples} examples available).`,
+      tone: model.status === "trained" ? "positive" : "warning",
+    });
+    res.status(201).json(TrainAiModelResponse.parse(model));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not train AI model");
+    res.status(500).json({ error: "AI model training could not be completed" });
+  }
+});
+
+router.get("/ai/settings", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    res.json(GetAiSettingsResponse.parse(await getAiSettingsForMerchant(merchant.id)));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not load AI settings");
+    res.status(500).json({ error: "AI settings could not be loaded" });
+  }
+});
+
+router.put("/ai/settings", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = UpdateAiSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "AI settings are invalid" });
+    return;
+  }
+  if (parsed.data.runMyBusiness && parsed.data.autonomyLevel !== 4) {
+    res.status(400).json({
+      error: "RUN MY BUSINESS requires autonomy level 4 and keeps approval safeguards enabled",
+    });
+    return;
+  }
+  if (parsed.data.runMyBusiness && !parsed.data.trainingOptIn) {
+    res.status(400).json({
+      error: "RUN MY BUSINESS requires local training consent",
+    });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const updated = await db.transaction(async (tx) => {
+      await tx
+        .insert(aiSettingsTable)
+        .values({ merchantId: merchant.id })
+        .onConflictDoNothing({ target: aiSettingsTable.merchantId });
+      await tx.execute(
+        sql`select id from ${aiSettingsTable} where ${aiSettingsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const [settings] = await tx
+        .select()
+        .from(aiSettingsTable)
+        .where(eq(aiSettingsTable.merchantId, merchant.id))
+        .limit(1);
+      if (!settings) throw new Error("AI settings could not be initialized");
+      const [saved] = await tx
+        .update(aiSettingsTable)
+        .set({
+          autonomyLevel: parsed.data.autonomyLevel,
+          runMyBusiness: parsed.data.runMyBusiness,
+          trainingOptIn: parsed.data.trainingOptIn,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiSettingsTable.id, settings.id))
+        .returning();
+      if (!saved) throw new Error("AI settings could not be saved");
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "ai_settings_updated",
+        title: "AI operating settings updated",
+        description: `Autonomy level ${saved.autonomyLevel}; RUN MY BUSINESS ${saved.runMyBusiness ? "enabled with approvals" : "disabled"}.`,
+        tone: "neutral",
+      });
+      return saved;
+    });
+    res.json(
+      UpdateAiSettingsResponse.parse({
+        autonomyLevel: updated.autonomyLevel,
+        runMyBusiness: updated.runMyBusiness,
+        trainingOptIn: updated.trainingOptIn,
+      }),
+    );
+  } catch (error) {
+    req.log.error({ err: error }, "Could not update AI settings");
+    res.status(500).json({ error: "AI settings could not be saved" });
+  }
+});
+
+router.get("/ai/actions", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    res.json(ListAiActionsResponse.parse(await listAiActionsForMerchant(merchant.id)));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not list AI actions");
+    res.status(500).json({ error: "AI action history could not be loaded" });
+  }
+});
+
+router.post("/ai/actions", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateAiActionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "AI action details are invalid" });
+    return;
+  }
+  if (!(await allowedActionType(parsed.data.actionType))) {
+    res.status(400).json({
+      error: "This action is outside the safe local preparation boundary",
+    });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const [action] = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(aiActionsTable)
+        .values({
+          merchantId: merchant.id,
+          agent: parsed.data.agent.trim(),
+          actionType: parsed.data.actionType.trim(),
+          title: parsed.data.title.trim(),
+          reason: parsed.data.reason.trim(),
+          risk: parsed.data.risk,
+          reversible: parsed.data.reversible,
+          approvalRequired: true,
+          rollbackAvailable: parsed.data.reversible,
+          status: "awaiting_approval",
+          dataUsed: {
+            source: "local_commerce_signals",
+            merchantId: merchant.id,
+            capturedAt: new Date().toISOString(),
+          },
+        })
+        .returning();
+      if (!created) throw new Error("AI action could not be created");
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "ai_action_created",
+        title: "AI action sent for approval",
+        description: created.title,
+        tone: "neutral",
+      });
+      return [created];
+    });
+    res.status(201).json(CreateAiActionResponse.parse(serializeAiAction(action)));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not create AI action");
+    res.status(500).json({ error: "AI action could not be created" });
+  }
+});
+
+router.patch("/ai/actions/:id/approve", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = ApproveAiActionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "AI action id is invalid" });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const action = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${aiActionsTable} where ${aiActionsTable.id} = ${params.data.id} and ${aiActionsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const [current] = await tx
+        .select()
+        .from(aiActionsTable)
+        .where(and(eq(aiActionsTable.id, params.data.id), eq(aiActionsTable.merchantId, merchant.id)))
+        .limit(1);
+      if (!current) throw new Error("AI action not found");
+      if (current.status !== "awaiting_approval") {
+        throw new Error("Only awaiting actions can be approved");
+      }
+      const [updated] = await tx
+        .update(aiActionsTable)
+        .set({ status: "approved", approvedAt: new Date() })
+        .where(eq(aiActionsTable.id, current.id))
+        .returning();
+      if (!updated) throw new Error("AI action could not be approved");
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "ai_action_approved",
+        title: "AI action approved",
+        description: updated.title,
+        tone: "positive",
+      });
+      return updated;
+    });
+    res.json(ApproveAiActionResponse.parse(serializeAiAction(action)));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "AI action approval failed" });
+  }
+});
+
+router.patch("/ai/actions/:id/reject", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = RejectAiActionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "AI action id is invalid" });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const action = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${aiActionsTable} where ${aiActionsTable.id} = ${params.data.id} and ${aiActionsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const [current] = await tx
+        .select()
+        .from(aiActionsTable)
+        .where(and(eq(aiActionsTable.id, params.data.id), eq(aiActionsTable.merchantId, merchant.id)))
+        .limit(1);
+      if (!current) throw new Error("AI action not found");
+      if (current.status !== "awaiting_approval") {
+        throw new Error("Only awaiting actions can be rejected");
+      }
+      const [updated] = await tx
+        .update(aiActionsTable)
+        .set({ status: "rejected", rollbackAvailable: false })
+        .where(eq(aiActionsTable.id, current.id))
+        .returning();
+      if (!updated) throw new Error("AI action could not be rejected");
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "ai_action_rejected",
+        title: "AI action rejected",
+        description: updated.title,
+        tone: "neutral",
+      });
+      return updated;
+    });
+    res.json(RejectAiActionResponse.parse(serializeAiAction(action)));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "AI action rejection failed" });
+  }
+});
+
+router.post("/ai/actions/:id/execute", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = ExecuteAiActionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "AI action id is invalid" });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const action = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${aiActionsTable} where ${aiActionsTable.id} = ${params.data.id} and ${aiActionsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const [current] = await tx
+        .select()
+        .from(aiActionsTable)
+        .where(and(eq(aiActionsTable.id, params.data.id), eq(aiActionsTable.merchantId, merchant.id)))
+        .limit(1);
+      if (!current) throw new Error("AI action not found");
+      if (current.status !== "approved") {
+        throw new Error("Approve the action before executing it");
+      }
+      if (!current.reversible || !(await allowedActionType(current.actionType))) {
+        throw new Error("Only reversible local preparation actions can execute");
+      }
+      const [updated] = await tx
+        .update(aiActionsTable)
+        .set({
+          status: "executed",
+          executedAt: new Date(),
+          result: {
+            outcome: "prepared",
+            sideEffect: "none",
+            message:
+              "The action produced a review boundary only. No money, permissions, ledger, customer data, or external service was changed.",
+          },
+        })
+        .where(eq(aiActionsTable.id, current.id))
+        .returning();
+      if (!updated) throw new Error("AI action could not be executed");
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "ai_action_executed",
+        title: "AI action prepared safely",
+        description: updated.title,
+        tone: "positive",
+      });
+      return updated;
+    });
+    res.json(ExecuteAiActionResponse.parse(serializeAiAction(action)));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "AI action execution failed" });
+  }
+});
+
+router.post("/ai/actions/:id/rollback", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = RollbackAiActionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "AI action id is invalid" });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const action = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${aiActionsTable} where ${aiActionsTable.id} = ${params.data.id} and ${aiActionsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const [current] = await tx
+        .select()
+        .from(aiActionsTable)
+        .where(and(eq(aiActionsTable.id, params.data.id), eq(aiActionsTable.merchantId, merchant.id)))
+        .limit(1);
+      if (!current) throw new Error("AI action not found");
+      if (current.status !== "executed" || !current.rollbackAvailable) {
+        throw new Error("Only executed reversible actions can be rolled back");
+      }
+      const [updated] = await tx
+        .update(aiActionsTable)
+        .set({
+          status: "rolled_back",
+          rolledBackAt: new Date(),
+          rollbackAvailable: false,
+          result: {
+            outcome: "rolled_back",
+            compensatingRecord: true,
+            message:
+              "The local preparation result was invalidated. No external side effect required compensation.",
+          },
+        })
+        .where(eq(aiActionsTable.id, current.id))
+        .returning();
+      if (!updated) throw new Error("AI action could not be rolled back");
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "ai_action_rolled_back",
+        title: "AI action rolled back",
+        description: updated.title,
+        tone: "neutral",
+      });
+      return updated;
+    });
+    res.json(RollbackAiActionResponse.parse(serializeAiAction(action)));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "AI action rollback failed" });
+  }
 });
 
 router.get("/bank-account", async (req, res): Promise<void> => {
