@@ -3,13 +3,19 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: TS Commerce merchant and master-admin operations
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Merchant dashboard operations
+  - name: billing
+    description: Merchant subscription billing
+  - name: admin
+    description: Master admin operations
 paths:
   /healthz:
     get:
@@ -24,6 +30,141 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /dashboard/overview:
+    get:
+      operationId: getDashboardOverview
+      tags: [dashboard]
+      summary: Get merchant dashboard overview
+      responses:
+        "200":
+          description: Merchant overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverview"
+  /dashboard/activity:
+    get:
+      operationId: listDashboardActivity
+      tags: [dashboard]
+      summary: List recent merchant activity
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+  /subscription:
+    get:
+      operationId: getSubscription
+      tags: [billing]
+      summary: Get current merchant subscription
+      responses:
+        "200":
+          description: Subscription status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+    post:
+      operationId: createSubscription
+      tags: [billing]
+      summary: Create or activate a merchant subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionInput"
+      responses:
+        "201":
+          description: Subscription updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+  /subscription/bank-transfer:
+    post:
+      operationId: submitBankTransfer
+      tags: [billing]
+      summary: Submit a bank transfer reference for review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankTransferInput"
+      responses:
+        "201":
+          description: Transfer submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentRecord"
+  /subscription/use-earnings:
+    post:
+      operationId: paySubscriptionFromEarnings
+      tags: [billing]
+      summary: Apply merchant earnings to the subscription fee
+      responses:
+        "201":
+          description: Earnings applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentRecord"
+  /admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [admin]
+      summary: Get master admin platform overview
+      responses:
+        "200":
+          description: Admin overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverview"
+  /admin/merchants:
+    get:
+      operationId: listMerchants
+      tags: [admin]
+      summary: List merchants for the master admin
+      responses:
+        "200":
+          description: Merchant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Merchant"
+  /admin/merchants/{id}/status:
+    patch:
+      operationId: updateMerchantStatus
+      tags: [admin]
+      summary: Update merchant access status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MerchantStatusInput"
+      responses:
+        "200":
+          description: Updated merchant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
 components:
   schemas:
     HealthStatus:
@@ -31,6 +172,158 @@ components:
       properties:
         status:
           type: string
+      required: [status]
+    ActivityItem:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: string }
+        title: { type: string }
+        description: { type: string }
+        amount: { type: ["number", "null"] }
+        currency: { type: string }
+        occurredAt: { type: string, format: date-time }
+        tone: { type: string }
+      required: [id, type, title, description, amount, currency, occurredAt, tone]
+    Subscription:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        isAdmin: { type: boolean }
+        amountDue: { type: number }
+        amountPaid: { type: number }
+        earningsHeld: { type: number }
+        status: { type: string }
+        registeredAt: { type: string, format: date-time }
+        warningDay: { type: integer }
+        suspensionDay: { type: integer }
+        nextAction: { type: string }
+        paymentMethod: { type: ["string", "null"] }
       required:
+        - id
+        - email
+        - isAdmin
+        - amountDue
+        - amountPaid
+        - earningsHeld
         - status
-
+        - registeredAt
+        - warningDay
+        - suspensionDay
+        - nextAction
+        - paymentMethod
+    DashboardOverview:
+      type: object
+      properties:
+        storeName: { type: string }
+        storeSlug: { type: string }
+        revenue: { type: number }
+        revenueChange: { type: number }
+        orders: { type: integer }
+        customers: { type: integer }
+        availableBalance: { type: number }
+        pendingBalance: { type: number }
+        earningsHeldForSubscription: { type: number }
+        subscription: { $ref: "#/components/schemas/Subscription" }
+        revenueSeries:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevenuePoint"
+      required:
+        - storeName
+        - storeSlug
+        - revenue
+        - revenueChange
+        - orders
+        - customers
+        - availableBalance
+        - pendingBalance
+        - earningsHeldForSubscription
+        - subscription
+        - revenueSeries
+    RevenuePoint:
+      type: object
+      properties:
+        label: { type: string }
+        amount: { type: number }
+      required: [label, amount]
+    Merchant:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        storeName: { type: string }
+        status: { type: string }
+        subscriptionStatus: { type: string }
+        amountPaid: { type: number }
+        amountDue: { type: number }
+        earningsHeld: { type: number }
+        registeredAt: { type: string, format: date-time }
+        daysSinceRegistration: { type: integer }
+      required:
+        - id
+        - name
+        - email
+        - storeName
+        - status
+        - subscriptionStatus
+        - amountPaid
+        - amountDue
+        - earningsHeld
+        - registeredAt
+        - daysSinceRegistration
+    AdminOverview:
+      type: object
+      properties:
+        platformRevenue: { type: number }
+        subscriptionRevenue: { type: number }
+        heldMerchantRevenue: { type: number }
+        activeMerchants: { type: integer }
+        attentionRequired: { type: integer }
+        suspendedAccounts: { type: integer }
+        recentPayments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentRecord"
+      required:
+        - platformRevenue
+        - subscriptionRevenue
+        - heldMerchantRevenue
+        - activeMerchants
+        - attentionRequired
+        - suspendedAccounts
+        - recentPayments
+    PaymentRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        merchantName: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        method: { type: string }
+        reference: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, merchantName, amount, currency, method, reference, status, createdAt]
+    SubscriptionInput:
+      type: object
+      properties:
+        method:
+          type: string
+          enum: [earnings, bank]
+      required: [method]
+    BankTransferInput:
+      type: object
+      properties:
+        reference: { type: string, minLength: 3 }
+        senderName: { type: string, minLength: 2 }
+      required: [reference, senderName]
+    MerchantStatusInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, suspended, banned]
+      required: [status]

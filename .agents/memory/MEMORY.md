@@ -1,0 +1,1 @@
+- [Tailwind data URI parsing](tailwind-data-uri.md) — avoid quoted inline SVG data URIs in CSS utility projects; Tailwind’s parser can treat them as unterminated strings.

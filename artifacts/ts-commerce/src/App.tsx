@@ -1,0 +1,101 @@
+import { type ReactNode, useEffect, useRef } from 'react';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { ClerkProvider, Show, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
+import { publishableKeyFromHost } from '@clerk/react/internal';
+import { shadcn } from '@clerk/themes';
+import { Redirect, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import Landing from '@/pages/landing';
+import Dashboard from '@/pages/dashboard';
+import Billing from '@/pages/billing';
+import Admin from '@/pages/admin';
+import Merchants from '@/pages/merchants';
+import NotFound from '@/pages/not-found';
+
+const queryClient = new QueryClient();
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+const ADMIN_EMAIL = 'ifeoluwaolowu4@gmail.com';
+
+function stripBase(path: string) {
+  return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path;
+}
+
+function HomeRoute() {
+  return <><Show when="signed-in"><HomeRedirect /></Show><Show when="signed-out"><Landing /></Show></>;
+}
+
+function HomeRedirect() {
+  const { user, isLoaded } = useUser();
+  if (!isLoaded) return <Landing />;
+  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL || user?.publicMetadata?.role === 'admin' || user?.publicMetadata?.isAdmin === true;
+  return <Redirect to={isAdmin ? '/admin' : '/dashboard'} />;
+}
+
+function Protected({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return <Landing />;
+  if (!isSignedIn) return <Redirect to="/sign-in" />;
+  return admin ? <AdminGate>{children}</AdminGate> : <>{children}</>;
+}
+
+function AdminGate({ children }: { children: ReactNode }) {
+  const { user } = useUser();
+  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL || user?.publicMetadata?.role === 'admin' || user?.publicMetadata?.isAdmin === true;
+  return isAdmin ? <>{children}</> : <Redirect to="/dashboard" />;
+}
+
+function ClerkQueryCacheInvalidator() {
+  const { addListener } = useClerk();
+  const client = useQueryClient();
+  const previous = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const unsubscribe = addListener(({ user }) => {
+      const id = user?.id ?? null;
+      if (previous.current !== undefined && previous.current !== id) client.clear();
+      previous.current = id;
+    });
+    return unsubscribe;
+  }, [addListener, client]);
+  return null;
+}
+
+function AuthRoutes() {
+  return <Switch>
+    <Route path="/" component={HomeRoute} />
+    <Route path="/sign-in/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>} />
+    <Route path="/sign-up/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
+    <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
+    <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
+    <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
+    <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
+    <Route component={NotFound} />
+  </Switch>;
+}
+
+function BrandedProvider() {
+  const [, setLocation] = useLocation();
+  return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={{ theme: shadcn, cssLayerName: 'clerk', options: { logoPlacement: 'inside', logoLinkUrl: basePath || '/', logoImageUrl: `${window.location.origin}${basePath}/logo.svg` }, variables: { colorPrimary: '#182333', colorForeground: '#182333', colorMutedForeground: '#697687', colorBackground: '#fbfaf6', colorInput: '#f7f4ed', colorInputForeground: '#182333', colorDanger: '#a33e38', colorNeutral: '#d9d2c4', fontFamily: 'Manrope, sans-serif', borderRadius: '0.75rem' }, elements: { rootBox: 'w-full flex justify-center', cardBox: 'bg-[#fbfaf6] rounded-2xl w-[440px] max-w-full overflow-hidden border border-[#d9d2c4]', card: '!shadow-none !border-0 !bg-transparent', footer: '!shadow-none !border-0 !bg-transparent', headerTitle: 'text-[#182333] font-extrabold', headerSubtitle: 'text-[#697687]', socialButtonsBlockButtonText: 'text-[#182333] font-bold', formFieldLabel: 'text-[#182333] font-bold', footerActionLink: 'text-[#8a6826] font-bold', footerActionText: 'text-[#697687]', dividerText: 'text-[#697687]', formButtonPrimary: 'bg-[#182333] text-[#f8f3e8] hover:bg-[#25354a]', formFieldInput: 'bg-[#f7f4ed] border-[#d9d2c4] text-[#182333]', footerAction: 'text-[#697687]', dividerLine: 'bg-[#d9d2c4]', alert: 'bg-[#fff3f0]', alertText: 'text-[#943b35]' } }} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} localization={{ signIn: { start: { title: 'Welcome back', subtitle: 'Your ledger is waiting.' } }, signUp: { start: { title: 'Open your workspace', subtitle: 'A clearer way to run your commerce.' } } }} routerPush={(to) => setLocation(stripBase(to))} routerReplace={(to) => setLocation(stripBase(to), { replace: true })}><QueryClientProvider client={queryClient}><ClerkQueryCacheInvalidator /><AuthRoutes /></QueryClientProvider></ClerkProvider>;
+}
+
+function Router() {
+  const [location] = useLocation();
+  return <ErrorBoundary resetKey={location}>{clerkPubKey ? <BrandedProvider /> : <AuthRoutesWithoutClerk />}</ErrorBoundary>;
+}
+
+function AuthRoutesWithoutClerk() {
+  return <Switch><Route path="/" component={Landing} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+}
+
+function AuthUnavailable({ mode }: { mode: string }) {
+  return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><div className="w-full max-w-md rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-8 text-center"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">TS / COMMERCE</p><h1 className="mt-4 text-2xl font-extrabold tracking-[-.05em]">Authentication is being prepared.</h1><p className="mt-3 text-sm leading-6 text-[#697687]">The {mode} service is not configured in this environment yet. Please return to the public site.</p><a href="/" className="mt-6 inline-flex rounded-lg bg-[#182333] px-4 py-3 text-sm font-extrabold text-[#f8f3e8]" data-testid="link-auth-unavailable-home">Return home</a></div></main>;
+}
+
+function App() {
+  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+}
+
+export default App;
