@@ -85,6 +85,162 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ActivityItem"
+  /ai/overview:
+    get:
+      operationId: getAiOverview
+      tags: [ai]
+      summary: Get first-party AI business intelligence
+      responses:
+        "200":
+          description: Tenant-scoped AI overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiOverview"
+  /ai/train:
+    post:
+      operationId: trainAiModel
+      tags: [ai]
+      summary: Train the local commerce signals model
+      responses:
+        "201":
+          description: Local model training result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiModel"
+  /ai/settings:
+    get:
+      operationId: getAiSettings
+      tags: [ai]
+      summary: Get AI autonomy and training settings
+      responses:
+        "200":
+          description: AI settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+    put:
+      operationId: updateAiSettings
+      tags: [ai]
+      summary: Update AI autonomy and training settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiSettingsInput"
+      responses:
+        "200":
+          description: Updated AI settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+  /ai/actions:
+    get:
+      operationId: listAiActions
+      tags: [ai]
+      summary: List AI actions and approvals
+      responses:
+        "200":
+          description: Tenant-scoped AI action history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiAction"
+    post:
+      operationId: createAiAction
+      tags: [ai]
+      summary: Send an AI recommendation to the approval center
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiActionInput"
+      responses:
+        "201":
+          description: AI action awaiting approval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiAction"
+  /ai/actions/{id}/approve:
+    patch:
+      operationId: approveAiAction
+      tags: [ai]
+      summary: Approve a reversible AI action
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved AI action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiAction"
+  /ai/actions/{id}/reject:
+    patch:
+      operationId: rejectAiAction
+      tags: [ai]
+      summary: Reject an AI action before execution
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Rejected AI action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiAction"
+  /ai/actions/{id}/execute:
+    post:
+      operationId: executeAiAction
+      tags: [ai]
+      summary: Execute an approved, reversible AI preparation action
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Executed AI action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiAction"
+  /ai/actions/{id}/rollback:
+    post:
+      operationId: rollbackAiAction
+      tags: [ai]
+      summary: Roll back an executed AI preparation action
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Rolled back AI action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiAction"
   /customers:
     get:
       operationId: listCustomers
@@ -827,6 +983,117 @@ components:
           type: string
           enum: [paid, cancelled]
       required: [status]
+    AiModel:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        version: { type: string }
+        modelType: { type: string }
+        status: { type: string }
+        trainingExamples: { type: integer }
+        evaluationScore: { type: ["number", "null"] }
+        trainedAt: { type: ["string", "null"], format: date-time }
+      required: [id, name, version, modelType, status, trainingExamples, evaluationScore, trainedAt]
+    AiSettings:
+      type: object
+      properties:
+        autonomyLevel: { type: integer, minimum: 0, maximum: 4 }
+        runMyBusiness: { type: boolean }
+        trainingOptIn: { type: boolean }
+      required: [autonomyLevel, runMyBusiness, trainingOptIn]
+    AiSettingsInput:
+      type: object
+      properties:
+        autonomyLevel: { type: integer, minimum: 0, maximum: 4 }
+        runMyBusiness: { type: boolean }
+        trainingOptIn: { type: boolean }
+      required: [autonomyLevel, runMyBusiness, trainingOptIn]
+    AiMetric:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        value: { type: number }
+        detail: { type: string }
+      required: [key, label, value, detail]
+    AiSignal:
+      type: object
+      properties:
+        title: { type: string }
+        detail: { type: string }
+        severity: { type: string }
+        agent: { type: string }
+      required: [title, detail, severity, agent]
+    AiRecommendation:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        reason: { type: string }
+        agent: { type: string }
+        risk: { type: string }
+        reversible: { type: boolean }
+      required: [id, title, detail, reason, agent, risk, reversible]
+    AiAgent:
+      type: object
+      properties:
+        key: { type: string }
+        name: { type: string }
+        focus: { type: string }
+        status: { type: string }
+        insight: { type: string }
+      required: [key, name, focus, status, insight]
+    AiAction:
+      type: object
+      properties:
+        id: { type: integer }
+        agent: { type: string }
+        actionType: { type: string }
+        title: { type: string }
+        reason: { type: string }
+        status: { type: string }
+        risk: { type: string }
+        reversible: { type: boolean }
+        approvalRequired: { type: boolean }
+        rollbackAvailable: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        approvedAt: { type: ["string", "null"], format: date-time }
+        executedAt: { type: ["string", "null"], format: date-time }
+        rolledBackAt: { type: ["string", "null"], format: date-time }
+      required: [id, agent, actionType, title, reason, status, risk, reversible, approvalRequired, rollbackAvailable, createdAt, approvedAt, executedAt, rolledBackAt]
+    AiActionInput:
+      type: object
+      properties:
+        agent: { type: string, minLength: 2, maxLength: 80 }
+        actionType: { type: string, minLength: 2, maxLength: 80 }
+        title: { type: string, minLength: 2, maxLength: 240 }
+        reason: { type: string, minLength: 2, maxLength: 2000 }
+        risk: { type: string, enum: [low, medium, high] }
+        reversible: { type: boolean }
+      required: [agent, actionType, title, reason, risk, reversible]
+    AiOverview:
+      type: object
+      properties:
+        model: { $ref: "#/components/schemas/AiModel" }
+        settings: { $ref: "#/components/schemas/AiSettings" }
+        healthScore: { type: number }
+        brief: { type: string }
+        metrics:
+          type: array
+          items: { $ref: "#/components/schemas/AiMetric" }
+        signals:
+          type: array
+          items: { $ref: "#/components/schemas/AiSignal" }
+        recommendations:
+          type: array
+          items: { $ref: "#/components/schemas/AiRecommendation" }
+        agents:
+          type: array
+          items: { $ref: "#/components/schemas/AiAgent" }
+        awaitingApproval: { type: integer }
+      required: [model, settings, healthScore, brief, metrics, signals, recommendations, agents, awaitingApproval]
     Subscription:
       type: object
       properties:
