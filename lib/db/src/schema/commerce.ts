@@ -177,6 +177,7 @@ export const ordersTable = pgTable(
       .references(() => customersTable.id),
     orderNumber: text("order_number").notNull(),
     total: numeric("total", { precision: 12, scale: 2 }).notNull(),
+    quantity: integer("quantity").notNull().default(1),
     currency: text("currency").notNull().default("USD"),
     status: text("status").notNull().default("paid"),
     supplierProductId: integer("supplier_product_id").references(

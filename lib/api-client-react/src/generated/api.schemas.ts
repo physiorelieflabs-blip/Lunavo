@@ -38,6 +38,8 @@ export interface OrderRecord {
   customerName: string;
   customerEmail: string;
   total: number;
+  /** @minimum 1 */
+  quantity: number;
   currency: string;
   status: string;
   /** @nullable */
@@ -70,6 +72,11 @@ export interface CreateOrderInput {
   customerPhone?: string;
   /** @exclusiveMinimum 0 */
   total: number;
+  /**
+     * @minimum 1
+     * @maximum 100
+     */
+  quantity?: number;
   status?: CreateOrderInputStatus;
   /**
      * @minLength 2
@@ -85,6 +92,18 @@ export interface CreateOrderInput {
   supplierProductId?: number;
   /** @maxLength 500 */
   shippingAddress?: string;
+}
+
+export type OrderStatusInputStatus = typeof OrderStatusInputStatus[keyof typeof OrderStatusInputStatus];
+
+
+export const OrderStatusInputStatus = {
+  paid: 'paid',
+  cancelled: 'cancelled',
+} as const;
+
+export interface OrderStatusInput {
+  status: OrderStatusInputStatus;
 }
 
 export interface Subscription {
@@ -359,6 +378,11 @@ export interface SupplierProductInput {
      * @maximum 1000000
      */
   profitValue: number;
+  /**
+     * @maximum 1000000000
+     * @exclusiveMinimum 0
+     */
+  costPrice?: number;
 }
 
 export type SupplierProductRecordProfitType = typeof SupplierProductRecordProfitType[keyof typeof SupplierProductRecordProfitType];
@@ -408,6 +432,7 @@ export interface DropshipQueueRecord {
   /** @nullable */
   sellingPrice: number | null;
   total: number;
+  quantity: number;
   currency: string;
   orderStatus: string;
   fulfillmentStatus: string;
@@ -426,5 +451,66 @@ export const DropshipStatusInputFulfillmentStatus = {
 
 export interface DropshipStatusInput {
   fulfillmentStatus: DropshipStatusInputFulfillmentStatus;
+}
+
+export interface PublicStoreProduct {
+  id: number;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  imageUrl: string | null;
+  price: number;
+  currency: string;
+}
+
+export interface PublicStore {
+  merchantKey: string;
+  storeName: string;
+  products: PublicStoreProduct[];
+}
+
+export interface PublicCheckoutInput {
+  /** @minimum 1 */
+  supplierProductId: number;
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  customerName: string;
+  customerEmail: string;
+  /** @maxLength 40 */
+  customerPhone?: string;
+  /**
+     * @minLength 8
+     * @maxLength 500
+     */
+  shippingAddress: string;
+  /**
+     * @minimum 1
+     * @maximum 100
+     */
+  quantity: number;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     */
+  idempotencyKey: string;
+}
+
+export type PublicCheckoutOrderStatus = typeof PublicCheckoutOrderStatus[keyof typeof PublicCheckoutOrderStatus];
+
+
+export const PublicCheckoutOrderStatus = {
+  pending: 'pending',
+} as const;
+
+export interface PublicCheckoutOrder {
+  orderNumber: string;
+  title: string;
+  total: number;
+  currency: string;
+  status: PublicCheckoutOrderStatus;
+  paymentMessage: string;
 }
 

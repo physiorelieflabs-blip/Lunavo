@@ -18,6 +18,11 @@ export interface CreateOrderInput {
   customerPhone?: string;
   /** @exclusiveMinimum 0 */
   total: number;
+  /**
+     * @minimum 1
+     * @maximum 100
+     */
+  quantity?: number;
   status?: CreateOrderInputStatus;
   /**
      * @minLength 2

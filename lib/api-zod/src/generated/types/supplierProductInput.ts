@@ -18,4 +18,9 @@ export interface SupplierProductInput {
      * @maximum 1000000
      */
   profitValue: number;
+  /**
+     * @maximum 1000000000
+     * @exclusiveMinimum 0
+     */
+  costPrice?: number;
 }

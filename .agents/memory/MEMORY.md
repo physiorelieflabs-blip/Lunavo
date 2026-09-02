@@ -1,1 +1,2 @@
 - [Tailwind data URI parsing](tailwind-data-uri.md) — avoid quoted inline SVG data URIs in CSS utility projects; Tailwind’s parser can treat them as unterminated strings.
+- [Vite artifact build environment](vite-artifact-build-env.md) — static builds need safe PORT/BASE_PATH defaults; workflows still provide mounted preview values at runtime.

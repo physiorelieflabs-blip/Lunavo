@@ -18,6 +18,8 @@ import Orders from '@/pages/orders';
 import Withdrawals from '@/pages/withdrawals';
 import Suppliers from '@/pages/suppliers';
 import AdminWithdrawals from '@/pages/admin-withdrawals';
+import Dropshipping from '@/pages/dropshipping';
+import Checkout from '@/pages/checkout';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -73,11 +75,13 @@ function AuthRoutes() {
     <Route path="/" component={HomeRoute} />
     <Route path="/sign-in/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>} />
     <Route path="/sign-up/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
+    <Route path="/checkout/:merchantKey" component={Checkout} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
     <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
     <Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} />
     <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
+    <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
@@ -97,7 +101,7 @@ function Router() {
 }
 
 function AuthRoutesWithoutClerk() {
-  return <Switch><Route path="/" component={Landing} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Landing} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
 function AuthUnavailable({ mode }: { mode: string }) {

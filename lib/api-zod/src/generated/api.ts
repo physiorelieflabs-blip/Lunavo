@@ -86,12 +86,16 @@ export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
 /**
  * @summary List the merchant's recorded orders
  */
+
+
+
 export const ListOrdersResponseItem = zod.object({
   "id": zod.int(),
   "orderNumber": zod.string(),
   "customerName": zod.string(),
   "customerEmail": zod.email(),
   "total": zod.number(),
+  "quantity": zod.int().min(1),
   "currency": zod.string(),
   "status": zod.string(),
   "supplierProductId": zod.int().nullable(),
@@ -113,6 +117,8 @@ export const createOrderBodyCustomerPhoneMax = 40;
 
 export const createOrderBodyTotalExclusiveMin = 0;
 
+export const createOrderBodyQuantityMax = 100;
+
 export const createOrderBodyOrderNumberMin = 2;
 export const createOrderBodyOrderNumberMax = 80;
 
@@ -129,6 +135,7 @@ export const CreateOrderBody = zod.object({
   "customerEmail": zod.email(),
   "customerPhone": zod.string().max(createOrderBodyCustomerPhoneMax).optional(),
   "total": zod.number().gt(createOrderBodyTotalExclusiveMin),
+  "quantity": zod.int().min(1).max(createOrderBodyQuantityMax).optional(),
   "status": zod.enum(['pending', 'paid', 'fulfilled']).optional(),
   "orderNumber": zod.string().min(createOrderBodyOrderNumberMin).max(createOrderBodyOrderNumberMax).optional(),
   "idempotencyKey": zod.string().min(createOrderBodyIdempotencyKeyMin).max(createOrderBodyIdempotencyKeyMax).optional(),
@@ -136,12 +143,47 @@ export const CreateOrderBody = zod.object({
   "shippingAddress": zod.string().max(createOrderBodyShippingAddressMax).optional()
 })
 
+
+
+
 export const CreateOrderResponse = zod.object({
   "id": zod.int(),
   "orderNumber": zod.string(),
   "customerName": zod.string(),
   "customerEmail": zod.email(),
   "total": zod.number(),
+  "quantity": zod.int().min(1),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "supplierProductId": zod.int().nullable(),
+  "productTitle": zod.string().nullable(),
+  "shippingAddress": zod.string().nullable(),
+  "fulfillmentStatus": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Confirm or cancel a recorded customer order
+ */
+export const UpdateOrderStatusParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateOrderStatusBody = zod.object({
+  "status": zod.enum(['paid', 'cancelled'])
+})
+
+
+
+
+export const UpdateOrderStatusResponse = zod.object({
+  "id": zod.int(),
+  "orderNumber": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.email(),
+  "total": zod.number(),
+  "quantity": zod.int().min(1),
   "currency": zod.string(),
   "status": zod.string(),
   "supplierProductId": zod.int().nullable(),
@@ -329,13 +371,17 @@ export const importSupplierProductBodySupplierUrlMax = 2000;
 export const importSupplierProductBodyProfitValueMin = 0;
 export const importSupplierProductBodyProfitValueMax = 1000000;
 
+export const importSupplierProductBodyCostPriceExclusiveMin = 0;
+export const importSupplierProductBodyCostPriceMax = 1000000000;
+
 
 
 export const ImportSupplierProductBody = zod.object({
   "sourceUrl": zod.url().max(importSupplierProductBodySourceUrlMax),
   "supplierUrl": zod.url().max(importSupplierProductBodySupplierUrlMax),
   "profitType": zod.enum(['fixed', 'percentage']),
-  "profitValue": zod.number().min(importSupplierProductBodyProfitValueMin).max(importSupplierProductBodyProfitValueMax)
+  "profitValue": zod.number().min(importSupplierProductBodyProfitValueMin).max(importSupplierProductBodyProfitValueMax),
+  "costPrice": zod.number().gt(importSupplierProductBodyCostPriceExclusiveMin).max(importSupplierProductBodyCostPriceMax).optional()
 })
 
 export const ImportSupplierProductResponse = zod.object({
@@ -372,6 +418,7 @@ export const ListDropshipQueueResponseItem = zod.object({
   "profit": zod.number().nullable(),
   "sellingPrice": zod.number().nullable(),
   "total": zod.number(),
+  "quantity": zod.int(),
   "currency": zod.string(),
   "orderStatus": zod.string(),
   "fulfillmentStatus": zod.string(),
@@ -404,10 +451,83 @@ export const UpdateDropshipStatusResponse = zod.object({
   "profit": zod.number().nullable(),
   "sellingPrice": zod.number().nullable(),
   "total": zod.number(),
+  "quantity": zod.int(),
   "currency": zod.string(),
   "orderStatus": zod.string(),
   "fulfillmentStatus": zod.string(),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary View a merchant's public catalog
+ */
+export const getPublicStorePathMerchantKeyMax = 128;
+
+
+
+export const GetPublicStoreParams = zod.object({
+  "merchantKey": zod.coerce.string().min(1).max(getPublicStorePathMerchantKeyMax)
+})
+
+export const GetPublicStoreResponse = zod.object({
+  "merchantKey": zod.string(),
+  "storeName": zod.string(),
+  "products": zod.array(zod.object({
+  "id": zod.int(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "price": zod.number(),
+  "currency": zod.string()
+}))
+})
+
+
+/**
+ * @summary Create a pending customer order from a public catalog
+ */
+export const createPublicCheckoutPathMerchantKeyMax = 128;
+
+
+
+export const CreatePublicCheckoutParams = zod.object({
+  "merchantKey": zod.coerce.string().min(1).max(createPublicCheckoutPathMerchantKeyMax)
+})
+
+
+export const createPublicCheckoutBodyCustomerNameMin = 2;
+export const createPublicCheckoutBodyCustomerNameMax = 160;
+
+export const createPublicCheckoutBodyCustomerPhoneMax = 40;
+
+export const createPublicCheckoutBodyShippingAddressMin = 8;
+export const createPublicCheckoutBodyShippingAddressMax = 500;
+
+export const createPublicCheckoutBodyQuantityMax = 100;
+
+export const createPublicCheckoutBodyIdempotencyKeyMin = 8;
+export const createPublicCheckoutBodyIdempotencyKeyMax = 120;
+
+
+
+export const CreatePublicCheckoutBody = zod.object({
+  "supplierProductId": zod.int().min(1),
+  "customerName": zod.string().min(createPublicCheckoutBodyCustomerNameMin).max(createPublicCheckoutBodyCustomerNameMax),
+  "customerEmail": zod.email(),
+  "customerPhone": zod.string().max(createPublicCheckoutBodyCustomerPhoneMax).optional(),
+  "shippingAddress": zod.string().min(createPublicCheckoutBodyShippingAddressMin).max(createPublicCheckoutBodyShippingAddressMax),
+  "quantity": zod.int().min(1).max(createPublicCheckoutBodyQuantityMax),
+  "idempotencyKey": zod.string().min(createPublicCheckoutBodyIdempotencyKeyMin).max(createPublicCheckoutBodyIdempotencyKeyMax)
+})
+
+export const CreatePublicCheckoutResponse = zod.object({
+  "orderNumber": zod.string(),
+  "title": zod.string(),
+  "total": zod.number(),
+  "currency": zod.string(),
+  "status": zod.enum(['pending']),
+  "paymentMessage": zod.string()
 })
 
 

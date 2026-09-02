@@ -12,6 +12,8 @@ export interface OrderRecord {
   customerName: string;
   customerEmail: string;
   total: number;
+  /** @minimum 1 */
+  quantity: number;
   currency: string;
   status: string;
   /** @nullable */

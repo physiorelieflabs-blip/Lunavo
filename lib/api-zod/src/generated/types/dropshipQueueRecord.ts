@@ -24,6 +24,7 @@ export interface DropshipQueueRecord {
   /** @nullable */
   sellingPrice: number | null;
   total: number;
+  quantity: number;
   currency: string;
   orderStatus: string;
   fulfillmentStatus: string;

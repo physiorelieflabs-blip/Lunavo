@@ -30,13 +30,17 @@ import {
   ConfirmWithdrawalSecuritySetupResponse,
   CreateOrderBody,
   CreateOrderResponse,
+  CreatePublicCheckoutBody,
+  CreatePublicCheckoutParams,
+  CreatePublicCheckoutResponse,
   CreateSubscriptionBody,
   CreateSubscriptionResponse,
-  DropshipStatusInput,
-  DropshipQueueRecord,
+  UpdateDropshipStatusBody,
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
   GetLinkedBankAccountResponse,
+  GetPublicStoreParams,
+  GetPublicStoreResponse,
   GetSubscriptionResponse,
   GetWithdrawalSecurityResponse,
   ImportSupplierProductBody,
@@ -68,6 +72,9 @@ import {
   UpdateMerchantStatusBody,
   UpdateMerchantStatusParams,
   UpdateMerchantStatusResponse,
+  UpdateOrderStatusBody,
+  UpdateOrderStatusParams,
+  UpdateOrderStatusResponse,
   UpdateDropshipStatusParams,
   UpdateDropshipStatusResponse,
 } from "@workspace/api-zod";
@@ -455,6 +462,7 @@ function serializeOrder(
     customerName: customer.name,
     customerEmail: customer.email,
     total: toNumber(order.total),
+    quantity: order.quantity,
     currency: order.currency,
     status: order.status,
     supplierProductId: order.supplierProductId,
@@ -509,10 +517,26 @@ function serializeDropshipQueueItem(
         : Number((sellingPrice - supplierCost).toFixed(2)),
     sellingPrice,
     total: toNumber(order.total),
+    quantity: order.quantity,
     currency: order.currency,
     orderStatus: order.status,
     fulfillmentStatus: order.fulfillmentStatus,
     createdAt: order.createdAt,
+  };
+}
+
+function serializePublicCheckoutOrder(
+  order: Order,
+  product: typeof supplierProductsTable.$inferSelect,
+) {
+  return {
+    orderNumber: order.orderNumber,
+    title: product.title,
+    total: toNumber(order.total),
+    currency: order.currency,
+    status: "pending" as const,
+    paymentMessage:
+      "Order received. Payment is not captured online; the store will confirm payment before fulfillment.",
   };
 }
 
@@ -1216,7 +1240,7 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
       throw new Error("Enter a valid supplier website link");
     }
     const sellingPrice = calculateSellingPrice(
-      imported.price,
+      parsed.data.costPrice ?? imported.price,
       parsed.data.profitType,
       parsed.data.profitValue,
     );
@@ -1239,7 +1263,10 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
       title: imported.title,
       description: imported.description,
       imageUrl: imported.imageUrl,
-      price: imported.price,
+      price:
+        parsed.data.costPrice === undefined
+          ? imported.price
+          : parsed.data.costPrice.toFixed(2),
       currency: imported.currency,
       profitType: parsed.data.profitType,
       profitValue: parsed.data.profitValue.toFixed(2),
@@ -1549,6 +1576,334 @@ router.post("/orders", async (req, res): Promise<void> => {
   }
 });
 
+router.patch("/orders/:id/status", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdateOrderStatusParams.safeParse(req.params);
+  const parsed = UpdateOrderStatusBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose paid or cancelled" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${ordersTable} where ${ordersTable.id} = ${params.data.id} and ${ordersTable.merchantId} = ${merchant.id} for update`,
+      );
+      const existing = (
+        await tx
+          .select({
+            order: ordersTable,
+            customer: customersTable,
+            product: supplierProductsTable,
+          })
+          .from(ordersTable)
+          .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+          .leftJoin(
+            supplierProductsTable,
+            eq(ordersTable.supplierProductId, supplierProductsTable.id),
+          )
+          .where(
+            and(
+              eq(ordersTable.id, params.data.id),
+              eq(ordersTable.merchantId, merchant.id),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (!existing) throw new Error("Order not found");
+      const nextStatus = parsed.data.status;
+      if (existing.order.status === nextStatus) return existing;
+      if (existing.order.status !== "pending") {
+        throw new Error("Only pending checkout orders can be changed");
+      }
+      if (nextStatus === "cancelled") {
+        const [order] = await tx
+          .update(ordersTable)
+          .set({ status: "cancelled" })
+          .where(eq(ordersTable.id, existing.order.id))
+          .returning();
+        if (!order) throw new Error("Order could not be cancelled");
+        await tx.insert(activityTable).values({
+          merchantId: merchant.id,
+          type: "order_cancelled",
+          title: `Checkout ${order.orderNumber} cancelled`,
+          description: "The customer checkout was cancelled before payment.",
+          tone: "warning",
+        });
+        return { ...existing, order };
+      }
+
+      await tx.execute(
+        sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const subscription = (
+        await tx
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.merchantId, merchant.id))
+          .limit(1)
+      )[0];
+      if (!subscription) throw new Error("Subscription not found");
+      const outstanding = Math.max(
+        0,
+        toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+      );
+      const availableToHold = Math.max(
+        0,
+        outstanding - toNumber(subscription.earningsHeld),
+      );
+      const holdAmount = Math.min(toNumber(existing.order.total), availableToHold);
+      const [order] = await tx
+        .update(ordersTable)
+        .set({ status: "paid" })
+        .where(eq(ordersTable.id, existing.order.id))
+        .returning();
+      if (!order) throw new Error("Order could not be confirmed");
+      if (holdAmount > 0) {
+        await tx
+          .update(subscriptionsTable)
+          .set({
+            earningsHeld: (
+              toNumber(subscription.earningsHeld) + holdAmount
+            ).toFixed(2),
+          })
+          .where(eq(subscriptionsTable.id, subscription.id));
+      }
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "order_payment_confirmed",
+        title: `Payment confirmed for ${order.orderNumber}`,
+        description: "Customer payment was confirmed and the sale entered the ledger.",
+        amount: order.total,
+        tone: "positive",
+      });
+      return { ...existing, order };
+    });
+    res.json(
+      UpdateOrderStatusResponse.parse(
+        serializeOrder(result.order, result.customer, result.product),
+      ),
+    );
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Order status could not be updated",
+    });
+  }
+});
+
+router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
+  const parsed = GetPublicStoreParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid store link" });
+    return;
+  }
+  const merchant = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.clerkUserId, parsed.data.merchantKey))
+      .limit(1)
+  )[0];
+  if (!merchant || merchant.status !== "active") {
+    res.status(404).json({ error: "Store not found" });
+    return;
+  }
+  const products = await db
+    .select()
+    .from(supplierProductsTable)
+    .where(
+      and(
+        eq(supplierProductsTable.merchantId, merchant.id),
+        eq(supplierProductsTable.status, "active"),
+        sql`${supplierProductsTable.sellingPrice} is not null`,
+      ),
+    )
+    .orderBy(desc(supplierProductsTable.importedAt))
+    .limit(100);
+  res.json(
+    GetPublicStoreResponse.parse({
+      merchantKey: parsed.data.merchantKey,
+      storeName: merchant.storeName,
+      products: products.map((product) => ({
+        id: product.id,
+        title: product.title,
+        description: product.description,
+        imageUrl: product.imageUrl,
+        price: toNumber(product.sellingPrice),
+        currency: product.currency,
+      })),
+    }),
+  );
+});
+
+router.post(
+  "/public/store/:merchantKey/checkout",
+  async (req, res): Promise<void> => {
+    const params = CreatePublicCheckoutParams.safeParse(req.params);
+    const parsed = CreatePublicCheckoutBody.safeParse(req.body);
+    if (!params.success || !parsed.success) {
+      res.status(400).json({
+        error:
+          "Choose a product and enter valid customer and shipping details",
+      });
+      return;
+    }
+    const merchant = (
+      await db
+        .select()
+        .from(merchantsTable)
+        .where(eq(merchantsTable.clerkUserId, params.data.merchantKey))
+        .limit(1)
+    )[0];
+    if (!merchant || merchant.status !== "active") {
+      res.status(404).json({ error: "Store not found" });
+      return;
+    }
+    try {
+      const result = await db.transaction(async (tx) => {
+        const existing = (
+          await tx
+            .select({ order: ordersTable, product: supplierProductsTable })
+            .from(ordersTable)
+            .innerJoin(
+              supplierProductsTable,
+              eq(ordersTable.supplierProductId, supplierProductsTable.id),
+            )
+            .where(
+              and(
+                eq(ordersTable.merchantId, merchant.id),
+                eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (existing) return existing;
+
+        const product = (
+          await tx
+            .select()
+            .from(supplierProductsTable)
+            .where(
+              and(
+                eq(supplierProductsTable.id, parsed.data.supplierProductId),
+                eq(supplierProductsTable.merchantId, merchant.id),
+                eq(supplierProductsTable.status, "active"),
+                sql`${supplierProductsTable.sellingPrice} is not null`,
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!product || product.sellingPrice === null) {
+          throw new Error("That product is no longer available");
+        }
+        const quantity = parsed.data.quantity;
+        const total = Number(
+          (toNumber(product.sellingPrice) * quantity).toFixed(2),
+        );
+        const email = parsed.data.customerEmail.trim().toLowerCase();
+        let customer = (
+          await tx
+            .select()
+            .from(customersTable)
+            .where(
+              and(
+                eq(customersTable.merchantId, merchant.id),
+                eq(customersTable.email, email),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (customer) {
+          [customer] = await tx
+            .update(customersTable)
+            .set({
+              name: parsed.data.customerName.trim(),
+              phone: parsed.data.customerPhone?.trim() || null,
+            })
+            .where(eq(customersTable.id, customer.id))
+            .returning();
+        } else {
+          [customer] = await tx
+            .insert(customersTable)
+            .values({
+              merchantId: merchant.id,
+              name: parsed.data.customerName.trim(),
+              email,
+              phone: parsed.data.customerPhone?.trim() || null,
+            })
+            .returning();
+        }
+        if (!customer) throw new Error("Customer could not be saved");
+        const [order] = await tx
+          .insert(ordersTable)
+          .values({
+            merchantId: merchant.id,
+            customerId: customer.id,
+            orderNumber: `WEB-${randomUUID().slice(0, 8).toUpperCase()}`,
+            total: total.toFixed(2),
+            quantity,
+            currency: product.currency,
+            status: "pending",
+            supplierProductId: product.id,
+            shippingAddress: parsed.data.shippingAddress.trim(),
+            fulfillmentStatus: "awaiting_supplier",
+            idempotencyKey: parsed.data.idempotencyKey,
+          })
+          .onConflictDoNothing({
+            target: [ordersTable.merchantId, ordersTable.idempotencyKey],
+          })
+          .returning();
+        if (!order) {
+          const replay = (
+            await tx
+              .select({ order: ordersTable, product: supplierProductsTable })
+              .from(ordersTable)
+              .innerJoin(
+                supplierProductsTable,
+                eq(ordersTable.supplierProductId, supplierProductsTable.id),
+              )
+              .where(
+                and(
+                  eq(ordersTable.merchantId, merchant.id),
+                  eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (replay) return replay;
+          throw new Error("Checkout order could not be created");
+        }
+        await tx.insert(activityTable).values({
+          merchantId: merchant.id,
+          type: "checkout_submitted",
+          title: `Checkout ${order.orderNumber} received`,
+          description: `${customer.name} submitted a ${quantity} item order awaiting payment confirmation.`,
+          amount: total.toFixed(2),
+          currency: product.currency,
+          tone: "neutral",
+        });
+        return { order, product };
+      });
+      res
+        .status(201)
+        .json(
+          CreatePublicCheckoutResponse.parse(
+            serializePublicCheckoutOrder(result.order, result.product),
+          ),
+        );
+    } catch (error) {
+      res.status(409).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Checkout order could not be created",
+      });
+    }
+  },
+);
+
 router.get("/dropship/queue", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -1586,7 +1941,7 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const params = UpdateDropshipStatusParams.safeParse(req.params);
-  const parsed = DropshipStatusInput.safeParse(req.body);
+  const parsed = UpdateDropshipStatusBody.safeParse(req.body);
   if (!params.success || !parsed.success) {
     res.status(400).json({ error: "Choose a valid supplier fulfillment status" });
     return;
@@ -1594,6 +1949,9 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   const nextStatus = parsed.data.fulfillmentStatus;
   const result = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from ${ordersTable} where ${ordersTable.id} = ${params.data.id} and ${ordersTable.merchantId} = ${merchant.id} for update`,
+    );
     const existing = (
       await tx
         .select({

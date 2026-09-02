@@ -37,8 +37,12 @@ import type {
   Merchant,
   MerchantStatusInput,
   OrderRecord,
+  OrderStatusInput,
   PaymentRecord,
   PaymentReviewInput,
+  PublicCheckoutInput,
+  PublicCheckoutOrder,
+  PublicStore,
   Subscription,
   SubscriptionInput,
   SupplierProductInput,
@@ -533,6 +537,78 @@ export const useCreateOrder = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateOrderMutationOptions(options));
+    }
+
+export const getUpdateOrderStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/orders/${id}/status`
+}
+
+/**
+ * @summary Confirm or cancel a recorded customer order
+ */
+export const updateOrderStatus = async (id: number,
+    orderStatusInput: OrderStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<OrderRecord> => {
+
+  return customFetch<OrderRecord>(getUpdateOrderStatusUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(orderStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateOrderStatusMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOrderStatus>>, TError,{id: number;data: BodyType<OrderStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateOrderStatus>>, TError,{id: number;data: BodyType<OrderStatusInput>}, TContext> => {
+
+const mutationKey = ['updateOrderStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateOrderStatus>>, {id: number;data: BodyType<OrderStatusInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateOrderStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateOrderStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateOrderStatus>>>
+    export type UpdateOrderStatusMutationBody = BodyType<OrderStatusInput>
+    export type UpdateOrderStatusMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Confirm or cancel a recorded customer order
+ */
+export const useUpdateOrderStatus = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOrderStatus>>, TError,{id: number;data: BodyType<OrderStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateOrderStatus>>,
+        TError,
+        {id: number;data: BodyType<OrderStatusInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateOrderStatusMutationOptions(options));
     }
 
 export const getGetWithdrawalSecurityUrl = () => {
@@ -1416,6 +1492,155 @@ export const useUpdateDropshipStatus = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateDropshipStatusMutationOptions(options));
+    }
+
+export const getGetPublicStoreUrl = (merchantKey: string,) => {
+
+
+
+
+  return `/api/public/store/${merchantKey}`
+}
+
+/**
+ * @summary View a merchant's public catalog
+ */
+export const getPublicStore = async (merchantKey: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicStore> => {
+
+  return customFetch<PublicStore>(getGetPublicStoreUrl(merchantKey),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicStoreQueryKey = (merchantKey: string,) => {
+    return [
+    `/api/public/store/${merchantKey}`
+    ] as const;
+    }
+
+
+export const getGetPublicStoreQueryOptions = <TData = Awaited<ReturnType<typeof getPublicStore>>, TError = ErrorType<unknown>>(merchantKey: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStore>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicStoreQueryKey(merchantKey);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicStore>>> = ({ signal }) => getPublicStore(merchantKey, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: merchantKey !== null && merchantKey !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicStore>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicStoreQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicStore>>>
+export type GetPublicStoreQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary View a merchant's public catalog
+ */
+
+export function useGetPublicStore<TData = Awaited<ReturnType<typeof getPublicStore>>, TError = ErrorType<unknown>>(
+ merchantKey: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStore>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicStoreQueryOptions(merchantKey,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePublicCheckoutUrl = (merchantKey: string,) => {
+
+
+
+
+  return `/api/public/store/${merchantKey}/checkout`
+}
+
+/**
+ * @summary Create a pending customer order from a public catalog
+ */
+export const createPublicCheckout = async (merchantKey: string,
+    publicCheckoutInput: PublicCheckoutInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutOrder> => {
+
+  return customFetch<PublicCheckoutOrder>(getCreatePublicCheckoutUrl(merchantKey),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publicCheckoutInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePublicCheckoutMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPublicCheckout>>, TError,{merchantKey: string;data: BodyType<PublicCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPublicCheckout>>, TError,{merchantKey: string;data: BodyType<PublicCheckoutInput>}, TContext> => {
+
+const mutationKey = ['createPublicCheckout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPublicCheckout>>, {merchantKey: string;data: BodyType<PublicCheckoutInput>}> = (props) => {
+          const {merchantKey,data} = props ?? {};
+
+          return  createPublicCheckout(merchantKey,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePublicCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof createPublicCheckout>>>
+    export type CreatePublicCheckoutMutationBody = BodyType<PublicCheckoutInput>
+    export type CreatePublicCheckoutMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a pending customer order from a public catalog
+ */
+export const useCreatePublicCheckout = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPublicCheckout>>, TError,{merchantKey: string;data: BodyType<PublicCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPublicCheckout>>,
+        TError,
+        {merchantKey: string;data: BodyType<PublicCheckoutInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePublicCheckoutMutationOptions(options));
     }
 
 export const getGetSubscriptionUrl = () => {

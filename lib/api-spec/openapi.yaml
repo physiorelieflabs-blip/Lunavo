@@ -101,6 +101,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrderRecord"
+  /orders/{id}/status:
+    patch:
+      operationId: updateOrderStatus
+      tags: [dashboard]
+      summary: Confirm or cancel a recorded customer order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderStatusInput"
+      responses:
+        "200":
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderRecord"
   /security/withdrawal:
     get:
       operationId: getWithdrawalSecurity
@@ -281,6 +305,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DropshipQueueRecord"
+  /public/store/{merchantKey}:
+    get:
+      operationId: getPublicStore
+      tags: [checkout]
+      summary: View a merchant's public catalog
+      parameters:
+        - name: merchantKey
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        "200":
+          description: Public catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicStore"
+  /public/store/{merchantKey}/checkout:
+    post:
+      operationId: createPublicCheckout
+      tags: [checkout]
+      summary: Create a pending customer order from a public catalog
+      parameters:
+        - name: merchantKey
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicCheckoutInput"
+      responses:
+        "201":
+          description: Pending order awaiting merchant payment confirmation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicCheckoutOrder"
   /subscription:
     get:
       operationId: getSubscription
@@ -515,6 +585,7 @@ components:
         customerName: { type: string }
         customerEmail: { type: string, format: email }
         total: { type: number }
+        quantity: { type: integer, minimum: 1 }
         currency: { type: string }
         status: { type: string }
         supplierProductId: { type: ["integer", "null"] }
@@ -522,7 +593,7 @@ components:
         shippingAddress: { type: ["string", "null"] }
         fulfillmentStatus: { type: string }
         createdAt: { type: string, format: date-time }
-      required: [id, orderNumber, customerName, customerEmail, total, currency, status, supplierProductId, productTitle, shippingAddress, fulfillmentStatus, createdAt]
+      required: [id, orderNumber, customerName, customerEmail, total, quantity, currency, status, supplierProductId, productTitle, shippingAddress, fulfillmentStatus, createdAt]
     CreateOrderInput:
       type: object
       properties:
@@ -530,6 +601,7 @@ components:
         customerEmail: { type: string, format: email }
         customerPhone: { type: string, maxLength: 40 }
         total: { type: number, exclusiveMinimum: 0 }
+        quantity: { type: integer, minimum: 1, maximum: 100 }
         status:
           type: string
           enum: [pending, paid, fulfilled]
@@ -538,6 +610,13 @@ components:
         supplierProductId: { type: integer, minimum: 1 }
         shippingAddress: { type: string, maxLength: 500 }
       required: [customerName, customerEmail, total]
+    OrderStatusInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [paid, cancelled]
+      required: [status]
     Subscription:
       type: object
       properties:
@@ -798,6 +877,7 @@ components:
           type: string
           enum: [fixed, percentage]
         profitValue: { type: number, minimum: 0, maximum: 1000000 }
+        costPrice: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
       required: [sourceUrl, supplierUrl, profitType, profitValue]
     SupplierProductRecord:
       type: object
@@ -832,11 +912,12 @@ components:
         profit: { type: ["number", "null"] }
         sellingPrice: { type: ["number", "null"] }
         total: { type: number }
+        quantity: { type: integer }
         currency: { type: string }
         orderStatus: { type: string }
         fulfillmentStatus: { type: string }
         createdAt: { type: string, format: date-time }
-      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, supplierCost, profit, sellingPrice, total, currency, orderStatus, fulfillmentStatus, createdAt]
+      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, supplierCost, profit, sellingPrice, total, quantity, currency, orderStatus, fulfillmentStatus, createdAt]
     DropshipStatusInput:
       type: object
       properties:
@@ -844,3 +925,44 @@ components:
           type: string
           enum: [awaiting_supplier, prepared, submitted, fulfilled]
       required: [fulfillmentStatus]
+    PublicStore:
+      type: object
+      properties:
+        merchantKey: { type: string }
+        storeName: { type: string }
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicStoreProduct"
+      required: [merchantKey, storeName, products]
+    PublicStoreProduct:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        imageUrl: { type: ["string", "null"], format: uri }
+        price: { type: number }
+        currency: { type: string }
+      required: [id, title, description, imageUrl, price, currency]
+    PublicCheckoutInput:
+      type: object
+      properties:
+        supplierProductId: { type: integer, minimum: 1 }
+        customerName: { type: string, minLength: 2, maxLength: 160 }
+        customerEmail: { type: string, format: email }
+        customerPhone: { type: string, maxLength: 40 }
+        shippingAddress: { type: string, minLength: 8, maxLength: 500 }
+        quantity: { type: integer, minimum: 1, maximum: 100 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      required: [supplierProductId, customerName, customerEmail, shippingAddress, quantity, idempotencyKey]
+    PublicCheckoutOrder:
+      type: object
+      properties:
+        orderNumber: { type: string }
+        title: { type: string }
+        total: { type: number }
+        currency: { type: string }
+        status: { type: string, enum: [pending] }
+        paymentMessage: { type: string }
+      required: [orderNumber, title, total, currency, status, paymentMessage]
