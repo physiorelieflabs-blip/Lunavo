@@ -20,4 +20,8 @@ export interface Subscription {
   nextAction: string;
   /** @nullable */
   paymentMethod: string | null;
+  serverNow: Date;
+  trialEndsAt: Date;
+  daysElapsed: number;
+  daysRemaining: number;
 }

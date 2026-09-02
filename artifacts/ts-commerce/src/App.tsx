@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import { ClerkProvider, Show, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
-import { Redirect, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { Link, Redirect, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -23,6 +23,7 @@ import Checkout from '@/pages/checkout';
 import AiControlRoom from '@/pages/ai';
 import Finance from '@/pages/finance';
 import Inventory from '@/pages/inventory';
+import StorePage from '@/pages/store';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -76,7 +77,7 @@ function ClerkQueryCacheInvalidator() {
 function AuthRoutes() {
   return <Switch>
     <Route path="/" component={HomeRoute} />
-    <Route path="/sign-in/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>} />
+    <Route path="/sign-in/*?" component={() => <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /><p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">Forgot your password? <Link href="/sign-in/forgot-password" className="font-extrabold text-[#8a6826] underline" data-testid="link-forgot-password">Reset it securely</Link>.</p></div>} />
     <Route path="/sign-up/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
     <Route path="/checkout/:merchantKey" component={Checkout} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
@@ -88,6 +89,7 @@ function AuthRoutes() {
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
      <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
       <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
+     <Route path="/store" component={() => <Protected><StorePage /></Protected>} />
      <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />

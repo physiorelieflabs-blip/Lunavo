@@ -9,6 +9,7 @@ export { Logo };
 
 const merchantLinks = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { href: '/store', label: 'Create a new store', icon: Store },
   { href: '/ai', label: 'AI control room', icon: BrainCircuit },
   { href: '/orders', label: 'Orders', icon: PackageCheck },
   { href: '/customers', label: 'Customers', icon: UsersRound },
@@ -47,7 +48,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
           <p className="mt-2 truncate text-sm font-bold text-[#ece3cf]" title={displayName}>{displayName}</p>
           <div className="mt-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.1em] text-[#7cae98]"><span className="h-1.5 w-1.5 rounded-full bg-[#7cae98]" />Live workspace</div>
         </div>
-        <nav className="mt-8 space-y-1" aria-label="Main navigation">
+        <nav className="mt-8 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1" aria-label="Main navigation">
           <p className="mb-3 px-3 font-mono text-[9px] uppercase tracking-[.18em] text-[#718095]">Navigate</p>
           {links.map(({ href, label, icon: Icon }) => {
             const active = location === href;

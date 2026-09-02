@@ -44,7 +44,11 @@ export const GetDashboardOverviewResponse = zod.object({
   "warningDay": zod.int(),
   "suspensionDay": zod.int(),
   "nextAction": zod.string(),
-  "paymentMethod": zod.string().nullable()
+  "paymentMethod": zod.string().nullable(),
+  "serverNow": zod.coerce.date(),
+  "trialEndsAt": zod.coerce.date(),
+  "daysElapsed": zod.int(),
+  "daysRemaining": zod.int()
 }),
   "revenueSeries": zod.array(zod.object({
   "label": zod.string(),
@@ -87,6 +91,54 @@ export const updateCurrencySettingsResponseCurrencyMax = 3;
 export const UpdateCurrencySettingsResponse = zod.object({
   "currency": zod.string().min(updateCurrencySettingsResponseCurrencyMin).max(updateCurrencySettingsResponseCurrencyMax),
   "availableCurrencies": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Get a market-sourced exchange rate
+ */
+export const getMarketExchangeRateQueryBaseMin = 3;
+export const getMarketExchangeRateQueryBaseMax = 3;
+
+export const getMarketExchangeRateQueryQuoteMin = 3;
+export const getMarketExchangeRateQueryQuoteMax = 3;
+
+
+
+export const GetMarketExchangeRateQueryParams = zod.object({
+  "base": zod.coerce.string().min(getMarketExchangeRateQueryBaseMin).max(getMarketExchangeRateQueryBaseMax),
+  "quote": zod.coerce.string().min(getMarketExchangeRateQueryQuoteMin).max(getMarketExchangeRateQueryQuoteMax)
+})
+
+export const GetMarketExchangeRateResponse = zod.object({
+  "base": zod.string(),
+  "quote": zod.string(),
+  "rate": zod.number(),
+  "source": zod.string(),
+  "fetchedAt": zod.coerce.date(),
+  "asOf": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Create or update the authenticated merchant store
+ */
+export const createStoreBodyStoreNameMin = 2;
+export const createStoreBodyStoreNameMax = 80;
+
+
+
+export const CreateStoreBody = zod.object({
+  "storeName": zod.string().min(createStoreBodyStoreNameMin).max(createStoreBodyStoreNameMax)
+})
+
+export const CreateStoreResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "storeName": zod.string(),
+  "storeSlug": zod.string(),
+  "merchantKey": zod.string(),
+  "createdAt": zod.coerce.date()
 })
 
 
@@ -237,7 +289,8 @@ export const ListAiActionsResponseItem = zod.object({
   "createdAt": zod.coerce.date(),
   "approvedAt": zod.coerce.date().nullable(),
   "executedAt": zod.coerce.date().nullable(),
-  "rolledBackAt": zod.coerce.date().nullable()
+  "rolledBackAt": zod.coerce.date().nullable(),
+  "result": zod.record(zod.string(), zod.unknown()).nullable()
 })
 export const ListAiActionsResponse = zod.array(ListAiActionsResponseItem)
 
@@ -282,7 +335,8 @@ export const CreateAiActionResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "approvedAt": zod.coerce.date().nullable(),
   "executedAt": zod.coerce.date().nullable(),
-  "rolledBackAt": zod.coerce.date().nullable()
+  "rolledBackAt": zod.coerce.date().nullable(),
+  "result": zod.record(zod.string(), zod.unknown()).nullable()
 })
 
 
@@ -307,7 +361,8 @@ export const ApproveAiActionResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "approvedAt": zod.coerce.date().nullable(),
   "executedAt": zod.coerce.date().nullable(),
-  "rolledBackAt": zod.coerce.date().nullable()
+  "rolledBackAt": zod.coerce.date().nullable(),
+  "result": zod.record(zod.string(), zod.unknown()).nullable()
 })
 
 
@@ -332,7 +387,8 @@ export const RejectAiActionResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "approvedAt": zod.coerce.date().nullable(),
   "executedAt": zod.coerce.date().nullable(),
-  "rolledBackAt": zod.coerce.date().nullable()
+  "rolledBackAt": zod.coerce.date().nullable(),
+  "result": zod.record(zod.string(), zod.unknown()).nullable()
 })
 
 
@@ -357,7 +413,8 @@ export const ExecuteAiActionResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "approvedAt": zod.coerce.date().nullable(),
   "executedAt": zod.coerce.date().nullable(),
-  "rolledBackAt": zod.coerce.date().nullable()
+  "rolledBackAt": zod.coerce.date().nullable(),
+  "result": zod.record(zod.string(), zod.unknown()).nullable()
 })
 
 
@@ -382,7 +439,34 @@ export const RollbackAiActionResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "approvedAt": zod.coerce.date().nullable(),
   "executedAt": zod.coerce.date().nullable(),
-  "rolledBackAt": zod.coerce.date().nullable()
+  "rolledBackAt": zod.coerce.date().nullable(),
+  "result": zod.record(zod.string(), zod.unknown()).nullable()
+})
+
+
+/**
+ * @summary Perform a read-only, source-attributed web research pass
+ */
+export const researchWebBodyQueryMin = 3;
+export const researchWebBodyQueryMax = 180;
+
+
+
+export const ResearchWebBody = zod.object({
+  "query": zod.string().min(researchWebBodyQueryMin).max(researchWebBodyQueryMax)
+})
+
+export const ResearchWebResponse = zod.object({
+  "query": zod.string(),
+  "summary": zod.string(),
+  "searchedAt": zod.coerce.date(),
+  "source": zod.string(),
+  "limitations": zod.array(zod.string()),
+  "sources": zod.array(zod.object({
+  "title": zod.string(),
+  "url": zod.url(),
+  "snippet": zod.string()
+}))
 })
 
 
@@ -1520,7 +1604,11 @@ export const GetSubscriptionResponse = zod.object({
   "warningDay": zod.int(),
   "suspensionDay": zod.int(),
   "nextAction": zod.string(),
-  "paymentMethod": zod.string().nullable()
+  "paymentMethod": zod.string().nullable(),
+  "serverNow": zod.coerce.date(),
+  "trialEndsAt": zod.coerce.date(),
+  "daysElapsed": zod.int(),
+  "daysRemaining": zod.int()
 })
 
 
@@ -1543,7 +1631,11 @@ export const CreateSubscriptionResponse = zod.object({
   "warningDay": zod.int(),
   "suspensionDay": zod.int(),
   "nextAction": zod.string(),
-  "paymentMethod": zod.string().nullable()
+  "paymentMethod": zod.string().nullable(),
+  "serverNow": zod.coerce.date(),
+  "trialEndsAt": zod.coerce.date(),
+  "daysElapsed": zod.int(),
+  "daysRemaining": zod.int()
 })
 
 

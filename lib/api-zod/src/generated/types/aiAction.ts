@@ -5,6 +5,7 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { AiActionResult } from './aiActionResult';
 
 export interface AiAction {
   id: number;
@@ -24,4 +25,6 @@ export interface AiAction {
   executedAt: Date | null;
   /** @nullable */
   rolledBackAt: Date | null;
+  /** @nullable */
+  result: AiActionResult;
 }

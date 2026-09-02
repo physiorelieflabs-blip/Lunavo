@@ -53,6 +53,9 @@ import {
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
   GetCurrencySettingsResponse,
+  GetMarketExchangeRateResponse,
+  CreateStoreBody,
+  CreateStoreResponse,
   GetLinkedBankAccountResponse,
   GetPublicStoreParams,
   GetPublicStoreResponse,
@@ -129,6 +132,8 @@ import {
   ExecuteAiActionResponse,
   RollbackAiActionParams,
   RollbackAiActionResponse,
+  ResearchWebBody,
+  ResearchWebResponse,
   CreatePaymentIntentBody,
   CreatePaymentIntentResponse,
   CreatePaymentIntentHeader,
@@ -187,6 +192,7 @@ const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
 const SUPPLIER_IMPORT_LIMIT = 60;
 const supplierImportQuota = new Map<string, { startedAt: number; count: number }>();
+const fxCache = new Map<string, { expiresAt: number; payload: { base: string; quote: string; rate: number; source: string; fetchedAt: string; asOf: string | null } }>();
 
 function consumeSupplierImportQuota(clerkUserId: string, requested: number): boolean {
   const now = Date.now();
@@ -225,6 +231,22 @@ function daysSince(date: Date): number {
   return Math.max(
     0,
     Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)),
+  );
+}
+
+function storeSlug(storeName: string): string {
+  return (
+    storeName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")
+      .slice(0, 60) || "store"
+  );
+}
+
+function isSupportedCurrency(value: string): boolean {
+  return SUPPORTED_CURRENCIES.includes(
+    value as (typeof SUPPORTED_CURRENCIES)[number],
   );
 }
 
@@ -493,7 +515,12 @@ function serializeSubscription(
   subscription: Subscription,
   isAdmin = false,
 ) {
+  const serverNow = new Date();
   const days = daysSince(merchant.registeredAt);
+  const trialEndsAt = new Date(
+    merchant.registeredAt.getTime() + 15 * 24 * 60 * 60 * 1000,
+  );
+  const daysRemaining = Math.max(0, 15 - days);
   const admin = isAdmin;
   const paid = toNumber(subscription.amountPaid);
   const remaining = Math.max(0, toNumber(subscription.amountDue) - paid);
@@ -525,6 +552,10 @@ function serializeSubscription(
     registeredAt: merchant.registeredAt,
     warningDay: 10,
     suspensionDay: 15,
+    serverNow,
+    trialEndsAt,
+    daysElapsed: days,
+    daysRemaining,
     nextAction,
     paymentMethod: subscription.paymentMethod,
   };
@@ -1151,6 +1182,117 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/settings/fx", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const base = String(req.query.base ?? merchant.currency).trim().toUpperCase();
+  const quote = String(req.query.quote ?? merchant.currency).trim().toUpperCase();
+  if (!isSupportedCurrency(base) || !isSupportedCurrency(quote)) {
+    res.status(400).json({
+      error: `Supported currencies: ${SUPPORTED_CURRENCIES.join(", ")}`,
+    });
+    return;
+  }
+  if (base === quote) {
+    res.json(
+      GetMarketExchangeRateResponse.parse({
+        base,
+        quote,
+        rate: 1,
+        source: "Identity rate",
+        fetchedAt: new Date().toISOString(),
+        asOf: new Date().toISOString(),
+      }),
+    );
+    return;
+  }
+  const cacheKey = `${base}:${quote}`;
+  const cached = fxCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    res.json(GetMarketExchangeRateResponse.parse(cached.payload));
+    return;
+  }
+  try {
+    const response = await fetch(
+      `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`,
+      { signal: AbortSignal.timeout(8_000) },
+    );
+    if (!response.ok) throw new Error(`FX provider returned ${response.status}`);
+    const body = (await response.json()) as {
+      rates?: Record<string, number>;
+      time_last_update_utc?: string;
+    };
+    const rate = Number(body.rates?.[quote]);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new Error("The selected currency pair is not available");
+    }
+    const fetchedAt = new Date().toISOString();
+    const asOfDate = body.time_last_update_utc
+      ? new Date(body.time_last_update_utc)
+      : null;
+    const payload = {
+      base,
+      quote,
+      rate,
+      source: "ExchangeRate-API Open Access",
+      fetchedAt,
+      asOf:
+        asOfDate && !Number.isNaN(asOfDate.getTime())
+          ? asOfDate.toISOString()
+          : null,
+    };
+    fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, payload });
+    res.json(GetMarketExchangeRateResponse.parse(payload));
+  } catch (error) {
+    req.log.warn({ err: error, base, quote }, "Could not retrieve market FX rate");
+    res.status(502).json({
+      error: "The market rate is temporarily unavailable. Historical money is unchanged.",
+    });
+  }
+});
+
+router.post("/store", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateStoreBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Store name must be between 2 and 80 characters" });
+    return;
+  }
+  const storeName = parsed.data.storeName.trim().replace(/\s+/g, " ");
+  if (storeName.length < 2 || storeName.length > 80) {
+    res.status(400).json({ error: "Store name must be between 2 and 80 characters" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [updated] = await db
+    .update(merchantsTable)
+    .set({ storeName })
+    .where(eq(merchantsTable.id, merchant.id))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Merchant account not found" });
+    return;
+  }
+  await addActivity(updated.id, {
+    type: "store_updated",
+    title: "Store profile saved",
+    description: `Store name updated to ${updated.storeName}.`,
+    tone: "positive",
+  });
+  res.status(201).json(
+    CreateStoreResponse.parse({
+      id: updated.id,
+      name: updated.name,
+      storeName: updated.storeName,
+      storeSlug: storeSlug(updated.storeName),
+      merchantKey: updated.clerkUserId ?? identity.clerkUserId,
+      createdAt: updated.registeredAt,
+    }),
+  );
+});
+
 router.get("/dashboard/overview", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -1262,10 +1404,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
     GetDashboardOverviewResponse.parse({
       storeName: enforced.merchant.storeName,
       currency: enforced.merchant.currency,
-      storeSlug: enforced.merchant.storeName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, ""),
+      storeSlug: storeSlug(enforced.merchant.storeName),
       revenue,
       revenueChange,
       orders: Number(metrics?.orders ?? 0),
@@ -1314,6 +1453,74 @@ router.get("/ai/overview", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Could not load AI overview");
     res.status(500).json({ error: "AI overview could not be loaded" });
+  }
+});
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+router.post("/ai/research", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = ResearchWebBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Research query must be between 3 and 180 characters" });
+    return;
+  }
+  const query = parsed.data.query.trim();
+  try {
+    const response = await fetch(
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+      { headers: { "user-agent": "TS-Commerce-Research/1.0" }, signal: AbortSignal.timeout(10_000) },
+    );
+    if (!response.ok) throw new Error(`Search provider returned ${response.status}`);
+    const html = await response.text();
+    const sources: Array<{ title: string; url: string; snippet: string }> = [];
+    const resultPattern =
+      /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>|<div[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/div>)/g;
+    for (const match of html.matchAll(resultPattern)) {
+      const rawUrl = decodeHtml(match[1] ?? "");
+      const title = decodeHtml(match[2] ?? "");
+      const snippet = decodeHtml(match[3] ?? match[4] ?? "");
+      if (!rawUrl || !title) continue;
+      const url = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
+      if (!/^https?:\/\//i.test(url)) continue;
+      sources.push({ title, url, snippet });
+      if (sources.length >= 6) break;
+    }
+    const summary =
+      sources.length > 0
+        ? `I found ${sources.length} public sources for “${query}”. Review the snippets and open the cited sources before making a commercial decision.`
+        : `No public search results were returned for “${query}”. Try a more specific query.`;
+    const searchedAt = new Date().toISOString();
+    res.json(
+      ResearchWebResponse.parse({
+        query,
+        summary,
+        searchedAt,
+        source: "DuckDuckGo HTML search",
+        limitations: [
+          "This is a read-only search pass, not a guarantee that every relevant page was found.",
+          "Search snippets can be incomplete or stale; verify claims at the cited source.",
+          "No private merchant data was sent to the search provider.",
+        ],
+        sources,
+      }),
+    );
+  } catch (error) {
+    req.log.warn({ err: error }, "Web research failed");
+    res.status(502).json({
+      error: "Web research is temporarily unavailable. Your merchant data was not changed.",
+    });
   }
 });
 
@@ -1609,17 +1816,53 @@ router.post("/ai/actions/:id/execute", async (req, res): Promise<void> => {
       if (!current.reversible || !(await allowedActionType(current.actionType))) {
         throw new Error("Only reversible local preparation actions can execute");
       }
+      let result: Record<string, unknown> = {
+        outcome: "prepared",
+        sideEffect: "none",
+        message:
+          "The action produced a review boundary only. No money, permissions, ledger, customer data, or external service was changed.",
+      };
+      if (current.actionType === "ad_draft") {
+        const products = await tx
+          .select({
+            title: supplierProductsTable.title,
+            description: supplierProductsTable.description,
+            sellingPrice: supplierProductsTable.sellingPrice,
+            currency: supplierProductsTable.currency,
+          })
+          .from(supplierProductsTable)
+          .where(eq(supplierProductsTable.merchantId, merchant.id))
+          .orderBy(desc(supplierProductsTable.updatedAt))
+          .limit(3);
+        result = {
+          outcome: "ad_draft_prepared",
+          sideEffect: "none",
+          message: "Drafts are ready for merchant review. Nothing was published or sent.",
+          variants: products.map((product) => {
+            const title = product.title.trim();
+            const description = (product.description ?? "A product selected from your catalog.").trim();
+            return {
+              product: title,
+              headline: `${title} — made for the next step`,
+              primaryText: `${description.slice(0, 180)} Discover ${title} and make it part of your everyday.`,
+              callToAction: "Shop now",
+              currency: product.currency,
+              price: product.sellingPrice ? Number(product.sellingPrice) : null,
+            };
+          }),
+          evidence: {
+            productsConsidered: products.length,
+            merchantId: merchant.id,
+            generatedAt: new Date().toISOString(),
+          },
+        };
+      }
       const [updated] = await tx
         .update(aiActionsTable)
         .set({
           status: "executed",
           executedAt: new Date(),
-          result: {
-            outcome: "prepared",
-            sideEffect: "none",
-            message:
-              "The action produced a review boundary only. No money, permissions, ledger, customer data, or external service was changed.",
-          },
+          result,
         })
         .where(eq(aiActionsTable.id, current.id))
         .returning();

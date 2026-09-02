@@ -272,6 +272,7 @@ export function serializeAiAction(action: AiAction) {
     approvedAt: action.approvedAt,
     executedAt: action.executedAt,
     rolledBackAt: action.rolledBackAt,
+    result: action.result,
   };
 }
 
@@ -539,6 +540,7 @@ export async function allowedActionType(actionType: string): Promise<boolean> {
     "inventory_review",
     "catalog_review",
     "fulfillment_review",
+    "ad_draft",
   ].includes(actionType);
 }
 

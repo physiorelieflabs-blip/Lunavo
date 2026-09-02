@@ -40,12 +40,14 @@ import type {
   DashboardOverview,
   DropshipQueueRecord,
   DropshipStatusInput,
+  GetMarketExchangeRateParams,
   HealthStatus,
   InventoryAdjustmentInput,
   InventoryMovement,
   InventoryReservation,
   LinkedBankAccount,
   ManualSupplierProductInput,
+  MarketExchangeRate,
   Merchant,
   MerchantBalance,
   MerchantStatusInput,
@@ -64,6 +66,8 @@ import type {
   ReconciliationUpdateInput,
   RefundInput,
   RefundRecord,
+  Store,
+  StoreInput,
   Subscription,
   SubscriptionInput,
   SupplierAnalyzeInput,
@@ -79,6 +83,8 @@ import type {
   SupplierRefreshResponse,
   SupplierUpdateInput,
   TotpCodeInput,
+  WebResearchInput,
+  WebResearchResponse,
   WithdrawalDetails,
   WithdrawalInput,
   WithdrawalRecord,
@@ -414,6 +420,161 @@ export const useUpdateCurrencySettings = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateCurrencySettingsMutationOptions(options));
+    }
+
+export const getGetMarketExchangeRateUrl = (params: GetMarketExchangeRateParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/settings/fx?${stringifiedParams}` : `/api/settings/fx`
+}
+
+/**
+ * @summary Get a market-sourced exchange rate
+ */
+export const getMarketExchangeRate = async (params: GetMarketExchangeRateParams, options?: Parameters<typeof customFetch>[1]): Promise<MarketExchangeRate> => {
+
+  return customFetch<MarketExchangeRate>(getGetMarketExchangeRateUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMarketExchangeRateQueryKey = (params?: GetMarketExchangeRateParams,) => {
+    return [
+    `/api/settings/fx`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetMarketExchangeRateQueryOptions = <TData = Awaited<ReturnType<typeof getMarketExchangeRate>>, TError = ErrorType<unknown>>(params: GetMarketExchangeRateParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMarketExchangeRate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMarketExchangeRateQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketExchangeRate>>> = ({ signal }) => getMarketExchangeRate(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMarketExchangeRate>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMarketExchangeRateQueryResult = NonNullable<Awaited<ReturnType<typeof getMarketExchangeRate>>>
+export type GetMarketExchangeRateQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a market-sourced exchange rate
+ */
+
+export function useGetMarketExchangeRate<TData = Awaited<ReturnType<typeof getMarketExchangeRate>>, TError = ErrorType<unknown>>(
+ params: GetMarketExchangeRateParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMarketExchangeRate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMarketExchangeRateQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateStoreUrl = () => {
+
+
+
+
+  return `/api/store`
+}
+
+/**
+ * @summary Create or update the authenticated merchant store
+ */
+export const createStore = async (storeInput: StoreInput, options?: Parameters<typeof customFetch>[1]): Promise<Store> => {
+
+  return customFetch<Store>(getCreateStoreUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(storeInput)
+  }
+);}
+
+
+
+
+
+export const getCreateStoreMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStore>>, TError,{data: BodyType<StoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createStore>>, TError,{data: BodyType<StoreInput>}, TContext> => {
+
+const mutationKey = ['createStore'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createStore>>, {data: BodyType<StoreInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createStore(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateStoreMutationResult = NonNullable<Awaited<ReturnType<typeof createStore>>>
+    export type CreateStoreMutationBody = BodyType<StoreInput>
+    export type CreateStoreMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create or update the authenticated merchant store
+ */
+export const useCreateStore = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStore>>, TError,{data: BodyType<StoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createStore>>,
+        TError,
+        {data: BodyType<StoreInput>},
+        TContext
+      > => {
+      return useMutation(getCreateStoreMutationOptions(options));
     }
 
 export const getListDashboardActivityUrl = () => {
@@ -1219,6 +1380,77 @@ export const useRollbackAiAction = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getRollbackAiActionMutationOptions(options));
+    }
+
+export const getResearchWebUrl = () => {
+
+
+
+
+  return `/api/ai/research`
+}
+
+/**
+ * @summary Perform a read-only, source-attributed web research pass
+ */
+export const researchWeb = async (webResearchInput: WebResearchInput, options?: Parameters<typeof customFetch>[1]): Promise<WebResearchResponse> => {
+
+  return customFetch<WebResearchResponse>(getResearchWebUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(webResearchInput)
+  }
+);}
+
+
+
+
+
+export const getResearchWebMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof researchWeb>>, TError,{data: BodyType<WebResearchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof researchWeb>>, TError,{data: BodyType<WebResearchInput>}, TContext> => {
+
+const mutationKey = ['researchWeb'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof researchWeb>>, {data: BodyType<WebResearchInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  researchWeb(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResearchWebMutationResult = NonNullable<Awaited<ReturnType<typeof researchWeb>>>
+    export type ResearchWebMutationBody = BodyType<WebResearchInput>
+    export type ResearchWebMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Perform a read-only, source-attributed web research pass
+ */
+export const useResearchWeb = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof researchWeb>>, TError,{data: BodyType<WebResearchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof researchWeb>>,
+        TError,
+        {data: BodyType<WebResearchInput>},
+        TContext
+      > => {
+      return useMutation(getResearchWebMutationOptions(options));
     }
 
 export const getListCustomersUrl = () => {

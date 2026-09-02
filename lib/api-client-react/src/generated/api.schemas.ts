@@ -246,6 +246,33 @@ export interface CurrencySettingsInput {
   currency: string;
 }
 
+export interface MarketExchangeRate {
+  base: string;
+  quote: string;
+  rate: number;
+  source: string;
+  fetchedAt: string;
+  /** @nullable */
+  asOf: string | null;
+}
+
+export interface Store {
+  id: number;
+  name: string;
+  storeName: string;
+  storeSlug: string;
+  merchantKey: string;
+  createdAt: string;
+}
+
+export interface StoreInput {
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  storeName: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -412,6 +439,11 @@ export interface AiAgent {
   insight: string;
 }
 
+/**
+ * @nullable
+ */
+export type AiActionResult = { [key: string]: unknown } | null;
+
 export interface AiAction {
   id: number;
   agent: string;
@@ -430,6 +462,8 @@ export interface AiAction {
   executedAt: string | null;
   /** @nullable */
   rolledBackAt: string | null;
+  /** @nullable */
+  result: AiActionResult;
 }
 
 export type AiActionInputRisk = typeof AiActionInputRisk[keyof typeof AiActionInputRisk];
@@ -466,6 +500,29 @@ export interface AiActionInput {
   reversible: boolean;
 }
 
+export interface WebResearchInput {
+  /**
+     * @minLength 3
+     * @maxLength 180
+     */
+  query: string;
+}
+
+export interface WebResearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface WebResearchResponse {
+  query: string;
+  summary: string;
+  searchedAt: string;
+  source: string;
+  limitations: string[];
+  sources: WebResearchSource[];
+}
+
 export interface AiOverview {
   model: AiModel;
   settings: AiSettings;
@@ -492,6 +549,10 @@ export interface Subscription {
   nextAction: string;
   /** @nullable */
   paymentMethod: string | null;
+  serverNow: string;
+  trialEndsAt: string;
+  daysElapsed: number;
+  daysRemaining: number;
 }
 
 export interface RevenuePoint {
@@ -1636,4 +1697,17 @@ export interface PublicCheckoutOrder {
   status: PublicCheckoutOrderStatus;
   paymentMessage: string;
 }
+
+export type GetMarketExchangeRateParams = {
+/**
+ * @minLength 3
+ * @maxLength 3
+ */
+base: string;
+/**
+ * @minLength 3
+ * @maxLength 3
+ */
+quote: string;
+};
 

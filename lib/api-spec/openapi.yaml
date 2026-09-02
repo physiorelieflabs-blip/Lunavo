@@ -71,6 +71,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CurrencySettings"
+  /settings/fx:
+    get:
+      operationId: getMarketExchangeRate
+      tags: [settings]
+      summary: Get a market-sourced exchange rate
+      parameters:
+        - name: base
+          in: query
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 3 }
+        - name: quote
+          in: query
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 3 }
+      responses:
+        "200":
+          description: Current market exchange rate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketExchangeRate"
+  /store:
+    post:
+      operationId: createStore
+      tags: [dashboard]
+      summary: Create or update the authenticated merchant store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreInput"
+      responses:
+        "201":
+          description: Persisted merchant store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Store"
   /dashboard/activity:
     get:
       operationId: listDashboardActivity
@@ -241,6 +280,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiAction"
+  /ai/research:
+    post:
+      operationId: researchWeb
+      tags: [ai]
+      summary: Perform a read-only, source-attributed web research pass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebResearchInput"
+      responses:
+        "200":
+          description: Web research results with source attribution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebResearchResponse"
   /customers:
     get:
       operationId: listCustomers
@@ -1217,6 +1274,31 @@ components:
       properties:
         currency: { type: string, minLength: 3, maxLength: 3 }
       required: [currency]
+    MarketExchangeRate:
+      type: object
+      properties:
+        base: { type: string }
+        quote: { type: string }
+        rate: { type: number }
+        source: { type: string }
+        fetchedAt: { type: string, format: date-time }
+        asOf: { type: ["string", "null"], format: date-time }
+      required: [base, quote, rate, source, fetchedAt, asOf]
+    Store:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        storeName: { type: string }
+        storeSlug: { type: string }
+        merchantKey: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, name, storeName, storeSlug, merchantKey, createdAt]
+    StoreInput:
+      type: object
+      properties:
+        storeName: { type: string, minLength: 2, maxLength: 80 }
+      required: [storeName]
     HealthStatus:
       type: object
       properties:
@@ -1365,7 +1447,8 @@ components:
         approvedAt: { type: ["string", "null"], format: date-time }
         executedAt: { type: ["string", "null"], format: date-time }
         rolledBackAt: { type: ["string", "null"], format: date-time }
-      required: [id, agent, actionType, title, reason, status, risk, reversible, approvalRequired, rollbackAvailable, createdAt, approvedAt, executedAt, rolledBackAt]
+        result: { type: ["object", "null"], additionalProperties: true }
+      required: [id, agent, actionType, title, reason, status, risk, reversible, approvalRequired, rollbackAvailable, createdAt, approvedAt, executedAt, rolledBackAt, result]
     AiActionInput:
       type: object
       properties:
@@ -1376,6 +1459,32 @@ components:
         risk: { type: string, enum: [low, medium, high] }
         reversible: { type: boolean }
       required: [agent, actionType, title, reason, risk, reversible]
+    WebResearchInput:
+      type: object
+      properties:
+        query: { type: string, minLength: 3, maxLength: 180 }
+      required: [query]
+    WebResearchSource:
+      type: object
+      properties:
+        title: { type: string }
+        url: { type: string, format: uri }
+        snippet: { type: string }
+      required: [title, url, snippet]
+    WebResearchResponse:
+      type: object
+      properties:
+        query: { type: string }
+        summary: { type: string }
+        searchedAt: { type: string, format: date-time }
+        source: { type: string }
+        limitations:
+          type: array
+          items: { type: string }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/WebResearchSource" }
+      required: [query, summary, searchedAt, source, limitations, sources]
     AiOverview:
       type: object
       properties:
@@ -1412,6 +1521,10 @@ components:
         suspensionDay: { type: integer }
         nextAction: { type: string }
         paymentMethod: { type: ["string", "null"] }
+        serverNow: { type: string, format: date-time }
+        trialEndsAt: { type: string, format: date-time }
+        daysElapsed: { type: integer }
+        daysRemaining: { type: integer }
       required:
         - id
         - email
@@ -1423,6 +1536,10 @@ components:
         - registeredAt
         - warningDay
         - suspensionDay
+        - serverNow
+        - trialEndsAt
+        - daysElapsed
+        - daysRemaining
         - nextAction
         - paymentMethod
     DashboardOverview:
