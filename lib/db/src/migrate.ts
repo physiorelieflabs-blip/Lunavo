@@ -12,6 +12,8 @@ const migrations = [
   "0001_production_hardening",
   "0002_internal_commerce",
   "0003_withdrawals_and_supplier_imports",
+  "0004_linked_bank_accounts",
+  "0005_auto_dropshipping",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

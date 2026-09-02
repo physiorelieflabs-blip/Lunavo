@@ -14,26 +14,6 @@ export interface WithdrawalInput {
      * @maxLength 3
      */
   currency?: string;
-  /**
-     * @minLength 2
-     * @maxLength 160
-     */
-  beneficiaryName: string;
-  /**
-     * @minLength 2
-     * @maxLength 120
-     */
-  bankName: string;
-  /**
-     * @minLength 2
-     * @maxLength 40
-     */
-  bankCode: string;
-  /**
-     * @minLength 4
-     * @maxLength 40
-     */
-  accountNumber: string;
   /** @pattern ^[0-9]{6}$ */
   totpCode: string;
   /**

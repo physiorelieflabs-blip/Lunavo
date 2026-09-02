@@ -174,6 +174,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithdrawalRecord"
+  /bank-account:
+    get:
+      operationId: getLinkedBankAccount
+      tags: [withdrawals]
+      summary: Get the merchant's linked withdrawal bank account
+      responses:
+        "200":
+          description: Linked bank account, if configured
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/LinkedBankAccount"
+                  - type: "null"
+    put:
+      operationId: saveLinkedBankAccount
+      tags: [withdrawals]
+      summary: Create or replace the merchant's linked withdrawal bank account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankAccountInput"
+      responses:
+        "200":
+          description: Linked bank account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedBankAccount"
+    delete:
+      operationId: deleteLinkedBankAccount
+      tags: [withdrawals]
+      summary: Remove the merchant's linked withdrawal bank account
+      responses:
+        "204":
+          description: Bank account removed
   /supplier-products:
     get:
       operationId: listSupplierProducts
@@ -205,6 +243,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SupplierProductRecord"
+  /dropship/queue:
+    get:
+      operationId: listDropshipQueue
+      tags: [dropshipping]
+      summary: List product-linked orders waiting for supplier fulfillment
+      responses:
+        "200":
+          description: Internal dropshipping fulfillment queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DropshipQueueRecord"
+  /dropship/queue/{id}:
+    patch:
+      operationId: updateDropshipStatus
+      tags: [dropshipping]
+      summary: Update the internal supplier fulfillment status for an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DropshipStatusInput"
+      responses:
+        "200":
+          description: Updated dropshipping queue item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DropshipQueueRecord"
   /subscription:
     get:
       operationId: getSubscription
@@ -441,8 +517,12 @@ components:
         total: { type: number }
         currency: { type: string }
         status: { type: string }
+        supplierProductId: { type: ["integer", "null"] }
+        productTitle: { type: ["string", "null"] }
+        shippingAddress: { type: ["string", "null"] }
+        fulfillmentStatus: { type: string }
         createdAt: { type: string, format: date-time }
-      required: [id, orderNumber, customerName, customerEmail, total, currency, status, createdAt]
+      required: [id, orderNumber, customerName, customerEmail, total, currency, status, supplierProductId, productTitle, shippingAddress, fulfillmentStatus, createdAt]
     CreateOrderInput:
       type: object
       properties:
@@ -455,6 +535,8 @@ components:
           enum: [pending, paid, fulfilled]
         orderNumber: { type: string, minLength: 2, maxLength: 80 }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+        supplierProductId: { type: integer, minimum: 1 }
+        shippingAddress: { type: string, maxLength: 500 }
       required: [customerName, customerEmail, total]
     Subscription:
       type: object
@@ -593,9 +675,10 @@ components:
     BankTransferInput:
       type: object
       properties:
+        amount: { type: number, exclusiveMinimum: 0 }
         reference: { type: string, minLength: 3 }
         senderName: { type: string, minLength: 2 }
-      required: [reference, senderName]
+      required: [amount, reference, senderName]
     MerchantStatusInput:
       type: object
       properties:
@@ -636,13 +719,28 @@ components:
       properties:
         amount: { type: number, exclusiveMinimum: 0 }
         currency: { type: string, minLength: 3, maxLength: 3 }
+        totpCode: { type: string, pattern: "^[0-9]{6}$" }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      required: [amount, totpCode]
+    BankAccountInput:
+      type: object
+      properties:
         beneficiaryName: { type: string, minLength: 2, maxLength: 160 }
         bankName: { type: string, minLength: 2, maxLength: 120 }
         bankCode: { type: string, minLength: 2, maxLength: 40 }
         accountNumber: { type: string, minLength: 4, maxLength: 40 }
-        totpCode: { type: string, pattern: "^[0-9]{6}$" }
-        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
-      required: [amount, beneficiaryName, bankName, bankCode, accountNumber, totpCode]
+      required: [beneficiaryName, bankName, bankCode, accountNumber]
+    LinkedBankAccount:
+      type: object
+      properties:
+        id: { type: integer }
+        beneficiaryName: { type: string }
+        bankName: { type: string }
+        bankCode: { type: string }
+        accountLast4: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, beneficiaryName, bankName, bankCode, accountLast4, createdAt, updatedAt]
     WithdrawalRecord:
       type: object
       properties:
@@ -695,18 +793,54 @@ components:
       type: object
       properties:
         sourceUrl: { type: string, format: uri, maxLength: 2000 }
-      required: [sourceUrl]
+        supplierUrl: { type: string, format: uri, maxLength: 2000 }
+        profitType:
+          type: string
+          enum: [fixed, percentage]
+        profitValue: { type: number, minimum: 0, maximum: 1000000 }
+      required: [sourceUrl, supplierUrl, profitType, profitValue]
     SupplierProductRecord:
       type: object
       properties:
         id: { type: integer }
         sourceUrl: { type: string, format: uri }
+        supplierUrl: { type: string, format: uri }
         sourceDomain: { type: string }
         title: { type: string }
         description: { type: ["string", "null"] }
         imageUrl: { type: ["string", "null"], format: uri }
         price: { type: ["number", "null"] }
         currency: { type: string }
+        profitType: { type: string, enum: [fixed, percentage] }
+        profitValue: { type: number }
+        sellingPrice: { type: ["number", "null"] }
         status: { type: string }
         importedAt: { type: string, format: date-time }
-      required: [id, sourceUrl, sourceDomain, title, description, imageUrl, price, currency, status, importedAt]
+      required: [id, sourceUrl, supplierUrl, sourceDomain, title, description, imageUrl, price, currency, profitType, profitValue, sellingPrice, status, importedAt]
+    DropshipQueueRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        orderNumber: { type: string }
+        customerName: { type: string }
+        customerEmail: { type: string, format: email }
+        customerPhone: { type: ["string", "null"] }
+        shippingAddress: { type: ["string", "null"] }
+        productTitle: { type: string }
+        supplierUrl: { type: string, format: uri }
+        supplierCost: { type: ["number", "null"] }
+        profit: { type: ["number", "null"] }
+        sellingPrice: { type: ["number", "null"] }
+        total: { type: number }
+        currency: { type: string }
+        orderStatus: { type: string }
+        fulfillmentStatus: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, supplierCost, profit, sellingPrice, total, currency, orderStatus, fulfillmentStatus, createdAt]
+    DropshipStatusInput:
+      type: object
+      properties:
+        fulfillmentStatus:
+          type: string
+          enum: [awaiting_supplier, prepared, submitted, fulfilled]
+      required: [fulfillmentStatus]

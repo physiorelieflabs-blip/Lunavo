@@ -6,20 +6,26 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface OrderRecord {
+export interface DropshipQueueRecord {
   id: number;
   orderNumber: string;
   customerName: string;
   customerEmail: string;
-  total: number;
-  currency: string;
-  status: string;
   /** @nullable */
-  supplierProductId: number | null;
-  /** @nullable */
-  productTitle: string | null;
+  customerPhone: string | null;
   /** @nullable */
   shippingAddress: string | null;
+  productTitle: string;
+  supplierUrl: string;
+  /** @nullable */
+  supplierCost: number | null;
+  /** @nullable */
+  profit: number | null;
+  /** @nullable */
+  sellingPrice: number | null;
+  total: number;
+  currency: string;
+  orderStatus: string;
   fulfillmentStatus: string;
   createdAt: Date;
 }

@@ -94,6 +94,10 @@ export const ListOrdersResponseItem = zod.object({
   "total": zod.number(),
   "currency": zod.string(),
   "status": zod.string(),
+  "supplierProductId": zod.int().nullable(),
+  "productTitle": zod.string().nullable(),
+  "shippingAddress": zod.string().nullable(),
+  "fulfillmentStatus": zod.string(),
   "createdAt": zod.coerce.date()
 })
 export const ListOrdersResponse = zod.array(ListOrdersResponseItem)
@@ -116,6 +120,9 @@ export const createOrderBodyIdempotencyKeyMin = 8;
 export const createOrderBodyIdempotencyKeyMax = 120;
 
 
+export const createOrderBodyShippingAddressMax = 500;
+
+
 
 export const CreateOrderBody = zod.object({
   "customerName": zod.string().min(createOrderBodyCustomerNameMin).max(createOrderBodyCustomerNameMax),
@@ -124,7 +131,9 @@ export const CreateOrderBody = zod.object({
   "total": zod.number().gt(createOrderBodyTotalExclusiveMin),
   "status": zod.enum(['pending', 'paid', 'fulfilled']).optional(),
   "orderNumber": zod.string().min(createOrderBodyOrderNumberMin).max(createOrderBodyOrderNumberMax).optional(),
-  "idempotencyKey": zod.string().min(createOrderBodyIdempotencyKeyMin).max(createOrderBodyIdempotencyKeyMax).optional()
+  "idempotencyKey": zod.string().min(createOrderBodyIdempotencyKeyMin).max(createOrderBodyIdempotencyKeyMax).optional(),
+  "supplierProductId": zod.int().min(1).optional(),
+  "shippingAddress": zod.string().max(createOrderBodyShippingAddressMax).optional()
 })
 
 export const CreateOrderResponse = zod.object({
@@ -135,6 +144,10 @@ export const CreateOrderResponse = zod.object({
   "total": zod.number(),
   "currency": zod.string(),
   "status": zod.string(),
+  "supplierProductId": zod.int().nullable(),
+  "productTitle": zod.string().nullable(),
+  "shippingAddress": zod.string().nullable(),
+  "fulfillmentStatus": zod.string(),
   "createdAt": zod.coerce.date()
 })
 
@@ -201,18 +214,6 @@ export const createWithdrawalBodyAmountExclusiveMin = 0;
 export const createWithdrawalBodyCurrencyMin = 3;
 export const createWithdrawalBodyCurrencyMax = 3;
 
-export const createWithdrawalBodyBeneficiaryNameMin = 2;
-export const createWithdrawalBodyBeneficiaryNameMax = 160;
-
-export const createWithdrawalBodyBankNameMin = 2;
-export const createWithdrawalBodyBankNameMax = 120;
-
-export const createWithdrawalBodyBankCodeMin = 2;
-export const createWithdrawalBodyBankCodeMax = 40;
-
-export const createWithdrawalBodyAccountNumberMin = 4;
-export const createWithdrawalBodyAccountNumberMax = 40;
-
 export const createWithdrawalBodyTotpCodeRegExp = new RegExp('^[0-9]{6}$');
 export const createWithdrawalBodyIdempotencyKeyMin = 8;
 export const createWithdrawalBodyIdempotencyKeyMax = 120;
@@ -222,10 +223,6 @@ export const createWithdrawalBodyIdempotencyKeyMax = 120;
 export const CreateWithdrawalBody = zod.object({
   "amount": zod.number().gt(createWithdrawalBodyAmountExclusiveMin),
   "currency": zod.string().min(createWithdrawalBodyCurrencyMin).max(createWithdrawalBodyCurrencyMax).optional(),
-  "beneficiaryName": zod.string().min(createWithdrawalBodyBeneficiaryNameMin).max(createWithdrawalBodyBeneficiaryNameMax),
-  "bankName": zod.string().min(createWithdrawalBodyBankNameMin).max(createWithdrawalBodyBankNameMax),
-  "bankCode": zod.string().min(createWithdrawalBodyBankCodeMin).max(createWithdrawalBodyBankCodeMax),
-  "accountNumber": zod.string().min(createWithdrawalBodyAccountNumberMin).max(createWithdrawalBodyAccountNumberMax),
   "totpCode": zod.string().regex(createWithdrawalBodyTotpCodeRegExp),
   "idempotencyKey": zod.string().min(createWithdrawalBodyIdempotencyKeyMin).max(createWithdrawalBodyIdempotencyKeyMax).optional()
 })
@@ -246,17 +243,76 @@ export const CreateWithdrawalResponse = zod.object({
 
 
 /**
+ * @summary Get the merchant's linked withdrawal bank account
+ */
+export const GetLinkedBankAccountResponse = zod.union([zod.object({
+  "id": zod.int(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "bankCode": zod.string(),
+  "accountLast4": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),zod.null()])
+
+
+/**
+ * @summary Create or replace the merchant's linked withdrawal bank account
+ */
+export const saveLinkedBankAccountBodyBeneficiaryNameMin = 2;
+export const saveLinkedBankAccountBodyBeneficiaryNameMax = 160;
+
+export const saveLinkedBankAccountBodyBankNameMin = 2;
+export const saveLinkedBankAccountBodyBankNameMax = 120;
+
+export const saveLinkedBankAccountBodyBankCodeMin = 2;
+export const saveLinkedBankAccountBodyBankCodeMax = 40;
+
+export const saveLinkedBankAccountBodyAccountNumberMin = 4;
+export const saveLinkedBankAccountBodyAccountNumberMax = 40;
+
+
+
+export const SaveLinkedBankAccountBody = zod.object({
+  "beneficiaryName": zod.string().min(saveLinkedBankAccountBodyBeneficiaryNameMin).max(saveLinkedBankAccountBodyBeneficiaryNameMax),
+  "bankName": zod.string().min(saveLinkedBankAccountBodyBankNameMin).max(saveLinkedBankAccountBodyBankNameMax),
+  "bankCode": zod.string().min(saveLinkedBankAccountBodyBankCodeMin).max(saveLinkedBankAccountBodyBankCodeMax),
+  "accountNumber": zod.string().min(saveLinkedBankAccountBodyAccountNumberMin).max(saveLinkedBankAccountBodyAccountNumberMax)
+})
+
+export const SaveLinkedBankAccountResponse = zod.object({
+  "id": zod.int(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "bankCode": zod.string(),
+  "accountLast4": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Remove the merchant's linked withdrawal bank account
+ */
+export const DeleteLinkedBankAccountResponse = zod.void()
+
+
+/**
  * @summary List products imported from public supplier pages
  */
 export const ListSupplierProductsResponseItem = zod.object({
   "id": zod.int(),
   "sourceUrl": zod.url(),
+  "supplierUrl": zod.url(),
   "sourceDomain": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullable(),
   "imageUrl": zod.url().nullable(),
   "price": zod.number().nullable(),
   "currency": zod.string(),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "profitValue": zod.number(),
+  "sellingPrice": zod.number().nullable(),
   "status": zod.string(),
   "importedAt": zod.coerce.date()
 })
@@ -268,23 +324,90 @@ export const ListSupplierProductsResponse = zod.array(ListSupplierProductsRespon
  */
 export const importSupplierProductBodySourceUrlMax = 2000;
 
+export const importSupplierProductBodySupplierUrlMax = 2000;
+
+export const importSupplierProductBodyProfitValueMin = 0;
+export const importSupplierProductBodyProfitValueMax = 1000000;
+
 
 
 export const ImportSupplierProductBody = zod.object({
-  "sourceUrl": zod.url().max(importSupplierProductBodySourceUrlMax)
+  "sourceUrl": zod.url().max(importSupplierProductBodySourceUrlMax),
+  "supplierUrl": zod.url().max(importSupplierProductBodySupplierUrlMax),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "profitValue": zod.number().min(importSupplierProductBodyProfitValueMin).max(importSupplierProductBodyProfitValueMax)
 })
 
 export const ImportSupplierProductResponse = zod.object({
   "id": zod.int(),
   "sourceUrl": zod.url(),
+  "supplierUrl": zod.url(),
   "sourceDomain": zod.string(),
   "title": zod.string(),
   "description": zod.string().nullable(),
   "imageUrl": zod.url().nullable(),
   "price": zod.number().nullable(),
   "currency": zod.string(),
+  "profitType": zod.enum(['fixed', 'percentage']),
+  "profitValue": zod.number(),
+  "sellingPrice": zod.number().nullable(),
   "status": zod.string(),
   "importedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List product-linked orders waiting for supplier fulfillment
+ */
+export const ListDropshipQueueResponseItem = zod.object({
+  "id": zod.int(),
+  "orderNumber": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.email(),
+  "customerPhone": zod.string().nullable(),
+  "shippingAddress": zod.string().nullable(),
+  "productTitle": zod.string(),
+  "supplierUrl": zod.url(),
+  "supplierCost": zod.number().nullable(),
+  "profit": zod.number().nullable(),
+  "sellingPrice": zod.number().nullable(),
+  "total": zod.number(),
+  "currency": zod.string(),
+  "orderStatus": zod.string(),
+  "fulfillmentStatus": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListDropshipQueueResponse = zod.array(ListDropshipQueueResponseItem)
+
+
+/**
+ * @summary Update the internal supplier fulfillment status for an order
+ */
+export const UpdateDropshipStatusParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateDropshipStatusBody = zod.object({
+  "fulfillmentStatus": zod.enum(['awaiting_supplier', 'prepared', 'submitted', 'fulfilled'])
+})
+
+export const UpdateDropshipStatusResponse = zod.object({
+  "id": zod.int(),
+  "orderNumber": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.email(),
+  "customerPhone": zod.string().nullable(),
+  "shippingAddress": zod.string().nullable(),
+  "productTitle": zod.string(),
+  "supplierUrl": zod.url(),
+  "supplierCost": zod.number().nullable(),
+  "profit": zod.number().nullable(),
+  "sellingPrice": zod.number().nullable(),
+  "total": zod.number(),
+  "currency": zod.string(),
+  "orderStatus": zod.string(),
+  "fulfillmentStatus": zod.string(),
+  "createdAt": zod.coerce.date()
 })
 
 
@@ -333,6 +456,8 @@ export const CreateSubscriptionResponse = zod.object({
 /**
  * @summary Submit a bank transfer reference for review
  */
+export const submitBankTransferBodyAmountExclusiveMin = 0;
+
 export const submitBankTransferBodyReferenceMin = 3;
 
 export const submitBankTransferBodySenderNameMin = 2;
@@ -340,6 +465,7 @@ export const submitBankTransferBodySenderNameMin = 2;
 
 
 export const SubmitBankTransferBody = zod.object({
+  "amount": zod.number().gt(submitBankTransferBodyAmountExclusiveMin),
   "reference": zod.string().min(submitBankTransferBodyReferenceMin),
   "senderName": zod.string().min(submitBankTransferBodySenderNameMin)
 })

@@ -29,4 +29,8 @@ export interface CreateOrderInput {
      * @maxLength 120
      */
   idempotencyKey?: string;
+  /** @minimum 1 */
+  supplierProductId?: number;
+  /** @maxLength 500 */
+  shippingAddress?: string;
 }

@@ -5,10 +5,12 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { SupplierProductRecordProfitType } from './supplierProductRecordProfitType';
 
 export interface SupplierProductRecord {
   id: number;
   sourceUrl: string;
+  supplierUrl: string;
   sourceDomain: string;
   title: string;
   /** @nullable */
@@ -18,6 +20,10 @@ export interface SupplierProductRecord {
   /** @nullable */
   price: number | null;
   currency: string;
+  profitType: SupplierProductRecordProfitType;
+  profitValue: number;
+  /** @nullable */
+  sellingPrice: number | null;
   status: string;
   importedAt: Date;
 }

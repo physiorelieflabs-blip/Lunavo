@@ -128,6 +128,43 @@ export const customersTable = pgTable(
   ],
 );
 
+export const supplierProductsTable = pgTable(
+  "supplier_products",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    sourceUrl: text("source_url").notNull(),
+    supplierUrl: text("supplier_url").notNull(),
+    sourceDomain: text("source_domain").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    imageUrl: text("image_url"),
+    price: numeric("price", { precision: 12, scale: 2 }),
+    currency: text("currency").notNull().default("USD"),
+    profitType: text("profit_type").notNull().default("fixed"),
+    profitValue: numeric("profit_value", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }),
+    status: text("status").notNull().default("draft"),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("supplier_products_merchant_url_unique").on(
+      table.merchantId,
+      table.sourceUrl,
+    ),
+  ],
+);
+
 export const ordersTable = pgTable(
   "orders",
   {
@@ -142,6 +179,13 @@ export const ordersTable = pgTable(
     total: numeric("total", { precision: 12, scale: 2 }).notNull(),
     currency: text("currency").notNull().default("USD"),
     status: text("status").notNull().default("paid"),
+    supplierProductId: integer("supplier_product_id").references(
+      () => supplierProductsTable.id,
+    ),
+    shippingAddress: text("shipping_address"),
+    fulfillmentStatus: text("fulfillment_status")
+      .notNull()
+      .default("not_applicable"),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -159,6 +203,33 @@ export const ordersTable = pgTable(
     uniqueIndex("orders_merchant_idempotency_unique").on(
       table.merchantId,
       table.idempotencyKey,
+    ),
+  ],
+);
+
+export const merchantBankAccountsTable = pgTable(
+  "merchant_bank_accounts",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    beneficiaryName: text("beneficiary_name").notNull(),
+    bankName: text("bank_name").notNull(),
+    bankCode: text("bank_code").notNull(),
+    accountNumberCiphertext: text("account_number_ciphertext").notNull(),
+    accountLast4: text("account_last4").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("merchant_bank_accounts_merchant_id_unique").on(
+      table.merchantId,
     ),
   ],
 );
@@ -224,37 +295,6 @@ export const withdrawalsTable = pgTable(
   ],
 );
 
-export const supplierProductsTable = pgTable(
-  "supplier_products",
-  {
-    id: serial("id").primaryKey(),
-    merchantId: integer("merchant_id")
-      .notNull()
-      .references(() => merchantsTable.id),
-    sourceUrl: text("source_url").notNull(),
-    sourceDomain: text("source_domain").notNull(),
-    title: text("title").notNull(),
-    description: text("description"),
-    imageUrl: text("image_url"),
-    price: numeric("price", { precision: 12, scale: 2 }),
-    currency: text("currency").notNull().default("USD"),
-    status: text("status").notNull().default("imported"),
-    importedAt: timestamp("imported_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
-  },
-  (table) => [
-    uniqueIndex("supplier_products_merchant_url_unique").on(
-      table.merchantId,
-      table.sourceUrl,
-    ),
-  ],
-);
-
 export const insertMerchantSchema = createInsertSchema(merchantsTable).omit({
   id: true,
   registeredAt: true,
@@ -276,6 +316,13 @@ export const insertCustomerSchema = createInsertSchema(customersTable).omit({
   updatedAt: true,
 });
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertMerchantBankAccountSchema = createInsertSchema(
+  merchantBankAccountsTable,
+).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -312,6 +359,10 @@ export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type InsertActivity = z.infer<typeof insertActivitySchema>;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type MerchantBankAccount = typeof merchantBankAccountsTable.$inferSelect;
+export type InsertMerchantBankAccount = z.infer<
+  typeof insertMerchantBankAccountSchema
+>;
 export type WithdrawalSecurity = typeof withdrawalSecurityTable.$inferSelect;
 export type Withdrawal = typeof withdrawalsTable.$inferSelect;
 export type SupplierProduct = typeof supplierProductsTable.$inferSelect;

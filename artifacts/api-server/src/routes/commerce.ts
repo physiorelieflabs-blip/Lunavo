@@ -15,6 +15,7 @@ import {
   activityTable,
   customersTable,
   db,
+  merchantBankAccountsTable,
   merchantsTable,
   ordersTable,
   paymentsTable,
@@ -31,8 +32,11 @@ import {
   CreateOrderResponse,
   CreateSubscriptionBody,
   CreateSubscriptionResponse,
+  DropshipStatusInput,
+  DropshipQueueRecord,
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
+  GetLinkedBankAccountResponse,
   GetSubscriptionResponse,
   GetWithdrawalSecurityResponse,
   ImportSupplierProductBody,
@@ -40,6 +44,7 @@ import {
   ListAdminWithdrawalsResponse,
   ListCustomersResponse,
   ListDashboardActivityResponse,
+  ListDropshipQueueResponse,
   ListOrdersResponse,
   ListSupplierProductsResponse,
   ListWithdrawalsResponse,
@@ -56,11 +61,15 @@ import {
   ReviewWithdrawalBody,
   ReviewWithdrawalParams,
   ReviewWithdrawalResponse,
+  SaveLinkedBankAccountBody,
+  SaveLinkedBankAccountResponse,
   SubmitBankTransferBody,
   SubmitBankTransferResponse,
   UpdateMerchantStatusBody,
   UpdateMerchantStatusParams,
   UpdateMerchantStatusResponse,
+  UpdateDropshipStatusParams,
+  UpdateDropshipStatusResponse,
 } from "@workspace/api-zod";
 import {
   createTotpUri,
@@ -90,6 +99,7 @@ type Payment = typeof paymentsTable.$inferSelect;
 type Customer = typeof customersTable.$inferSelect;
 type Order = typeof ordersTable.$inferSelect;
 type Withdrawal = typeof withdrawalsTable.$inferSelect;
+type MerchantBankAccount = typeof merchantBankAccountsTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
@@ -420,7 +430,25 @@ function serializePayment(payment: Payment, merchantName: string) {
   };
 }
 
-function serializeOrder(order: Order, customer: Customer) {
+function calculateSellingPrice(
+  cost: string | number | null,
+  profitType: string,
+  profitValue: string | number,
+): number | null {
+  if (cost === null) return null;
+  const costAmount = toNumber(cost);
+  const profitAmount =
+    profitType === "percentage"
+      ? (costAmount * toNumber(profitValue)) / 100
+      : toNumber(profitValue);
+  return Number((costAmount + profitAmount).toFixed(2));
+}
+
+function serializeOrder(
+  order: Order,
+  customer: Customer,
+  product?: typeof supplierProductsTable.$inferSelect | null,
+) {
   return {
     id: order.id,
     orderNumber: order.orderNumber,
@@ -429,6 +457,61 @@ function serializeOrder(order: Order, customer: Customer) {
     total: toNumber(order.total),
     currency: order.currency,
     status: order.status,
+    supplierProductId: order.supplierProductId,
+    productTitle: product?.title ?? null,
+    shippingAddress: order.shippingAddress,
+    fulfillmentStatus: order.fulfillmentStatus,
+    createdAt: order.createdAt,
+  };
+}
+
+function serializeSupplierProduct(product: typeof supplierProductsTable.$inferSelect) {
+  return {
+    id: product.id,
+    sourceUrl: product.sourceUrl,
+    supplierUrl: product.supplierUrl,
+    sourceDomain: product.sourceDomain,
+    title: product.title,
+    description: product.description,
+    imageUrl: product.imageUrl,
+    price: product.price === null ? null : toNumber(product.price),
+    currency: product.currency,
+    profitType: product.profitType,
+    profitValue: toNumber(product.profitValue),
+    sellingPrice:
+      product.sellingPrice === null ? null : toNumber(product.sellingPrice),
+    status: product.status,
+    importedAt: product.importedAt,
+  };
+}
+
+function serializeDropshipQueueItem(
+  order: Order,
+  customer: Customer,
+  product: typeof supplierProductsTable.$inferSelect,
+) {
+  const supplierCost = product.price === null ? null : toNumber(product.price);
+  const sellingPrice =
+    product.sellingPrice === null ? null : toNumber(product.sellingPrice);
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    customerName: customer.name,
+    customerEmail: customer.email,
+    customerPhone: customer.phone,
+    shippingAddress: order.shippingAddress,
+    productTitle: product.title,
+    supplierUrl: product.supplierUrl,
+    supplierCost,
+    profit:
+      supplierCost === null || sellingPrice === null
+        ? null
+        : Number((sellingPrice - supplierCost).toFixed(2)),
+    sellingPrice,
+    total: toNumber(order.total),
+    currency: order.currency,
+    orderStatus: order.status,
+    fulfillmentStatus: order.fulfillmentStatus,
     createdAt: order.createdAt,
   };
 }
@@ -446,6 +529,18 @@ function serializeWithdrawal(withdrawal: Withdrawal) {
     reviewedAt: withdrawal.reviewedAt,
     paidAt: withdrawal.paidAt,
     createdAt: withdrawal.createdAt,
+  };
+}
+
+function serializeBankAccount(account: MerchantBankAccount) {
+  return {
+    id: account.id,
+    beneficiaryName: account.beneficiaryName,
+    bankName: account.bankName,
+    bankCode: account.bankCode,
+    accountLast4: account.accountLast4,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
   };
 }
 
@@ -546,6 +641,17 @@ async function payFromEarnings(merchant: Merchant) {
     );
     if (remaining === 0) {
       throw new Error("Subscription is already settled");
+    }
+    const [pendingBankTransfers] = await tx
+      .select({
+        total: sql<string>`coalesce(sum(${paymentsTable.amount}) filter (where ${paymentsTable.method} = 'bank_transfer' and ${paymentsTable.status} = 'under_review'), 0)`,
+      })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.merchantId, merchant.id));
+    if (toNumber(pendingBankTransfers?.total) > 0) {
+      throw new Error(
+        "A bank transfer is awaiting review; wait for that decision before paying from earnings",
+      );
     }
     if (toNumber(subscription.earningsHeld) < remaining) {
       throw new Error("Not enough held earnings to pay the subscription");
@@ -738,6 +844,69 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/bank-account", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const account = (
+    await db
+      .select()
+      .from(merchantBankAccountsTable)
+      .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
+      .limit(1)
+  )[0];
+  res.json(account ? GetLinkedBankAccountResponse.parse(serializeBankAccount(account)) : null);
+});
+
+router.put("/bank-account", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = SaveLinkedBankAccountBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Beneficiary, bank, bank code, and account number are required" });
+    return;
+  }
+  const accountNumber = parsed.data.accountNumber.replace(/[\s-]+/g, "");
+  if (!/^[A-Za-z0-9]{4,40}$/.test(accountNumber)) {
+    res.status(400).json({ error: "Enter a valid account number" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [account] = await db
+    .insert(merchantBankAccountsTable)
+    .values({
+      merchantId: merchant.id,
+      beneficiaryName: parsed.data.beneficiaryName.trim(),
+      bankName: parsed.data.bankName.trim(),
+      bankCode: parsed.data.bankCode.trim(),
+      accountNumberCiphertext: encryptSecret(accountNumber),
+      accountLast4: accountNumber.slice(-4),
+    })
+    .onConflictDoUpdate({
+      target: merchantBankAccountsTable.merchantId,
+      set: {
+        beneficiaryName: parsed.data.beneficiaryName.trim(),
+        bankName: parsed.data.bankName.trim(),
+        bankCode: parsed.data.bankCode.trim(),
+        accountNumberCiphertext: encryptSecret(accountNumber),
+        accountLast4: accountNumber.slice(-4),
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  res.json(SaveLinkedBankAccountResponse.parse(serializeBankAccount(account)));
+});
+
+router.delete("/bank-account", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  await db
+    .delete(merchantBankAccountsTable)
+    .where(eq(merchantBankAccountsTable.merchantId, merchant.id));
+  res.status(204).send();
+});
+
 router.get("/security/withdrawal", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -852,12 +1021,23 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
   if (!identity) return;
   const parsed = CreateWithdrawalBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Amount, bank details, and a six-digit authenticator code are required" });
+    res.status(400).json({ error: "Amount and a six-digit authenticator code are required" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
   if (merchant.status === "banned") {
     res.status(403).json({ error: "Banned accounts cannot request withdrawals" });
+    return;
+  }
+  const linkedBankAccount = (
+    await db
+      .select()
+      .from(merchantBankAccountsTable)
+      .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
+      .limit(1)
+  )[0];
+  if (!linkedBankAccount) {
+    res.status(409).json({ error: "Link a bank account before requesting a withdrawal" });
     return;
   }
   const security = await getWithdrawalSecurity(merchant.id);
@@ -877,13 +1057,25 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
   }
 
   const amount = Number(parsed.data.amount.toFixed(2));
-  const accountNumber = parsed.data.accountNumber.replace(/\s+/g, "");
   const currency = (parsed.data.currency ?? "USD").toUpperCase();
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(
         sql`select id from ${merchantsTable} where ${merchantsTable.id} = ${merchant.id} for update`,
       );
+      await tx.execute(
+        sql`select id from ${merchantBankAccountsTable} where ${merchantBankAccountsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const currentBankAccount = (
+        await tx
+          .select()
+          .from(merchantBankAccountsTable)
+          .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
+          .limit(1)
+      )[0];
+      if (!currentBankAccount) {
+        throw new Error("Link a bank account before requesting a withdrawal");
+      }
       const idempotencyKey = parsed.data.idempotencyKey?.trim() || null;
       if (idempotencyKey) {
         const existing = (
@@ -931,15 +1123,17 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
           amount: amount.toFixed(2),
           currency,
           status: "pending",
-          beneficiaryName: parsed.data.beneficiaryName.trim(),
-          bankName: parsed.data.bankName.trim(),
+          beneficiaryName: currentBankAccount.beneficiaryName,
+          bankName: currentBankAccount.bankName,
           destinationCiphertext: encryptSecret(
             JSON.stringify({
-              bankCode: parsed.data.bankCode.trim(),
-              accountNumber,
+              bankCode: currentBankAccount.bankCode,
+              accountNumber: decryptSecret(
+                currentBankAccount.accountNumberCiphertext,
+              ),
             }),
           ),
-          accountLast4: accountNumber.slice(-4),
+          accountLast4: currentBankAccount.accountLast4,
           idempotencyKey,
         })
         .onConflictDoNothing()
@@ -994,16 +1188,7 @@ router.get("/supplier-products", async (req, res): Promise<void> => {
   res.json(
     ListSupplierProductsResponse.parse(
       products.map((product) => ({
-        id: product.id,
-        sourceUrl: product.sourceUrl,
-        sourceDomain: product.sourceDomain,
-        title: product.title,
-        description: product.description,
-        imageUrl: product.imageUrl,
-        price: product.price === null ? null : toNumber(product.price),
-        currency: product.currency,
-        status: product.status,
-        importedAt: product.importedAt,
+        ...serializeSupplierProduct(product),
       })),
     ),
   );
@@ -1020,6 +1205,21 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   try {
     const imported = await importPublicSupplierProduct(parsed.data.sourceUrl);
+    let supplierUrl: string;
+    try {
+      const parsedSupplierUrl = new URL(parsed.data.supplierUrl);
+      if (!["http:", "https:"].includes(parsedSupplierUrl.protocol)) {
+        throw new Error("Supplier link must use http or https");
+      }
+      supplierUrl = parsedSupplierUrl.toString();
+    } catch {
+      throw new Error("Enter a valid supplier website link");
+    }
+    const sellingPrice = calculateSellingPrice(
+      imported.price,
+      parsed.data.profitType,
+      parsed.data.profitValue,
+    );
     const existing = (
       await db
         .select()
@@ -1034,13 +1234,17 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
     )[0];
     const values = {
       sourceUrl: imported.sourceUrl,
+      supplierUrl,
       sourceDomain: imported.sourceDomain,
       title: imported.title,
       description: imported.description,
       imageUrl: imported.imageUrl,
       price: imported.price,
       currency: imported.currency,
-      status: "imported",
+      profitType: parsed.data.profitType,
+      profitValue: parsed.data.profitValue.toFixed(2),
+      sellingPrice: sellingPrice === null ? null : sellingPrice.toFixed(2),
+      status: "active",
     } as const;
     const [product] = existing
       ? await db
@@ -1055,16 +1259,7 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
     if (!product) throw new Error("Supplier product could not be saved");
     res.status(201).json(
       ImportSupplierProductResponse.parse({
-        id: product.id,
-        sourceUrl: product.sourceUrl,
-        sourceDomain: product.sourceDomain,
-        title: product.title,
-        description: product.description,
-        imageUrl: product.imageUrl,
-        price: product.price === null ? null : toNumber(product.price),
-        currency: product.currency,
-        status: product.status,
-        importedAt: product.importedAt,
+        ...serializeSupplierProduct(product),
       }),
     );
   } catch (error) {
@@ -1109,15 +1304,25 @@ router.get("/orders", async (req, res): Promise<void> => {
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
   const orders = await db
-    .select({ order: ordersTable, customer: customersTable })
+    .select({
+      order: ordersTable,
+      customer: customersTable,
+      product: supplierProductsTable,
+    })
     .from(ordersTable)
     .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+    .leftJoin(
+      supplierProductsTable,
+      eq(ordersTable.supplierProductId, supplierProductsTable.id),
+    )
     .where(eq(ordersTable.merchantId, merchant.id))
     .orderBy(desc(ordersTable.createdAt))
     .limit(100);
   res.json(
     ListOrdersResponse.parse(
-      orders.map(({ order, customer }) => serializeOrder(order, customer)),
+      orders.map(({ order, customer, product }) =>
+        serializeOrder(order, customer, product),
+      ),
     ),
   );
 });
@@ -1155,9 +1360,17 @@ router.post("/orders", async (req, res): Promise<void> => {
       if (idempotencyKey) {
         const existing = (
           await tx
-            .select({ order: ordersTable, customer: customersTable })
+            .select({
+              order: ordersTable,
+              customer: customersTable,
+              product: supplierProductsTable,
+            })
             .from(ordersTable)
             .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+            .leftJoin(
+              supplierProductsTable,
+              eq(ordersTable.supplierProductId, supplierProductsTable.id),
+            )
             .where(
               and(
                 eq(ordersTable.merchantId, merchant.id),
@@ -1226,6 +1439,24 @@ router.post("/orders", async (req, res): Promise<void> => {
         parsed.data.orderNumber?.trim().toUpperCase() ||
         `ORD-${randomUUID().slice(0, 8).toUpperCase()}`;
       const status = parsed.data.status ?? "paid";
+      let supplierProduct: typeof supplierProductsTable.$inferSelect | undefined;
+      if (parsed.data.supplierProductId) {
+        supplierProduct = (
+          await tx
+            .select()
+            .from(supplierProductsTable)
+            .where(
+              and(
+                eq(supplierProductsTable.id, parsed.data.supplierProductId),
+                eq(supplierProductsTable.merchantId, merchant.id),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!supplierProduct) {
+          throw new Error("That supplier product is not in your catalog");
+        }
+      }
       const [order] = await tx
         .insert(ordersTable)
         .values({
@@ -1234,6 +1465,11 @@ router.post("/orders", async (req, res): Promise<void> => {
           orderNumber,
           total,
           status,
+          supplierProductId: supplierProduct?.id ?? null,
+          shippingAddress: parsed.data.shippingAddress?.trim() || null,
+          fulfillmentStatus: supplierProduct
+            ? "awaiting_supplier"
+            : "not_applicable",
           idempotencyKey,
         })
         .onConflictDoNothing({
@@ -1244,9 +1480,17 @@ router.post("/orders", async (req, res): Promise<void> => {
         if (idempotencyKey) {
           const replay = (
             await tx
-              .select({ order: ordersTable, customer: customersTable })
+              .select({
+                order: ordersTable,
+                customer: customersTable,
+                product: supplierProductsTable,
+              })
               .from(ordersTable)
               .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+              .leftJoin(
+                supplierProductsTable,
+                eq(ordersTable.supplierProductId, supplierProductsTable.id),
+              )
               .where(
                 and(
                   eq(ordersTable.merchantId, merchant.id),
@@ -1290,12 +1534,12 @@ router.post("/orders", async (req, res): Promise<void> => {
         amount: total,
         tone: "positive",
       });
-      return { order, customer };
+      return { order, customer, product: supplierProduct ?? null };
     });
 
     res.status(201).json(
       CreateOrderResponse.parse(
-        serializeOrder(result.order, result.customer),
+        serializeOrder(result.order, result.customer, result.product),
       ),
     );
   } catch (error) {
@@ -1303,6 +1547,98 @@ router.post("/orders", async (req, res): Promise<void> => {
       error: error instanceof Error ? error.message : "Order could not be recorded",
     });
   }
+});
+
+router.get("/dropship/queue", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const queue = await db
+    .select({
+      order: ordersTable,
+      customer: customersTable,
+      product: supplierProductsTable,
+    })
+    .from(ordersTable)
+    .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+    .innerJoin(
+      supplierProductsTable,
+      eq(ordersTable.supplierProductId, supplierProductsTable.id),
+    )
+    .where(
+      and(
+        eq(ordersTable.merchantId, merchant.id),
+        inArray(ordersTable.status, ["paid", "fulfilled"]),
+      ),
+    )
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(100);
+  res.json(
+    ListDropshipQueueResponse.parse(
+      queue.map(({ order, customer, product }) =>
+        serializeDropshipQueueItem(order, customer, product),
+      ),
+    ),
+  );
+});
+
+router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdateDropshipStatusParams.safeParse(req.params);
+  const parsed = DropshipStatusInput.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose a valid supplier fulfillment status" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const nextStatus = parsed.data.fulfillmentStatus;
+  const result = await db.transaction(async (tx) => {
+    const existing = (
+      await tx
+        .select({
+          order: ordersTable,
+          customer: customersTable,
+          product: supplierProductsTable,
+        })
+        .from(ordersTable)
+        .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+        .innerJoin(
+          supplierProductsTable,
+          eq(ordersTable.supplierProductId, supplierProductsTable.id),
+        )
+        .where(
+          and(
+            eq(ordersTable.id, params.data.id),
+            eq(ordersTable.merchantId, merchant.id),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!existing) throw new Error("Dropshipping order not found");
+    const [order] = await tx
+      .update(ordersTable)
+      .set({
+        fulfillmentStatus: nextStatus,
+        status: nextStatus === "fulfilled" ? "fulfilled" : existing.order.status,
+      })
+      .where(eq(ordersTable.id, existing.order.id))
+      .returning();
+    if (!order) throw new Error("Dropshipping status could not be updated");
+    await tx.insert(activityTable).values({
+      merchantId: merchant.id,
+      type: "dropship_status_updated",
+      title: `Order ${order.orderNumber} supplier status updated`,
+      description: `Supplier handoff marked ${nextStatus.replaceAll("_", " ")}.`,
+      tone: nextStatus === "fulfilled" ? "positive" : "neutral",
+    });
+    return { order, customer: existing.customer, product: existing.product };
+  });
+  res.json(
+    UpdateDropshipStatusResponse.parse(
+      serializeDropshipQueueItem(result.order, result.customer, result.product),
+    ),
+  );
 });
 
 router.get("/subscription", async (req, res): Promise<void> => {
@@ -1412,11 +1748,20 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
   }
   const parsed = SubmitBankTransferBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Sender name and transfer reference are required" });
+    res.status(400).json({ error: "Amount, sender name, and transfer reference are required" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (merchant.status === "banned") {
+    res.status(403).json({ error: "Banned accounts cannot submit subscription payments" });
+    return;
+  }
   const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const amount = Number(parsed.data.amount.toFixed(2));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: "Enter a valid payment amount" });
+    return;
+  }
   const remaining = Math.max(
     0,
     toNumber(enforced.subscription.amountDue) -
@@ -1424,6 +1769,10 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
   );
   if (remaining === 0) {
     res.status(409).json({ error: "Subscription is already settled" });
+    return;
+  }
+  if (amount > remaining) {
+    res.status(409).json({ error: `The payment cannot exceed the ${remaining.toFixed(2)} outstanding balance` });
     return;
   }
   const reference = parsed.data.reference.trim().toUpperCase();
@@ -1457,11 +1806,39 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
 
   try {
     const payment = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${subscriptionsTable} where ${subscriptionsTable.id} = ${enforced.subscription.id} for update`,
+      );
+      const currentSubscription = (
+        await tx
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.id, enforced.subscription.id))
+          .limit(1)
+      )[0];
+      if (!currentSubscription) throw new Error("Subscription not found");
+      const [pendingTransfers] = await tx
+        .select({
+          total: sql<string>`coalesce(sum(${paymentsTable.amount}) filter (where ${paymentsTable.status} = 'under_review' and ${paymentsTable.method} = 'bank_transfer'), 0)`,
+        })
+        .from(paymentsTable)
+        .where(eq(paymentsTable.merchantId, merchant.id));
+      const currentOutstanding = Math.max(
+        0,
+        toNumber(currentSubscription.amountDue) -
+          toNumber(currentSubscription.amountPaid),
+      );
+      const availableForReview = currentOutstanding - toNumber(pendingTransfers?.total);
+      if (amount > availableForReview) {
+        throw new Error(
+          `Only ${Math.max(0, availableForReview).toFixed(2)} remains available for transfer review`,
+        );
+      }
     const [created] = await tx
       .insert(paymentsTable)
       .values({
         merchantId: merchant.id,
-        amount: remaining.toFixed(2),
+        amount: amount.toFixed(2),
         method: "bank_transfer",
         reference,
         senderName: parsed.data.senderName.trim(),
@@ -1487,15 +1864,15 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
       .set({
         paymentMethod: "bank",
         status:
-          enforced.merchant.status === "suspended" ? "expired" : "past_due",
+          merchant.status === "suspended" ? "expired" : "past_due",
       })
-      .where(eq(subscriptionsTable.id, enforced.subscription.id));
+      .where(eq(subscriptionsTable.id, currentSubscription.id));
     await tx.insert(activityTable).values({
       merchantId: merchant.id,
       type: "bank_transfer_submitted",
       title: "Bank transfer submitted",
       description: `Transfer ${reference} is waiting for admin review.`,
-      amount: remaining.toFixed(2),
+      amount: amount.toFixed(2),
       tone: "neutral",
     });
     return created;
@@ -1783,11 +2160,19 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
         const amountPaid =
           toNumber(subscription.amountPaid) + toNumber(payment.amount);
         const settled = amountPaid >= toNumber(subscription.amountDue);
+        const remainingAfterPayment = Math.max(
+          0,
+          toNumber(subscription.amountDue) - amountPaid,
+        );
+        const earningsHeldAfterPayment = Math.min(
+          toNumber(subscription.earningsHeld),
+          remainingAfterPayment,
+        );
         await tx
           .update(subscriptionsTable)
           .set({
             amountPaid: amountPaid.toFixed(2),
-            earningsHeld: settled ? "0" : subscription.earningsHeld,
+            earningsHeld: earningsHeldAfterPayment.toFixed(2),
             paymentMethod: "bank",
             status: settled ? "active" : "past_due",
           })

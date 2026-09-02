@@ -40,6 +40,13 @@ export interface OrderRecord {
   total: number;
   currency: string;
   status: string;
+  /** @nullable */
+  supplierProductId: number | null;
+  /** @nullable */
+  productTitle: string | null;
+  /** @nullable */
+  shippingAddress: string | null;
+  fulfillmentStatus: string;
   createdAt: string;
 }
 
@@ -74,6 +81,10 @@ export interface CreateOrderInput {
      * @maxLength 120
      */
   idempotencyKey?: string;
+  /** @minimum 1 */
+  supplierProductId?: number;
+  /** @maxLength 500 */
+  shippingAddress?: string;
 }
 
 export interface Subscription {
@@ -166,6 +177,8 @@ export interface SubscriptionInput {
 }
 
 export interface BankTransferInput {
+  /** @exclusiveMinimum 0 */
+  amount: number;
   /** @minLength 3 */
   reference: string;
   /** @minLength 2 */
@@ -223,6 +236,16 @@ export interface WithdrawalInput {
      * @maxLength 3
      */
   currency?: string;
+  /** @pattern ^[0-9]{6}$ */
+  totpCode: string;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     */
+  idempotencyKey?: string;
+}
+
+export interface BankAccountInput {
   /**
      * @minLength 2
      * @maxLength 160
@@ -243,13 +266,16 @@ export interface WithdrawalInput {
      * @maxLength 40
      */
   accountNumber: string;
-  /** @pattern ^[0-9]{6}$ */
-  totpCode: string;
-  /**
-     * @minLength 8
-     * @maxLength 120
-     */
-  idempotencyKey?: string;
+}
+
+export interface LinkedBankAccount {
+  id: number;
+  beneficiaryName: string;
+  bankName: string;
+  bankCode: string;
+  accountLast4: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface WithdrawalRecord {
@@ -314,14 +340,39 @@ export interface AdminWithdrawalDetailsInput {
   confirmation: string;
 }
 
+export type SupplierProductInputProfitType = typeof SupplierProductInputProfitType[keyof typeof SupplierProductInputProfitType];
+
+
+export const SupplierProductInputProfitType = {
+  fixed: 'fixed',
+  percentage: 'percentage',
+} as const;
+
 export interface SupplierProductInput {
   /** @maxLength 2000 */
   sourceUrl: string;
+  /** @maxLength 2000 */
+  supplierUrl: string;
+  profitType: SupplierProductInputProfitType;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  profitValue: number;
 }
+
+export type SupplierProductRecordProfitType = typeof SupplierProductRecordProfitType[keyof typeof SupplierProductRecordProfitType];
+
+
+export const SupplierProductRecordProfitType = {
+  fixed: 'fixed',
+  percentage: 'percentage',
+} as const;
 
 export interface SupplierProductRecord {
   id: number;
   sourceUrl: string;
+  supplierUrl: string;
   sourceDomain: string;
   title: string;
   /** @nullable */
@@ -331,7 +382,49 @@ export interface SupplierProductRecord {
   /** @nullable */
   price: number | null;
   currency: string;
+  profitType: SupplierProductRecordProfitType;
+  profitValue: number;
+  /** @nullable */
+  sellingPrice: number | null;
   status: string;
   importedAt: string;
+}
+
+export interface DropshipQueueRecord {
+  id: number;
+  orderNumber: string;
+  customerName: string;
+  customerEmail: string;
+  /** @nullable */
+  customerPhone: string | null;
+  /** @nullable */
+  shippingAddress: string | null;
+  productTitle: string;
+  supplierUrl: string;
+  /** @nullable */
+  supplierCost: number | null;
+  /** @nullable */
+  profit: number | null;
+  /** @nullable */
+  sellingPrice: number | null;
+  total: number;
+  currency: string;
+  orderStatus: string;
+  fulfillmentStatus: string;
+  createdAt: string;
+}
+
+export type DropshipStatusInputFulfillmentStatus = typeof DropshipStatusInputFulfillmentStatus[keyof typeof DropshipStatusInputFulfillmentStatus];
+
+
+export const DropshipStatusInputFulfillmentStatus = {
+  awaiting_supplier: 'awaiting_supplier',
+  prepared: 'prepared',
+  submitted: 'submitted',
+  fulfilled: 'fulfilled',
+} as const;
+
+export interface DropshipStatusInput {
+  fulfillmentStatus: DropshipStatusInputFulfillmentStatus;
 }
 

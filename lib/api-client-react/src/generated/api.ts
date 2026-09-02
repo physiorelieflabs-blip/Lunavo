@@ -25,11 +25,15 @@ import type {
   AdminWithdrawalDetailsInput,
   AdminWithdrawalRecord,
   AdminWithdrawalReviewInput,
+  BankAccountInput,
   BankTransferInput,
   CreateOrderInput,
   CustomerRecord,
   DashboardOverview,
+  DropshipQueueRecord,
+  DropshipStatusInput,
   HealthStatus,
+  LinkedBankAccount,
   Merchant,
   MerchantStatusInput,
   OrderRecord,
@@ -898,6 +902,225 @@ export const useCreateWithdrawal = <TError = ErrorType<unknown>,
       return useMutation(getCreateWithdrawalMutationOptions(options));
     }
 
+export const getGetLinkedBankAccountUrl = () => {
+
+
+
+
+  return `/api/bank-account`
+}
+
+/**
+ * @summary Get the merchant's linked withdrawal bank account
+ */
+export const getLinkedBankAccount = async ( options?: Parameters<typeof customFetch>[1]): Promise<LinkedBankAccount | null> => {
+
+  return customFetch<LinkedBankAccount | null>(getGetLinkedBankAccountUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLinkedBankAccountQueryKey = () => {
+    return [
+    `/api/bank-account`
+    ] as const;
+    }
+
+
+export const getGetLinkedBankAccountQueryOptions = <TData = Awaited<ReturnType<typeof getLinkedBankAccount>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedBankAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLinkedBankAccountQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLinkedBankAccount>>> = ({ signal }) => getLinkedBankAccount({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLinkedBankAccount>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLinkedBankAccountQueryResult = NonNullable<Awaited<ReturnType<typeof getLinkedBankAccount>>>
+export type GetLinkedBankAccountQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the merchant's linked withdrawal bank account
+ */
+
+export function useGetLinkedBankAccount<TData = Awaited<ReturnType<typeof getLinkedBankAccount>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkedBankAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLinkedBankAccountQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveLinkedBankAccountUrl = () => {
+
+
+
+
+  return `/api/bank-account`
+}
+
+/**
+ * @summary Create or replace the merchant's linked withdrawal bank account
+ */
+export const saveLinkedBankAccount = async (bankAccountInput: BankAccountInput, options?: Parameters<typeof customFetch>[1]): Promise<LinkedBankAccount> => {
+
+  return customFetch<LinkedBankAccount>(getSaveLinkedBankAccountUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bankAccountInput)
+  }
+);}
+
+
+
+
+
+export const getSaveLinkedBankAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveLinkedBankAccount>>, TError,{data: BodyType<BankAccountInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveLinkedBankAccount>>, TError,{data: BodyType<BankAccountInput>}, TContext> => {
+
+const mutationKey = ['saveLinkedBankAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveLinkedBankAccount>>, {data: BodyType<BankAccountInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveLinkedBankAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveLinkedBankAccountMutationResult = NonNullable<Awaited<ReturnType<typeof saveLinkedBankAccount>>>
+    export type SaveLinkedBankAccountMutationBody = BodyType<BankAccountInput>
+    export type SaveLinkedBankAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create or replace the merchant's linked withdrawal bank account
+ */
+export const useSaveLinkedBankAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveLinkedBankAccount>>, TError,{data: BodyType<BankAccountInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveLinkedBankAccount>>,
+        TError,
+        {data: BodyType<BankAccountInput>},
+        TContext
+      > => {
+      return useMutation(getSaveLinkedBankAccountMutationOptions(options));
+    }
+
+export const getDeleteLinkedBankAccountUrl = () => {
+
+
+
+
+  return `/api/bank-account`
+}
+
+/**
+ * @summary Remove the merchant's linked withdrawal bank account
+ */
+export const deleteLinkedBankAccount = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteLinkedBankAccountUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteLinkedBankAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLinkedBankAccount>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteLinkedBankAccount>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteLinkedBankAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteLinkedBankAccount>>, void> = () => {
+
+
+          return  deleteLinkedBankAccount(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteLinkedBankAccountMutationResult = NonNullable<Awaited<ReturnType<typeof deleteLinkedBankAccount>>>
+
+    export type DeleteLinkedBankAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove the merchant's linked withdrawal bank account
+ */
+export const useDeleteLinkedBankAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLinkedBankAccount>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteLinkedBankAccount>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteLinkedBankAccountMutationOptions(options));
+    }
+
 export const getListSupplierProductsUrl = () => {
 
 
@@ -1044,6 +1267,155 @@ export const useImportSupplierProduct = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getImportSupplierProductMutationOptions(options));
+    }
+
+export const getListDropshipQueueUrl = () => {
+
+
+
+
+  return `/api/dropship/queue`
+}
+
+/**
+ * @summary List product-linked orders waiting for supplier fulfillment
+ */
+export const listDropshipQueue = async ( options?: Parameters<typeof customFetch>[1]): Promise<DropshipQueueRecord[]> => {
+
+  return customFetch<DropshipQueueRecord[]>(getListDropshipQueueUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDropshipQueueQueryKey = () => {
+    return [
+    `/api/dropship/queue`
+    ] as const;
+    }
+
+
+export const getListDropshipQueueQueryOptions = <TData = Awaited<ReturnType<typeof listDropshipQueue>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDropshipQueue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDropshipQueueQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDropshipQueue>>> = ({ signal }) => listDropshipQueue({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDropshipQueue>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDropshipQueueQueryResult = NonNullable<Awaited<ReturnType<typeof listDropshipQueue>>>
+export type ListDropshipQueueQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List product-linked orders waiting for supplier fulfillment
+ */
+
+export function useListDropshipQueue<TData = Awaited<ReturnType<typeof listDropshipQueue>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDropshipQueue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDropshipQueueQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateDropshipStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/dropship/queue/${id}`
+}
+
+/**
+ * @summary Update the internal supplier fulfillment status for an order
+ */
+export const updateDropshipStatus = async (id: number,
+    dropshipStatusInput: DropshipStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<DropshipQueueRecord> => {
+
+  return customFetch<DropshipQueueRecord>(getUpdateDropshipStatusUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dropshipStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateDropshipStatusMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDropshipStatus>>, TError,{id: number;data: BodyType<DropshipStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateDropshipStatus>>, TError,{id: number;data: BodyType<DropshipStatusInput>}, TContext> => {
+
+const mutationKey = ['updateDropshipStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateDropshipStatus>>, {id: number;data: BodyType<DropshipStatusInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateDropshipStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateDropshipStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateDropshipStatus>>>
+    export type UpdateDropshipStatusMutationBody = BodyType<DropshipStatusInput>
+    export type UpdateDropshipStatusMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update the internal supplier fulfillment status for an order
+ */
+export const useUpdateDropshipStatus = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDropshipStatus>>, TError,{id: number;data: BodyType<DropshipStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateDropshipStatus>>,
+        TError,
+        {id: number;data: BodyType<DropshipStatusInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateDropshipStatusMutationOptions(options));
     }
 
 export const getGetSubscriptionUrl = () => {

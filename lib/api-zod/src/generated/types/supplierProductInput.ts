@@ -5,8 +5,17 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { SupplierProductInputProfitType } from './supplierProductInputProfitType';
 
 export interface SupplierProductInput {
   /** @maxLength 2000 */
   sourceUrl: string;
+  /** @maxLength 2000 */
+  supplierUrl: string;
+  profitType: SupplierProductInputProfitType;
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  profitValue: number;
 }

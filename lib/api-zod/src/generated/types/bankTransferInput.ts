@@ -7,6 +7,8 @@
  */
 
 export interface BankTransferInput {
+  /** @exclusiveMinimum 0 */
+  amount: number;
   /** @minLength 3 */
   reference: string;
   /** @minLength 2 */
