@@ -1,20 +1,36 @@
+import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
 import { createClerkClient, getAuth } from "@clerk/express";
 import {
   activityTable,
+  customersTable,
   db,
   merchantsTable,
+  ordersTable,
   paymentsTable,
   subscriptionsTable,
 } from "@workspace/db";
 import {
+  CreateOrderBody,
+  CreateOrderResponse,
   CreateSubscriptionBody,
   CreateSubscriptionResponse,
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
   GetSubscriptionResponse,
+  ListCustomersResponse,
   ListDashboardActivityResponse,
+  ListOrdersResponse,
   ListMerchantsResponse,
   PaySubscriptionFromEarningsResponse,
   ReviewBankTransferBody,
@@ -43,6 +59,8 @@ type Identity = {
 type Merchant = typeof merchantsTable.$inferSelect;
 type Subscription = typeof subscriptionsTable.$inferSelect;
 type Payment = typeof paymentsTable.$inferSelect;
+type Customer = typeof customersTable.$inferSelect;
+type Order = typeof ordersTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
@@ -373,6 +391,19 @@ function serializePayment(payment: Payment, merchantName: string) {
   };
 }
 
+function serializeOrder(order: Order, customer: Customer) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    customerName: customer.name,
+    customerEmail: customer.email,
+    total: toNumber(order.total),
+    currency: order.currency,
+    status: order.status,
+    createdAt: order.createdAt,
+  };
+}
+
 async function payFromEarnings(merchant: Merchant) {
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -482,6 +513,83 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
     enforced.subscription,
     identity.isAdmin,
   );
+  const paidStatuses = ["paid", "fulfilled"];
+  const now = new Date();
+  const currentPeriodStart = new Date(now.getTime() - 7 * 86400000);
+  const previousPeriodStart = new Date(now.getTime() - 14 * 86400000);
+  const [metrics] = await db
+    .select({
+      revenue: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${inArray(ordersTable.status, paidStatuses)}), 0)`,
+      orders: sql<string>`count(*) filter (where ${ordersTable.status} <> 'cancelled')`,
+      customers: sql<string>`count(distinct ${ordersTable.customerId})`,
+      pendingBalance: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} = 'pending'), 0)`,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.merchantId, enforced.merchant.id));
+  const [currentPeriod] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${ordersTable.total}), 0)`,
+    })
+    .from(ordersTable)
+    .where(
+      and(
+        eq(ordersTable.merchantId, enforced.merchant.id),
+        inArray(ordersTable.status, paidStatuses),
+        gte(ordersTable.createdAt, currentPeriodStart),
+      ),
+    );
+  const [previousPeriod] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${ordersTable.total}), 0)`,
+    })
+    .from(ordersTable)
+    .where(
+      and(
+        eq(ordersTable.merchantId, enforced.merchant.id),
+        inArray(ordersTable.status, paidStatuses),
+        gte(ordersTable.createdAt, previousPeriodStart),
+        lt(ordersTable.createdAt, currentPeriodStart),
+      ),
+    );
+  const seriesStart = new Date(now);
+  seriesStart.setHours(0, 0, 0, 0);
+  seriesStart.setDate(seriesStart.getDate() - 6);
+  const recentSales = await db
+    .select({ total: ordersTable.total, createdAt: ordersTable.createdAt })
+    .from(ordersTable)
+    .where(
+      and(
+        eq(ordersTable.merchantId, enforced.merchant.id),
+        inArray(ordersTable.status, paidStatuses),
+        gte(ordersTable.createdAt, seriesStart),
+      ),
+    );
+  const seriesAmounts = new Map<string, number>();
+  for (const sale of recentSales) {
+    const key = sale.createdAt.toISOString().slice(0, 10);
+    seriesAmounts.set(key, (seriesAmounts.get(key) ?? 0) + toNumber(sale.total));
+  }
+  const revenueSeries = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(seriesStart);
+    day.setDate(seriesStart.getDate() + index);
+    return {
+      label: day.toLocaleDateString("en-US", { weekday: "short" }),
+      amount: seriesAmounts.get(day.toISOString().slice(0, 10)) ?? 0,
+    };
+  });
+  const revenue = toNumber(metrics?.revenue);
+  const currentRevenue = toNumber(currentPeriod?.total);
+  const previousRevenue = toNumber(previousPeriod?.total);
+  const revenueChange =
+    previousRevenue === 0
+      ? currentRevenue > 0
+        ? 100
+        : 0
+      : Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100);
+  const availableBalance = Math.max(
+    0,
+    revenue - subscription.earningsHeld,
+  );
   res.json(
     GetDashboardOverviewResponse.parse({
       storeName: enforced.merchant.storeName,
@@ -489,17 +597,15 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/(^-|-$)/g, ""),
-      revenue: 0,
-      revenueChange: 0,
-      orders: 0,
-      customers: 0,
-      availableBalance: 0,
-      pendingBalance: 0,
+      revenue,
+      revenueChange,
+      orders: Number(metrics?.orders ?? 0),
+      customers: Number(metrics?.customers ?? 0),
+      availableBalance,
+      pendingBalance: toNumber(metrics?.pendingBalance),
       earningsHeldForSubscription: subscription.earningsHeld,
       subscription,
-      revenueSeries: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
-        (label) => ({ label, amount: 0 }),
-      ),
+      revenueSeries,
     }),
   );
 });
@@ -522,6 +628,237 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
       })),
     ),
   );
+});
+
+router.get("/customers", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const customers = await db
+    .select({
+      customer: customersTable,
+      orderCount: sql<string>`count(${ordersTable.id}) filter (where ${ordersTable.status} <> 'cancelled')`,
+      totalSpent: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${inArray(ordersTable.status, ["paid", "fulfilled"])}), 0)`,
+    })
+    .from(customersTable)
+    .leftJoin(ordersTable, eq(ordersTable.customerId, customersTable.id))
+    .where(eq(customersTable.merchantId, merchant.id))
+    .groupBy(customersTable.id)
+    .orderBy(desc(customersTable.createdAt));
+  res.json(
+    ListCustomersResponse.parse(
+      customers.map(({ customer, orderCount, totalSpent }) => ({
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        orderCount: Number(orderCount),
+        totalSpent: toNumber(totalSpent),
+        createdAt: customer.createdAt,
+      })),
+    ),
+  );
+});
+
+router.get("/orders", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const orders = await db
+    .select({ order: ordersTable, customer: customersTable })
+    .from(ordersTable)
+    .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+    .where(eq(ordersTable.merchantId, merchant.id))
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(100);
+  res.json(
+    ListOrdersResponse.parse(
+      orders.map(({ order, customer }) => serializeOrder(order, customer)),
+    ),
+  );
+});
+
+router.post("/orders", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateOrderBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Customer details and a positive sale total are required" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  if (enforced.merchant.status === "suspended" || enforced.merchant.status === "banned") {
+    res.status(403).json({ error: "New orders are paused for this account" });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${merchant.id} for update`,
+      );
+      const subscription = (
+        await tx
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.merchantId, merchant.id))
+          .limit(1)
+      )[0];
+      if (!subscription) throw new Error("Subscription not found");
+
+      const idempotencyKey = parsed.data.idempotencyKey?.trim() || null;
+      if (idempotencyKey) {
+        const existing = (
+          await tx
+            .select({ order: ordersTable, customer: customersTable })
+            .from(ordersTable)
+            .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+            .where(
+              and(
+                eq(ordersTable.merchantId, merchant.id),
+                eq(ordersTable.idempotencyKey, idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (existing) return existing;
+      }
+
+      const customerEmail = parsed.data.customerEmail.trim().toLowerCase();
+      let customer = (
+        await tx
+          .select()
+          .from(customersTable)
+          .where(
+            and(
+              eq(customersTable.merchantId, merchant.id),
+              eq(customersTable.email, customerEmail),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (customer) {
+        [customer] = await tx
+          .update(customersTable)
+          .set({
+            name: parsed.data.customerName.trim(),
+            phone: parsed.data.customerPhone?.trim() || null,
+          })
+          .where(eq(customersTable.id, customer.id))
+          .returning();
+      } else {
+        [customer] = await tx
+          .insert(customersTable)
+          .values({
+            merchantId: merchant.id,
+            name: parsed.data.customerName.trim(),
+            email: customerEmail,
+            phone: parsed.data.customerPhone?.trim() || null,
+          })
+          .onConflictDoNothing({
+            target: [customersTable.merchantId, customersTable.email],
+          })
+          .returning();
+        if (!customer) {
+          customer = (
+            await tx
+              .select()
+              .from(customersTable)
+              .where(
+                and(
+                  eq(customersTable.merchantId, merchant.id),
+                  eq(customersTable.email, customerEmail),
+                ),
+              )
+              .limit(1)
+          )[0];
+        }
+      }
+      if (!customer) throw new Error("Could not save customer");
+
+      const total = parsed.data.total.toFixed(2);
+      const orderNumber =
+        parsed.data.orderNumber?.trim().toUpperCase() ||
+        `ORD-${randomUUID().slice(0, 8).toUpperCase()}`;
+      const status = parsed.data.status ?? "paid";
+      const [order] = await tx
+        .insert(ordersTable)
+        .values({
+          merchantId: merchant.id,
+          customerId: customer.id,
+          orderNumber,
+          total,
+          status,
+          idempotencyKey,
+        })
+        .onConflictDoNothing({
+          target: [ordersTable.merchantId, ordersTable.idempotencyKey],
+        })
+        .returning();
+      if (!order) {
+        if (idempotencyKey) {
+          const replay = (
+            await tx
+              .select({ order: ordersTable, customer: customersTable })
+              .from(ordersTable)
+              .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+              .where(
+                and(
+                  eq(ordersTable.merchantId, merchant.id),
+                  eq(ordersTable.idempotencyKey, idempotencyKey),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (replay) return replay;
+        }
+        throw new Error("Order number is already in use");
+      }
+
+      if (status === "paid" || status === "fulfilled") {
+        const outstanding = Math.max(
+          0,
+          toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+        );
+        const availableToHold = Math.max(
+          0,
+          outstanding - toNumber(subscription.earningsHeld),
+        );
+        const holdAmount = Math.min(parsed.data.total, availableToHold);
+        if (holdAmount > 0) {
+          await tx
+            .update(subscriptionsTable)
+            .set({
+              earningsHeld: (
+                toNumber(subscription.earningsHeld) + holdAmount
+              ).toFixed(2),
+            })
+            .where(eq(subscriptionsTable.id, subscription.id));
+        }
+      }
+
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "order_recorded",
+        title: `Order ${orderNumber} recorded`,
+        description: `${customer.name} placed a ${status} order.`,
+        amount: total,
+        tone: "positive",
+      });
+      return { order, customer };
+    });
+
+    res.status(201).json(
+      CreateOrderResponse.parse(
+        serializeOrder(result.order, result.customer),
+      ),
+    );
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Order could not be recorded",
+    });
+  }
 });
 
 router.get("/subscription", async (req, res): Promise<void> => {
@@ -1006,6 +1343,7 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
           .update(subscriptionsTable)
           .set({
             amountPaid: amountPaid.toFixed(2),
+            earningsHeld: settled ? "0" : subscription.earningsHeld,
             paymentMethod: "bank",
             status: settled ? "active" : "past_due",
           })

@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { BarChart3, Building2, CreditCard, LayoutDashboard, LogOut, Menu, Users, X } from 'lucide-react';
+import { BarChart3, Building2, CreditCard, LayoutDashboard, LogOut, Menu, PackageCheck, Users, UsersRound, X } from 'lucide-react';
 import { useClerk, useUser } from '@clerk/react';
 import { Logo } from '@/components/primitives';
 import { initials } from '@/lib/format';
@@ -13,7 +13,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
   const [open, setOpen] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
-  const merchantLinks = [{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard }, { href: '/billing', label: 'Billing', icon: CreditCard }];
+  const merchantLinks = [{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard }, { href: '/orders', label: 'Orders', icon: PackageCheck }, { href: '/customers', label: 'Customers', icon: UsersRound }, { href: '/billing', label: 'Billing', icon: CreditCard }];
   const adminLinks = [{ href: '/admin', label: 'Control room', icon: BarChart3 }, { href: '/admin/merchants', label: 'Merchants', icon: Users }];
   const links = admin ? adminLinks : merchantLinks;
   return <div className="noise min-h-[100dvh] bg-[#f1eee7] text-[#182333]">

@@ -21,6 +21,61 @@ export interface ActivityItem {
   tone: string;
 }
 
+export interface CustomerRecord {
+  id: number;
+  name: string;
+  email: string;
+  /** @nullable */
+  phone: string | null;
+  orderCount: number;
+  totalSpent: number;
+  createdAt: string;
+}
+
+export interface OrderRecord {
+  id: number;
+  orderNumber: string;
+  customerName: string;
+  customerEmail: string;
+  total: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+}
+
+export type CreateOrderInputStatus = typeof CreateOrderInputStatus[keyof typeof CreateOrderInputStatus];
+
+
+export const CreateOrderInputStatus = {
+  pending: 'pending',
+  paid: 'paid',
+  fulfilled: 'fulfilled',
+} as const;
+
+export interface CreateOrderInput {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  customerName: string;
+  customerEmail: string;
+  /** @maxLength 40 */
+  customerPhone?: string;
+  /** @exclusiveMinimum 0 */
+  total: number;
+  status?: CreateOrderInputStatus;
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  orderNumber?: string;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     */
+  idempotencyKey?: string;
+}
+
 export interface Subscription {
   id: number;
   email: string;

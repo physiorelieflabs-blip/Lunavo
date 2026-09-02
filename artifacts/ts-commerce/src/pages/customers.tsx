@@ -1,0 +1,19 @@
+import { RefreshCw, UsersRound } from 'lucide-react';
+import { useListCustomers } from '@workspace/api-client-react';
+import { AppShell } from '@/components/app-shell';
+import { Badge, Button, EmptyState, ErrorState, LoadingState, SectionHeading } from '@/components/primitives';
+import { money, timeAgo } from '@/lib/format';
+
+export default function Customers() {
+  const customers = useListCustomers();
+  if (customers.isLoading) return <AppShell><LoadingState /></AppShell>;
+  if (customers.isError || !customers.data) return <AppShell><ErrorState onRetry={() => { void customers.refetch(); }} /></AppShell>;
+  const totalSpent = customers.data.reduce((sum, customer) => sum + customer.totalSpent, 0);
+  return <AppShell>
+    <div className="mx-auto max-w-[1180px]">
+      <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Customer ledger</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Know who keeps coming back.</h1><p className="mt-2 text-sm text-[#697687]">Every customer is owned by your store and updated from your recorded orders.</p></div><Badge tone="info">{customers.data.length} customers</Badge></div>
+      <div className="mt-8 grid gap-4 sm:grid-cols-2"><section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><p className="text-xs font-extrabold uppercase tracking-[.12em] text-[#697687]">Unique buyers</p><p className="mt-3 font-mono text-3xl tracking-[-.08em]">{customers.data.length.toLocaleString()}</p><p className="mt-2 text-xs text-[#697687]">Across your recorded orders</p></section><section className="rounded-xl border border-[#bba15e] bg-[#f5edda] p-5"><p className="text-xs font-extrabold uppercase tracking-[.12em] text-[#697687]">Customer spend</p><p className="mt-3 font-mono text-3xl tracking-[-.08em]">{money(totalSpent)}</p><p className="mt-2 text-xs text-[#697687]">Paid and fulfilled orders</p></section></div>
+      <section className="mt-9"><SectionHeading eyebrow="Your audience" title="Customers" description="Customer records are deduplicated by email within your store." action={<Button variant="ghost" onClick={() => { void customers.refetch(); }} aria-label="Refresh customers"><RefreshCw className="h-4 w-4" />Refresh</Button>} />{customers.data.length ? <div className="overflow-hidden rounded-xl border border-[#d9d2c4] bg-[#fbfaf6]"><div className="hidden grid-cols-[1.3fr_1.2fr_.7fr_.8fr] gap-4 border-b border-[#d9d2c4] bg-[#f7f4ed] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[.12em] text-[#697687] md:grid"><span>Customer</span><span>Contact</span><span>Orders</span><span className="text-right">Spent</span></div><div className="divide-y divide-[#ded8cd]">{customers.data.map((customer) => <div key={customer.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1.3fr_1.2fr_.7fr_.8fr] md:items-center" data-testid={`customer-${customer.id}`}><div className="flex items-center gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#e1ebee] text-[#316071]"><UsersRound className="h-4 w-4" /></div><div><p className="text-sm font-extrabold">{customer.name}</p><p className="text-xs text-[#697687]">Added {timeAgo(customer.createdAt)}</p></div></div><div className="text-sm text-[#536174]"><p>{customer.email}</p>{customer.phone && <p className="mt-1 text-xs">{customer.phone}</p>}</div><div className="text-sm font-bold md:text-base">{customer.orderCount} <span className="font-normal text-[#697687]">orders</span></div><div className="text-left font-mono text-sm font-bold md:text-right">{money(customer.totalSpent)}</div></div>)}</div></div> : <EmptyState title="No customers yet" description="Your first recorded sale will create a customer record automatically." />}</section>
+    </div>
+  </AppShell>;
+}

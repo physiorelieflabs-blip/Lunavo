@@ -56,6 +56,51 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ActivityItem"
+  /customers:
+    get:
+      operationId: listCustomers
+      tags: [dashboard]
+      summary: List the merchant's customers
+      responses:
+        "200":
+          description: Customer records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomerRecord"
+  /orders:
+    get:
+      operationId: listOrders
+      tags: [dashboard]
+      summary: List the merchant's recorded orders
+      responses:
+        "200":
+          description: Order records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrderRecord"
+    post:
+      operationId: createOrder
+      tags: [dashboard]
+      summary: Record a merchant sale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderInput"
+      responses:
+        "201":
+          description: Recorded order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderRecord"
   /subscription:
     get:
       operationId: getSubscription
@@ -209,6 +254,42 @@ components:
         occurredAt: { type: string, format: date-time }
         tone: { type: string }
       required: [id, type, title, description, amount, currency, occurredAt, tone]
+    CustomerRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: ["string", "null"] }
+        orderCount: { type: integer }
+        totalSpent: { type: number }
+        createdAt: { type: string, format: date-time }
+      required: [id, name, email, phone, orderCount, totalSpent, createdAt]
+    OrderRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        orderNumber: { type: string }
+        customerName: { type: string }
+        customerEmail: { type: string, format: email }
+        total: { type: number }
+        currency: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, orderNumber, customerName, customerEmail, total, currency, status, createdAt]
+    CreateOrderInput:
+      type: object
+      properties:
+        customerName: { type: string, minLength: 2, maxLength: 160 }
+        customerEmail: { type: string, format: email }
+        customerPhone: { type: string, maxLength: 40 }
+        total: { type: number, exclusiveMinimum: 0 }
+        status:
+          type: string
+          enum: [pending, paid, fulfilled]
+        orderNumber: { type: string, minLength: 2, maxLength: 80 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      required: [customerName, customerEmail, total]
     Subscription:
       type: object
       properties:

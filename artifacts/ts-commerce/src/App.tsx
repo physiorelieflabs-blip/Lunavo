@@ -10,9 +10,11 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import Landing from '@/pages/landing';
 import Dashboard from '@/pages/dashboard';
 import Billing from '@/pages/billing';
+import Customers from '@/pages/customers';
 import Admin from '@/pages/admin';
 import Merchants from '@/pages/merchants';
 import NotFound from '@/pages/not-found';
+import Orders from '@/pages/orders';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -69,6 +71,8 @@ function AuthRoutes() {
     <Route path="/sign-in/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>} />
     <Route path="/sign-up/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
+    <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
+    <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />

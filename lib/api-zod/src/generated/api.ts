@@ -68,6 +68,77 @@ export const ListDashboardActivityResponse = zod.array(ListDashboardActivityResp
 
 
 /**
+ * @summary List the merchant's customers
+ */
+export const ListCustomersResponseItem = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "email": zod.email(),
+  "phone": zod.string().nullable(),
+  "orderCount": zod.int(),
+  "totalSpent": zod.number(),
+  "createdAt": zod.coerce.date()
+})
+export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
+
+
+/**
+ * @summary List the merchant's recorded orders
+ */
+export const ListOrdersResponseItem = zod.object({
+  "id": zod.int(),
+  "orderNumber": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.email(),
+  "total": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListOrdersResponse = zod.array(ListOrdersResponseItem)
+
+
+/**
+ * @summary Record a merchant sale
+ */
+export const createOrderBodyCustomerNameMin = 2;
+export const createOrderBodyCustomerNameMax = 160;
+
+export const createOrderBodyCustomerPhoneMax = 40;
+
+export const createOrderBodyTotalExclusiveMin = 0;
+
+export const createOrderBodyOrderNumberMin = 2;
+export const createOrderBodyOrderNumberMax = 80;
+
+export const createOrderBodyIdempotencyKeyMin = 8;
+export const createOrderBodyIdempotencyKeyMax = 120;
+
+
+
+export const CreateOrderBody = zod.object({
+  "customerName": zod.string().min(createOrderBodyCustomerNameMin).max(createOrderBodyCustomerNameMax),
+  "customerEmail": zod.email(),
+  "customerPhone": zod.string().max(createOrderBodyCustomerPhoneMax).optional(),
+  "total": zod.number().gt(createOrderBodyTotalExclusiveMin),
+  "status": zod.enum(['pending', 'paid', 'fulfilled']).optional(),
+  "orderNumber": zod.string().min(createOrderBodyOrderNumberMin).max(createOrderBodyOrderNumberMax).optional(),
+  "idempotencyKey": zod.string().min(createOrderBodyIdempotencyKeyMin).max(createOrderBodyIdempotencyKeyMax).optional()
+})
+
+export const CreateOrderResponse = zod.object({
+  "id": zod.int(),
+  "orderNumber": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.email(),
+  "total": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Get current merchant subscription
  */
 export const GetSubscriptionResponse = zod.object({

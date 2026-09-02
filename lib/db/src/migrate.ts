@@ -8,12 +8,10 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to run database migrations");
 }
 
-const migrationId = "0001_production_hardening";
-const migrationPath = new URL(
-  "../migrations/0001_production_hardening.sql",
-  import.meta.url,
-);
-const migrationSql = await readFile(migrationPath, "utf8");
+const migrations = [
+  "0001_production_hardening",
+  "0002_internal_commerce",
+];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();
 
@@ -28,13 +26,20 @@ try {
     )
   `);
 
-  const applied = await client.query<{ id: string }>(
-    'SELECT id FROM "_ts_commerce_migrations" WHERE id = $1',
-    [migrationId],
-  );
-  if (applied.rowCount) {
-    console.log(`Database migration ${migrationId} already applied`);
-  } else {
+  for (const migrationId of migrations) {
+    const migrationPath = new URL(
+      `../migrations/${migrationId}.sql`,
+      import.meta.url,
+    );
+    const migrationSql = await readFile(migrationPath, "utf8");
+    const applied = await client.query<{ id: string }>(
+      'SELECT id FROM "_ts_commerce_migrations" WHERE id = $1',
+      [migrationId],
+    );
+    if (applied.rowCount) {
+      console.log(`Database migration ${migrationId} already applied`);
+      continue;
+    }
     await client.query("BEGIN");
     try {
       await client.query(migrationSql);
