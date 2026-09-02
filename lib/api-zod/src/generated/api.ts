@@ -28,7 +28,8 @@ export const GetDashboardOverviewResponse = zod.object({
   "orders": zod.int(),
   "customers": zod.int(),
   "availableBalance": zod.number(),
-  "pendingBalance": zod.number(),
+  "pendingBalance": zod.number().optional(),
+  "withdrawalReserved": zod.number().optional(),
   "earningsHeldForSubscription": zod.number(),
   "subscription": zod.object({
   "id": zod.int(),
@@ -135,6 +136,155 @@ export const CreateOrderResponse = zod.object({
   "currency": zod.string(),
   "status": zod.string(),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get withdrawal security setup status
+ */
+export const GetWithdrawalSecurityResponse = zod.object({
+  "enabled": zod.boolean(),
+  "pendingSetup": zod.boolean()
+})
+
+
+/**
+ * @summary Begin authenticator setup for withdrawals
+ */
+export const BeginWithdrawalSecuritySetupResponse = zod.object({
+  "secret": zod.string(),
+  "otpAuthUri": zod.string(),
+  "expiresAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Confirm authenticator setup
+ */
+export const confirmWithdrawalSecuritySetupBodyCodeRegExp = new RegExp('^[0-9]{6}$');
+
+
+export const ConfirmWithdrawalSecuritySetupBody = zod.object({
+  "code": zod.string().regex(confirmWithdrawalSecuritySetupBodyCodeRegExp)
+})
+
+export const ConfirmWithdrawalSecuritySetupResponse = zod.object({
+  "enabled": zod.boolean(),
+  "pendingSetup": zod.boolean()
+})
+
+
+/**
+ * @summary List the merchant's withdrawal requests
+ */
+export const ListWithdrawalsResponseItem = zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "accountLast4": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const ListWithdrawalsResponse = zod.array(ListWithdrawalsResponseItem)
+
+
+/**
+ * @summary Request a withdrawal from available earnings
+ */
+export const createWithdrawalBodyAmountExclusiveMin = 0;
+
+export const createWithdrawalBodyCurrencyMin = 3;
+export const createWithdrawalBodyCurrencyMax = 3;
+
+export const createWithdrawalBodyBeneficiaryNameMin = 2;
+export const createWithdrawalBodyBeneficiaryNameMax = 160;
+
+export const createWithdrawalBodyBankNameMin = 2;
+export const createWithdrawalBodyBankNameMax = 120;
+
+export const createWithdrawalBodyBankCodeMin = 2;
+export const createWithdrawalBodyBankCodeMax = 40;
+
+export const createWithdrawalBodyAccountNumberMin = 4;
+export const createWithdrawalBodyAccountNumberMax = 40;
+
+export const createWithdrawalBodyTotpCodeRegExp = new RegExp('^[0-9]{6}$');
+export const createWithdrawalBodyIdempotencyKeyMin = 8;
+export const createWithdrawalBodyIdempotencyKeyMax = 120;
+
+
+
+export const CreateWithdrawalBody = zod.object({
+  "amount": zod.number().gt(createWithdrawalBodyAmountExclusiveMin),
+  "currency": zod.string().min(createWithdrawalBodyCurrencyMin).max(createWithdrawalBodyCurrencyMax).optional(),
+  "beneficiaryName": zod.string().min(createWithdrawalBodyBeneficiaryNameMin).max(createWithdrawalBodyBeneficiaryNameMax),
+  "bankName": zod.string().min(createWithdrawalBodyBankNameMin).max(createWithdrawalBodyBankNameMax),
+  "bankCode": zod.string().min(createWithdrawalBodyBankCodeMin).max(createWithdrawalBodyBankCodeMax),
+  "accountNumber": zod.string().min(createWithdrawalBodyAccountNumberMin).max(createWithdrawalBodyAccountNumberMax),
+  "totpCode": zod.string().regex(createWithdrawalBodyTotpCodeRegExp),
+  "idempotencyKey": zod.string().min(createWithdrawalBodyIdempotencyKeyMin).max(createWithdrawalBodyIdempotencyKeyMax).optional()
+})
+
+export const CreateWithdrawalResponse = zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "accountLast4": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List products imported from public supplier pages
+ */
+export const ListSupplierProductsResponseItem = zod.object({
+  "id": zod.int(),
+  "sourceUrl": zod.url(),
+  "sourceDomain": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "price": zod.number().nullable(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "importedAt": zod.coerce.date()
+})
+export const ListSupplierProductsResponse = zod.array(ListSupplierProductsResponseItem)
+
+
+/**
+ * @summary Import a product from a public supplier URL
+ */
+export const importSupplierProductBodySourceUrlMax = 2000;
+
+
+
+export const ImportSupplierProductBody = zod.object({
+  "sourceUrl": zod.url().max(importSupplierProductBodySourceUrlMax)
+})
+
+export const ImportSupplierProductResponse = zod.object({
+  "id": zod.int(),
+  "sourceUrl": zod.url(),
+  "sourceDomain": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "price": zod.number().nullable(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "importedAt": zod.coerce.date()
 })
 
 
@@ -326,6 +476,95 @@ export const ReviewBankTransferResponse = zod.object({
   "reviewNote": zod.string().nullable(),
   "reviewedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List withdrawal requests for the master admin
+ */
+export const ListAdminWithdrawalsResponseItem = zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "accountLast4": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "merchantName": zod.string(),
+  "merchantEmail": zod.email()
+}))
+export const ListAdminWithdrawalsResponse = zod.array(ListAdminWithdrawalsResponseItem)
+
+
+/**
+ * @summary Review or mark a withdrawal request as paid
+ */
+export const ReviewWithdrawalParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const reviewWithdrawalBodyNoteMax = 500;
+
+export const reviewWithdrawalBodySecurityCodeRegExp = new RegExp('^[0-9]{6}$');
+export const reviewWithdrawalBodyConfirmationMin = 6;
+export const reviewWithdrawalBodyConfirmationMax = 80;
+
+
+
+export const ReviewWithdrawalBody = zod.object({
+  "status": zod.enum(['approved', 'rejected', 'paid']),
+  "note": zod.string().max(reviewWithdrawalBodyNoteMax).optional(),
+  "securityCode": zod.string().regex(reviewWithdrawalBodySecurityCodeRegExp),
+  "confirmation": zod.string().min(reviewWithdrawalBodyConfirmationMin).max(reviewWithdrawalBodyConfirmationMax)
+})
+
+export const ReviewWithdrawalResponse = zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "accountLast4": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "merchantName": zod.string(),
+  "merchantEmail": zod.email()
+}))
+
+
+/**
+ * @summary Reveal a withdrawal destination after admin step-up verification
+ */
+export const RevealWithdrawalDetailsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const revealWithdrawalDetailsBodySecurityCodeRegExp = new RegExp('^[0-9]{6}$');
+export const revealWithdrawalDetailsBodyConfirmationMin = 6;
+export const revealWithdrawalDetailsBodyConfirmationMax = 80;
+
+
+
+export const RevealWithdrawalDetailsBody = zod.object({
+  "securityCode": zod.string().regex(revealWithdrawalDetailsBodySecurityCodeRegExp),
+  "confirmation": zod.string().min(revealWithdrawalDetailsBodyConfirmationMin).max(revealWithdrawalDetailsBodyConfirmationMax)
+})
+
+export const RevealWithdrawalDetailsResponse = zod.object({
+  "id": zod.int(),
+  "beneficiaryName": zod.string(),
+  "bankName": zod.string(),
+  "bankCode": zod.string(),
+  "accountNumber": zod.string()
 })
 
 

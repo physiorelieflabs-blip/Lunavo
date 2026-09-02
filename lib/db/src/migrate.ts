@@ -11,6 +11,7 @@ if (!databaseUrl) {
 const migrations = [
   "0001_production_hardening",
   "0002_internal_commerce",
+  "0003_withdrawals_and_supplier_imports",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

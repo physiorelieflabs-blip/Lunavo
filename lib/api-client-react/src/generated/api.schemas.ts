@@ -105,7 +105,8 @@ export interface DashboardOverview {
   orders: number;
   customers: number;
   availableBalance: number;
-  pendingBalance: number;
+  pendingBalance?: number;
+  withdrawalReserved?: number;
   earningsHeldForSubscription: number;
   subscription: Subscription;
   revenueSeries: RevenuePoint[];
@@ -196,5 +197,141 @@ export interface PaymentReviewInput {
   status: PaymentReviewInputStatus;
   /** @maxLength 500 */
   note?: string;
+}
+
+export interface WithdrawalSecurity {
+  enabled: boolean;
+  pendingSetup: boolean;
+}
+
+export interface WithdrawalSetup {
+  secret: string;
+  otpAuthUri: string;
+  expiresAt: string;
+}
+
+export interface TotpCodeInput {
+  /** @pattern ^[0-9]{6}$ */
+  code: string;
+}
+
+export interface WithdrawalInput {
+  /** @exclusiveMinimum 0 */
+  amount: number;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency?: string;
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  beneficiaryName: string;
+  /**
+     * @minLength 2
+     * @maxLength 120
+     */
+  bankName: string;
+  /**
+     * @minLength 2
+     * @maxLength 40
+     */
+  bankCode: string;
+  /**
+     * @minLength 4
+     * @maxLength 40
+     */
+  accountNumber: string;
+  /** @pattern ^[0-9]{6}$ */
+  totpCode: string;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     */
+  idempotencyKey?: string;
+}
+
+export interface WithdrawalRecord {
+  id: number;
+  amount: number;
+  currency: string;
+  status: string;
+  beneficiaryName: string;
+  bankName: string;
+  accountLast4: string;
+  /** @nullable */
+  reviewNote: string | null;
+  /** @nullable */
+  reviewedAt: string | null;
+  /** @nullable */
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export type AdminWithdrawalRecord = WithdrawalRecord & {
+  merchantName: string;
+  merchantEmail: string;
+};
+
+export interface WithdrawalDetails {
+  id: number;
+  beneficiaryName: string;
+  bankName: string;
+  bankCode: string;
+  accountNumber: string;
+}
+
+export type AdminWithdrawalReviewInputStatus = typeof AdminWithdrawalReviewInputStatus[keyof typeof AdminWithdrawalReviewInputStatus];
+
+
+export const AdminWithdrawalReviewInputStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+  paid: 'paid',
+} as const;
+
+export interface AdminWithdrawalReviewInput {
+  status: AdminWithdrawalReviewInputStatus;
+  /** @maxLength 500 */
+  note?: string;
+  /** @pattern ^[0-9]{6}$ */
+  securityCode: string;
+  /**
+     * @minLength 6
+     * @maxLength 80
+     */
+  confirmation: string;
+}
+
+export interface AdminWithdrawalDetailsInput {
+  /** @pattern ^[0-9]{6}$ */
+  securityCode: string;
+  /**
+     * @minLength 6
+     * @maxLength 80
+     */
+  confirmation: string;
+}
+
+export interface SupplierProductInput {
+  /** @maxLength 2000 */
+  sourceUrl: string;
+}
+
+export interface SupplierProductRecord {
+  id: number;
+  sourceUrl: string;
+  sourceDomain: string;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  imageUrl: string | null;
+  /** @nullable */
+  price: number | null;
+  currency: string;
+  status: string;
+  importedAt: string;
 }
 

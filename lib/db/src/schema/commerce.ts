@@ -163,6 +163,98 @@ export const ordersTable = pgTable(
   ],
 );
 
+export const withdrawalSecurityTable = pgTable(
+  "withdrawal_security",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    totpSecretCiphertext: text("totp_secret_ciphertext"),
+    pendingTotpSecretCiphertext: text("pending_totp_secret_ciphertext"),
+    pendingTotpExpiresAt: timestamp("pending_totp_expires_at", {
+      withTimezone: true,
+    }),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("withdrawal_security_merchant_id_unique").on(table.merchantId),
+  ],
+);
+
+export const withdrawalsTable = pgTable(
+  "withdrawals",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("USD"),
+    status: text("status").notNull().default("pending"),
+    beneficiaryName: text("beneficiary_name").notNull(),
+    bankName: text("bank_name").notNull(),
+    destinationCiphertext: text("destination_ciphertext").notNull(),
+    accountLast4: text("account_last4").notNull(),
+    idempotencyKey: text("idempotency_key"),
+    reviewedBy: text("reviewed_by"),
+    reviewNote: text("review_note"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("withdrawals_merchant_idempotency_unique").on(
+      table.merchantId,
+      table.idempotencyKey,
+    ),
+  ],
+);
+
+export const supplierProductsTable = pgTable(
+  "supplier_products",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    sourceUrl: text("source_url").notNull(),
+    sourceDomain: text("source_domain").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    imageUrl: text("image_url"),
+    price: numeric("price", { precision: 12, scale: 2 }),
+    currency: text("currency").notNull().default("USD"),
+    status: text("status").notNull().default("imported"),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("supplier_products_merchant_url_unique").on(
+      table.merchantId,
+      table.sourceUrl,
+    ),
+  ],
+);
+
 export const insertMerchantSchema = createInsertSchema(merchantsTable).omit({
   id: true,
   registeredAt: true,
@@ -188,6 +280,25 @@ export const insertOrderSchema = createInsertSchema(ordersTable).omit({
   createdAt: true,
   updatedAt: true,
 });
+export const insertWithdrawalSecuritySchema = createInsertSchema(
+  withdrawalSecurityTable,
+).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertWithdrawalSchema = createInsertSchema(withdrawalsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertSupplierProductSchema = createInsertSchema(
+  supplierProductsTable,
+).omit({
+  id: true,
+  importedAt: true,
+  updatedAt: true,
+});
 
 export type Merchant = typeof merchantsTable.$inferSelect;
 export type Subscription = typeof subscriptionsTable.$inferSelect;
@@ -201,3 +312,11 @@ export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type InsertActivity = z.infer<typeof insertActivitySchema>;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type WithdrawalSecurity = typeof withdrawalSecurityTable.$inferSelect;
+export type Withdrawal = typeof withdrawalsTable.$inferSelect;
+export type SupplierProduct = typeof supplierProductsTable.$inferSelect;
+export type InsertWithdrawalSecurity = z.infer<
+  typeof insertWithdrawalSecuritySchema
+>;
+export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
+export type InsertSupplierProduct = z.infer<typeof insertSupplierProductSchema>;

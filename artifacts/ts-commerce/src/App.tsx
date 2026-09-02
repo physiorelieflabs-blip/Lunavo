@@ -15,6 +15,9 @@ import Admin from '@/pages/admin';
 import Merchants from '@/pages/merchants';
 import NotFound from '@/pages/not-found';
 import Orders from '@/pages/orders';
+import Withdrawals from '@/pages/withdrawals';
+import Suppliers from '@/pages/suppliers';
+import AdminWithdrawals from '@/pages/admin-withdrawals';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -73,9 +76,12 @@ function AuthRoutes() {
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
     <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
+    <Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} />
+    <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
+    <Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} />
     <Route component={NotFound} />
   </Switch>;
 }

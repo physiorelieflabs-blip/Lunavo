@@ -101,6 +101,110 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrderRecord"
+  /security/withdrawal:
+    get:
+      operationId: getWithdrawalSecurity
+      tags: [withdrawals]
+      summary: Get withdrawal security setup status
+      responses:
+        "200":
+          description: Withdrawal security status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalSecurity"
+  /security/withdrawal/setup:
+    post:
+      operationId: beginWithdrawalSecuritySetup
+      tags: [withdrawals]
+      summary: Begin authenticator setup for withdrawals
+      responses:
+        "201":
+          description: Authenticator setup details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalSetup"
+  /security/withdrawal/confirm:
+    post:
+      operationId: confirmWithdrawalSecuritySetup
+      tags: [withdrawals]
+      summary: Confirm authenticator setup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpCodeInput"
+      responses:
+        "200":
+          description: Withdrawal security enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalSecurity"
+  /withdrawals:
+    get:
+      operationId: listWithdrawals
+      tags: [withdrawals]
+      summary: List the merchant's withdrawal requests
+      responses:
+        "200":
+          description: Withdrawal requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WithdrawalRecord"
+    post:
+      operationId: createWithdrawal
+      tags: [withdrawals]
+      summary: Request a withdrawal from available earnings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalInput"
+      responses:
+        "201":
+          description: Withdrawal request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalRecord"
+  /supplier-products:
+    get:
+      operationId: listSupplierProducts
+      tags: [suppliers]
+      summary: List products imported from public supplier pages
+      responses:
+        "200":
+          description: Imported products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupplierProductRecord"
+    post:
+      operationId: importSupplierProduct
+      tags: [suppliers]
+      summary: Import a product from a public supplier URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierProductInput"
+      responses:
+        "201":
+          description: Imported product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierProductRecord"
   /subscription:
     get:
       operationId: getSubscription
@@ -234,6 +338,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentRecord"
+  /admin/withdrawals:
+    get:
+      operationId: listAdminWithdrawals
+      tags: [admin]
+      summary: List withdrawal requests for the master admin
+      responses:
+        "200":
+          description: Withdrawal requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminWithdrawalRecord"
+  /admin/withdrawals/{id}/review:
+    patch:
+      operationId: reviewWithdrawal
+      tags: [admin]
+      summary: Review or mark a withdrawal request as paid
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminWithdrawalReviewInput"
+      responses:
+        "200":
+          description: Reviewed withdrawal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminWithdrawalRecord"
+  /admin/withdrawals/{id}/details:
+    post:
+      operationId: revealWithdrawalDetails
+      tags: [admin]
+      summary: Reveal a withdrawal destination after admin step-up verification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminWithdrawalDetailsInput"
+      responses:
+        "200":
+          description: Secure transfer details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalDetails"
 components:
   schemas:
     HealthStatus:
@@ -329,6 +495,7 @@ components:
         customers: { type: integer }
         availableBalance: { type: number }
         pendingBalance: { type: number }
+        withdrawalReserved: { type: number }
         earningsHeldForSubscription: { type: number }
         subscription: { $ref: "#/components/schemas/Subscription" }
         revenueSeries:
@@ -344,6 +511,7 @@ components:
         - customers
         - availableBalance
         - pendingBalance
+         - withdrawalReserved
         - earningsHeldForSubscription
         - subscription
         - revenueSeries
@@ -445,3 +613,100 @@ components:
           type: string
           maxLength: 500
       required: [status]
+    WithdrawalSecurity:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        pendingSetup: { type: boolean }
+      required: [enabled, pendingSetup]
+    WithdrawalSetup:
+      type: object
+      properties:
+        secret: { type: string }
+        otpAuthUri: { type: string }
+        expiresAt: { type: string, format: date-time }
+      required: [secret, otpAuthUri, expiresAt]
+    TotpCodeInput:
+      type: object
+      properties:
+        code: { type: string, pattern: "^[0-9]{6}$" }
+      required: [code]
+    WithdrawalInput:
+      type: object
+      properties:
+        amount: { type: number, exclusiveMinimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        beneficiaryName: { type: string, minLength: 2, maxLength: 160 }
+        bankName: { type: string, minLength: 2, maxLength: 120 }
+        bankCode: { type: string, minLength: 2, maxLength: 40 }
+        accountNumber: { type: string, minLength: 4, maxLength: 40 }
+        totpCode: { type: string, pattern: "^[0-9]{6}$" }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      required: [amount, beneficiaryName, bankName, bankCode, accountNumber, totpCode]
+    WithdrawalRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        amount: { type: number }
+        currency: { type: string }
+        status: { type: string }
+        beneficiaryName: { type: string }
+        bankName: { type: string }
+        accountLast4: { type: string }
+        reviewNote: { type: ["string", "null"] }
+        reviewedAt: { type: ["string", "null"], format: date-time }
+        paidAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+      required: [id, amount, currency, status, beneficiaryName, bankName, accountLast4, reviewNote, reviewedAt, paidAt, createdAt]
+    AdminWithdrawalRecord:
+      allOf:
+        - $ref: "#/components/schemas/WithdrawalRecord"
+        - type: object
+          properties:
+            merchantName: { type: string }
+            merchantEmail: { type: string, format: email }
+          required: [merchantName, merchantEmail]
+    WithdrawalDetails:
+      type: object
+      properties:
+        id: { type: integer }
+        beneficiaryName: { type: string }
+        bankName: { type: string }
+        bankCode: { type: string }
+        accountNumber: { type: string }
+      required: [id, beneficiaryName, bankName, bankCode, accountNumber]
+    AdminWithdrawalReviewInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected, paid]
+        note: { type: string, maxLength: 500 }
+        securityCode: { type: string, pattern: "^[0-9]{6}$" }
+        confirmation: { type: string, minLength: 6, maxLength: 80 }
+      required: [status, securityCode, confirmation]
+    AdminWithdrawalDetailsInput:
+      type: object
+      properties:
+        securityCode: { type: string, pattern: "^[0-9]{6}$" }
+        confirmation: { type: string, minLength: 6, maxLength: 80 }
+      required: [securityCode, confirmation]
+    SupplierProductInput:
+      type: object
+      properties:
+        sourceUrl: { type: string, format: uri, maxLength: 2000 }
+      required: [sourceUrl]
+    SupplierProductRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        sourceUrl: { type: string, format: uri }
+        sourceDomain: { type: string }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        imageUrl: { type: ["string", "null"], format: uri }
+        price: { type: ["number", "null"] }
+        currency: { type: string }
+        status: { type: string }
+        importedAt: { type: string, format: date-time }
+      required: [id, sourceUrl, sourceDomain, title, description, imageUrl, price, currency, status, importedAt]

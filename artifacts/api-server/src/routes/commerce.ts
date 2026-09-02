@@ -18,9 +18,15 @@ import {
   merchantsTable,
   ordersTable,
   paymentsTable,
+  supplierProductsTable,
   subscriptionsTable,
+  withdrawalSecurityTable,
+  withdrawalsTable,
 } from "@workspace/db";
 import {
+  BeginWithdrawalSecuritySetupResponse,
+  ConfirmWithdrawalSecuritySetupBody,
+  ConfirmWithdrawalSecuritySetupResponse,
   CreateOrderBody,
   CreateOrderResponse,
   CreateSubscriptionBody,
@@ -28,20 +34,42 @@ import {
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
   GetSubscriptionResponse,
+  GetWithdrawalSecurityResponse,
+  ImportSupplierProductBody,
+  ImportSupplierProductResponse,
+  ListAdminWithdrawalsResponse,
   ListCustomersResponse,
   ListDashboardActivityResponse,
   ListOrdersResponse,
+  ListSupplierProductsResponse,
+  ListWithdrawalsResponse,
   ListMerchantsResponse,
   PaySubscriptionFromEarningsResponse,
+  CreateWithdrawalBody,
+  CreateWithdrawalResponse,
+  RevealWithdrawalDetailsBody,
+  RevealWithdrawalDetailsParams,
+  RevealWithdrawalDetailsResponse,
   ReviewBankTransferBody,
   ReviewBankTransferParams,
   ReviewBankTransferResponse,
+  ReviewWithdrawalBody,
+  ReviewWithdrawalParams,
+  ReviewWithdrawalResponse,
   SubmitBankTransferBody,
   SubmitBankTransferResponse,
   UpdateMerchantStatusBody,
   UpdateMerchantStatusParams,
   UpdateMerchantStatusResponse,
 } from "@workspace/api-zod";
+import {
+  createTotpUri,
+  decryptSecret,
+  encryptSecret,
+  generateTotpSecret,
+  verifyTotp,
+} from "../lib/withdrawal-security";
+import { importPublicSupplierProduct } from "../lib/public-supplier";
 
 const router: IRouter = Router();
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
@@ -61,6 +89,7 @@ type Subscription = typeof subscriptionsTable.$inferSelect;
 type Payment = typeof paymentsTable.$inferSelect;
 type Customer = typeof customersTable.$inferSelect;
 type Order = typeof ordersTable.$inferSelect;
+type Withdrawal = typeof withdrawalsTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
@@ -404,6 +433,76 @@ function serializeOrder(order: Order, customer: Customer) {
   };
 }
 
+function serializeWithdrawal(withdrawal: Withdrawal) {
+  return {
+    id: withdrawal.id,
+    amount: toNumber(withdrawal.amount),
+    currency: withdrawal.currency,
+    status: withdrawal.status,
+    beneficiaryName: withdrawal.beneficiaryName,
+    bankName: withdrawal.bankName,
+    accountLast4: withdrawal.accountLast4,
+    reviewNote: withdrawal.reviewNote,
+    reviewedAt: withdrawal.reviewedAt,
+    paidAt: withdrawal.paidAt,
+    createdAt: withdrawal.createdAt,
+  };
+}
+
+async function getWithdrawalSecurity(merchantId: number) {
+  return (
+    await db
+      .select()
+      .from(withdrawalSecurityTable)
+      .where(eq(withdrawalSecurityTable.merchantId, merchantId))
+      .limit(1)
+  )[0];
+}
+
+async function requireAdminWithdrawalSecurity(
+  req: Request,
+  res: Response,
+  identity: Identity,
+  code: string,
+  confirmation: string,
+  expectedConfirmation: string,
+) {
+  const auth = getAuth(req);
+  if (!auth.sessionId || auth.userId !== identity.clerkUserId) {
+    res.status(403).json({ error: "A valid Clerk session is required" });
+    return false;
+  }
+  if (
+    !identity.emailVerified ||
+    identity.email !== ADMIN_EMAIL ||
+    confirmation.trim().toUpperCase() !== expectedConfirmation.toUpperCase()
+  ) {
+    res.status(403).json({
+      error: "Admin step-up verification and exact action confirmation are required",
+    });
+    return false;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const security = await getWithdrawalSecurity(merchant.id);
+  if (!security?.totpSecretCiphertext) {
+    res.status(409).json({
+      error: "Enable authenticator security on the master admin account first",
+    });
+    return false;
+  }
+  let valid = false;
+  try {
+    valid = verifyTotp(decryptSecret(security.totpSecretCiphertext), code);
+  } catch {
+    valid = false;
+  }
+  if (!valid) {
+    res.status(403).json({ error: "The authenticator code is invalid or expired" });
+    return false;
+  }
+  return true;
+}
+
 async function payFromEarnings(merchant: Merchant) {
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -551,6 +650,12 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
         lt(ordersTable.createdAt, currentPeriodStart),
       ),
     );
+  const [withdrawalReserve] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
+    })
+    .from(withdrawalsTable)
+    .where(eq(withdrawalsTable.merchantId, enforced.merchant.id));
   const seriesStart = new Date(now);
   seriesStart.setHours(0, 0, 0, 0);
   seriesStart.setDate(seriesStart.getDate() - 6);
@@ -588,7 +693,9 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       : Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100);
   const availableBalance = Math.max(
     0,
-    revenue - subscription.earningsHeld,
+    revenue -
+      subscription.earningsHeld -
+      toNumber(withdrawalReserve?.total),
   );
   res.json(
     GetDashboardOverviewResponse.parse({
@@ -603,6 +710,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       customers: Number(metrics?.customers ?? 0),
       availableBalance,
       pendingBalance: toNumber(metrics?.pendingBalance),
+      withdrawalReserved: toNumber(withdrawalReserve?.total),
       earningsHeldForSubscription: subscription.earningsHeld,
       subscription,
       revenueSeries,
@@ -628,6 +736,342 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
       })),
     ),
   );
+});
+
+router.get("/security/withdrawal", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const security = await getWithdrawalSecurity(merchant.id);
+  res.json(
+    GetWithdrawalSecurityResponse.parse({
+      enabled: Boolean(security?.totpSecretCiphertext),
+      pendingSetup: Boolean(
+        security?.pendingTotpSecretCiphertext &&
+          security.pendingTotpExpiresAt &&
+          security.pendingTotpExpiresAt > new Date(),
+      ),
+    }),
+  );
+});
+
+router.post("/security/withdrawal/setup", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (!identity.emailVerified) {
+    res.status(403).json({ error: "Verify your primary email before enabling withdrawal security" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const current = await getWithdrawalSecurity(merchant.id);
+  if (current?.totpSecretCiphertext) {
+    res.status(409).json({ error: "Withdrawal authenticator security is already enabled" });
+    return;
+  }
+  const secret = generateTotpSecret();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  if (current) {
+    await db
+      .update(withdrawalSecurityTable)
+      .set({
+        pendingTotpSecretCiphertext: encryptSecret(secret),
+        pendingTotpExpiresAt: expiresAt,
+      })
+      .where(eq(withdrawalSecurityTable.id, current.id));
+  } else {
+    await db.insert(withdrawalSecurityTable).values({
+      merchantId: merchant.id,
+      pendingTotpSecretCiphertext: encryptSecret(secret),
+      pendingTotpExpiresAt: expiresAt,
+    });
+  }
+  res.status(201).json(
+    BeginWithdrawalSecuritySetupResponse.parse({
+      secret,
+      otpAuthUri: createTotpUri(secret, identity.email),
+      expiresAt,
+    }),
+  );
+});
+
+router.post("/security/withdrawal/confirm", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = ConfirmWithdrawalSecuritySetupBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter the six-digit authenticator code" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const security = await getWithdrawalSecurity(merchant.id);
+  if (!security?.pendingTotpSecretCiphertext || !security.pendingTotpExpiresAt) {
+    res.status(409).json({ error: "Start authenticator setup first" });
+    return;
+  }
+  if (security.pendingTotpExpiresAt < new Date()) {
+    res.status(409).json({ error: "The setup code expired. Start setup again" });
+    return;
+  }
+  let valid = false;
+  try {
+    valid = verifyTotp(decryptSecret(security.pendingTotpSecretCiphertext), parsed.data.code);
+  } catch {
+    valid = false;
+  }
+  if (!valid) {
+    res.status(403).json({ error: "The authenticator code is invalid or expired" });
+    return;
+  }
+  await db
+    .update(withdrawalSecurityTable)
+    .set({
+      totpSecretCiphertext: security.pendingTotpSecretCiphertext,
+      pendingTotpSecretCiphertext: null,
+      pendingTotpExpiresAt: null,
+      enabledAt: new Date(),
+    })
+    .where(eq(withdrawalSecurityTable.id, security.id));
+  res.json(ConfirmWithdrawalSecuritySetupResponse.parse({ enabled: true, pendingSetup: false }));
+});
+
+router.get("/withdrawals", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const withdrawals = await db
+    .select()
+    .from(withdrawalsTable)
+    .where(eq(withdrawalsTable.merchantId, merchant.id))
+    .orderBy(desc(withdrawalsTable.createdAt))
+    .limit(100);
+  res.json(ListWithdrawalsResponse.parse(withdrawals.map(serializeWithdrawal)));
+});
+
+router.post("/withdrawals", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateWithdrawalBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Amount, bank details, and a six-digit authenticator code are required" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  if (merchant.status === "banned") {
+    res.status(403).json({ error: "Banned accounts cannot request withdrawals" });
+    return;
+  }
+  const security = await getWithdrawalSecurity(merchant.id);
+  if (!security?.totpSecretCiphertext) {
+    res.status(409).json({ error: "Enable withdrawal authenticator security before requesting a payout" });
+    return;
+  }
+  let validCode = false;
+  try {
+    validCode = verifyTotp(decryptSecret(security.totpSecretCiphertext), parsed.data.totpCode);
+  } catch {
+    validCode = false;
+  }
+  if (!validCode) {
+    res.status(403).json({ error: "The authenticator code is invalid or expired" });
+    return;
+  }
+
+  const amount = Number(parsed.data.amount.toFixed(2));
+  const accountNumber = parsed.data.accountNumber.replace(/\s+/g, "");
+  const currency = (parsed.data.currency ?? "USD").toUpperCase();
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${merchantsTable} where ${merchantsTable.id} = ${merchant.id} for update`,
+      );
+      const idempotencyKey = parsed.data.idempotencyKey?.trim() || null;
+      if (idempotencyKey) {
+        const existing = (
+          await tx
+            .select()
+            .from(withdrawalsTable)
+            .where(
+              and(
+                eq(withdrawalsTable.merchantId, merchant.id),
+                eq(withdrawalsTable.idempotencyKey, idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (existing) return existing;
+      }
+      const [revenue] = await tx
+        .select({
+          total: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} in ('paid', 'fulfilled')), 0)`,
+        })
+        .from(ordersTable)
+        .where(eq(ordersTable.merchantId, merchant.id));
+      const [subscription] = await tx
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.merchantId, merchant.id))
+        .limit(1);
+      const [reserved] = await tx
+        .select({
+          total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
+        })
+        .from(withdrawalsTable)
+        .where(eq(withdrawalsTable.merchantId, merchant.id));
+      const available =
+        toNumber(revenue?.total) -
+        toNumber(subscription?.earningsHeld) -
+        toNumber(reserved?.total);
+      if (amount > available) {
+        throw new Error(`Only ${Math.max(0, available).toFixed(2)} is available to withdraw`);
+      }
+      const [withdrawal] = await tx
+        .insert(withdrawalsTable)
+        .values({
+          merchantId: merchant.id,
+          amount: amount.toFixed(2),
+          currency,
+          status: "pending",
+          beneficiaryName: parsed.data.beneficiaryName.trim(),
+          bankName: parsed.data.bankName.trim(),
+          destinationCiphertext: encryptSecret(
+            JSON.stringify({
+              bankCode: parsed.data.bankCode.trim(),
+              accountNumber,
+            }),
+          ),
+          accountLast4: accountNumber.slice(-4),
+          idempotencyKey,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (!withdrawal) {
+        if (idempotencyKey) {
+          const replay = (
+            await tx
+              .select()
+              .from(withdrawalsTable)
+              .where(
+                and(
+                  eq(withdrawalsTable.merchantId, merchant.id),
+                  eq(withdrawalsTable.idempotencyKey, idempotencyKey),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (replay) return replay;
+        }
+        throw new Error("Withdrawal request could not be created");
+      }
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "withdrawal_requested",
+        title: "Withdrawal request submitted",
+        description: `A ${currency} withdrawal request is waiting for review.`,
+        amount: amount.toFixed(2),
+        currency,
+        tone: "neutral",
+      });
+      return withdrawal;
+    });
+    res.status(201).json(CreateWithdrawalResponse.parse(serializeWithdrawal(result)));
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Withdrawal request could not be created",
+    });
+  }
+});
+
+router.get("/supplier-products", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const products = await db
+    .select()
+    .from(supplierProductsTable)
+    .where(eq(supplierProductsTable.merchantId, merchant.id))
+    .orderBy(desc(supplierProductsTable.importedAt))
+    .limit(100);
+  res.json(
+    ListSupplierProductsResponse.parse(
+      products.map((product) => ({
+        id: product.id,
+        sourceUrl: product.sourceUrl,
+        sourceDomain: product.sourceDomain,
+        title: product.title,
+        description: product.description,
+        imageUrl: product.imageUrl,
+        price: product.price === null ? null : toNumber(product.price),
+        currency: product.currency,
+        status: product.status,
+        importedAt: product.importedAt,
+      })),
+    ),
+  );
+});
+
+router.post("/supplier-products", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = ImportSupplierProductBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a public supplier product URL" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const imported = await importPublicSupplierProduct(parsed.data.sourceUrl);
+    const existing = (
+      await db
+        .select()
+        .from(supplierProductsTable)
+        .where(
+          and(
+            eq(supplierProductsTable.merchantId, merchant.id),
+            eq(supplierProductsTable.sourceUrl, imported.sourceUrl),
+          ),
+        )
+        .limit(1)
+    )[0];
+    const values = {
+      sourceUrl: imported.sourceUrl,
+      sourceDomain: imported.sourceDomain,
+      title: imported.title,
+      description: imported.description,
+      imageUrl: imported.imageUrl,
+      price: imported.price,
+      currency: imported.currency,
+      status: "imported",
+    } as const;
+    const [product] = existing
+      ? await db
+          .update(supplierProductsTable)
+          .set(values)
+          .where(eq(supplierProductsTable.id, existing.id))
+          .returning()
+      : await db
+          .insert(supplierProductsTable)
+          .values({ merchantId: merchant.id, ...values })
+          .returning();
+    if (!product) throw new Error("Supplier product could not be saved");
+    res.status(201).json(
+      ImportSupplierProductResponse.parse({
+        id: product.id,
+        sourceUrl: product.sourceUrl,
+        sourceDomain: product.sourceDomain,
+        title: product.title,
+        description: product.description,
+        imageUrl: product.imageUrl,
+        price: product.price === null ? null : toNumber(product.price),
+        currency: product.currency,
+        status: product.status,
+        importedAt: product.importedAt,
+      }),
+    );
+  } catch (error) {
+    res.status(422).json({
+      error: error instanceof Error ? error.message : "Supplier page could not be imported",
+    });
+  }
 });
 
 router.get("/customers", async (req, res): Promise<void> => {
@@ -1382,6 +1826,192 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
     res
       .status(409)
       .json({ error: error instanceof Error ? error.message : "Review failed" });
+  }
+});
+
+router.get("/admin/withdrawals", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const rows = await db
+    .select({
+      withdrawal: withdrawalsTable,
+      merchantName: merchantsTable.name,
+      merchantEmail: merchantsTable.email,
+    })
+    .from(withdrawalsTable)
+    .innerJoin(merchantsTable, eq(withdrawalsTable.merchantId, merchantsTable.id))
+    .orderBy(desc(withdrawalsTable.createdAt))
+    .limit(100);
+  res.json(
+    ListAdminWithdrawalsResponse.parse(
+      rows.map(({ withdrawal, merchantName, merchantEmail }) => ({
+        ...serializeWithdrawal(withdrawal),
+        merchantName,
+        merchantEmail,
+      })),
+    ),
+  );
+});
+
+router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const params = ReviewWithdrawalParams.safeParse(req.params);
+  const parsed = ReviewWithdrawalBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Status, authenticator code, and confirmation are required" });
+    return;
+  }
+  const expectedConfirmation = `${parsed.data.status.toUpperCase()} WITHDRAWAL ${params.data.id}`;
+  if (
+    !(await requireAdminWithdrawalSecurity(
+      req,
+      res,
+      identity,
+      parsed.data.securityCode,
+      parsed.data.confirmation,
+      expectedConfirmation,
+    ))
+  ) {
+    return;
+  }
+  const existing = (
+    await db
+      .select({
+        withdrawal: withdrawalsTable,
+        merchantName: merchantsTable.name,
+        merchantEmail: merchantsTable.email,
+      })
+      .from(withdrawalsTable)
+      .innerJoin(merchantsTable, eq(withdrawalsTable.merchantId, merchantsTable.id))
+      .where(eq(withdrawalsTable.id, params.data.id))
+      .limit(1)
+  )[0];
+  if (!existing) {
+    res.status(404).json({ error: "Withdrawal not found" });
+    return;
+  }
+  try {
+    const reviewed = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${withdrawalsTable} where ${withdrawalsTable.id} = ${existing.withdrawal.id} for update`,
+      );
+      const current = (
+        await tx
+          .select()
+          .from(withdrawalsTable)
+          .where(eq(withdrawalsTable.id, existing.withdrawal.id))
+          .limit(1)
+      )[0];
+      if (!current) throw new Error("Withdrawal not found");
+      if (current.status === parsed.data.status) return current;
+      const validTransition =
+        (parsed.data.status === "approved" && current.status === "pending") ||
+        (parsed.data.status === "rejected" &&
+          (current.status === "pending" || current.status === "approved")) ||
+        (parsed.data.status === "paid" && current.status === "approved");
+      if (!validTransition) {
+        throw new Error(`Cannot move a ${current.status} withdrawal to ${parsed.data.status}`);
+      }
+      const [updated] = await tx
+        .update(withdrawalsTable)
+        .set({
+          status: parsed.data.status,
+          reviewedBy: identity.clerkUserId,
+          reviewNote: parsed.data.note?.trim() || null,
+          reviewedAt: new Date(),
+          paidAt: parsed.data.status === "paid" ? new Date() : current.paidAt,
+        })
+        .where(
+          and(
+            eq(withdrawalsTable.id, current.id),
+            eq(withdrawalsTable.status, current.status),
+          ),
+        )
+        .returning();
+      if (!updated) throw new Error("Withdrawal was already updated");
+      await tx.insert(activityTable).values({
+        merchantId: current.merchantId,
+        type: "withdrawal_reviewed",
+        title:
+          parsed.data.status === "paid"
+            ? "Withdrawal marked paid"
+            : `Withdrawal ${parsed.data.status}`,
+        description:
+          parsed.data.note?.trim() ||
+          (parsed.data.status === "approved"
+            ? "Your withdrawal was approved for manual payout."
+            : parsed.data.status === "paid"
+              ? "Your withdrawal was marked paid after manual transfer."
+              : "Your withdrawal request was rejected."),
+        amount: current.amount,
+        currency: current.currency,
+        tone: parsed.data.status === "rejected" ? "negative" : "positive",
+      });
+      return updated;
+    });
+    res.json(
+      ReviewWithdrawalResponse.parse({
+        ...serializeWithdrawal(reviewed),
+        merchantName: existing.merchantName,
+        merchantEmail: existing.merchantEmail,
+      }),
+    );
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Withdrawal review failed",
+    });
+  }
+});
+
+router.post("/admin/withdrawals/:id/details", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const params = RevealWithdrawalDetailsParams.safeParse(req.params);
+  const parsed = RevealWithdrawalDetailsBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Authenticator code and confirmation are required" });
+    return;
+  }
+  if (
+    !(await requireAdminWithdrawalSecurity(
+      req,
+      res,
+      identity,
+      parsed.data.securityCode,
+      parsed.data.confirmation,
+      `VIEW WITHDRAWAL ${params.data.id}`,
+    ))
+  ) {
+    return;
+  }
+  const withdrawal = (
+    await db
+      .select()
+      .from(withdrawalsTable)
+      .where(eq(withdrawalsTable.id, params.data.id))
+      .limit(1)
+  )[0];
+  if (!withdrawal) {
+    res.status(404).json({ error: "Withdrawal not found" });
+    return;
+  }
+  try {
+    const destination = JSON.parse(decryptSecret(withdrawal.destinationCiphertext)) as {
+      bankCode: string;
+      accountNumber: string;
+    };
+    res.json(
+      RevealWithdrawalDetailsResponse.parse({
+        id: withdrawal.id,
+        beneficiaryName: withdrawal.beneficiaryName,
+        bankName: withdrawal.bankName,
+        bankCode: destination.bankCode,
+        accountNumber: destination.accountNumber,
+      }),
+    );
+  } catch {
+    res.status(500).json({ error: "Withdrawal destination could not be decrypted" });
   }
 });
 

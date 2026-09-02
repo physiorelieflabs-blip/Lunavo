@@ -16,7 +16,8 @@ export interface DashboardOverview {
   orders: number;
   customers: number;
   availableBalance: number;
-  pendingBalance: number;
+  pendingBalance?: number;
+  withdrawalReserved?: number;
   earningsHeldForSubscription: number;
   subscription: Subscription;
   revenueSeries: RevenuePoint[];
