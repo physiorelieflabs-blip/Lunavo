@@ -6,9 +6,18 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+
+export const commerceMigrationsTable = pgTable("_ts_commerce_migrations", {
+  id: text("id").primaryKey(),
+  appliedAt: timestamp("applied_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const merchantsTable = pgTable("merchants", {
   id: serial("id").primaryKey(),
@@ -22,41 +31,60 @@ export const merchantsTable = pgTable("merchants", {
     .defaultNow(),
 });
 
-export const subscriptionsTable = pgTable("subscriptions", {
-  id: serial("id").primaryKey(),
-  merchantId: integer("merchant_id")
-    .notNull()
-    .references(() => merchantsTable.id),
-  amountDue: numeric("amount_due", { precision: 12, scale: 2 })
-    .notNull()
-    .default("30"),
-  amountPaid: numeric("amount_paid", { precision: 12, scale: 2 })
-    .notNull()
-    .default("0"),
-  earningsHeld: numeric("earnings_held", { precision: 12, scale: 2 })
-    .notNull()
-    .default("0"),
-  status: text("status").notNull().default("pending"),
-  paymentMethod: text("payment_method"),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const subscriptionsTable = pgTable(
+  "subscriptions",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    amountDue: numeric("amount_due", { precision: 12, scale: 2 })
+      .notNull()
+      .default("30"),
+    amountPaid: numeric("amount_paid", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    earningsHeld: numeric("earnings_held", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    status: text("status").notNull().default("pending"),
+    paymentMethod: text("payment_method"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("subscriptions_merchant_id_unique").on(table.merchantId),
+  ],
+);
 
-export const paymentsTable = pgTable("payments", {
-  id: serial("id").primaryKey(),
-  merchantId: integer("merchant_id")
-    .notNull()
-    .references(() => merchantsTable.id),
-  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
-  currency: text("currency").notNull().default("USD"),
-  method: text("method").notNull(),
-  reference: text("reference").notNull(),
-  status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const paymentsTable = pgTable(
+  "payments",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("USD"),
+    method: text("method").notNull(),
+    reference: text("reference").notNull(),
+    senderName: text("sender_name"),
+    status: text("status").notNull().default("pending"),
+    reviewedBy: text("reviewed_by"),
+    reviewNote: text("review_note"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("payments_reference_unique").on(
+      sql`upper(btrim(${table.reference}))`,
+    ),
+  ],
+);
 
 export const activityTable = pgTable("activity", {
   id: serial("id").primaryKey(),

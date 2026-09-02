@@ -28,6 +28,7 @@ import type {
   Merchant,
   MerchantStatusInput,
   PaymentRecord,
+  PaymentReviewInput,
   Subscription,
   SubscriptionInput
 } from './api.schemas';
@@ -805,5 +806,77 @@ export const useUpdateMerchantStatus = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateMerchantStatusMutationOptions(options));
+    }
+
+export const getReviewBankTransferUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/payments/${id}/review`
+}
+
+/**
+ * @summary Approve or reject a submitted bank transfer
+ */
+export const reviewBankTransfer = async (id: number,
+    paymentReviewInput: PaymentReviewInput, options?: Parameters<typeof customFetch>[1]): Promise<PaymentRecord> => {
+
+  return customFetch<PaymentRecord>(getReviewBankTransferUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(paymentReviewInput)
+  }
+);}
+
+
+
+
+
+export const getReviewBankTransferMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewBankTransfer>>, TError,{id: number;data: BodyType<PaymentReviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewBankTransfer>>, TError,{id: number;data: BodyType<PaymentReviewInput>}, TContext> => {
+
+const mutationKey = ['reviewBankTransfer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewBankTransfer>>, {id: number;data: BodyType<PaymentReviewInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  reviewBankTransfer(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewBankTransferMutationResult = NonNullable<Awaited<ReturnType<typeof reviewBankTransfer>>>
+    export type ReviewBankTransferMutationBody = BodyType<PaymentReviewInput>
+    export type ReviewBankTransferMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Approve or reject a submitted bank transfer
+ */
+export const useReviewBankTransfer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewBankTransfer>>, TError,{id: number;data: BodyType<PaymentReviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewBankTransfer>>,
+        TError,
+        {id: number;data: BodyType<PaymentReviewInput>},
+        TContext
+      > => {
+      return useMutation(getReviewBankTransferMutationOptions(options));
     }
 

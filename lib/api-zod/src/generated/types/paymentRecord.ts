@@ -13,6 +13,12 @@ export interface PaymentRecord {
   currency: string;
   method: string;
   reference: string;
+  /** @nullable */
+  senderName: string | null;
   status: string;
+  /** @nullable */
+  reviewNote: string | null;
+  /** @nullable */
+  reviewedAt: Date | null;
   createdAt: Date;
 }

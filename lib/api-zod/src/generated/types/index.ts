@@ -15,6 +15,8 @@ export * from './merchant';
 export * from './merchantStatusInput';
 export * from './merchantStatusInputStatus';
 export * from './paymentRecord';
+export * from './paymentReviewInput';
+export * from './paymentReviewInputStatus';
 export * from './revenuePoint';
 export * from './subscription';
 export * from './subscriptionInput';

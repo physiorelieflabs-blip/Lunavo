@@ -1,0 +1,58 @@
+import { readFile } from "node:fs/promises";
+import pg from "pg";
+
+const { Pool } = pg;
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required to run database migrations");
+}
+
+const migrationId = "0001_production_hardening";
+const migrationPath = new URL(
+  "../migrations/0001_production_hardening.sql",
+  import.meta.url,
+);
+const migrationSql = await readFile(migrationPath, "utf8");
+const pool = new Pool({ connectionString: databaseUrl });
+const client = await pool.connect();
+
+try {
+  await client.query(
+    "SELECT pg_advisory_lock(hashtext('ts-commerce-schema-migrations'))",
+  );
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "_ts_commerce_migrations" (
+      id text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  const applied = await client.query<{ id: string }>(
+    'SELECT id FROM "_ts_commerce_migrations" WHERE id = $1',
+    [migrationId],
+  );
+  if (applied.rowCount) {
+    console.log(`Database migration ${migrationId} already applied`);
+  } else {
+    await client.query("BEGIN");
+    try {
+      await client.query(migrationSql);
+      await client.query(
+        'INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)',
+        [migrationId],
+      );
+      await client.query("COMMIT");
+      console.log(`Applied database migration ${migrationId}`);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  }
+} finally {
+  await client.query(
+    "SELECT pg_advisory_unlock(hashtext('ts-commerce-schema-migrations'))",
+  );
+  client.release();
+  await pool.end();
+}

@@ -130,7 +130,10 @@ export const SubmitBankTransferResponse = zod.object({
   "currency": zod.string(),
   "method": zod.string(),
   "reference": zod.string(),
+  "senderName": zod.string().nullable(),
   "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 })
 
@@ -145,7 +148,10 @@ export const PaySubscriptionFromEarningsResponse = zod.object({
   "currency": zod.string(),
   "method": zod.string(),
   "reference": zod.string(),
+  "senderName": zod.string().nullable(),
   "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 })
 
@@ -167,7 +173,10 @@ export const GetAdminOverviewResponse = zod.object({
   "currency": zod.string(),
   "method": zod.string(),
   "reference": zod.string(),
+  "senderName": zod.string().nullable(),
   "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 }))
 })
@@ -215,6 +224,37 @@ export const UpdateMerchantStatusResponse = zod.object({
   "earningsHeld": zod.number(),
   "registeredAt": zod.coerce.date(),
   "daysSinceRegistration": zod.int()
+})
+
+
+/**
+ * @summary Approve or reject a submitted bank transfer
+ */
+export const ReviewBankTransferParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const reviewBankTransferBodyNoteMax = 500;
+
+
+
+export const ReviewBankTransferBody = zod.object({
+  "status": zod.enum(['confirmed', 'rejected']),
+  "note": zod.string().max(reviewBankTransferBodyNoteMax).optional()
+})
+
+export const ReviewBankTransferResponse = zod.object({
+  "id": zod.int(),
+  "merchantName": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "method": zod.string(),
+  "reference": zod.string(),
+  "senderName": zod.string().nullable(),
+  "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
 })
 
 

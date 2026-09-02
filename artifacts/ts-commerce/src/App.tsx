@@ -31,7 +31,7 @@ function HomeRoute() {
 function HomeRedirect() {
   const { user, isLoaded } = useUser();
   if (!isLoaded) return <Landing />;
-  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL || user?.publicMetadata?.role === 'admin' || user?.publicMetadata?.isAdmin === true;
+  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified';
   return <Redirect to={isAdmin ? '/admin' : '/dashboard'} />;
 }
 
@@ -44,7 +44,7 @@ function Protected({ children, admin = false }: { children: ReactNode; admin?: b
 
 function AdminGate({ children }: { children: ReactNode }) {
   const { user } = useUser();
-  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL || user?.publicMetadata?.role === 'admin' || user?.publicMetadata?.isAdmin === true;
+  const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified';
   return isAdmin ? <>{children}</> : <Redirect to="/dashboard" />;
 }
 
@@ -95,7 +95,7 @@ function AuthUnavailable({ mode }: { mode: string }) {
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  return <TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><Toaster /></TooltipProvider>;
 }
 
 export default App;

@@ -1,6 +1,6 @@
-import { Router, type IRouter, type Request } from "express";
-import { and, desc, eq, sql } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { createClerkClient, getAuth } from "@clerk/express";
 import {
   activityTable,
   db,
@@ -17,6 +17,9 @@ import {
   ListDashboardActivityResponse,
   ListMerchantsResponse,
   PaySubscriptionFromEarningsResponse,
+  ReviewBankTransferBody,
+  ReviewBankTransferParams,
+  ReviewBankTransferResponse,
   SubmitBankTransferBody,
   SubmitBankTransferResponse,
   UpdateMerchantStatusBody,
@@ -27,39 +30,19 @@ import {
 const router: IRouter = Router();
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
 const MONTHLY_FEE = 30;
-const PREVIEW_MODE = process.env.NODE_ENV !== "production";
+const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
 type Identity = {
-  clerkUserId: string | null;
+  clerkUserId: string;
   email: string;
   name: string;
+  emailVerified: boolean;
   isAdmin: boolean;
 };
 
-function getIdentity(req: Request): Identity {
-  const auth = getAuth(req);
-  const claims = (auth?.sessionClaims ?? {}) as Record<string, unknown>;
-  const email =
-    (typeof claims.email === "string" && claims.email) ||
-    (typeof claims.email_address === "string" && claims.email_address) ||
-    (PREVIEW_MODE ? "merchant@demo.tscommerce.local" : "");
-  const name =
-    (typeof claims.name === "string" && claims.name) ||
-    (typeof claims.given_name === "string" && claims.given_name) ||
-    "New merchant";
-  return {
-    clerkUserId: auth?.userId ?? null,
-    email: email.toLowerCase(),
-    name,
-    isAdmin: email.toLowerCase() === ADMIN_EMAIL,
-  };
-}
-
-function requireAuthenticated(req: Request): Identity | null {
-  const identity = getIdentity(req);
-  if (!identity.clerkUserId && !PREVIEW_MODE) return null;
-  return identity;
-}
+type Merchant = typeof merchantsTable.$inferSelect;
+type Subscription = typeof subscriptionsTable.$inferSelect;
+type Payment = typeof paymentsTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
@@ -72,185 +55,286 @@ function daysSince(date: Date): number {
   );
 }
 
-async function seedPreviewData(): Promise<void> {
-  if (!PREVIEW_MODE) return;
-  const existing = await db.select({ id: merchantsTable.id }).from(merchantsTable);
-  if (existing.length > 0) return;
+async function getIdentity(req: Request): Promise<Identity | null> {
+  const auth = getAuth(req);
+  if (!auth?.userId) return null;
 
-  const [admin] = await db
-    .insert(merchantsTable)
-    .values({
-      name: "TSAdmin",
-      email: ADMIN_EMAIL,
-      storeName: "TS Commerce",
-      status: "active",
-    })
-    .returning();
-  await db.insert(subscriptionsTable).values({
-    merchantId: admin.id,
-    amountDue: "0",
-    amountPaid: "0",
-    status: "active",
-  });
+  const user = await clerk.users.getUser(auth.userId);
+  const primary =
+    user.emailAddresses.find(
+      (address) => address.id === user.primaryEmailAddressId,
+    ) ?? user.emailAddresses[0];
+  const email = primary?.emailAddress.toLowerCase();
+  const emailVerified = primary?.verification?.status === "verified";
+  const name =
+    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+    undefined;
 
-  const [maya] = await db
-    .insert(merchantsTable)
-    .values({
-      name: "Maya Okafor",
-      email: "maya@example.com",
-      storeName: "Maya Home",
-      status: "active",
-      registeredAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8),
-    })
-    .returning();
-  await db.insert(subscriptionsTable).values({
-    merchantId: maya.id,
-    earningsHeld: "18.4",
-    amountPaid: "0",
-    status: "pending",
-  });
-  await db.insert(activityTable).values([
-    {
-      merchantId: maya.id,
-      type: "order",
-      title: "Order #1048 completed",
-      description: "A new order was paid and added to your balance.",
-      amount: "128",
-      tone: "positive",
-    },
-    {
-      merchantId: maya.id,
-      type: "subscription",
-      title: "Platform fee reminder",
-      description: "Your $30 subscription is due in 7 days.",
-      amount: "30",
-      tone: "warning",
-    },
-  ]);
+  if (!email) {
+    throw new Error("Authenticated Clerk user has no email address");
+  }
 
-  const [atlas] = await db
-    .insert(merchantsTable)
-    .values({
-      name: "Atlas Supply Co.",
-      email: "atlas@example.com",
-      storeName: "Atlas Supply",
-      status: "suspended",
-      registeredAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 21),
-    })
-    .returning();
-  await db.insert(subscriptionsTable).values({
-    merchantId: atlas.id,
-    earningsHeld: "11.75",
-    amountPaid: "0",
-    status: "expired",
-  });
+  return {
+    clerkUserId: auth.userId,
+    email,
+    name: name || email.split("@")[0],
+    emailVerified,
+    isAdmin: email === ADMIN_EMAIL && emailVerified,
+  };
 }
 
-async function getOrCreateMerchant(identity: Identity) {
-  await seedPreviewData();
-  let merchant = identity.clerkUserId
-    ? (
-        await db
+async function requireIdentity(req: Request, res: Response) {
+  const identity = await getIdentity(req);
+  if (!identity) {
+    res.status(401).json({ error: "Sign in required" });
+    return null;
+  }
+  return identity;
+}
+
+async function requireAdmin(req: Request, res: Response) {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return null;
+  if (!identity.isAdmin) {
+    res.status(403).json({ error: "Master admin access required" });
+    return null;
+  }
+  return identity;
+}
+
+async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
+  let merchant = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.clerkUserId, identity.clerkUserId))
+      .limit(1)
+  )[0];
+
+  if (!merchant) {
+    merchant = (
+      await db
+        .select()
+        .from(merchantsTable)
+        .where(
+          and(
+            eq(merchantsTable.email, identity.email),
+            isNull(merchantsTable.clerkUserId),
+          ),
+        )
+        .limit(1)
+    )[0];
+  }
+
+  if (merchant) {
+    if (
+      merchant.clerkUserId === null &&
+      !identity.emailVerified
+    ) {
+      throw new Error("A verified email is required to claim this account");
+    }
+    if (
+      merchant.clerkUserId !== identity.clerkUserId ||
+      merchant.name !== identity.name ||
+      merchant.email !== identity.email
+    ) {
+      [merchant] = await db
+        .update(merchantsTable)
+        .set({
+          clerkUserId: identity.clerkUserId,
+          name: identity.name,
+          email: identity.email,
+        })
+        .where(eq(merchantsTable.id, merchant.id))
+        .returning();
+    }
+    await getSubscriptionForMerchant(merchant, identity.isAdmin);
+    return merchant;
+  }
+
+  return db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(merchantsTable)
+      .values({
+        clerkUserId: identity.clerkUserId,
+        name: identity.name,
+        email: identity.email,
+        storeName: identity.isAdmin ? "TS Commerce" : `${identity.name}'s Store`,
+      })
+      .onConflictDoNothing()
+      .returning();
+    const created =
+      inserted ??
+      (
+        await tx
           .select()
           .from(merchantsTable)
           .where(eq(merchantsTable.clerkUserId, identity.clerkUserId))
           .limit(1)
-      )[0]
-    : undefined;
-  if (!merchant) {
-    merchant = (
-      await db
-        .select()
-        .from(merchantsTable)
-        .where(eq(merchantsTable.email, identity.email))
-        .limit(1)
-    )[0];
-  }
-  if (!merchant && identity.clerkUserId) {
-    merchant = (
-      await db
-        .insert(merchantsTable)
-        .values({
-          clerkUserId: identity.clerkUserId,
-          name: identity.name,
-          email: identity.email,
-          storeName: `${identity.name}'s Store`,
-        })
-        .returning()
-    )[0];
-    await db.insert(subscriptionsTable).values({ merchantId: merchant.id });
-  }
-  if (!merchant) {
-    merchant = (
-      await db
-        .select()
-        .from(merchantsTable)
-        .where(eq(merchantsTable.email, "maya@example.com"))
-        .limit(1)
-    )[0];
-  }
-  return merchant;
+      )[0];
+    if (!created) throw new Error("Could not create merchant account");
+    await tx.insert(subscriptionsTable).values({
+      merchantId: created.id,
+      amountDue: identity.isAdmin ? "0" : MONTHLY_FEE.toFixed(2),
+      status: identity.isAdmin ? "active" : "pending",
+    }).onConflictDoNothing({ target: subscriptionsTable.merchantId });
+    return created;
+  });
 }
 
-async function getSubscriptionForMerchant(merchantId: number) {
+async function getSubscriptionForMerchant(
+  merchant: Merchant,
+  isAdmin = false,
+): Promise<Subscription> {
   let subscription = (
     await db
       .select()
       .from(subscriptionsTable)
-      .where(eq(subscriptionsTable.merchantId, merchantId))
+      .where(eq(subscriptionsTable.merchantId, merchant.id))
       .limit(1)
   )[0];
   if (!subscription) {
-    subscription = (
-      await db
-        .insert(subscriptionsTable)
-        .values({ merchantId })
-        .returning()
-    )[0];
+    [subscription] = await db
+      .insert(subscriptionsTable)
+      .values({
+        merchantId: merchant.id,
+        amountDue: isAdmin ? "0" : MONTHLY_FEE.toFixed(2),
+        status: isAdmin ? "active" : "pending",
+      })
+      .onConflictDoNothing({ target: subscriptionsTable.merchantId })
+      .returning();
+    if (!subscription) {
+      subscription = (
+        await db
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.merchantId, merchant.id))
+          .limit(1)
+      )[0];
+    }
+  }
+  const requiredAmount = isAdmin ? 0 : MONTHLY_FEE;
+  if (toNumber(subscription.amountDue) !== requiredAmount) {
+    [subscription] = await db
+      .update(subscriptionsTable)
+      .set({
+        amountDue: requiredAmount.toFixed(2),
+        status:
+          isAdmin || toNumber(subscription.amountPaid) >= requiredAmount
+            ? "active"
+            : subscription.status === "expired"
+              ? "expired"
+              : "pending",
+      })
+      .where(eq(subscriptionsTable.id, subscription.id))
+      .returning();
   }
   return subscription;
 }
 
-async function enforceSubscription(merchant: typeof merchantsTable.$inferSelect) {
-  const subscription = await getSubscriptionForMerchant(merchant.id);
-  if (
-    merchant.email !== ADMIN_EMAIL &&
-    daysSince(merchant.registeredAt) >= 15 &&
-    toNumber(subscription.amountPaid) < toNumber(subscription.amountDue) &&
-    merchant.status !== "suspended"
-  ) {
-    const [updatedMerchant] = await db
-      .update(merchantsTable)
-      .set({ status: "suspended" })
-      .where(eq(merchantsTable.id, merchant.id))
-      .returning();
-    const [updatedSubscription] = await db
+async function addActivity(
+  merchantId: number,
+  values: Omit<
+    typeof activityTable.$inferInsert,
+    "merchantId" | "occurredAt" | "id"
+  >,
+) {
+  await db.insert(activityTable).values({ merchantId, ...values });
+}
+
+async function enforceSubscription(merchant: Merchant, isAdmin = false) {
+  let subscription = await getSubscriptionForMerchant(merchant, isAdmin);
+  if (isAdmin) {
+    if (
+      toNumber(subscription.amountDue) !== 0 ||
+      subscription.status !== "active"
+    ) {
+      [subscription] = await db
+        .update(subscriptionsTable)
+        .set({ amountDue: "0", amountPaid: "0", status: "active" })
+        .where(eq(subscriptionsTable.id, subscription.id))
+        .returning();
+    }
+    return { merchant, subscription };
+  }
+
+  const remaining = Math.max(
+    0,
+    toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+  );
+  const days = daysSince(merchant.registeredAt);
+
+  if (remaining === 0 && subscription.status !== "active") {
+    [subscription] = await db
       .update(subscriptionsTable)
-      .set({ status: "expired", updatedAt: new Date() })
+      .set({ status: "active" })
       .where(eq(subscriptionsTable.id, subscription.id))
       .returning();
-    return { merchant: updatedMerchant, subscription: updatedSubscription };
+  } else if (remaining > 0 && days >= 15) {
+    const wasSuspended = merchant.status === "suspended";
+    if (!wasSuspended && merchant.status !== "banned") {
+      [merchant] = await db
+        .update(merchantsTable)
+        .set({ status: "suspended" })
+        .where(eq(merchantsTable.id, merchant.id))
+        .returning();
+      await addActivity(merchant.id, {
+        type: "subscription_suspended",
+        title: "Account suspended",
+        description:
+          "The platform fee was not settled by day 15. A verified payment restores access.",
+        amount: remaining.toFixed(2),
+        tone: "negative",
+      });
+    }
+    if (subscription.status !== "expired") {
+      [subscription] = await db
+        .update(subscriptionsTable)
+        .set({ status: "expired" })
+        .where(eq(subscriptionsTable.id, subscription.id))
+        .returning();
+    }
+  } else if (
+    remaining > 0 &&
+    days >= 10 &&
+    subscription.status === "pending"
+  ) {
+    [subscription] = await db
+      .update(subscriptionsTable)
+      .set({ status: "past_due" })
+      .where(eq(subscriptionsTable.id, subscription.id))
+      .returning();
+    await addActivity(merchant.id, {
+      type: "subscription_warning",
+      title: "Platform fee reminder",
+      description: `Your platform fee must be settled within ${15 - days} days to avoid suspension.`,
+      amount: remaining.toFixed(2),
+      tone: "warning",
+    });
   }
   return { merchant, subscription };
 }
 
 function serializeSubscription(
-  merchant: typeof merchantsTable.$inferSelect,
-  subscription: typeof subscriptionsTable.$inferSelect,
+  merchant: Merchant,
+  subscription: Subscription,
+  isAdmin = false,
 ) {
   const days = daysSince(merchant.registeredAt);
-  const admin = merchant.email === ADMIN_EMAIL;
+  const admin = isAdmin;
   const paid = toNumber(subscription.amountPaid);
-  const held = toNumber(subscription.earningsHeld);
   const remaining = Math.max(0, toNumber(subscription.amountDue) - paid);
   let nextAction = admin
     ? "Master admin account — subscription exempt"
-    : `Apply $${remaining.toFixed(2)} from earnings or pay by bank`;
+    : remaining === 0
+      ? "Subscription settled"
+      : `Apply $${remaining.toFixed(2)} from earnings or submit a bank transfer`;
   if (!admin && days >= 10 && days < 15 && remaining > 0) {
     nextAction = `Warning: ${15 - days} days left to settle your subscription`;
   }
   if (!admin && days >= 15 && remaining > 0) {
-    nextAction = "Account suspended — pay by bank transfer to restore access";
+    nextAction =
+      "Account suspended — submit a bank transfer for admin review to restore access";
   }
   return {
     id: subscription.id,
@@ -258,9 +342,9 @@ function serializeSubscription(
     isAdmin: admin,
     amountDue: toNumber(subscription.amountDue),
     amountPaid: paid,
-    earningsHeld: held,
+    earningsHeld: toNumber(subscription.earningsHeld),
     status:
-      admin
+      admin || remaining === 0
         ? "active"
         : merchant.status === "suspended"
           ? "suspended"
@@ -273,52 +357,156 @@ function serializeSubscription(
   };
 }
 
+function serializePayment(payment: Payment, merchantName: string) {
+  return {
+    id: payment.id,
+    merchantName,
+    amount: toNumber(payment.amount),
+    currency: payment.currency,
+    method: payment.method,
+    reference: payment.reference,
+    senderName: payment.senderName,
+    status: payment.status,
+    reviewNote: payment.reviewNote,
+    reviewedAt: payment.reviewedAt,
+    createdAt: payment.createdAt,
+  };
+}
+
+async function payFromEarnings(merchant: Merchant) {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${merchant.id} for update`,
+    );
+    const subscription = (
+      await tx
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.merchantId, merchant.id))
+        .limit(1)
+    )[0];
+    if (!subscription) throw new Error("Subscription not found");
+    const reference = `EARN-SUB-${subscription.id}`;
+    const priorPayment = (
+      await tx
+        .select()
+        .from(paymentsTable)
+        .where(eq(paymentsTable.reference, reference))
+        .limit(1)
+    )[0];
+    if (priorPayment) {
+      const settled =
+        toNumber(subscription.amountPaid) >= toNumber(subscription.amountDue);
+      if (
+        priorPayment.merchantId !== merchant.id ||
+        priorPayment.method !== "earnings" ||
+        priorPayment.status !== "confirmed" ||
+        !settled
+      ) {
+        throw new Error(
+          "The internal earnings payment key is unavailable; no funds were applied",
+        );
+      }
+      return { payment: priorPayment, subscription };
+    }
+
+    const remaining = Math.max(
+      0,
+      toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+    );
+    if (remaining === 0) {
+      throw new Error("Subscription is already settled");
+    }
+    if (toNumber(subscription.earningsHeld) < remaining) {
+      throw new Error("Not enough held earnings to pay the subscription");
+    }
+
+    const [updatedSubscription] = await tx
+      .update(subscriptionsTable)
+      .set({
+        amountPaid: (toNumber(subscription.amountPaid) + remaining).toFixed(2),
+        earningsHeld: (
+          toNumber(subscription.earningsHeld) - remaining
+        ).toFixed(2),
+        paymentMethod: "earnings",
+        status: "active",
+      })
+      .where(
+        and(
+          eq(subscriptionsTable.id, subscription.id),
+          eq(subscriptionsTable.amountPaid, subscription.amountPaid),
+          eq(subscriptionsTable.earningsHeld, subscription.earningsHeld),
+        ),
+      )
+      .returning();
+    if (!updatedSubscription) {
+      throw new Error("Subscription changed while payment was processing");
+    }
+
+    const [payment] = await tx
+      .insert(paymentsTable)
+      .values({
+        merchantId: merchant.id,
+        amount: remaining.toFixed(2),
+        method: "earnings",
+        reference,
+        status: "confirmed",
+        reviewedAt: new Date(),
+      })
+      .returning();
+    if (merchant.status !== "banned") {
+      await tx
+        .update(merchantsTable)
+        .set({ status: "active" })
+        .where(eq(merchantsTable.id, merchant.id));
+    }
+    await tx.insert(activityTable).values({
+      merchantId: merchant.id,
+      type: "subscription_payment",
+      title: "Platform fee paid from earnings",
+      description: "Held earnings were applied to your platform fee.",
+      amount: remaining.toFixed(2),
+      tone: "negative",
+    });
+    return { payment, subscription: updatedSubscription };
+  });
+}
+
 router.get("/dashboard/overview", async (req, res): Promise<void> => {
-  const identity = requireAuthenticated(req);
-  if (!identity) {
-    res.status(401).json({ error: "Sign in required" });
-    return;
-  }
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const enforced = await enforceSubscription(merchant);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
   const subscription = serializeSubscription(
     enforced.merchant,
     enforced.subscription,
+    identity.isAdmin,
   );
-  const isPreviewMerchant = enforced.merchant.email === "maya@example.com";
-  const revenue = isPreviewMerchant ? 12480 : 0;
-  const overview = {
-    storeName: enforced.merchant.storeName,
-    storeSlug: enforced.merchant.storeName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    revenue,
-    revenueChange: isPreviewMerchant ? 12.4 : 0,
-    orders: isPreviewMerchant ? 184 : 0,
-    customers: isPreviewMerchant ? 96 : 0,
-    availableBalance: isPreviewMerchant
-      ? Math.max(0, 4820 - subscription.earningsHeld)
-      : 0,
-    pendingBalance: isPreviewMerchant ? 620 : 0,
-    earningsHeldForSubscription: subscription.earningsHeld,
-    subscription,
-    revenueSeries: [
-      { label: "Mon", amount: isPreviewMerchant ? 1480 : 0 },
-      { label: "Tue", amount: isPreviewMerchant ? 1920 : 0 },
-      { label: "Wed", amount: isPreviewMerchant ? 1640 : 0 },
-      { label: "Thu", amount: isPreviewMerchant ? 2180 : 0 },
-      { label: "Fri", amount: isPreviewMerchant ? 1760 : 0 },
-      { label: "Sat", amount: isPreviewMerchant ? 2380 : 0 },
-      { label: "Sun", amount: isPreviewMerchant ? 1120 : 0 },
-    ],
-  };
-  res.json(GetDashboardOverviewResponse.parse(overview));
+  res.json(
+    GetDashboardOverviewResponse.parse({
+      storeName: enforced.merchant.storeName,
+      storeSlug: enforced.merchant.storeName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, ""),
+      revenue: 0,
+      revenueChange: 0,
+      orders: 0,
+      customers: 0,
+      availableBalance: 0,
+      pendingBalance: 0,
+      earningsHeldForSubscription: subscription.earningsHeld,
+      subscription,
+      revenueSeries: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+        (label) => ({ label, amount: 0 }),
+      ),
+    }),
+  );
 });
 
 router.get("/dashboard/activity", async (req, res): Promise<void> => {
-  const identity = requireAuthenticated(req);
-  if (!identity) {
-    res.status(401).json({ error: "Sign in required" });
-    return;
-  }
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
   const activity = await db
     .select()
@@ -337,285 +525,360 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
 });
 
 router.get("/subscription", async (req, res): Promise<void> => {
-  const identity = requireAuthenticated(req);
-  if (!identity) {
-    res.status(401).json({ error: "Sign in required" });
-    return;
-  }
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const enforced = await enforceSubscription(merchant);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
   res.json(
     GetSubscriptionResponse.parse(
-      serializeSubscription(enforced.merchant, enforced.subscription),
+      serializeSubscription(
+        enforced.merchant,
+        enforced.subscription,
+        identity.isAdmin,
+      ),
     ),
   );
 });
 
 router.post("/subscription", async (req, res): Promise<void> => {
-  const identity = requireAuthenticated(req);
-  if (!identity) {
-    res.status(401).json({ error: "Sign in required" });
-    return;
-  }
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
   const parsed = CreateSubscriptionBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    res.status(400).json({ error: "Invalid subscription payment method" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const subscription = await getSubscriptionForMerchant(merchant.id);
-  if (parsed.data.method === "earnings") {
-    if (
-      toNumber(subscription.earningsHeld) <
-      Math.max(0, toNumber(subscription.amountDue) - toNumber(subscription.amountPaid))
-    ) {
-      res.status(400).json({ error: "Not enough held earnings to pay the subscription" });
-      return;
-    }
-    const remaining = Math.max(
-      0,
-      toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+  if (identity.isAdmin) {
+    const subscription = await getSubscriptionForMerchant(
+      merchant,
+      identity.isAdmin,
     );
-    const [updated] = await db
-      .update(subscriptionsTable)
-      .set({
-        amountPaid: sql`${subscriptionsTable.amountPaid} + ${remaining}`,
-        earningsHeld: sql`${subscriptionsTable.earningsHeld} - ${remaining}`,
-        paymentMethod: "earnings",
-        status: "active",
-        updatedAt: new Date(),
-      })
-      .where(eq(subscriptionsTable.id, subscription.id))
-      .returning();
-    await db
-      .update(merchantsTable)
-      .set({ status: "active" })
-      .where(eq(merchantsTable.id, merchant.id));
-    const [payment] = await db
-      .insert(paymentsTable)
-      .values({
-        merchantId: merchant.id,
-        amount: remaining.toFixed(2),
-        method: "earnings",
-        reference: `EARN-${Date.now()}`,
-        status: "confirmed",
-      })
-      .returning();
-    res.status(201).json(
-      CreateSubscriptionResponse.parse(serializeSubscription(merchant, updated)),
-    );
+    res
+      .status(201)
+      .json(
+        CreateSubscriptionResponse.parse(
+          serializeSubscription(merchant, subscription, identity.isAdmin),
+        ),
+      );
     return;
   }
+  if (parsed.data.method === "earnings") {
+    try {
+      const result = await payFromEarnings(merchant);
+      res
+        .status(201)
+        .json(
+          CreateSubscriptionResponse.parse(
+            serializeSubscription(merchant, result.subscription),
+          ),
+        );
+    } catch (error) {
+      res
+        .status(409)
+        .json({ error: error instanceof Error ? error.message : "Payment failed" });
+    }
+    return;
+  }
+  const subscription = await getSubscriptionForMerchant(
+    merchant,
+    identity.isAdmin,
+  );
   const [updated] = await db
     .update(subscriptionsTable)
-    .set({ paymentMethod: "bank", status: "pending", updatedAt: new Date() })
+    .set({ paymentMethod: "bank" })
     .where(eq(subscriptionsTable.id, subscription.id))
     .returning();
-  res.status(201).json(
-    CreateSubscriptionResponse.parse(serializeSubscription(merchant, updated)),
-  );
+  res
+    .status(201)
+    .json(
+      CreateSubscriptionResponse.parse(
+        serializeSubscription(merchant, updated),
+      ),
+    );
 });
 
 router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
-  const identity = requireAuthenticated(req);
-  if (!identity) {
-    res.status(401).json({ error: "Sign in required" });
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (identity.isAdmin) {
+    res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const subscription = await getSubscriptionForMerchant(merchant.id);
-  const remaining = Math.max(
-    0,
-    toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
-  );
-  if (toNumber(subscription.earningsHeld) < remaining) {
-    res.status(400).json({ error: "Not enough held earnings to pay the subscription" });
-    return;
+  try {
+    const { payment } = await payFromEarnings(merchant);
+    res
+      .status(201)
+      .json(
+        PaySubscriptionFromEarningsResponse.parse(
+          serializePayment(payment, merchant.name),
+        ),
+      );
+  } catch (error) {
+    res
+      .status(409)
+      .json({ error: error instanceof Error ? error.message : "Payment failed" });
   }
-  const [updated] = await db
-    .update(subscriptionsTable)
-    .set({
-      amountPaid: sql`${subscriptionsTable.amountPaid} + ${remaining}`,
-      earningsHeld: sql`${subscriptionsTable.earningsHeld} - ${remaining}`,
-      paymentMethod: "earnings",
-      status: "active",
-      updatedAt: new Date(),
-    })
-    .where(eq(subscriptionsTable.id, subscription.id))
-    .returning();
-  const [payment] = await db
-    .insert(paymentsTable)
-    .values({
-      merchantId: merchant.id,
-      amount: remaining.toFixed(2),
-      method: "earnings",
-      reference: `EARN-${Date.now()}`,
-      status: "confirmed",
-    })
-    .returning();
-  await db
-    .update(merchantsTable)
-    .set({ status: "active" })
-    .where(eq(merchantsTable.id, merchant.id));
-  res.status(201).json(
-    PaySubscriptionFromEarningsResponse.parse({
-      id: payment.id,
-      merchantName: merchant.name,
-      amount: toNumber(payment.amount),
-      currency: payment.currency,
-      method: payment.method,
-      reference: payment.reference,
-      status: payment.status,
-      createdAt: payment.createdAt,
-    }),
-  );
 });
 
 router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
-  const identity = requireAuthenticated(req);
-  if (!identity) {
-    res.status(401).json({ error: "Sign in required" });
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (identity.isAdmin) {
+    res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
   const parsed = SubmitBankTransferBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    res.status(400).json({ error: "Sender name and transfer reference are required" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const [payment] = await db
-    .insert(paymentsTable)
-    .values({
-      merchantId: merchant.id,
-      amount: "30",
-      method: "bank_transfer",
-      reference: parsed.data.reference,
-      status: "under_review",
-    })
-    .returning();
-  const subscription = await getSubscriptionForMerchant(merchant.id);
-  await db
-    .update(subscriptionsTable)
-    .set({ paymentMethod: "bank", status: "past_due", updatedAt: new Date() })
-    .where(eq(subscriptionsTable.id, subscription.id));
-  res.status(201).json(
-    SubmitBankTransferResponse.parse({
-      id: payment.id,
-      merchantName: merchant.name,
-      amount: toNumber(payment.amount),
-      currency: payment.currency,
-      method: payment.method,
-      reference: payment.reference,
-      status: payment.status,
-      createdAt: payment.createdAt,
-    }),
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const remaining = Math.max(
+    0,
+    toNumber(enforced.subscription.amountDue) -
+      toNumber(enforced.subscription.amountPaid),
   );
+  if (remaining === 0) {
+    res.status(409).json({ error: "Subscription is already settled" });
+    return;
+  }
+  const reference = parsed.data.reference.trim().toUpperCase();
+  if (reference.startsWith("EARN-SUB-")) {
+    res.status(400).json({
+      error: "That reference format is reserved for internal earnings payments",
+    });
+    return;
+  }
+  const existing = (
+    await db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.reference, reference))
+      .limit(1)
+  )[0];
+  if (existing) {
+    if (existing.merchantId === merchant.id) {
+      res.json(
+        SubmitBankTransferResponse.parse(
+          serializePayment(existing, merchant.name),
+        ),
+      );
+      return;
+    }
+    res.status(409).json({
+      error: "This transfer reference is already associated with another account",
+    });
+    return;
+  }
+
+  try {
+    const payment = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(paymentsTable)
+      .values({
+        merchantId: merchant.id,
+        amount: remaining.toFixed(2),
+        method: "bank_transfer",
+        reference,
+        senderName: parsed.data.senderName.trim(),
+        status: "under_review",
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!created) {
+      const prior = (
+        await tx
+          .select()
+          .from(paymentsTable)
+          .where(eq(paymentsTable.reference, reference))
+          .limit(1)
+      )[0];
+      if (prior?.merchantId === merchant.id) return prior;
+      throw new Error(
+        "This transfer reference is already associated with another account",
+      );
+    }
+    await tx
+      .update(subscriptionsTable)
+      .set({
+        paymentMethod: "bank",
+        status:
+          enforced.merchant.status === "suspended" ? "expired" : "past_due",
+      })
+      .where(eq(subscriptionsTable.id, enforced.subscription.id));
+    await tx.insert(activityTable).values({
+      merchantId: merchant.id,
+      type: "bank_transfer_submitted",
+      title: "Bank transfer submitted",
+      description: `Transfer ${reference} is waiting for admin review.`,
+      amount: remaining.toFixed(2),
+      tone: "neutral",
+    });
+    return created;
+    });
+    res
+      .status(201)
+      .json(
+        SubmitBankTransferResponse.parse(
+          serializePayment(payment, merchant.name),
+        ),
+      );
+  } catch (error) {
+    res.status(409).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Transfer reference could not be submitted",
+    });
+  }
 });
 
 router.get("/admin/overview", async (req, res): Promise<void> => {
-  const identity = getIdentity(req);
-  if (!identity.isAdmin && !PREVIEW_MODE) {
-    res.status(403).json({ error: "Master admin access required" });
-    return;
-  }
-  await seedPreviewData();
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
   const merchants = await db.select().from(merchantsTable);
   const subs = await db.select().from(subscriptionsTable);
   const payments = await db
     .select({
-      id: paymentsTable.id,
+      payment: paymentsTable,
       merchantName: merchantsTable.name,
-      amount: paymentsTable.amount,
-      currency: paymentsTable.currency,
-      method: paymentsTable.method,
-      reference: paymentsTable.reference,
-      status: paymentsTable.status,
-      createdAt: paymentsTable.createdAt,
     })
     .from(paymentsTable)
     .innerJoin(merchantsTable, eq(paymentsTable.merchantId, merchantsTable.id))
     .orderBy(desc(paymentsTable.createdAt))
-    .limit(8);
-  const pendingMerchants = merchants.filter((merchant) => merchant.email !== ADMIN_EMAIL);
-  const overview = {
-    platformRevenue: 12480,
-    subscriptionRevenue: subs.reduce((sum, sub) => sum + toNumber(sub.amountPaid), 0),
-    heldMerchantRevenue: subs.reduce((sum, sub) => sum + toNumber(sub.earningsHeld), 0),
-    activeMerchants: pendingMerchants.filter((m) => m.status === "active").length,
-    attentionRequired: pendingMerchants.filter(
-      (m) => daysSince(m.registeredAt) >= 10 || m.status === "suspended",
-    ).length,
-    suspendedAccounts: pendingMerchants.filter((m) => m.status === "suspended").length,
-    recentPayments: payments.map((payment) => ({
-      ...payment,
-      amount: toNumber(payment.amount),
-    })),
-  };
-  res.json(GetAdminOverviewResponse.parse(overview));
-});
-
-router.get("/admin/merchants", async (req, res): Promise<void> => {
-  const identity = getIdentity(req);
-  if (!identity.isAdmin && !PREVIEW_MODE) {
-    res.status(403).json({ error: "Master admin access required" });
-    return;
-  }
-  await seedPreviewData();
-  const rows = await db
-    .select({
-      merchant: merchantsTable,
-      subscription: subscriptionsTable,
-    })
-    .from(merchantsTable)
-    .leftJoin(
-      subscriptionsTable,
-      eq(merchantsTable.id, subscriptionsTable.merchantId),
-    )
-    .orderBy(desc(merchantsTable.registeredAt));
+    .limit(20);
+  const confirmedPayments = await db
+    .select({ amount: paymentsTable.amount })
+    .from(paymentsTable)
+    .where(eq(paymentsTable.status, "confirmed"));
+  const nonAdminMerchants = merchants.filter(
+    (merchant) => merchant.clerkUserId !== identity.clerkUserId,
+  );
+  const subscriptionByMerchant = new Map(
+    subs.map((subscription) => [subscription.merchantId, subscription]),
+  );
+  const confirmedRevenue = confirmedPayments.reduce(
+    (sum, payment) => sum + toNumber(payment.amount),
+    0,
+  );
   res.json(
-    ListMerchantsResponse.parse(
-      rows.map(({ merchant, subscription }) => ({
-        id: merchant.id,
-        name: merchant.name,
-        email: merchant.email,
-        storeName: merchant.storeName,
-        status: merchant.status,
-        subscriptionStatus:
-          merchant.email === ADMIN_EMAIL
-            ? "active"
-            : subscription?.status ?? "pending",
-        amountPaid: toNumber(subscription?.amountPaid),
-        amountDue: merchant.email === ADMIN_EMAIL ? 0 : toNumber(subscription?.amountDue ?? 30),
-        earningsHeld: toNumber(subscription?.earningsHeld),
-        registeredAt: merchant.registeredAt,
-        daysSinceRegistration: daysSince(merchant.registeredAt),
-      })),
-    ),
+    GetAdminOverviewResponse.parse({
+      platformRevenue: confirmedRevenue,
+      subscriptionRevenue: confirmedRevenue,
+      heldMerchantRevenue: subs.reduce(
+        (sum, sub) => sum + toNumber(sub.earningsHeld),
+        0,
+      ),
+      activeMerchants: nonAdminMerchants.filter(
+        (merchant) => merchant.status === "active",
+      ).length,
+      attentionRequired: nonAdminMerchants.filter(
+        (merchant) => {
+          const subscription = subscriptionByMerchant.get(merchant.id);
+          const outstanding = Math.max(
+            0,
+            toNumber(subscription?.amountDue) -
+              toNumber(subscription?.amountPaid),
+          );
+          return (
+            outstanding > 0 &&
+            (daysSince(merchant.registeredAt) >= 10 ||
+              merchant.status === "suspended")
+          );
+        },
+      ).length,
+      suspendedAccounts: nonAdminMerchants.filter(
+        (merchant) => merchant.status === "suspended",
+      ).length,
+      recentPayments: payments.map(({ payment, merchantName }) =>
+        serializePayment(payment, merchantName),
+      ),
+    }),
   );
 });
 
+router.get("/admin/merchants", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const merchants = await db
+    .select()
+    .from(merchantsTable)
+    .orderBy(desc(merchantsTable.registeredAt));
+  const rows = await Promise.all(
+    merchants.map(async (merchant) => {
+      const isVerifiedAdminMerchant =
+        identity.isAdmin &&
+        merchant.clerkUserId === identity.clerkUserId;
+      const enforced = await enforceSubscription(
+        merchant,
+        isVerifiedAdminMerchant,
+      );
+      return {
+        id: enforced.merchant.id,
+        name: enforced.merchant.name,
+        email: enforced.merchant.email,
+        storeName: enforced.merchant.storeName,
+        status: enforced.merchant.status,
+        subscriptionStatus:
+          isVerifiedAdminMerchant
+            ? "active"
+            : enforced.subscription.status,
+        amountPaid: toNumber(enforced.subscription.amountPaid),
+        amountDue:
+          isVerifiedAdminMerchant
+            ? 0
+            : toNumber(enforced.subscription.amountDue),
+        earningsHeld: toNumber(enforced.subscription.earningsHeld),
+        registeredAt: enforced.merchant.registeredAt,
+        daysSinceRegistration: daysSince(enforced.merchant.registeredAt),
+      };
+    }),
+  );
+  res.json(ListMerchantsResponse.parse(rows));
+});
+
 router.patch("/admin/merchants/:id/status", async (req, res): Promise<void> => {
-  const identity = getIdentity(req);
-  if (!identity.isAdmin && !PREVIEW_MODE) {
-    res.status(403).json({ error: "Master admin access required" });
-    return;
-  }
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
   const params = UpdateMerchantStatusParams.safeParse(req.params);
   const body = UpdateMerchantStatusBody.safeParse(req.body);
   if (!params.success || !body.success) {
     res.status(400).json({ error: "Invalid merchant status update" });
     return;
   }
-  const [merchant] = await db
-    .update(merchantsTable)
-    .set({ status: body.data.status })
-    .where(eq(merchantsTable.id, params.data.id))
-    .returning();
-  if (!merchant) {
+  const existing = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.id, params.data.id))
+      .limit(1)
+  )[0];
+  if (!existing) {
     res.status(404).json({ error: "Merchant not found" });
     return;
   }
-  const subscription = await getSubscriptionForMerchant(merchant.id);
+  if (
+    identity.isAdmin &&
+    existing.clerkUserId === identity.clerkUserId
+  ) {
+    res.status(403).json({ error: "The master admin account cannot be suspended" });
+    return;
+  }
+  const [merchant] = await db
+    .update(merchantsTable)
+    .set({ status: body.data.status })
+    .where(eq(merchantsTable.id, existing.id))
+    .returning();
+  await addActivity(merchant.id, {
+    type: "admin_status_change",
+    title: `Account ${body.data.status}`,
+    description: `The master admin changed account access to ${body.data.status}.`,
+    tone: body.data.status === "active" ? "positive" : "warning",
+  });
+  const subscription = await getSubscriptionForMerchant(merchant);
   res.json(
     UpdateMerchantStatusResponse.parse({
       id: merchant.id,
@@ -623,16 +886,165 @@ router.patch("/admin/merchants/:id/status", async (req, res): Promise<void> => {
       email: merchant.email,
       storeName: merchant.storeName,
       status: merchant.status,
-      subscriptionStatus:
-        merchant.email === ADMIN_EMAIL ? "active" : subscription.status,
+      subscriptionStatus: subscription.status,
       amountPaid: toNumber(subscription.amountPaid),
-      amountDue:
-        merchant.email === ADMIN_EMAIL ? 0 : toNumber(subscription.amountDue),
+      amountDue: toNumber(subscription.amountDue),
       earningsHeld: toNumber(subscription.earningsHeld),
       registeredAt: merchant.registeredAt,
       daysSinceRegistration: daysSince(merchant.registeredAt),
     }),
   );
+});
+
+router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const params = ReviewBankTransferParams.safeParse(req.params);
+  const body = ReviewBankTransferBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json({ error: "Invalid payment review" });
+    return;
+  }
+
+  const existing = (
+    await db
+      .select({ payment: paymentsTable, merchant: merchantsTable })
+      .from(paymentsTable)
+      .innerJoin(merchantsTable, eq(paymentsTable.merchantId, merchantsTable.id))
+      .where(eq(paymentsTable.id, params.data.id))
+      .limit(1)
+  )[0];
+  if (!existing) {
+    res.status(404).json({ error: "Payment not found" });
+    return;
+  }
+  if (existing.payment.method !== "bank_transfer") {
+    res.status(409).json({ error: "Only pending bank transfers can be reviewed" });
+    return;
+  }
+  if (existing.payment.status === body.data.status) {
+    res.json(
+      ReviewBankTransferResponse.parse(
+        serializePayment(existing.payment, existing.merchant.name),
+      ),
+    );
+    return;
+  }
+  if (existing.payment.status !== "under_review") {
+    res.status(409).json({ error: "This transfer already has a final review" });
+    return;
+  }
+
+  try {
+    const reviewed = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${existing.merchant.id} for update`,
+      );
+      const currentPayment = (
+        await tx
+          .select()
+          .from(paymentsTable)
+          .where(eq(paymentsTable.id, existing.payment.id))
+          .limit(1)
+      )[0];
+      if (!currentPayment) throw new Error("Payment not found");
+      if (currentPayment.status === body.data.status) return currentPayment;
+      if (currentPayment.status !== "under_review") {
+        throw new Error("This transfer already has a final review");
+      }
+
+      const subscription = (
+        await tx
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.merchantId, existing.merchant.id))
+          .limit(1)
+      )[0];
+      if (!subscription) throw new Error("Subscription not found");
+
+      if (body.data.status === "confirmed") {
+        const outstanding = Math.max(
+          0,
+          toNumber(subscription.amountDue) -
+            toNumber(subscription.amountPaid),
+        );
+        const paymentAmount = toNumber(currentPayment.amount);
+        if (outstanding === 0) {
+          throw new Error(
+            "The subscription is already settled; this transfer was not confirmed",
+          );
+        }
+        if (paymentAmount > outstanding) {
+          throw new Error(
+            "The transfer exceeds the current outstanding balance and needs manual reconciliation",
+          );
+        }
+      }
+
+      const [payment] = await tx
+        .update(paymentsTable)
+        .set({
+          status: body.data.status,
+          reviewedBy: identity.clerkUserId,
+          reviewNote: body.data.note?.trim() || null,
+          reviewedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(paymentsTable.id, existing.payment.id),
+            eq(paymentsTable.status, "under_review"),
+          ),
+        )
+        .returning();
+      if (!payment) throw new Error("Payment was already reviewed");
+
+      if (body.data.status === "confirmed") {
+        const amountPaid =
+          toNumber(subscription.amountPaid) + toNumber(payment.amount);
+        const settled = amountPaid >= toNumber(subscription.amountDue);
+        await tx
+          .update(subscriptionsTable)
+          .set({
+            amountPaid: amountPaid.toFixed(2),
+            paymentMethod: "bank",
+            status: settled ? "active" : "past_due",
+          })
+          .where(eq(subscriptionsTable.id, subscription.id));
+        if (settled && existing.merchant.status !== "banned") {
+          await tx
+            .update(merchantsTable)
+            .set({ status: "active" })
+            .where(eq(merchantsTable.id, existing.merchant.id));
+        }
+      }
+
+      await tx.insert(activityTable).values({
+        merchantId: existing.merchant.id,
+        type: "bank_transfer_reviewed",
+        title:
+          body.data.status === "confirmed"
+            ? "Bank transfer approved"
+            : "Bank transfer rejected",
+        description:
+          body.data.note?.trim() ||
+          (body.data.status === "confirmed"
+            ? "Your bank transfer was verified and applied to the platform fee."
+            : "Your bank transfer could not be verified. Submit a valid reference to try again."),
+        amount: payment.amount,
+        tone: body.data.status === "confirmed" ? "positive" : "negative",
+      });
+      return payment;
+    });
+    res.json(
+      ReviewBankTransferResponse.parse(
+        serializePayment(reviewed, existing.merchant.name),
+      ),
+    );
+  } catch (error) {
+    res
+      .status(409)
+      .json({ error: error instanceof Error ? error.message : "Review failed" });
+  }
 });
 
 export default router;

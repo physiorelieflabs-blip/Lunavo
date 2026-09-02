@@ -77,7 +77,13 @@ export interface PaymentRecord {
   currency: string;
   method: string;
   reference: string;
+  /** @nullable */
+  senderName: string | null;
   status: string;
+  /** @nullable */
+  reviewNote: string | null;
+  /** @nullable */
+  reviewedAt: string | null;
   createdAt: string;
 }
 
@@ -121,5 +127,19 @@ export const MerchantStatusInputStatus = {
 
 export interface MerchantStatusInput {
   status: MerchantStatusInputStatus;
+}
+
+export type PaymentReviewInputStatus = typeof PaymentReviewInputStatus[keyof typeof PaymentReviewInputStatus];
+
+
+export const PaymentReviewInputStatus = {
+  confirmed: 'confirmed',
+  rejected: 'rejected',
+} as const;
+
+export interface PaymentReviewInput {
+  status: PaymentReviewInputStatus;
+  /** @maxLength 500 */
+  note?: string;
 }
 
