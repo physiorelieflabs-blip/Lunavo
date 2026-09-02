@@ -6,18 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AdminWithdrawalDetailsInput {
-  /** @pattern ^[0-9]{6}$ */
-  securityCode: string;
+export interface WithdrawalPinsInput {
   /**
-     * @minItems 5
+     * @minItems 2
      * @maxItems 5
      * @items.pattern ^[0-9]{6}$
      */
-  pinCodes: string[];
-  /**
-     * @minLength 6
-     * @maxLength 80
-     */
-  confirmation: string;
+  pins: string[];
 }

@@ -142,6 +142,8 @@ export * from './webResearchResponse';
 export * from './webResearchSource';
 export * from './withdrawalDetails';
 export * from './withdrawalInput';
+export * from './withdrawalPinsInput';
 export * from './withdrawalRecord';
 export * from './withdrawalSecurity';
+export * from './withdrawalSecurityRequiredPins';
 export * from './withdrawalSetup';

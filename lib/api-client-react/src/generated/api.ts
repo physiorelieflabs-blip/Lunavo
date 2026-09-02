@@ -87,6 +87,7 @@ import type {
   WebResearchResponse,
   WithdrawalDetails,
   WithdrawalInput,
+  WithdrawalPinsInput,
   WithdrawalRecord,
   WithdrawalSecurity,
   WithdrawalSetup
@@ -1967,6 +1968,77 @@ export const useConfirmWithdrawalSecuritySetup = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getConfirmWithdrawalSecuritySetupMutationOptions(options));
+    }
+
+export const getSetWithdrawalPinsUrl = () => {
+
+
+
+
+  return `/api/security/withdrawal/pins`
+}
+
+/**
+ * @summary Configure the required merchant or admin withdrawal PIN set
+ */
+export const setWithdrawalPins = async (withdrawalPinsInput: WithdrawalPinsInput, options?: Parameters<typeof customFetch>[1]): Promise<WithdrawalSecurity> => {
+
+  return customFetch<WithdrawalSecurity>(getSetWithdrawalPinsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(withdrawalPinsInput)
+  }
+);}
+
+
+
+
+
+export const getSetWithdrawalPinsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setWithdrawalPins>>, TError,{data: BodyType<WithdrawalPinsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setWithdrawalPins>>, TError,{data: BodyType<WithdrawalPinsInput>}, TContext> => {
+
+const mutationKey = ['setWithdrawalPins'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setWithdrawalPins>>, {data: BodyType<WithdrawalPinsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setWithdrawalPins(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetWithdrawalPinsMutationResult = NonNullable<Awaited<ReturnType<typeof setWithdrawalPins>>>
+    export type SetWithdrawalPinsMutationBody = BodyType<WithdrawalPinsInput>
+    export type SetWithdrawalPinsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Configure the required merchant or admin withdrawal PIN set
+ */
+export const useSetWithdrawalPins = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setWithdrawalPins>>, TError,{data: BodyType<WithdrawalPinsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setWithdrawalPins>>,
+        TError,
+        {data: BodyType<WithdrawalPinsInput>},
+        TContext
+      > => {
+      return useMutation(getSetWithdrawalPinsMutationOptions(options));
     }
 
 export const getListWithdrawalsUrl = () => {

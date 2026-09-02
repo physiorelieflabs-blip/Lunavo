@@ -668,9 +668,28 @@ export interface PaymentReviewInput {
   note?: string;
 }
 
+export type WithdrawalSecurityRequiredPins = typeof WithdrawalSecurityRequiredPins[keyof typeof WithdrawalSecurityRequiredPins];
+
+
+export const WithdrawalSecurityRequiredPins = {
+  NUMBER_2: 2,
+  NUMBER_5: 5,
+} as const;
+
 export interface WithdrawalSecurity {
   enabled: boolean;
   pendingSetup: boolean;
+  /**
+     * @minimum 0
+     * @maximum 2
+     */
+  merchantPinsConfigured: number;
+  /**
+     * @minimum 0
+     * @maximum 5
+     */
+  adminPinsConfigured: number;
+  requiredPins: WithdrawalSecurityRequiredPins;
 }
 
 export interface WithdrawalSetup {
@@ -684,6 +703,15 @@ export interface TotpCodeInput {
   code: string;
 }
 
+export interface WithdrawalPinsInput {
+  /**
+     * @minItems 2
+     * @maxItems 5
+     * @items.pattern ^[0-9]{6}$
+     */
+  pins: string[];
+}
+
 export interface WithdrawalInput {
   /** @exclusiveMinimum 0 */
   amount: number;
@@ -694,6 +722,12 @@ export interface WithdrawalInput {
   currency?: string;
   /** @pattern ^[0-9]{6}$ */
   totpCode: string;
+  /**
+     * @minItems 2
+     * @maxItems 5
+     * @items.pattern ^[0-9]{6}$
+     */
+  pinCodes: string[];
   /**
      * @minLength 12
      * @maxLength 120
@@ -785,6 +819,12 @@ export interface AdminWithdrawalReviewInput {
   /** @pattern ^[0-9]{6}$ */
   securityCode: string;
   /**
+     * @minItems 5
+     * @maxItems 5
+     * @items.pattern ^[0-9]{6}$
+     */
+  pinCodes: string[];
+  /**
      * @minLength 6
      * @maxLength 80
      */
@@ -794,6 +834,12 @@ export interface AdminWithdrawalReviewInput {
 export interface AdminWithdrawalDetailsInput {
   /** @pattern ^[0-9]{6}$ */
   securityCode: string;
+  /**
+     * @minItems 5
+     * @maxItems 5
+     * @items.pattern ^[0-9]{6}$
+     */
+  pinCodes: string[];
   /**
      * @minLength 6
      * @maxLength 80

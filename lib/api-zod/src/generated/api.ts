@@ -599,9 +599,20 @@ export const UpdateOrderStatusResponse = zod.object({
 /**
  * @summary Get withdrawal security setup status
  */
+export const getWithdrawalSecurityResponseMerchantPinsConfiguredMin = 0;
+export const getWithdrawalSecurityResponseMerchantPinsConfiguredMax = 2;
+
+export const getWithdrawalSecurityResponseAdminPinsConfiguredMin = 0;
+export const getWithdrawalSecurityResponseAdminPinsConfiguredMax = 5;
+
+
+
 export const GetWithdrawalSecurityResponse = zod.object({
   "enabled": zod.boolean(),
-  "pendingSetup": zod.boolean()
+  "pendingSetup": zod.boolean(),
+  "merchantPinsConfigured": zod.int().min(getWithdrawalSecurityResponseMerchantPinsConfiguredMin).max(getWithdrawalSecurityResponseMerchantPinsConfiguredMax),
+  "adminPinsConfigured": zod.int().min(getWithdrawalSecurityResponseAdminPinsConfiguredMin).max(getWithdrawalSecurityResponseAdminPinsConfiguredMax),
+  "requiredPins": zod.union([zod.literal(2),zod.literal(5)])
 })
 
 
@@ -625,9 +636,50 @@ export const ConfirmWithdrawalSecuritySetupBody = zod.object({
   "code": zod.string().regex(confirmWithdrawalSecuritySetupBodyCodeRegExp)
 })
 
+export const confirmWithdrawalSecuritySetupResponseMerchantPinsConfiguredMin = 0;
+export const confirmWithdrawalSecuritySetupResponseMerchantPinsConfiguredMax = 2;
+
+export const confirmWithdrawalSecuritySetupResponseAdminPinsConfiguredMin = 0;
+export const confirmWithdrawalSecuritySetupResponseAdminPinsConfiguredMax = 5;
+
+
+
 export const ConfirmWithdrawalSecuritySetupResponse = zod.object({
   "enabled": zod.boolean(),
-  "pendingSetup": zod.boolean()
+  "pendingSetup": zod.boolean(),
+  "merchantPinsConfigured": zod.int().min(confirmWithdrawalSecuritySetupResponseMerchantPinsConfiguredMin).max(confirmWithdrawalSecuritySetupResponseMerchantPinsConfiguredMax),
+  "adminPinsConfigured": zod.int().min(confirmWithdrawalSecuritySetupResponseAdminPinsConfiguredMin).max(confirmWithdrawalSecuritySetupResponseAdminPinsConfiguredMax),
+  "requiredPins": zod.union([zod.literal(2),zod.literal(5)])
+})
+
+
+/**
+ * @summary Configure the required merchant or admin withdrawal PIN set
+ */
+export const setWithdrawalPinsBodyPinsItemRegExp = new RegExp('^[0-9]{6}$');
+export const setWithdrawalPinsBodyPinsMin = 2;
+export const setWithdrawalPinsBodyPinsMax = 5;
+
+
+
+export const SetWithdrawalPinsBody = zod.object({
+  "pins": zod.array(zod.string().regex(setWithdrawalPinsBodyPinsItemRegExp)).min(setWithdrawalPinsBodyPinsMin).max(setWithdrawalPinsBodyPinsMax)
+})
+
+export const setWithdrawalPinsResponseMerchantPinsConfiguredMin = 0;
+export const setWithdrawalPinsResponseMerchantPinsConfiguredMax = 2;
+
+export const setWithdrawalPinsResponseAdminPinsConfiguredMin = 0;
+export const setWithdrawalPinsResponseAdminPinsConfiguredMax = 5;
+
+
+
+export const SetWithdrawalPinsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "pendingSetup": zod.boolean(),
+  "merchantPinsConfigured": zod.int().min(setWithdrawalPinsResponseMerchantPinsConfiguredMin).max(setWithdrawalPinsResponseMerchantPinsConfiguredMax),
+  "adminPinsConfigured": zod.int().min(setWithdrawalPinsResponseAdminPinsConfiguredMin).max(setWithdrawalPinsResponseAdminPinsConfiguredMax),
+  "requiredPins": zod.union([zod.literal(2),zod.literal(5)])
 })
 
 
@@ -659,6 +711,10 @@ export const createWithdrawalBodyCurrencyMin = 3;
 export const createWithdrawalBodyCurrencyMax = 3;
 
 export const createWithdrawalBodyTotpCodeRegExp = new RegExp('^[0-9]{6}$');
+export const createWithdrawalBodyPinCodesItemRegExp = new RegExp('^[0-9]{6}$');
+export const createWithdrawalBodyPinCodesMin = 2;
+export const createWithdrawalBodyPinCodesMax = 5;
+
 export const createWithdrawalBodyConfirmationMin = 12;
 export const createWithdrawalBodyConfirmationMax = 120;
 
@@ -671,6 +727,7 @@ export const CreateWithdrawalBody = zod.object({
   "amount": zod.number().gt(createWithdrawalBodyAmountExclusiveMin),
   "currency": zod.string().min(createWithdrawalBodyCurrencyMin).max(createWithdrawalBodyCurrencyMax).optional(),
   "totpCode": zod.string().regex(createWithdrawalBodyTotpCodeRegExp),
+  "pinCodes": zod.array(zod.string().regex(createWithdrawalBodyPinCodesItemRegExp)).min(createWithdrawalBodyPinCodesMin).max(createWithdrawalBodyPinCodesMax),
   "confirmation": zod.string().min(createWithdrawalBodyConfirmationMin).max(createWithdrawalBodyConfirmationMax).optional(),
   "idempotencyKey": zod.string().min(createWithdrawalBodyIdempotencyKeyMin).max(createWithdrawalBodyIdempotencyKeyMax).optional()
 })
@@ -1826,6 +1883,10 @@ export const ReviewWithdrawalParams = zod.object({
 export const reviewWithdrawalBodyNoteMax = 500;
 
 export const reviewWithdrawalBodySecurityCodeRegExp = new RegExp('^[0-9]{6}$');
+export const reviewWithdrawalBodyPinCodesItemRegExp = new RegExp('^[0-9]{6}$');
+export const reviewWithdrawalBodyPinCodesMin = 5;
+export const reviewWithdrawalBodyPinCodesMax = 5;
+
 export const reviewWithdrawalBodyConfirmationMin = 6;
 export const reviewWithdrawalBodyConfirmationMax = 80;
 
@@ -1835,6 +1896,7 @@ export const ReviewWithdrawalBody = zod.object({
   "status": zod.enum(['approved', 'rejected', 'paid']),
   "note": zod.string().max(reviewWithdrawalBodyNoteMax).optional(),
   "securityCode": zod.string().regex(reviewWithdrawalBodySecurityCodeRegExp),
+  "pinCodes": zod.array(zod.string().regex(reviewWithdrawalBodyPinCodesItemRegExp)).min(reviewWithdrawalBodyPinCodesMin).max(reviewWithdrawalBodyPinCodesMax),
   "confirmation": zod.string().min(reviewWithdrawalBodyConfirmationMin).max(reviewWithdrawalBodyConfirmationMax)
 })
 
@@ -1864,6 +1926,10 @@ export const RevealWithdrawalDetailsParams = zod.object({
 })
 
 export const revealWithdrawalDetailsBodySecurityCodeRegExp = new RegExp('^[0-9]{6}$');
+export const revealWithdrawalDetailsBodyPinCodesItemRegExp = new RegExp('^[0-9]{6}$');
+export const revealWithdrawalDetailsBodyPinCodesMin = 5;
+export const revealWithdrawalDetailsBodyPinCodesMax = 5;
+
 export const revealWithdrawalDetailsBodyConfirmationMin = 6;
 export const revealWithdrawalDetailsBodyConfirmationMax = 80;
 
@@ -1871,6 +1937,7 @@ export const revealWithdrawalDetailsBodyConfirmationMax = 80;
 
 export const RevealWithdrawalDetailsBody = zod.object({
   "securityCode": zod.string().regex(revealWithdrawalDetailsBodySecurityCodeRegExp),
+  "pinCodes": zod.array(zod.string().regex(revealWithdrawalDetailsBodyPinCodesItemRegExp)).min(revealWithdrawalDetailsBodyPinCodesMin).max(revealWithdrawalDetailsBodyPinCodesMax),
   "confirmation": zod.string().min(revealWithdrawalDetailsBodyConfirmationMin).max(revealWithdrawalDetailsBodyConfirmationMax)
 })
 

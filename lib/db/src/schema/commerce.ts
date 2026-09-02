@@ -456,6 +456,8 @@ export const withdrawalSecurityTable = pgTable(
     pendingTotpExpiresAt: timestamp("pending_totp_expires_at", {
       withTimezone: true,
     }),
+    merchantPinHashes: jsonb("merchant_pin_hashes").notNull().default([]),
+    adminPinHashes: jsonb("admin_pin_hashes").notNull().default([]),
     enabledAt: timestamp("enabled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

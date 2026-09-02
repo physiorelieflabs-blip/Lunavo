@@ -20,6 +20,7 @@ const migrations = [
   "0009_ai_operating_layer",
   "0010_authoritative_accounting",
   "0011_inventory_reservations_movements",
+  "0012_withdrawal_pins",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

@@ -14,6 +14,12 @@ export interface AdminWithdrawalReviewInput {
   /** @pattern ^[0-9]{6}$ */
   securityCode: string;
   /**
+     * @minItems 5
+     * @maxItems 5
+     * @items.pattern ^[0-9]{6}$
+     */
+  pinCodes: string[];
+  /**
      * @minLength 6
      * @maxLength 80
      */

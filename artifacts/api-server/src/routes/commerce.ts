@@ -1,4 +1,9 @@
-import { randomUUID } from "node:crypto";
+import {
+  randomBytes,
+  randomUUID,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   and,
@@ -93,6 +98,8 @@ import {
   PaySubscriptionFromEarningsResponse,
   CreateWithdrawalBody,
   CreateWithdrawalResponse,
+  SetWithdrawalPinsBody,
+  SetWithdrawalPinsResponse,
   RevealWithdrawalDetailsBody,
   RevealWithdrawalDetailsParams,
   RevealWithdrawalDetailsResponse,
@@ -981,11 +988,46 @@ async function getWithdrawalSecurity(merchantId: number) {
   )[0];
 }
 
+function pinHashes(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function hashPin(pin: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const digest = scryptSync(pin, salt, 32).toString("hex");
+  return `${salt}:${digest}`;
+}
+
+function verifyPin(pin: string, encoded: string): boolean {
+  const [salt, expectedHex] = encoded.split(":");
+  if (!salt || !expectedHex || expectedHex.length !== 64) return false;
+  const actual = scryptSync(pin, salt, 32);
+  const expected = Buffer.from(expectedHex, "hex");
+  return expected.length === actual.length && timingSafeEqual(actual, expected);
+}
+
+function verifyPinSet(
+  pins: string[],
+  stored: unknown,
+  required: number,
+): boolean {
+  const hashes = pinHashes(stored);
+  return (
+    pins.length === required &&
+    hashes.length === required &&
+    new Set(pins).size === required &&
+    pins.every((pin, index) => verifyPin(pin, hashes[index] ?? ""))
+  );
+}
+
 async function requireAdminWithdrawalSecurity(
   req: Request,
   res: Response,
   identity: Identity,
   code: string,
+  pinCodes: string[],
   confirmation: string,
   expectedConfirmation: string,
 ) {
@@ -1020,6 +1062,10 @@ async function requireAdminWithdrawalSecurity(
   }
   if (!valid) {
     res.status(403).json({ error: "The authenticator code is invalid or expired" });
+    return false;
+  }
+  if (!verifyPinSet(pinCodes, security.adminPinHashes, 5)) {
+    res.status(403).json({ error: "All five admin withdrawal PINs are required and must be correct" });
     return false;
   }
   return true;
@@ -2012,6 +2058,9 @@ router.get("/security/withdrawal", async (req, res): Promise<void> => {
           security.pendingTotpExpiresAt &&
           security.pendingTotpExpiresAt > new Date(),
       ),
+      merchantPinsConfigured: pinHashes(security?.merchantPinHashes).length,
+      adminPinsConfigured: pinHashes(security?.adminPinHashes).length,
+      requiredPins: identity.isAdmin ? 5 : 2,
     }),
   );
 });
@@ -2095,6 +2144,48 @@ router.post("/security/withdrawal/confirm", async (req, res): Promise<void> => {
   res.json(ConfirmWithdrawalSecuritySetupResponse.parse({ enabled: true, pendingSetup: false }));
 });
 
+router.post("/security/withdrawal/pins", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (!identity.emailVerified) {
+    res.status(403).json({ error: "Verify your primary email before configuring withdrawal PINs" });
+    return;
+  }
+  const parsed = SetWithdrawalPinsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter the required number of unique six-digit PINs" });
+    return;
+  }
+  const required = identity.isAdmin ? 5 : 2;
+  if (parsed.data.pins.length !== required || new Set(parsed.data.pins).size !== required) {
+    res.status(400).json({ error: `Configure exactly ${required} unique withdrawal PINs` });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const current = await getWithdrawalSecurity(merchant.id);
+  const hashes = parsed.data.pins.map(hashPin);
+  const update = identity.isAdmin
+    ? { adminPinHashes: hashes }
+    : { merchantPinHashes: hashes };
+  if (current) {
+    await db.update(withdrawalSecurityTable).set(update).where(eq(withdrawalSecurityTable.id, current.id));
+  } else {
+    await db.insert(withdrawalSecurityTable).values({
+      merchantId: merchant.id,
+      merchantPinHashes: identity.isAdmin ? [] : hashes,
+      adminPinHashes: identity.isAdmin ? hashes : [],
+    });
+  }
+  const saved = await getWithdrawalSecurity(merchant.id);
+  res.json(SetWithdrawalPinsResponse.parse({
+    enabled: Boolean(saved?.totpSecretCiphertext),
+    pendingSetup: Boolean(saved?.pendingTotpSecretCiphertext && saved.pendingTotpExpiresAt && saved.pendingTotpExpiresAt > new Date()),
+    merchantPinsConfigured: pinHashes(saved?.merchantPinHashes).length,
+    adminPinsConfigured: pinHashes(saved?.adminPinHashes).length,
+    requiredPins: required,
+  }));
+});
+
 router.get("/withdrawals", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -2145,6 +2236,14 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
   }
   if (!validCode) {
     res.status(403).json({ error: "The authenticator code is invalid or expired" });
+    return;
+  }
+  const requiredPins = identity.isAdmin ? 5 : 2;
+  const configuredPins = identity.isAdmin
+    ? security.adminPinHashes
+    : security.merchantPinHashes;
+  if (!verifyPinSet(parsed.data.pinCodes, configuredPins, requiredPins)) {
+    res.status(403).json({ error: `All ${requiredPins} withdrawal PINs are required and must be correct` });
     return;
   }
 
@@ -4554,6 +4653,7 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
       res,
       identity,
       parsed.data.securityCode,
+      parsed.data.pinCodes,
       parsed.data.confirmation,
       expectedConfirmation,
     ))
@@ -4664,6 +4764,7 @@ router.post("/admin/withdrawals/:id/details", async (req, res): Promise<void> =>
       res,
       identity,
       parsed.data.securityCode,
+      parsed.data.pinCodes,
       parsed.data.confirmation,
       `VIEW WITHDRAWAL ${params.data.id}`,
     ))

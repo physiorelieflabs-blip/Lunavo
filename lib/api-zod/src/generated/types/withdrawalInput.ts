@@ -17,6 +17,12 @@ export interface WithdrawalInput {
   /** @pattern ^[0-9]{6}$ */
   totpCode: string;
   /**
+     * @minItems 2
+     * @maxItems 5
+     * @items.pattern ^[0-9]{6}$
+     */
+  pinCodes: string[];
+  /**
      * @minLength 12
      * @maxLength 120
      */

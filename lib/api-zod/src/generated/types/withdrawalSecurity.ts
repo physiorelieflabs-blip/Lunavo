@@ -5,8 +5,20 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { WithdrawalSecurityRequiredPins } from './withdrawalSecurityRequiredPins';
 
 export interface WithdrawalSecurity {
   enabled: boolean;
   pendingSetup: boolean;
+  /**
+     * @minimum 0
+     * @maximum 2
+     */
+  merchantPinsConfigured: number;
+  /**
+     * @minimum 0
+     * @maximum 5
+     */
+  adminPinsConfigured: number;
+  requiredPins: WithdrawalSecurityRequiredPins;
 }

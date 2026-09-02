@@ -409,6 +409,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithdrawalSecurity"
+  /security/withdrawal/pins:
+    post:
+      operationId: setWithdrawalPins
+      tags: [withdrawals]
+      summary: Configure the required merchant or admin withdrawal PIN set
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalPinsInput"
+      responses:
+        "200":
+          description: Withdrawal PIN security status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalSecurity"
   /withdrawals:
     get:
       operationId: listWithdrawals
@@ -1685,7 +1703,10 @@ components:
       properties:
         enabled: { type: boolean }
         pendingSetup: { type: boolean }
-      required: [enabled, pendingSetup]
+        merchantPinsConfigured: { type: integer, minimum: 0, maximum: 2 }
+        adminPinsConfigured: { type: integer, minimum: 0, maximum: 5 }
+        requiredPins: { type: integer, enum: [2, 5] }
+      required: [enabled, pendingSetup, merchantPinsConfigured, adminPinsConfigured, requiredPins]
     WithdrawalSetup:
       type: object
       properties:
@@ -1698,15 +1719,29 @@ components:
       properties:
         code: { type: string, pattern: "^[0-9]{6}$" }
       required: [code]
+    WithdrawalPinsInput:
+      type: object
+      properties:
+        pins:
+          type: array
+          minItems: 2
+          maxItems: 5
+          items: { type: string, pattern: "^[0-9]{6}$" }
+      required: [pins]
     WithdrawalInput:
       type: object
       properties:
         amount: { type: number, exclusiveMinimum: 0 }
         currency: { type: string, minLength: 3, maxLength: 3 }
         totpCode: { type: string, pattern: "^[0-9]{6}$" }
+        pinCodes:
+          type: array
+          minItems: 2
+          maxItems: 5
+          items: { type: string, pattern: "^[0-9]{6}$" }
         confirmation: { type: string, minLength: 12, maxLength: 120 }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
-      required: [amount, totpCode]
+      required: [amount, totpCode, pinCodes]
     BankAccountInput:
       type: object
       properties:
@@ -1766,14 +1801,24 @@ components:
           enum: [approved, rejected, paid]
         note: { type: string, maxLength: 500 }
         securityCode: { type: string, pattern: "^[0-9]{6}$" }
+        pinCodes:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: { type: string, pattern: "^[0-9]{6}$" }
         confirmation: { type: string, minLength: 6, maxLength: 80 }
-      required: [status, securityCode, confirmation]
+      required: [status, securityCode, pinCodes, confirmation]
     AdminWithdrawalDetailsInput:
       type: object
       properties:
         securityCode: { type: string, pattern: "^[0-9]{6}$" }
+        pinCodes:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: { type: string, pattern: "^[0-9]{6}$" }
         confirmation: { type: string, minLength: 6, maxLength: 80 }
-      required: [securityCode, confirmation]
+      required: [securityCode, pinCodes, confirmation]
     SupplierProductInput:
       type: object
       properties:

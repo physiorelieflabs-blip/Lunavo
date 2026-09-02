@@ -3,6 +3,7 @@ import { useClerk, useUser } from '@clerk/react';
 import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Logo } from '@/components/primitives';
+import { HelpBot } from '@/components/help-bot';
 import { initials } from '@/lib/format';
 
 export { Logo };
@@ -77,6 +78,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
         </header>
         <div className="page-enter px-5 py-8 md:px-10 md:py-10">{children}</div>
       </main>
+      <HelpBot />
     </div>
   );
 }
