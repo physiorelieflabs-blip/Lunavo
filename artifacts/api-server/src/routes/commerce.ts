@@ -7,6 +7,7 @@ import {
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   and,
+  asc,
   desc,
   eq,
   gte,
@@ -88,6 +89,7 @@ import {
   UpdateSupplierBody,
   UpdateSupplierResponse,
   ListAdminWithdrawalsResponse,
+  ListMarketplaceProductsResponse,
   ListCustomersResponse,
   ListDashboardActivityResponse,
   ListDropshipQueueResponse,
@@ -232,6 +234,14 @@ type Supplier = typeof suppliersTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
+}
+
+function csvCell(value: unknown): string {
+  return `"${String(value ?? "").replaceAll('"', '""').replaceAll("\r", " ").replaceAll("\n", " ")}"`;
+}
+
+function csvDocument(headers: string[], rows: unknown[][]): string {
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
 function daysSince(date: Date): number {
@@ -3273,6 +3283,41 @@ router.get("/customers", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/exports/:resource", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const resource = req.params.resource;
+  const merchant = await getOrCreateMerchant(identity);
+  const today = new Date().toISOString().slice(0, 10);
+  let document: string;
+  let filename: string;
+
+  if (resource === "customers") {
+    const customers = await db.select().from(customersTable).where(eq(customersTable.merchantId, merchant.id)).orderBy(asc(customersTable.createdAt));
+    document = csvDocument(["id", "name", "email", "phone", "created_at"], customers.map((customer) => [customer.id, customer.name, customer.email, customer.phone, customer.createdAt.toISOString()]));
+    filename = `ts-commerce-customers-${today}.csv`;
+  } else if (resource === "orders") {
+    const orders = await db.select({ order: ordersTable, customerName: customersTable.name, customerEmail: customersTable.email }).from(ordersTable).innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id)).where(eq(ordersTable.merchantId, merchant.id)).orderBy(asc(ordersTable.createdAt));
+    document = csvDocument(["id", "order_number", "customer_name", "customer_email", "total", "quantity", "currency", "status", "fulfillment_status", "created_at"], orders.map(({ order, customerName, customerEmail }) => [order.id, order.orderNumber, customerName, customerEmail, order.total, order.quantity, order.currency, order.status, order.fulfillmentStatus, order.createdAt.toISOString()]));
+    filename = `ts-commerce-orders-${today}.csv`;
+  } else if (resource === "products") {
+    const products = await db.select().from(supplierProductsTable).where(eq(supplierProductsTable.merchantId, merchant.id)).orderBy(asc(supplierProductsTable.importedAt));
+    document = csvDocument(["id", "title", "sku", "category", "currency", "selling_price", "visibility", "marketplace_visibility", "inventory_strategy", "inventory_status", "imported_at"], products.map((product) => [product.id, product.title, product.sku, product.category, product.currency, product.sellingPrice, product.visibility, product.marketplaceVisibility, product.inventoryStrategy, product.inventoryStatus, product.importedAt.toISOString()]));
+    filename = `ts-commerce-products-${today}.csv`;
+  } else if (resource === "transactions") {
+    const entries = await db.select().from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).orderBy(asc(ledgerEntriesTable.createdAt));
+    document = csvDocument(["id", "order_id", "amount_minor", "currency", "entry_type", "reference_key", "created_at"], entries.map((entry) => [entry.id, entry.orderId, entry.amountMinor, entry.currency, entry.entryType, entry.referenceKey, entry.createdAt.toISOString()]));
+    filename = `ts-commerce-transactions-${today}.csv`;
+  } else {
+    res.status(404).json({ error: "Unknown export resource" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(`${document}\n`);
+});
+
 router.get("/orders", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -3630,6 +3675,47 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/marketplace/products", async (req, res): Promise<void> => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 120) : "";
+  const category = typeof req.query.category === "string" ? req.query.category.trim().slice(0, 120) : "";
+  const currency = typeof req.query.currency === "string" ? req.query.currency.trim().toUpperCase() : "";
+  const minPrice = typeof req.query.minPrice === "string" ? Number(req.query.minPrice) : null;
+  const maxPrice = typeof req.query.maxPrice === "string" ? Number(req.query.maxPrice) : null;
+  const filters = [
+    eq(merchantsTable.status, "active"),
+    eq(supplierProductsTable.status, "active"),
+    eq(supplierProductsTable.marketplaceVisibility, true),
+    sql`${supplierProductsTable.sellingPrice} is not null`,
+  ];
+  if (search) filters.push(sql`(${supplierProductsTable.title} ilike ${`%${search}%`} or coalesce(${supplierProductsTable.description}, '') ilike ${`%${search}%`})`);
+  if (category) filters.push(eq(supplierProductsTable.category, category));
+  if (currency) filters.push(eq(supplierProductsTable.currency, currency));
+  if (Number.isFinite(minPrice) && minPrice !== null) filters.push(gte(supplierProductsTable.sellingPrice, minPrice.toFixed(2)));
+  if (Number.isFinite(maxPrice) && maxPrice !== null) filters.push(sql`${supplierProductsTable.sellingPrice} <= ${maxPrice.toFixed(2)}`);
+  const rows = await db
+    .select({ product: supplierProductsTable, merchantKey: merchantsTable.clerkUserId, merchantName: merchantsTable.storeName })
+    .from(supplierProductsTable)
+    .innerJoin(merchantsTable, eq(supplierProductsTable.merchantId, merchantsTable.id))
+    .where(and(...filters))
+    .orderBy(desc(supplierProductsTable.publishedAt), desc(supplierProductsTable.importedAt))
+    .limit(100);
+  res.json(ListMarketplaceProductsResponse.parse(rows.map(({ product, merchantKey, merchantName }) => ({
+    id: product.id,
+    merchantKey,
+    merchantName: merchantName || "Independent merchant",
+    title: product.title,
+    description: product.description,
+    imageUrl: product.imageUrl,
+    price: toNumber(product.sellingPrice),
+    salePrice: product.salePrice === null ? null : toNumber(product.salePrice),
+    currency: product.currency,
+    category: product.category,
+    brand: product.brand,
+    availability: product.availability,
+    availabilityQuantity: product.availabilityQuantity,
+  }))));
+});
+
 router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
   const parsed = GetPublicStoreParams.safeParse(req.params);
   if (!parsed.success) {
@@ -3669,7 +3755,14 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
         description: product.description,
         imageUrl: product.imageUrl,
         price: toNumber(product.sellingPrice),
+        salePrice: product.salePrice === null ? null : toNumber(product.salePrice),
         currency: product.currency,
+        sku: product.sku,
+        availability: product.availability,
+        inventoryStatus: product.inventoryStatus,
+        inventoryQuantity: product.availabilityQuantity,
+        variants: Array.isArray(product.variants) ? product.variants : [],
+        category: product.category,
       })),
     }),
   );

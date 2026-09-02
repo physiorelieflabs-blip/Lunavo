@@ -1647,6 +1647,58 @@ export const CreatePublicCheckoutResponse = zod.object({
 
 
 /**
+ * @summary Discover published merchant products opted into the central marketplace
+ */
+export const listMarketplaceProductsQuerySearchMax = 120;
+
+export const listMarketplaceProductsQueryCategoryMax = 120;
+
+export const listMarketplaceProductsQueryCurrencyMin = 3;
+export const listMarketplaceProductsQueryCurrencyMax = 3;
+
+export const listMarketplaceProductsQueryMinPriceMin = 0;
+
+export const listMarketplaceProductsQueryMaxPriceMin = 0;
+
+
+
+export const ListMarketplaceProductsQueryParams = zod.object({
+  "search": zod.coerce.string().max(listMarketplaceProductsQuerySearchMax).optional(),
+  "category": zod.coerce.string().max(listMarketplaceProductsQueryCategoryMax).optional(),
+  "currency": zod.coerce.string().min(listMarketplaceProductsQueryCurrencyMin).max(listMarketplaceProductsQueryCurrencyMax).optional(),
+  "minPrice": zod.coerce.number().min(listMarketplaceProductsQueryMinPriceMin).optional(),
+  "maxPrice": zod.coerce.number().min(listMarketplaceProductsQueryMaxPriceMin).optional()
+})
+
+export const ListMarketplaceProductsResponseItem = zod.object({
+  "id": zod.int(),
+  "merchantKey": zod.string(),
+  "merchantName": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "price": zod.number(),
+  "salePrice": zod.number().nullable(),
+  "currency": zod.string(),
+  "category": zod.string().nullable(),
+  "brand": zod.string().nullable(),
+  "availability": zod.string().nullable(),
+  "availabilityQuantity": zod.int().nullable()
+})
+export const ListMarketplaceProductsResponse = zod.array(ListMarketplaceProductsResponseItem)
+
+
+/**
+ * @summary Download a tenant-scoped CSV export
+ */
+export const ExportMerchantDataParams = zod.object({
+  "resource": zod.enum(['customers', 'orders', 'products', 'transactions'])
+})
+
+export const ExportMerchantDataResponse = zod.unknown()
+
+
+/**
  * @summary Get current merchant subscription
  */
 export const GetSubscriptionResponse = zod.object({

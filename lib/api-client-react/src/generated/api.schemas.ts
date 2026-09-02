@@ -1700,6 +1700,29 @@ export interface PublicStore {
   products: PublicStoreProduct[];
 }
 
+export interface MarketplaceProduct {
+  id: number;
+  merchantKey: string;
+  merchantName: string;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  imageUrl: string | null;
+  price: number;
+  /** @nullable */
+  salePrice: number | null;
+  currency: string;
+  /** @nullable */
+  category: string | null;
+  /** @nullable */
+  brand: string | null;
+  /** @nullable */
+  availability: string | null;
+  /** @nullable */
+  availabilityQuantity: number | null;
+}
+
 export interface PublicCheckoutInput {
   /** @minimum 1 */
   supplierProductId: number;
@@ -1755,5 +1778,29 @@ base: string;
  * @maxLength 3
  */
 quote: string;
+};
+
+export type ListMarketplaceProductsParams = {
+/**
+ * @maxLength 120
+ */
+search?: string;
+/**
+ * @maxLength 120
+ */
+category?: string;
+/**
+ * @minLength 3
+ * @maxLength 3
+ */
+currency?: string;
+/**
+ * @minimum 0
+ */
+minPrice?: number;
+/**
+ * @minimum 0
+ */
+maxPrice?: number;
 };
 

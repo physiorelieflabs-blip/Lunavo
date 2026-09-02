@@ -46,8 +46,10 @@ import type {
   InventoryMovement,
   InventoryReservation,
   LinkedBankAccount,
+  ListMarketplaceProductsParams,
   ManualSupplierProductInput,
   MarketExchangeRate,
+  MarketplaceProduct,
   Merchant,
   MerchantBalance,
   MerchantStatusInput,
@@ -3507,6 +3509,167 @@ export const useCreatePublicCheckout = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreatePublicCheckoutMutationOptions(options));
     }
+
+export const getListMarketplaceProductsUrl = (params?: ListMarketplaceProductsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/marketplace/products?${stringifiedParams}` : `/api/marketplace/products`
+}
+
+/**
+ * @summary Discover published merchant products opted into the central marketplace
+ */
+export const listMarketplaceProducts = async (params?: ListMarketplaceProductsParams, options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceProduct[]> => {
+
+  return customFetch<MarketplaceProduct[]>(getListMarketplaceProductsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMarketplaceProductsQueryKey = (params?: ListMarketplaceProductsParams,) => {
+    return [
+    `/api/marketplace/products`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListMarketplaceProductsQueryOptions = <TData = Awaited<ReturnType<typeof listMarketplaceProducts>>, TError = ErrorType<unknown>>(params?: ListMarketplaceProductsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMarketplaceProducts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMarketplaceProductsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMarketplaceProducts>>> = ({ signal }) => listMarketplaceProducts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMarketplaceProducts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMarketplaceProductsQueryResult = NonNullable<Awaited<ReturnType<typeof listMarketplaceProducts>>>
+export type ListMarketplaceProductsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Discover published merchant products opted into the central marketplace
+ */
+
+export function useListMarketplaceProducts<TData = Awaited<ReturnType<typeof listMarketplaceProducts>>, TError = ErrorType<unknown>>(
+ params?: ListMarketplaceProductsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMarketplaceProducts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMarketplaceProductsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportMerchantDataUrl = (resource: 'customers' | 'orders' | 'products' | 'transactions',) => {
+
+
+
+
+  return `/api/exports/${resource}`
+}
+
+/**
+ * @summary Download a tenant-scoped CSV export
+ */
+export const exportMerchantData = async (resource: 'customers' | 'orders' | 'products' | 'transactions', options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getExportMerchantDataUrl(resource),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportMerchantDataQueryKey = (resource: 'customers' | 'orders' | 'products' | 'transactions',) => {
+    return [
+    `/api/exports/${resource}`
+    ] as const;
+    }
+
+
+export const getExportMerchantDataQueryOptions = <TData = Awaited<ReturnType<typeof exportMerchantData>>, TError = ErrorType<void>>(resource: 'customers' | 'orders' | 'products' | 'transactions', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportMerchantData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportMerchantDataQueryKey(resource);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportMerchantData>>> = ({ signal }) => exportMerchantData(resource, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: resource !== null && resource !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportMerchantData>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportMerchantDataQueryResult = NonNullable<Awaited<ReturnType<typeof exportMerchantData>>>
+export type ExportMerchantDataQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download a tenant-scoped CSV export
+ */
+
+export function useExportMerchantData<TData = Awaited<ReturnType<typeof exportMerchantData>>, TError = ErrorType<void>>(
+ resource: 'customers' | 'orders' | 'products' | 'transactions', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportMerchantData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportMerchantDataQueryOptions(resource,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetSubscriptionUrl = () => {
 

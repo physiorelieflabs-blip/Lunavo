@@ -1,5 +1,5 @@
 import { type FormEvent, useRef, useState } from 'react';
-import { CheckCircle2, CircleDollarSign, RefreshCw, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, CircleDollarSign, Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getGetDashboardOverviewQueryKey,
@@ -19,6 +19,7 @@ import {
 } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
+import { downloadMerchantExport } from '@/lib/export';
 
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
 const minorMoney = (minor: number, currency: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2 }).format(minor / 100);
@@ -80,7 +81,7 @@ export default function Finance() {
   if (orders.isLoading || balances.isLoading || reconciliations.isLoading) return <AppShell><LoadingState label="Loading finance ledger" /></AppShell>;
   if (orders.isError || balances.isError || reconciliations.isError || !orders.data || !balances.data || !reconciliations.data) return <AppShell><ErrorState onRetry={() => { void orders.refetch(); void balances.refetch(); void reconciliations.refetch(); }} /></AppShell>;
   return <AppShell><div className="mx-auto max-w-[1180px]">
-    <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Finance / TS Pay</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Your ledger, in control.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Balances are derived from posted ledger entries. Manual evidence records an internal payment claim; it does not represent external bank settlement.</p></div><Button variant="ghost" onClick={() => { void orders.refetch(); void balances.refetch(); void reconciliations.refetch(); }} data-testid="button-refresh-finance"><RefreshCw className="h-4 w-4" />Refresh</Button></div>
+    <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Finance / TS Pay</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Your ledger, in control.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Balances are derived from posted ledger entries. Manual evidence records an internal payment claim; it does not represent external bank settlement.</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => void downloadMerchantExport('transactions')}><Download className="h-4 w-4" />Export ledger</Button><Button variant="ghost" onClick={() => { void orders.refetch(); void balances.refetch(); void reconciliations.refetch(); }} data-testid="button-refresh-finance"><RefreshCw className="h-4 w-4" />Refresh</Button></div></div>
     {message && <div className="mt-7"><Notice tone={message.includes('could') || message.includes('failed') || message.includes('Select') ? 'danger' : 'success'} title={message.includes('could') || message.includes('failed') || message.includes('Select') ? 'Action not completed' : 'Finance updated'}>{message}</Notice></div>}
     <div className="mt-8 grid gap-4 md:grid-cols-3">{balances.data.map((balance) => <section key={balance.currency} className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5" data-testid={`card-balance-${balance.currency}`}><div className="flex justify-between"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-[#697687]">{balance.currency} ledger balance</p><CircleDollarSign className="h-5 w-5 text-[#a2772e]" /></div><p className="mt-4 font-mono text-2xl font-bold" data-testid={`text-ledger-balance-${balance.currency}`}>{minorMoney(balance.ledgerBalanceMinor, balance.currency)}</p><p className="mt-2 text-xs text-[#697687]">Available {minorMoney(balance.availableBalanceMinor, balance.currency)} · Held {minorMoney(balance.heldBalanceMinor, balance.currency)}</p></section>)}</div>
     <div className="mt-8 grid gap-6 lg:grid-cols-2">

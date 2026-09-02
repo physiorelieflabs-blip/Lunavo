@@ -779,6 +779,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicCheckoutOrder"
+  /marketplace/products:
+    get:
+      operationId: listMarketplaceProducts
+      tags: [marketplace]
+      summary: Discover published merchant products opted into the central marketplace
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema: { type: string, maxLength: 120 }
+        - name: category
+          in: query
+          required: false
+          schema: { type: string, maxLength: 120 }
+        - name: currency
+          in: query
+          required: false
+          schema: { type: string, minLength: 3, maxLength: 3 }
+        - name: minPrice
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
+        - name: maxPrice
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
+      responses:
+        "200":
+          description: Public marketplace discovery results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MarketplaceProduct"
+  /exports/{resource}:
+    get:
+      operationId: exportMerchantData
+      tags: [exports]
+      summary: Download a tenant-scoped CSV export
+      security:
+        - clerkBearer: []
+      parameters:
+        - name: resource
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [customers, orders, products, transactions]
+      responses:
+        "200":
+          description: CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+        "404":
+          description: Unknown export resource
   /subscription:
     get:
       operationId: getSubscription
@@ -2198,6 +2258,23 @@ components:
         variants: { type: array, items: { type: object, additionalProperties: true } }
         category: { type: ["string", "null"] }
       required: [id, title, description, imageUrl, price, salePrice, currency, sku, availability, inventoryStatus, inventoryQuantity, variants, category]
+    MarketplaceProduct:
+      type: object
+      properties:
+        id: { type: integer }
+        merchantKey: { type: string }
+        merchantName: { type: string }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        imageUrl: { type: ["string", "null"], format: uri }
+        price: { type: number }
+        salePrice: { type: ["number", "null"] }
+        currency: { type: string }
+        category: { type: ["string", "null"] }
+        brand: { type: ["string", "null"] }
+        availability: { type: ["string", "null"] }
+        availabilityQuantity: { type: ["integer", "null"] }
+      required: [id, merchantKey, merchantName, title, description, imageUrl, price, salePrice, currency, category, brand, availability, availabilityQuantity]
     PublicCheckoutInput:
       type: object
       properties:

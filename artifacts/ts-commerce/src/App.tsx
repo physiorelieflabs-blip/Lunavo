@@ -26,6 +26,7 @@ import Inventory from '@/pages/inventory';
 import StorePage from '@/pages/store';
 import Pos from '@/pages/pos';
 import Marketing from '@/pages/marketing';
+import Marketplace from '@/pages/marketplace';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -79,6 +80,7 @@ function ClerkQueryCacheInvalidator() {
 function AuthRoutes() {
   return <Switch>
     <Route path="/" component={HomeRoute} />
+    <Route path="/marketplace" component={Marketplace} />
     <Route path="/sign-in/*?" component={() => <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /><p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">Forgot your password? <Link href="/sign-in/forgot-password" className="font-extrabold text-[#8a6826] underline" data-testid="link-forgot-password">Reset it securely</Link>.</p></div>} />
     <Route path="/sign-up/*?" component={() => <div className="flex min-h-[100dvh] items-center justify-center bg-[#f5f1e8] px-4 py-8"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
     <Route path="/checkout/:merchantKey" component={Checkout} />
@@ -113,7 +115,7 @@ function Router() {
 }
 
 function AuthRoutesWithoutClerk() {
-  return <Switch><Route path="/" component={Landing} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
 function AuthUnavailable({ mode }: { mode: string }) {

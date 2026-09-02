@@ -1,5 +1,5 @@
 import { type FormEvent, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ClipboardList, Filter, Plus, RefreshCw, Truck } from 'lucide-react';
+import { ArrowRight, ClipboardList, Download, Filter, Plus, RefreshCw, Truck } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
@@ -16,6 +16,7 @@ import {
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 import { money, timeAgo } from '@/lib/format';
+import { downloadMerchantExport } from '@/lib/export';
 
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none placeholder:text-[#8994a2] focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
 
@@ -102,7 +103,7 @@ export default function Orders() {
 
   return <AppShell>
     <div className="mx-auto max-w-[1180px]">
-      <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Commerce ledger</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Orders that belong to you.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Record a sale, confirm a checkout payment, and keep supplier-linked fulfillment visible without hiding the customer record.</p></div><Badge tone="info">{orders.data.length} recorded</Badge></div>
+      <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Commerce ledger</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Orders that belong to you.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Record a sale, confirm a checkout payment, and keep supplier-linked fulfillment visible without hiding the customer record.</p></div><div className="flex items-center gap-2"><Button variant="secondary" onClick={() => void downloadMerchantExport('orders')}><Download className="h-4 w-4" />Export</Button><Badge tone="info">{orders.data.length} recorded</Badge></div></div>
       {message && <div className="mt-7"><Notice tone={message.startsWith('We') || message.startsWith('That') ? 'danger' : 'success'} title={message.startsWith('We') || message.startsWith('That') ? 'Action not completed' : 'Ledger updated'}>{message}</Notice></div>}
       <div className="mt-8 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-4"><p className="text-xs font-extrabold uppercase tracking-[.1em] text-[#697687]">Paid or fulfilled</p><p data-testid="metric-paid-orders" className="mt-2 font-mono text-2xl font-bold">{paidCount}</p></div><div className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-4"><p className="text-xs font-extrabold uppercase tracking-[.1em] text-[#697687]">Pending confirmation</p><p data-testid="metric-pending-orders" className="mt-2 font-mono text-2xl font-bold text-[#85601b]">{pendingCount}</p></div><div className="rounded-xl border border-[#b8d6ca] bg-[#eff8f3] p-4"><p className="text-xs font-extrabold uppercase tracking-[.1em] text-[#2f6958]">Supplier-linked</p><p data-testid="metric-linked-orders" className="mt-2 font-mono text-2xl font-bold text-[#2f6958]">{productCount}</p></div></div>
       <div className="mt-8 grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
