@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import { useClerk, useUser } from '@clerk/react';
-import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards } from 'lucide-react';
+import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Logo } from '@/components/primitives';
 import { initials } from '@/lib/format';
@@ -11,7 +11,9 @@ const merchantLinks = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/store', label: 'Create a new store', icon: Store },
   { href: '/ai', label: 'AI control room', icon: BrainCircuit },
+  { href: '/marketing', label: 'Marketing', icon: Megaphone },
   { href: '/orders', label: 'Orders', icon: PackageCheck },
+  { href: '/pos', label: 'TS POS', icon: ShoppingCart },
   { href: '/customers', label: 'Customers', icon: UsersRound },
   { href: '/dropshipping', label: 'Auto DS', icon: Route },
   { href: '/withdrawals', label: 'Withdrawals', icon: ShieldCheck },

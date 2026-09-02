@@ -24,6 +24,8 @@ import AiControlRoom from '@/pages/ai';
 import Finance from '@/pages/finance';
 import Inventory from '@/pages/inventory';
 import StorePage from '@/pages/store';
+import Pos from '@/pages/pos';
+import Marketing from '@/pages/marketing';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -90,6 +92,8 @@ function AuthRoutes() {
      <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
       <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
      <Route path="/store" component={() => <Protected><StorePage /></Protected>} />
+     <Route path="/pos" component={() => <Protected><Pos /></Protected>} />
+     <Route path="/marketing" component={() => <Protected><Marketing /></Protected>} />
      <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
