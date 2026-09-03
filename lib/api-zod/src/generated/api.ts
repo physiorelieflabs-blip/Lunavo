@@ -2916,6 +2916,159 @@ export const ListMarketplaceProductsResponse = zod.array(ListMarketplaceProducts
 
 
 /**
+ * @summary List active public product auctions
+ */
+export const listAuctionsQuerySearchMax = 120;
+
+
+
+export const ListAuctionsQueryParams = zod.object({
+  "search": zod.coerce.string().max(listAuctionsQuerySearchMax).optional()
+})
+
+export const ListAuctionsResponseItem = zod.object({
+  "id": zod.int(),
+  "merchantName": zod.string(),
+  "supplierProductId": zod.int(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "currency": zod.string(),
+  "startingPrice": zod.number(),
+  "currentBid": zod.number().nullable(),
+  "bidCount": zod.int(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['active', 'ended', 'cancelled'])
+})
+export const ListAuctionsResponse = zod.array(ListAuctionsResponseItem)
+
+
+/**
+ * @summary Create an auction from a published merchant product
+ */
+
+export const createAuctionBodyStartingPriceExclusiveMin = 0;
+
+export const createAuctionBodyReservePriceExclusiveMin = 0;
+
+
+
+export const CreateAuctionBody = zod.object({
+  "supplierProductId": zod.int().min(1),
+  "startingPrice": zod.number().gt(createAuctionBodyStartingPriceExclusiveMin),
+  "reservePrice": zod.number().gt(createAuctionBodyReservePriceExclusiveMin).nullish(),
+  "endsAt": zod.coerce.date()
+})
+
+export const CreateAuctionResponse = zod.object({
+  "id": zod.int(),
+  "merchantName": zod.string(),
+  "supplierProductId": zod.int(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "currency": zod.string(),
+  "startingPrice": zod.number(),
+  "currentBid": zod.number().nullable(),
+  "bidCount": zod.int(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['active', 'ended', 'cancelled'])
+}).and(zod.object({
+  "bids": zod.array(zod.object({
+  "id": zod.int(),
+  "auctionId": zod.int(),
+  "bidderName": zod.string(),
+  "amount": zod.number(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Get a public auction and visible bid history
+ */
+export const GetAuctionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetAuctionResponse = zod.object({
+  "id": zod.int(),
+  "merchantName": zod.string(),
+  "supplierProductId": zod.int(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "currency": zod.string(),
+  "startingPrice": zod.number(),
+  "currentBid": zod.number().nullable(),
+  "bidCount": zod.int(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['active', 'ended', 'cancelled'])
+}).and(zod.object({
+  "bids": zod.array(zod.object({
+  "id": zod.int(),
+  "auctionId": zod.int(),
+  "bidderName": zod.string(),
+  "amount": zod.number(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Place a customer bid on an active auction
+ */
+export const PlaceAuctionBidParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const placeAuctionBidBodyBidderNameMin = 2;
+export const placeAuctionBidBodyBidderNameMax = 160;
+
+export const placeAuctionBidBodyAmountExclusiveMin = 0;
+
+
+
+export const PlaceAuctionBidBody = zod.object({
+  "bidderName": zod.string().min(placeAuctionBidBodyBidderNameMin).max(placeAuctionBidBodyBidderNameMax),
+  "bidderEmail": zod.email(),
+  "amount": zod.number().gt(placeAuctionBidBodyAmountExclusiveMin)
+})
+
+export const PlaceAuctionBidResponse = zod.object({
+  "id": zod.int(),
+  "auctionId": zod.int(),
+  "bidderName": zod.string(),
+  "amount": zod.number(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List the authenticated merchant's auctions
+ */
+export const ListMerchantAuctionsResponseItem = zod.object({
+  "id": zod.int(),
+  "merchantName": zod.string(),
+  "supplierProductId": zod.int(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "imageUrl": zod.url().nullable(),
+  "currency": zod.string(),
+  "startingPrice": zod.number(),
+  "currentBid": zod.number().nullable(),
+  "bidCount": zod.int(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['active', 'ended', 'cancelled'])
+})
+export const ListMerchantAuctionsResponse = zod.array(ListMerchantAuctionsResponseItem)
+
+
+/**
  * @summary Get merchant marketplace listings and billing history
  */
 export const GetMarketplaceManagementResponse = zod.object({

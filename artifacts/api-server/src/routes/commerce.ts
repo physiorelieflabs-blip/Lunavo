@@ -63,6 +63,8 @@ import {
   merchantMembershipLocationsTable,
   merchantInvitationsTable,
   merchantInvitationLocationsTable,
+  auctionListingsTable,
+  auctionBidsTable,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -208,6 +210,16 @@ import {
   ReviewAdvertisingPaymentParams,
   ReviewAdvertisingPaymentBody,
   ReviewAdvertisingPaymentResponse,
+  ListAuctionsQueryParams,
+  ListAuctionsResponse,
+  CreateAuctionBody,
+  CreateAuctionResponse,
+  GetAuctionParams,
+  GetAuctionResponse,
+  PlaceAuctionBidParams,
+  PlaceAuctionBidBody,
+  PlaceAuctionBidResponse,
+  ListMerchantAuctionsResponse,
   ResearchWebBody,
   ResearchWebResponse,
   CreatePaymentIntentBody,
@@ -358,10 +370,12 @@ router.use((req, _res, next) => {
     /^\/exports(?:\/|$)/.test(path) ? "customers.export" :
     /^\/supplier-products|^\/supplier-import-history|^\/suppliers(?:\/|$)/.test(path) ? "marketplace.manage" :
     /^\/dropship(?:\/|$)/.test(path) ? "fulfillment.manage" :
+    /^\/merchant\/auctions(?:\/|$)/.test(path) ? "marketplace.manage" :
+    /^\/auctions$/.test(path) && req.method === "POST" ? "marketplace.manage" :
     /^\/marketplace\/(management|listings|billing)/.test(path) ? "marketplace.manage" :
     /^\/marketplace\/products/.test(path) ? "marketplace.manage" :
     /^\/events(?:\/|$)|^\/notifications(?:\/|$)/.test(path) ? "orders.read" : null;
-  const blocksLocationScoped = /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/marketplace|\/events|\/notifications)/.test(path);
+  const blocksLocationScoped = /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
   workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
 });
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
@@ -5779,6 +5793,261 @@ router.patch(
     }
   },
 );
+
+function serializeAuctionBid(bid: typeof auctionBidsTable.$inferSelect) {
+  return {
+    id: bid.id,
+    auctionId: bid.auctionId,
+    bidderName: bid.bidderName,
+    amount: toNumber(bid.amount),
+    createdAt: bid.createdAt,
+  };
+}
+
+function serializeAuction(
+  auction: typeof auctionListingsTable.$inferSelect,
+  merchantName: string,
+  bids: typeof auctionBidsTable.$inferSelect[],
+) {
+  const currentBid = bids.length ? toNumber(bids[0]!.amount) : null;
+  const status =
+    auction.status === "active" && auction.endsAt <= new Date()
+      ? "ended"
+      : auction.status;
+  return {
+    id: auction.id,
+    merchantName: merchantName || "Independent merchant",
+    supplierProductId: auction.supplierProductId,
+    title: auction.title,
+    description: auction.description,
+    imageUrl: auction.imageUrl,
+    currency: auction.currency,
+    startingPrice: toNumber(auction.startingPrice),
+    currentBid,
+    bidCount: bids.length,
+    startsAt: auction.startsAt,
+    endsAt: auction.endsAt,
+    status,
+    bids: bids.map(serializeAuctionBid),
+  };
+}
+
+router.get("/auctions", async (req, res): Promise<void> => {
+  const parsed = ListAuctionsQueryParams.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid auction search" });
+    return;
+  }
+  const now = new Date();
+  const search = parsed.data.search?.trim() ?? "";
+  const filters = [
+    eq(auctionListingsTable.status, "active"),
+    sql`${auctionListingsTable.startsAt} <= ${now}`,
+    sql`${auctionListingsTable.endsAt} > ${now}`,
+  ];
+  if (search) {
+    filters.push(
+      sql`(${auctionListingsTable.title} ilike ${`%${search}%`} or coalesce(${auctionListingsTable.description}, '') ilike ${`%${search}%`})`,
+    );
+  }
+  const rows = await db
+    .select({
+      auction: auctionListingsTable,
+      merchantName: merchantsTable.storeName,
+    })
+    .from(auctionListingsTable)
+    .innerJoin(merchantsTable, eq(auctionListingsTable.merchantId, merchantsTable.id))
+    .where(and(...filters))
+    .orderBy(asc(auctionListingsTable.endsAt))
+    .limit(100);
+  const result = await Promise.all(
+    rows.map(async ({ auction, merchantName }) => {
+      const bids = await db
+        .select()
+        .from(auctionBidsTable)
+        .where(eq(auctionBidsTable.auctionId, auction.id))
+        .orderBy(desc(auctionBidsTable.amount), desc(auctionBidsTable.createdAt))
+        .limit(100);
+      return serializeAuction(auction, merchantName, bids);
+    }),
+  );
+  res.json(ListAuctionsResponse.parse(result));
+});
+
+router.get("/auctions/:id", async (req, res): Promise<void> => {
+  const parsed = GetAuctionParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid auction" });
+    return;
+  }
+  const row = (
+    await db
+      .select({
+        auction: auctionListingsTable,
+        merchantName: merchantsTable.storeName,
+      })
+      .from(auctionListingsTable)
+      .innerJoin(merchantsTable, eq(auctionListingsTable.merchantId, merchantsTable.id))
+      .where(eq(auctionListingsTable.id, parsed.data.id))
+      .limit(1)
+  )[0];
+  if (!row || row.auction.status === "cancelled") {
+    res.status(404).json({ error: "Auction not found" });
+    return;
+  }
+  const bids = await db
+    .select()
+    .from(auctionBidsTable)
+    .where(eq(auctionBidsTable.auctionId, row.auction.id))
+    .orderBy(desc(auctionBidsTable.amount), desc(auctionBidsTable.createdAt))
+    .limit(100);
+  res.json(GetAuctionResponse.parse(serializeAuction(row.auction, row.merchantName, bids)));
+});
+
+router.post("/auctions/:id/bids", async (req, res): Promise<void> => {
+  const params = PlaceAuctionBidParams.safeParse(req.params);
+  const parsed = PlaceAuctionBidBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Enter a valid name, email, and bid amount" });
+    return;
+  }
+  try {
+    const bid = await db.transaction(async (tx) => {
+      const auction = (
+        await tx
+          .select()
+          .from(auctionListingsTable)
+          .where(eq(auctionListingsTable.id, params.data.id))
+          .limit(1)
+      )[0];
+      if (!auction || auction.status !== "active" || auction.startsAt > new Date() || auction.endsAt <= new Date()) {
+        throw new Error("This auction is no longer accepting bids");
+      }
+      const [highest] = await tx
+        .select({ amount: auctionBidsTable.amount })
+        .from(auctionBidsTable)
+        .where(eq(auctionBidsTable.auctionId, auction.id))
+        .orderBy(desc(auctionBidsTable.amount))
+        .limit(1);
+      const minimum = highest ? toNumber(highest.amount) : toNumber(auction.startingPrice);
+      if (parsed.data.amount <= minimum) {
+        throw new Error(`Your bid must be higher than ${minimum.toFixed(2)}`);
+      }
+      const [created] = await tx
+        .insert(auctionBidsTable)
+        .values({
+          auctionId: auction.id,
+          bidderName: parsed.data.bidderName.trim(),
+          bidderEmail: parsed.data.bidderEmail.toLowerCase(),
+          amount: parsed.data.amount.toFixed(2),
+        })
+        .returning();
+      if (!created) throw new Error("Bid could not be saved");
+      return created;
+    });
+    res.status(201).json(PlaceAuctionBidResponse.parse(serializeAuctionBid(bid)));
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Bid could not be placed",
+    });
+  }
+});
+
+router.get("/merchant/auctions", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const rows = await db
+      .select()
+      .from(auctionListingsTable)
+      .where(eq(auctionListingsTable.merchantId, merchant.id))
+      .orderBy(desc(auctionListingsTable.createdAt));
+    const result = await Promise.all(
+      rows.map(async (auction) => {
+        const bids = await db
+          .select()
+          .from(auctionBidsTable)
+          .where(eq(auctionBidsTable.auctionId, auction.id))
+          .orderBy(desc(auctionBidsTable.amount), desc(auctionBidsTable.createdAt))
+          .limit(100);
+        return serializeAuction(auction, merchant.storeName, bids);
+      }),
+    );
+    res.json(ListMerchantAuctionsResponse.parse(result));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not list merchant auctions");
+    res.status(500).json({ error: "Auction workspace could not be loaded" });
+  }
+});
+
+router.post("/auctions", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateAuctionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a product, starting price, and future end time" });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const product = (
+      await db
+        .select()
+        .from(supplierProductsTable)
+        .where(
+          and(
+            eq(supplierProductsTable.id, parsed.data.supplierProductId),
+            eq(supplierProductsTable.merchantId, merchant.id),
+            eq(supplierProductsTable.status, "active"),
+            eq(supplierProductsTable.visibility, "active"),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!product || product.sellingPrice === null) {
+      res.status(422).json({ error: "Only an active, published product with a selling price can be auctioned" });
+      return;
+    }
+    if (parsed.data.endsAt <= new Date(Date.now() + 5 * 60 * 1000)) {
+      res.status(422).json({ error: "Auctions must run for at least five minutes" });
+      return;
+    }
+    if (parsed.data.reservePrice !== null && parsed.data.reservePrice !== undefined && parsed.data.reservePrice < parsed.data.startingPrice) {
+      res.status(422).json({ error: "The reserve price cannot be below the starting price" });
+      return;
+    }
+    const [auction] = await db
+      .insert(auctionListingsTable)
+      .values({
+        merchantId: merchant.id,
+        supplierProductId: product.id,
+        title: product.title,
+        description: product.description,
+        imageUrl: product.imageUrl,
+        currency: product.currency,
+        startingPrice: parsed.data.startingPrice.toFixed(2),
+        reservePrice: parsed.data.reservePrice == null ? null : parsed.data.reservePrice.toFixed(2),
+        endsAt: parsed.data.endsAt,
+      })
+      .returning();
+    if (!auction) throw new Error("Auction could not be created");
+    await db.insert(activityTable).values({
+      merchantId: merchant.id,
+      type: "auction_created",
+      title: `Auction created: ${auction.title}`,
+      description: `Customer bidding is open until ${auction.endsAt.toISOString()}.`,
+      currency: auction.currency,
+      tone: "neutral",
+    });
+    res.status(201).json(
+      CreateAuctionResponse.parse(serializeAuction(auction, merchant.storeName, [])),
+    );
+  } catch (error) {
+    req.log.error({ err: error }, "Could not create auction");
+    res.status(422).json({ error: error instanceof Error ? error.message : "Auction could not be created" });
+  }
+});
 
 router.get("/marketplace/products", async (req, res): Promise<void> => {
   const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 120) : "";

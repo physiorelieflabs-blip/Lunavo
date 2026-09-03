@@ -2307,6 +2307,70 @@ export interface MarketplaceManagement {
   monthlyFee: MarketplaceManagementMonthlyFee;
 }
 
+export interface AuctionInput {
+  /** @minimum 1 */
+  supplierProductId: number;
+  /** @exclusiveMinimum 0 */
+  startingPrice: number;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  reservePrice?: number | null;
+  endsAt: string;
+}
+
+export interface AuctionBidInput {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  bidderName: string;
+  bidderEmail: string;
+  /** @exclusiveMinimum 0 */
+  amount: number;
+}
+
+export interface AuctionBid {
+  id: number;
+  auctionId: number;
+  bidderName: string;
+  amount: number;
+  createdAt: string;
+}
+
+export type AuctionSummaryStatus = typeof AuctionSummaryStatus[keyof typeof AuctionSummaryStatus];
+
+
+export const AuctionSummaryStatus = {
+  active: 'active',
+  ended: 'ended',
+  cancelled: 'cancelled',
+} as const;
+
+export interface AuctionSummary {
+  id: number;
+  merchantName: string;
+  supplierProductId: number;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  /** @nullable */
+  imageUrl: string | null;
+  currency: string;
+  startingPrice: number;
+  /** @nullable */
+  currentBid: number | null;
+  bidCount: number;
+  startsAt: string;
+  endsAt: string;
+  status: AuctionSummaryStatus;
+}
+
+export type AuctionDetail = AuctionSummary & {
+  bids: AuctionBid[];
+};
+
 export interface PublicCheckoutInput {
   /** @minimum 1 */
   supplierProductId: number;
@@ -2813,6 +2877,13 @@ minPrice?: number;
  * @minimum 0
  */
 maxPrice?: number;
+};
+
+export type ListAuctionsParams = {
+/**
+ * @maxLength 120
+ */
+search?: string;
 };
 
 export type ListDomainEventsParams = {

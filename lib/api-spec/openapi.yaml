@@ -1207,6 +1207,93 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MarketplaceProduct"
+  /auctions:
+    get:
+      operationId: listAuctions
+      tags: [marketplace]
+      summary: List active public product auctions
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema: { type: string, maxLength: 120 }
+      responses:
+        "200":
+          description: Public auction discovery results
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuctionSummary" }
+    post:
+      operationId: createAuction
+      tags: [marketplace]
+      summary: Create an auction from a published merchant product
+      security:
+        - clerkBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuctionInput" }
+      responses:
+        "201":
+          description: Auction created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuctionDetail" }
+  /auctions/{id}:
+    get:
+      operationId: getAuction
+      tags: [marketplace]
+      summary: Get a public auction and visible bid history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Auction detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuctionDetail" }
+  /auctions/{id}/bids:
+    post:
+      operationId: placeAuctionBid
+      tags: [marketplace]
+      summary: Place a customer bid on an active auction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuctionBidInput" }
+      responses:
+        "201":
+          description: Bid accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuctionBid" }
+  /merchant/auctions:
+    get:
+      operationId: listMerchantAuctions
+      tags: [marketplace]
+      summary: List the authenticated merchant's auctions
+      security:
+        - clerkBearer: []
+      responses:
+        "200":
+          description: Merchant auction list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuctionSummary" }
   /marketplace/management:
     get:
       operationId: getMarketplaceManagement
@@ -3341,6 +3428,56 @@ components:
             status: { type: string }
           required: [amount, currency, status]
       required: [listings, billing, monthlyFee]
+    AuctionInput:
+      type: object
+      properties:
+        supplierProductId: { type: integer, minimum: 1 }
+        startingPrice: { type: number, exclusiveMinimum: 0 }
+        reservePrice: { type: ["number", "null"], exclusiveMinimum: 0 }
+        endsAt: { type: string, format: date-time }
+      required: [supplierProductId, startingPrice, endsAt]
+    AuctionBidInput:
+      type: object
+      properties:
+        bidderName: { type: string, minLength: 2, maxLength: 160 }
+        bidderEmail: { type: string, format: email }
+        amount: { type: number, exclusiveMinimum: 0 }
+      required: [bidderName, bidderEmail, amount]
+    AuctionBid:
+      type: object
+      properties:
+        id: { type: integer }
+        auctionId: { type: integer }
+        bidderName: { type: string }
+        amount: { type: number }
+        createdAt: { type: string, format: date-time }
+      required: [id, auctionId, bidderName, amount, createdAt]
+    AuctionSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        merchantName: { type: string }
+        supplierProductId: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        imageUrl: { type: ["string", "null"], format: uri }
+        currency: { type: string }
+        startingPrice: { type: number }
+        currentBid: { type: ["number", "null"] }
+        bidCount: { type: integer }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [active, ended, cancelled] }
+      required: [id, merchantName, supplierProductId, title, description, imageUrl, currency, startingPrice, currentBid, bidCount, startsAt, endsAt, status]
+    AuctionDetail:
+      allOf:
+        - $ref: "#/components/schemas/AuctionSummary"
+        - type: object
+          properties:
+            bids:
+              type: array
+              items: { $ref: "#/components/schemas/AuctionBid" }
+          required: [bids]
     PublicCheckoutInput:
       type: object
       properties:

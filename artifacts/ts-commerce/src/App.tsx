@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, Show, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
@@ -29,6 +29,8 @@ import Marketing from '@/pages/marketing';
 import Marketplace from '@/pages/marketplace';
 import PaymentLinkCheckout from '@/pages/payment-link-checkout';
 import MarketplaceManagement from '@/pages/marketplace-management';
+import Auctions from '@/pages/auctions';
+import AuctionManagement from '@/pages/auction-management';
 import Invoices from '@/pages/invoices';
 import PublicInvoice from '@/pages/invoice-public';
 import Activity from '@/pages/activity';
@@ -55,7 +57,17 @@ function HomeRedirect() {
   const { user, isLoaded } = useUser();
   if (!isLoaded) return <Landing />;
   const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified';
-  return <Redirect to={isAdmin ? '/admin' : '/dashboard'} />;
+  const preferredRole = window.localStorage.getItem('ts-commerce-role');
+  return <Redirect to={isAdmin ? '/admin' : preferredRole === 'customer' ? '/marketplace' : '/dashboard'} />;
+}
+
+function AuthRoleChooser() {
+  const [role, setRole] = useState<string | null>(() => window.localStorage.getItem('ts-commerce-role'));
+  const choose = (value: 'merchant' | 'customer') => {
+    window.localStorage.setItem('ts-commerce-role', value);
+    setRole(value);
+  };
+  return <div className="mb-5 w-full max-w-[440px] rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-4 shadow-[0_10px_25px_rgba(31,39,48,.04)]"><p className="text-center text-[10px] font-extrabold uppercase tracking-[.14em] text-[#a2772e]">Optional sign-in path</p><p className="mt-1 text-center text-sm font-bold text-[#182333]">What are you here to do?</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => choose('merchant')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'merchant' ? 'border-[#c85d3f] bg-[#fae8df]' : 'border-[#d9d2c4] bg-[#f7f4ed] hover:border-[#c85d3f]'}`}><span className="block font-extrabold">Run a store</span><span className="mt-1 block text-xs text-[#697687]">Merchant workspace</span></button><button type="button" onClick={() => choose('customer')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'customer' ? 'border-[#c85d3f] bg-[#fae8df]' : 'border-[#d9d2c4] bg-[#f7f4ed] hover:border-[#c85d3f]'}`}><span className="block font-extrabold">Shop & bid</span><span className="mt-1 block text-xs text-[#697687]">Customer experience</span></button></div><p className="mt-3 text-center text-[11px] text-[#697687]">Optional — skip this and we’ll keep the standard merchant path.</p></div>;
 }
 
 function Protected({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
@@ -93,9 +105,12 @@ function AuthRoutes() {
   return <Switch>
     <Route path="/" component={HomeRoute} />
     <Route path="/marketplace" component={Marketplace} />
+    <Route path="/auctions/:id" component={Auctions} />
+    <Route path="/auctions" component={Auctions} />
      <Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} />
-     <Route path="/sign-in/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-in-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS / COMMERCE</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p></div><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /><p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">Forgot your password? <Link href="/sign-in/forgot-password" className="font-extrabold text-[#b14f36] underline" data-testid="link-forgot-password">Reset it securely</Link>.</p></div>} />
-     <Route path="/sign-up/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-up-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS / COMMERCE</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">Commerce, kept clear</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
+    <Route path="/auctions/manage" component={() => <Protected><AuctionManagement /></Protected>} />
+     <Route path="/sign-in/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-in-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS / COMMERCE</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p></div><AuthRoleChooser /><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /><p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">Forgot your password? <Link href="/sign-in/forgot-password" className="font-extrabold text-[#b14f36] underline" data-testid="link-forgot-password">Reset it securely</Link>.</p></div>} />
+     <Route path="/sign-up/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-up-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS / COMMERCE</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">Commerce, kept clear</p></div><AuthRoleChooser /><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
     <Route path="/checkout/:merchantKey" component={Checkout} />
      <Route path="/pay/:token" component={PaymentLinkCheckout} />
      <Route path="/invoice/:token" component={PublicInvoice} />
@@ -137,7 +152,7 @@ function Router() {
 }
 
 function AuthRoutesWithoutClerk() {
-   return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+   return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
  function AuthUnavailable({ mode }: { mode: string }) {

@@ -38,6 +38,11 @@ import type {
   AiSettingsInput,
   AiSimulation,
   AiSimulationInput,
+  AuctionBid,
+  AuctionBidInput,
+  AuctionDetail,
+  AuctionInput,
+  AuctionSummary,
   BankAccountInput,
   BankTransferInput,
   CheckoutSettings,
@@ -64,6 +69,7 @@ import type {
   InvoicePaymentReview,
   InvoicePaymentSubmission,
   LinkedBankAccount,
+  ListAuctionsParams,
   ListDomainEventsParams,
   ListMarketplaceProductsParams,
   ManualSupplierProductInput,
@@ -5555,6 +5561,387 @@ export function useListMarketplaceProducts<TData = Awaited<ReturnType<typeof lis
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListMarketplaceProductsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAuctionsUrl = (params?: ListAuctionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auctions?${stringifiedParams}` : `/api/auctions`
+}
+
+/**
+ * @summary List active public product auctions
+ */
+export const listAuctions = async (params?: ListAuctionsParams, options?: Parameters<typeof customFetch>[1]): Promise<AuctionSummary[]> => {
+
+  return customFetch<AuctionSummary[]>(getListAuctionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAuctionsQueryKey = (params?: ListAuctionsParams,) => {
+    return [
+    `/api/auctions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAuctionsQueryOptions = <TData = Awaited<ReturnType<typeof listAuctions>>, TError = ErrorType<unknown>>(params?: ListAuctionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAuctions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAuctionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAuctions>>> = ({ signal }) => listAuctions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAuctions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAuctionsQueryResult = NonNullable<Awaited<ReturnType<typeof listAuctions>>>
+export type ListAuctionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List active public product auctions
+ */
+
+export function useListAuctions<TData = Awaited<ReturnType<typeof listAuctions>>, TError = ErrorType<unknown>>(
+ params?: ListAuctionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAuctions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAuctionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAuctionUrl = () => {
+
+
+
+
+  return `/api/auctions`
+}
+
+/**
+ * @summary Create an auction from a published merchant product
+ */
+export const createAuction = async (auctionInput: AuctionInput, options?: Parameters<typeof customFetch>[1]): Promise<AuctionDetail> => {
+
+  return customFetch<AuctionDetail>(getCreateAuctionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(auctionInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAuctionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAuction>>, TError,{data: BodyType<AuctionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAuction>>, TError,{data: BodyType<AuctionInput>}, TContext> => {
+
+const mutationKey = ['createAuction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAuction>>, {data: BodyType<AuctionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAuction(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAuctionMutationResult = NonNullable<Awaited<ReturnType<typeof createAuction>>>
+    export type CreateAuctionMutationBody = BodyType<AuctionInput>
+    export type CreateAuctionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create an auction from a published merchant product
+ */
+export const useCreateAuction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAuction>>, TError,{data: BodyType<AuctionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAuction>>,
+        TError,
+        {data: BodyType<AuctionInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAuctionMutationOptions(options));
+    }
+
+export const getGetAuctionUrl = (id: number,) => {
+
+
+
+
+  return `/api/auctions/${id}`
+}
+
+/**
+ * @summary Get a public auction and visible bid history
+ */
+export const getAuction = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AuctionDetail> => {
+
+  return customFetch<AuctionDetail>(getGetAuctionUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAuctionQueryKey = (id: number,) => {
+    return [
+    `/api/auctions/${id}`
+    ] as const;
+    }
+
+
+export const getGetAuctionQueryOptions = <TData = Awaited<ReturnType<typeof getAuction>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAuction>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAuctionQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAuction>>> = ({ signal }) => getAuction(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAuction>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAuctionQueryResult = NonNullable<Awaited<ReturnType<typeof getAuction>>>
+export type GetAuctionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a public auction and visible bid history
+ */
+
+export function useGetAuction<TData = Awaited<ReturnType<typeof getAuction>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAuction>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAuctionQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPlaceAuctionBidUrl = (id: number,) => {
+
+
+
+
+  return `/api/auctions/${id}/bids`
+}
+
+/**
+ * @summary Place a customer bid on an active auction
+ */
+export const placeAuctionBid = async (id: number,
+    auctionBidInput: AuctionBidInput, options?: Parameters<typeof customFetch>[1]): Promise<AuctionBid> => {
+
+  return customFetch<AuctionBid>(getPlaceAuctionBidUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(auctionBidInput)
+  }
+);}
+
+
+
+
+
+export const getPlaceAuctionBidMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof placeAuctionBid>>, TError,{id: number;data: BodyType<AuctionBidInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof placeAuctionBid>>, TError,{id: number;data: BodyType<AuctionBidInput>}, TContext> => {
+
+const mutationKey = ['placeAuctionBid'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof placeAuctionBid>>, {id: number;data: BodyType<AuctionBidInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  placeAuctionBid(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlaceAuctionBidMutationResult = NonNullable<Awaited<ReturnType<typeof placeAuctionBid>>>
+    export type PlaceAuctionBidMutationBody = BodyType<AuctionBidInput>
+    export type PlaceAuctionBidMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Place a customer bid on an active auction
+ */
+export const usePlaceAuctionBid = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof placeAuctionBid>>, TError,{id: number;data: BodyType<AuctionBidInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof placeAuctionBid>>,
+        TError,
+        {id: number;data: BodyType<AuctionBidInput>},
+        TContext
+      > => {
+      return useMutation(getPlaceAuctionBidMutationOptions(options));
+    }
+
+export const getListMerchantAuctionsUrl = () => {
+
+
+
+
+  return `/api/merchant/auctions`
+}
+
+/**
+ * @summary List the authenticated merchant's auctions
+ */
+export const listMerchantAuctions = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuctionSummary[]> => {
+
+  return customFetch<AuctionSummary[]>(getListMerchantAuctionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMerchantAuctionsQueryKey = () => {
+    return [
+    `/api/merchant/auctions`
+    ] as const;
+    }
+
+
+export const getListMerchantAuctionsQueryOptions = <TData = Awaited<ReturnType<typeof listMerchantAuctions>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMerchantAuctions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMerchantAuctionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMerchantAuctions>>> = ({ signal }) => listMerchantAuctions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMerchantAuctions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMerchantAuctionsQueryResult = NonNullable<Awaited<ReturnType<typeof listMerchantAuctions>>>
+export type ListMerchantAuctionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the authenticated merchant's auctions
+ */
+
+export function useListMerchantAuctions<TData = Awaited<ReturnType<typeof listMerchantAuctions>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMerchantAuctions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMerchantAuctionsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

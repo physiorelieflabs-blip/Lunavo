@@ -198,7 +198,7 @@ export default function AiControlRoom() {
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">First-party intelligence</p>
           <h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Your business, with evidence.</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">A local signals model reads this workspace’s persisted orders, customers, catalog, and payouts. It does not invent results or move money.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">A decision engine reads your persisted orders, customers, catalog, payouts, marketplace activity, and operating goal to rank the next best actions. It stays evidence-backed, explains uncertainty, and never moves money.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge tone={data.model.status === 'trained' ? 'success' : 'warning'}>{data.model.status.replaceAll('_', ' ')}</Badge>
@@ -221,7 +221,7 @@ export default function AiControlRoom() {
           <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#85601b]">Model status</p>
           <h2 className="mt-2 text-xl font-extrabold">Local commerce signals</h2>
           <div className="mt-5 grid grid-cols-2 gap-4 text-sm"><div><p className="text-[#765817]">Version</p><p className="mt-1 font-mono font-bold">{data.model.version}</p></div><div><p className="text-[#765817]">Examples</p><p className="mt-1 font-mono font-bold">{data.model.trainingExamples}</p></div><div><p className="text-[#765817]">Evaluation</p><p className="mt-1 font-mono font-bold">{data.model.evaluationScore === null ? 'Not evaluated' : `${Math.round(data.model.evaluationScore * 100)}%`}</p></div><div><p className="text-[#765817]">Autonomy</p><p className="mt-1 font-mono font-bold">Level {level}</p></div></div>
-          <p className="mt-5 border-t border-[#dfc27a] pt-4 text-xs leading-5 text-[#765817]">This is a forecasting and signal layer, not a generative assistant. Training requires consent and real workspace data.</p>
+          <p className="mt-5 border-t border-[#dfc27a] pt-4 text-xs leading-5 text-[#765817]">This is a grounded reasoning layer: it combines observed signals, forecasts, simulations, cited research, and approval-gated actions. Training requires consent and real workspace data.</p>
         </div>
       </section>
 

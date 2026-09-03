@@ -30,7 +30,10 @@ function answerFor(question: string, location: string): Reply {
     return { text: 'Open Customers to search profiles, review order history, manage tags and marketing consent, and export the merchant-scoped directory.', href: '/customers' };
   }
   if (normalized.includes('store') || normalized.includes('shop')) {
-    return { text: 'Open Create a new store to set your storefront name, domain, category, and contact details. Save it to make the store persistent.', href: '/store' };
+    return { text: 'The General Store is the public shopping area at /marketplace. If you run a store, open Create a new store to set your storefront name, domain, category, and contact details.', href: '/marketplace' };
+  }
+  if (normalized.includes('auction') || normalized.includes('bid')) {
+    return { text: 'Customers can browse live auctions in the General Store and place a bid above the current price. Merchants can post a published product from Auctions; bidding records interest but does not capture payment.', href: normalized.includes('customer') || normalized.includes('bid') ? '/auctions' : '/auctions/manage' };
   }
   if (normalized.includes('ai') || normalized.includes('research') || normalized.includes('ad')) {
     return { text: 'Open the AI control room for source-attributed research and draft actions. AI suggestions stay approval-gated and cannot publish, spend, move money, or change permissions automatically.', href: '/ai' };

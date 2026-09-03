@@ -6,12 +6,12 @@ export function Logo({ inverse = false }: { inverse?: boolean }) {
 }
 
 export function Button({ children, variant = 'primary', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }) {
-  const styles = { primary: 'bg-[#1f2b38] text-[#f8f3e8] shadow-[0_8px_20px_rgba(31,43,56,.16)] hover:bg-[#2d3a48] active:translate-y-px', secondary: 'border border-[#d5cdbd] bg-[#fcfaf5] text-[#1f2b38] hover:border-[#c85d3f] hover:bg-[#f5eee3]', ghost: 'text-[#536174] hover:bg-[#ebe5db] hover:text-[#1f2b38]', danger: 'border border-[#e2b9b3] bg-[#fff8f5] text-[#a33e38] hover:bg-[#fbedeb]' };
-  return <button {...props} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-[10px] px-4 text-sm font-bold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 ${styles[variant]} ${className}`} />;
+  const styles = { primary: 'bg-[#c85d3f] text-[#fffaf3] shadow-[0_8px_20px_rgba(200,93,63,.2)] hover:-translate-y-0.5 hover:bg-[#b84f36] active:translate-y-0', secondary: 'border border-[#d5cdbd] bg-[#fcfaf5] text-[#1f2b38] hover:-translate-y-0.5 hover:border-[#c85d3f] hover:bg-[#fae8df]', ghost: 'text-[#536174] hover:bg-[#ebe5db] hover:text-[#1f2b38]', danger: 'border border-[#e2b9b3] bg-[#fff8f5] text-[#a33e38] hover:bg-[#fbedeb]' };
+  return <button {...props} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-extrabold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 ${styles[variant]} ${className}`}>{children}</button>;
 }
 
 export function IconButton({ children, label, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return <button {...props} aria-label={label} title={label} className={`grid h-9 w-9 place-items-center rounded-[10px] text-[#536174] hover:bg-[#ebe7dd] hover:text-[#1f2b38] ${className}`}>{children}</button>;
+  return <button {...props} aria-label={label} title={label} className={`grid h-9 w-9 place-items-center rounded-xl text-[#536174] transition hover:-translate-y-0.5 hover:bg-[#fae8df] hover:text-[#c85d3f] ${className}`}>{children}</button>;
 }
 
 export function Badge({ children, tone = 'neutral', className = '' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'brass' | 'info'; className?: string }) {

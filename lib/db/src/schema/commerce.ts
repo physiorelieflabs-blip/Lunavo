@@ -752,6 +752,46 @@ export const marketplaceBillingRecordsTable = pgTable(
   ],
 );
 
+export const auctionListingsTable = pgTable(
+  "auction_listings",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id),
+    title: text("title").notNull(),
+    description: text("description"),
+    imageUrl: text("image_url"),
+    currency: text("currency").notNull(),
+    startingPrice: numeric("starting_price", { precision: 12, scale: 2 }).notNull(),
+    reservePrice: numeric("reserve_price", { precision: 12, scale: 2 }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("auction_listings_merchant_status_idx").on(table.merchantId, table.status),
+    index("auction_listings_status_ends_idx").on(table.status, table.endsAt),
+  ],
+);
+
+export const auctionBidsTable = pgTable(
+  "auction_bids",
+  {
+    id: serial("id").primaryKey(),
+    auctionId: integer("auction_id").notNull().references(() => auctionListingsTable.id, { onDelete: "cascade" }),
+    bidderName: text("bidder_name").notNull(),
+    bidderEmail: text("bidder_email").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("auction_bids_auction_amount_idx").on(table.auctionId, table.amount),
+    index("auction_bids_email_created_idx").on(table.bidderEmail, table.createdAt),
+  ],
+);
+
 export const aiModelsTable = pgTable(
   "ai_models",
   {
@@ -1219,6 +1259,8 @@ export type AiSettings = typeof aiSettingsTable.$inferSelect;
 export type AiAction = typeof aiActionsTable.$inferSelect;
 export type AdvertisingPayment =
   typeof advertisingPaymentsTable.$inferSelect;
+export type AuctionListing = typeof auctionListingsTable.$inferSelect;
+export type AuctionBid = typeof auctionBidsTable.$inferSelect;
 export type InsertAiModel = z.infer<typeof insertAiModelSchema>;
 export type InsertAiSettings = z.infer<typeof insertAiSettingsSchema>;
 export type InsertAiAction = z.infer<typeof insertAiActionSchema>;
