@@ -15,7 +15,21 @@ export function dateLabel(value: string | undefined) {
 export function timeAgo(value: string | undefined) {
   if (!value) return 'Recently';
   const date = new Date(value);
-  const days = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (Number.isNaN(date.getTime())) return 'Recently';
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const today = formatter.format(new Date());
+  const eventDay = formatter.format(date);
+  const [todayYear, todayMonth, todayDate] = today.split('-').map(Number);
+  const [eventYear, eventMonth, eventDate] = eventDay.split('-').map(Number);
+  const days = Math.floor(
+    (Date.UTC(todayYear, todayMonth - 1, todayDate) -
+      Date.UTC(eventYear, eventMonth - 1, eventDate)) /
+      86400000,
+  );
   if (days <= 0) return 'Today';
   if (days === 1) return 'Yesterday';
   return `${days} days ago`;

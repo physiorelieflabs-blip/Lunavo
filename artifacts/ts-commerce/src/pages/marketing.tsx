@@ -14,12 +14,17 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getGetMarketingBillingQueryKey,
+  getGetCurrentWorkspaceQueryKey,
+  getListAccessibleWorkspacesQueryKey,
   getListAiActionsQueryKey,
+  setSelectedWorkspaceId,
   useApproveAiAction,
   useCreateAiAction,
   useExecuteAiAction,
+  useGetCurrentWorkspace,
   useGetAiOverview,
   useGetMarketingBilling,
+  useListAccessibleWorkspaces,
   useListAiActions,
   usePayAdvertisingFromEarnings,
   useRejectAiAction,
@@ -41,6 +46,8 @@ const inputClass =
   'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm font-bold text-[#182333] outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
 
 export default function Marketing() {
+  const workspaces = useListAccessibleWorkspaces({ query: { queryKey: getListAccessibleWorkspacesQueryKey(), retry: false, staleTime: 60_000 } });
+  const currentWorkspace = useGetCurrentWorkspace({ query: { queryKey: getGetCurrentWorkspaceQueryKey(), retry: false, staleTime: 60_000 } });
   const overview = useGetAiOverview();
   const actions = useListAiActions();
   const billing = useGetMarketingBilling();
@@ -58,6 +65,12 @@ export default function Marketing() {
   const [budget, setBudget] = useState('25.00');
   const [references, setReferences] = useState<Record<number, string>>({});
   const [message, setMessage] = useState('');
+  const switchStore = (merchantId: number) => {
+    if (merchantId === currentWorkspace.data?.id) return;
+    setSelectedWorkspaceId(merchantId);
+    queryClient.clear();
+    window.location.assign('/marketing');
+  };
 
   const campaigns = useMemo(
     () =>
@@ -238,7 +251,16 @@ export default function Marketing() {
             </Notice>
           </div>
         )}
-        <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_.95fr]">
+        <section className="mt-8 rounded-2xl border border-[#bfd6dc] bg-[#eef7f8] p-5 md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#315e6c]">Store context</p><h2 className="mt-1 text-lg font-extrabold text-[#182333]">Choose the store to market</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#477563]">Campaign drafts, customer signals, budgets, approvals, and billing stay scoped to the selected merchant workspace. Switching stores reloads the page before you create anything.</p></div>
+            <select aria-label="Store to market" value={currentWorkspace.data?.id ?? ''} onChange={(event) => switchStore(Number(event.target.value))} className="h-11 min-w-[220px] rounded-lg border border-[#a9c8cc] bg-white px-3 text-sm font-bold text-[#182333] outline-none focus:border-[#315e6c]">
+              <option value="" disabled>Choose a store</option>
+              {workspaces.data?.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.storeName}</option>)}
+            </select>
+          </div>
+        </section>
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1.05fr_.95fr]">
           <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-7">
             <SectionHeading
               eyebrow="Campaign planner"
@@ -492,7 +514,7 @@ export default function Marketing() {
                       payment?.status !== 'confirmed' && (
                         <div className="mt-4 border-t border-[#ded8cd] pt-4">
                           <p className="text-xs font-bold uppercase tracking-[.1em] text-[#697687]">
-                            Pay this advertising budget
+                            Choose how to pay this advertising budget
                           </p>
                           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                             <Button
@@ -506,7 +528,7 @@ export default function Marketing() {
                             >
                               {payFromEarnings.isPending
                                 ? 'Paying…'
-                                : 'Pay from earnings'}
+                                : 'Pay from dashboard'}
                             </Button>
                             <span className="text-xs text-[#697687]">or</span>
                             <input
@@ -517,7 +539,7 @@ export default function Marketing() {
                                   [action.id]: event.target.value,
                                 }))
                               }
-                              placeholder="Manual transfer reference"
+                              placeholder="Bank payment reference"
                               className={`${inputClass} mt-0 sm:max-w-xs`}
                               disabled={payment?.status === 'pending_review'}
                             />
@@ -531,7 +553,7 @@ export default function Marketing() {
                               }
                             >
                               <Send className="h-4 w-4" />
-                              Submit reference
+                              Pay from bank
                             </Button>
                           </div>
                           <p className="mt-2 text-xs text-[#697687]">

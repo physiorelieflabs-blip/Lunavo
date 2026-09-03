@@ -12,9 +12,10 @@ export { Logo };
 
 const merchantLinks = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/store', label: 'Create a new store', icon: Store },
+  { href: '/store', label: 'Store profile', icon: Store },
   { href: '/ai', label: 'AI control room', icon: BrainCircuit },
   { href: '/marketing', label: 'Marketing', icon: Megaphone },
+  { href: '/general-store', label: 'General Store', icon: Globe2 },
   { href: '/marketplace/manage', label: 'Marketplace', icon: Globe2 },
   { href: '/auctions/manage', label: 'Auctions', icon: Gavel },
   { href: '/orders', label: 'Orders', icon: PackageCheck },
@@ -110,5 +111,5 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
 }
 
 export function PublicHeader() {
-  return <header className="flex items-center justify-between px-5 py-5 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/marketplace" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/sign-in" className="rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8]" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-xl bg-[#c85d3f] px-4 py-2.5 text-sm font-extrabold text-[#fffaf3] shadow-[0_8px_18px_rgba(200,93,63,.2)] transition hover:-translate-y-0.5 hover:bg-[#b84f36]" data-testid="link-sign-up">Open an account</Link></div></header>;
+  return <header className="flex items-center justify-between px-5 py-5 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/general-store" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/sign-in" className="rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8]" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-xl bg-[#c85d3f] px-4 py-2.5 text-sm font-extrabold text-[#fffaf3] shadow-[0_8px_18px_rgba(200,93,63,.2)] transition hover:-translate-y-0.5 hover:bg-[#b84f36]" data-testid="link-sign-up">Open an account</Link></div></header>;
 }

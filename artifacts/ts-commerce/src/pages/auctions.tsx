@@ -34,7 +34,7 @@ function AuctionDiscovery() {
       </section>
       <div className="mt-10 flex flex-wrap items-end justify-between gap-4">
         <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Open bidding</p><h2 className="mt-1 text-2xl font-extrabold tracking-[-.05em]">Live auctions</h2></div>
-        <Link href="/marketplace" className="text-sm font-extrabold text-[#a34c35] underline underline-offset-4">Browse the General Store</Link>
+        <Link href="/general-store" className="text-sm font-extrabold text-[#a34c35] underline underline-offset-4">Browse the General Store</Link>
       </div>
       <div className="mt-5">{auctions.isLoading ? <LoadingState label="Loading auctions" /> : auctions.isError ? <ErrorState onRetry={() => void auctions.refetch()} /> : auctions.data?.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{auctions.data.map((auction) => <AuctionCard key={auction.id} auction={auction} />)}</div> : <EmptyState title="No live auctions yet" description="Merchants can publish an auction from a published product. Check back soon or browse the General Store." />}</div>
     </div>

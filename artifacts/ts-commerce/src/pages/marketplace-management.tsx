@@ -54,7 +54,7 @@ export default function MarketplaceManagement() {
     <div className="mx-auto max-w-[1200px]">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Marketplace operations</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em]">Manage participation with a clear trail.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Submit eligible products, see review states, and keep the $5 monthly participation subscription current. Marketplace status never exposes private customers, inventory detail, or ledger data.</p></div>
-        <Link href="/marketplace" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline">View public marketplace <ArrowRight className="h-4 w-4" /></Link>
+        <Link href="/general-store" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline">View General Store <ArrowRight className="h-4 w-4" /></Link>
       </div>
       {message && <div className="mt-6"><Notice tone={message.startsWith('Only') || message.startsWith('The') || message.startsWith('That') ? 'danger' : 'success'} title={message.startsWith('Only') || message.startsWith('The') || message.startsWith('That') ? 'Marketplace update failed' : 'Marketplace updated'}>{message}</Notice></div>}
 

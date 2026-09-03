@@ -30,7 +30,7 @@ function answerFor(question: string, location: string): Reply {
     return { text: 'Open Customers to search profiles, review order history, manage tags and marketing consent, and export the merchant-scoped directory.', href: '/customers' };
   }
   if (normalized.includes('store') || normalized.includes('shop')) {
-    return { text: 'The General Store is the public shopping area at /marketplace. If you run a store, open Create a new store to set your storefront name, domain, category, and contact details.', href: '/marketplace' };
+    return { text: 'The General Store is the public shopping area at /general-store. If you run a store, open Store profile to set your storefront name, domain, category, and contact details.', href: '/general-store' };
   }
   if (normalized.includes('auction') || normalized.includes('bid')) {
     return { text: 'Customers can browse live auctions in the General Store and place a bid above the current price. Merchants can post a published product from Auctions; bidding records interest but does not capture payment.', href: normalized.includes('customer') || normalized.includes('bid') ? '/auctions' : '/auctions/manage' };

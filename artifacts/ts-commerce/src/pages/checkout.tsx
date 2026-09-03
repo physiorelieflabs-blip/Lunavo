@@ -11,7 +11,10 @@ export default function Checkout() {
   const merchantKey = params?.merchantKey ?? '';
   const store = useGetPublicStore(merchantKey);
   const checkout = useCreatePublicCheckout();
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const requested = Number(new URLSearchParams(window.location.search).get('productId'));
+    return Number.isInteger(requested) && requested > 0 ? requested : null;
+  });
   const [quantity, setQuantity] = useState('1');
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');

@@ -27,6 +27,7 @@ import StorePage from '@/pages/store';
 import Pos from '@/pages/pos';
 import Marketing from '@/pages/marketing';
 import Marketplace from '@/pages/marketplace';
+import GeneralStore from '@/pages/general-store';
 import PaymentLinkCheckout from '@/pages/payment-link-checkout';
 import MarketplaceManagement from '@/pages/marketplace-management';
 import Auctions from '@/pages/auctions';
@@ -58,7 +59,7 @@ function HomeRedirect() {
   if (!isLoaded) return <Landing />;
   const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified';
   const preferredRole = window.localStorage.getItem('ts-commerce-role');
-  return <Redirect to={isAdmin ? '/admin' : preferredRole === 'customer' ? '/marketplace' : '/dashboard'} />;
+  return <Redirect to={isAdmin ? '/admin' : preferredRole === 'customer' ? '/general-store' : '/dashboard'} />;
 }
 
 function AuthRoleChooser() {
@@ -104,7 +105,8 @@ function ClerkQueryCacheInvalidator() {
 function AuthRoutes() {
   return <Switch>
     <Route path="/" component={HomeRoute} />
-    <Route path="/marketplace" component={Marketplace} />
+        <Route path="/general-store" component={GeneralStore} />
+        <Route path="/marketplace" component={Marketplace} />
     <Route path="/auctions/:id" component={Auctions} />
     <Route path="/auctions" component={Auctions} />
      <Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} />
@@ -152,7 +154,7 @@ function Router() {
 }
 
 function AuthRoutesWithoutClerk() {
-   return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+   return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
  function AuthUnavailable({ mode }: { mode: string }) {

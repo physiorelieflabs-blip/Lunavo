@@ -84,14 +84,22 @@ export default function Orders() {
     });
   };
 
-  const changeOrderStatus = (id: number, status: 'paid' | 'cancelled') => {
-    updateOrderStatus.mutate({ id, data: { status } }, {
+  const cancelOrder = (id: number) => {
+    updateOrderStatus.mutate({ id, data: { status: 'cancelled' } }, {
       onSuccess: () => {
-        setMessage(status === 'paid' ? 'Payment confirmed. The sale is now in your ledger.' : 'Pending checkout canceled.');
+        setMessage('Pending checkout canceled and its inventory hold released.');
         invalidateOrders();
       },
-      onError: () => setMessage('That order could not be updated. Only pending checkout orders can be changed.'),
+      onError: () => setMessage('That order could not be canceled. Refresh and try again.'),
     });
+  };
+
+  const changeOrderStatus = (id: number, status: 'paid' | 'cancelled') => {
+    if (status === 'paid') {
+      window.location.assign('/finance');
+      return;
+    }
+    cancelOrder(id);
   };
 
   if (orders.isLoading || products.isLoading) return <AppShell><LoadingState label="Loading order ledger" /></AppShell>;

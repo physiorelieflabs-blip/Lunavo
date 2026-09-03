@@ -325,6 +325,7 @@ import {
   trainMerchantAiModel,
   simulateMerchantScenario,
 } from "../lib/ai";
+import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 
 const router: IRouter = Router();
 class CommerceAuthorizationError extends Error {
@@ -373,9 +374,9 @@ router.use((req, _res, next) => {
     /^\/merchant\/auctions(?:\/|$)/.test(path) ? "marketplace.manage" :
     /^\/auctions$/.test(path) && req.method === "POST" ? "marketplace.manage" :
     /^\/marketplace\/(management|listings|billing)/.test(path) ? "marketplace.manage" :
-    /^\/marketplace\/products/.test(path) ? "marketplace.manage" :
+    /^\/marketplace\/products/.test(path) && req.method !== "GET" ? "marketplace.manage" :
     /^\/events(?:\/|$)|^\/notifications(?:\/|$)/.test(path) ? "orders.read" : null;
-  const blocksLocationScoped = /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
+  const blocksLocationScoped = !(/^\/marketplace\/products/.test(path) && req.method === "GET") && /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
   workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
 });
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
@@ -461,11 +462,8 @@ function csvDocument(headers: string[], rows: unknown[][]): string {
   return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
-function daysSince(date: Date): number {
-  return Math.max(
-    0,
-    Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)),
-  );
+function daysSince(date: Date, timeZone = "UTC"): number {
+  return calendarDaysSince(date, new Date(), timeZone);
 }
 
 function storeSlug(storeName: string): string {
@@ -787,6 +785,21 @@ async function getSubscriptionForMerchant(
           .limit(1)
       )[0];
     }
+  if (!subscription.billingTimezone) {
+    const location = (
+      await db
+        .select({ timezone: merchantLocationsTable.timezone })
+        .from(merchantLocationsTable)
+        .where(and(eq(merchantLocationsTable.merchantId, merchant.id), eq(merchantLocationsTable.isActive, true)))
+        .orderBy(desc(merchantLocationsTable.isDefault))
+        .limit(1)
+    )[0];
+    [subscription] = await db
+      .update(subscriptionsTable)
+      .set({ billingTimezone: safeTimeZone(location?.timezone) })
+      .where(eq(subscriptionsTable.id, subscription.id))
+      .returning();
+  }
   }
   const shouldReprice =
     !isAdmin &&
@@ -851,7 +864,7 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
     0,
     toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
   );
-  const days = daysSince(merchant.registeredAt);
+  const days = daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC");
 
   if (remaining === 0 && subscription.status !== "active") {
     [subscription] = await db
@@ -910,7 +923,7 @@ function serializeSubscription(
   isAdmin = false,
 ) {
   const serverNow = new Date();
-  const days = daysSince(merchant.registeredAt);
+  const days = daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC");
   const trialEndsAt = new Date(
     merchant.registeredAt.getTime() + 15 * 24 * 60 * 60 * 1000,
   );
@@ -7193,7 +7206,7 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
           );
           return (
             outstanding > 0 &&
-            (daysSince(merchant.registeredAt) >= 10 ||
+            (daysSince(merchant.registeredAt, subscription?.billingTimezone ?? "UTC") >= 10 ||
               merchant.status === "suspended")
           );
         },
@@ -7241,7 +7254,7 @@ router.get("/admin/merchants", async (req, res): Promise<void> => {
             : toNumber(enforced.subscription.amountDue),
         earningsHeld: toNumber(enforced.subscription.earningsHeld),
         registeredAt: enforced.merchant.registeredAt,
-        daysSinceRegistration: daysSince(enforced.merchant.registeredAt),
+        daysSinceRegistration: daysSince(enforced.merchant.registeredAt, enforced.subscription.billingTimezone ?? "UTC"),
       };
     }),
   );
@@ -7299,7 +7312,7 @@ router.patch("/admin/merchants/:id/status", async (req, res): Promise<void> => {
       amountDue: toNumber(subscription.amountDue),
       earningsHeld: toNumber(subscription.earningsHeld),
       registeredAt: merchant.registeredAt,
-      daysSinceRegistration: daysSince(merchant.registeredAt),
+      daysSinceRegistration: daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC"),
     }),
   );
 });
