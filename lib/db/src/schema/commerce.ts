@@ -28,6 +28,9 @@ export const merchantsTable = pgTable("merchants", {
   email: text("email").notNull().unique(),
   storeName: text("store_name").notNull(),
   currency: text("currency").notNull().default("USD"),
+  taxRate: numeric("tax_rate", { precision: 5, scale: 2 }).notNull().default("0"),
+  shippingFee: numeric("shipping_fee", { precision: 12, scale: 2 }).notNull().default("0"),
+  freeShippingThreshold: numeric("free_shipping_threshold", { precision: 12, scale: 2 }),
   status: text("status").notNull().default("active"),
   registeredAt: timestamp("registered_at", { withTimezone: true })
     .notNull()
@@ -304,6 +307,9 @@ export const ordersTable = pgTable(
       .notNull()
       .references(() => customersTable.id),
     orderNumber: text("order_number").notNull(),
+    subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
+    taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    shippingAmount: numeric("shipping_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     total: numeric("total", { precision: 12, scale: 2 }).notNull(),
     quantity: integer("quantity").notNull().default(1),
     currency: text("currency").notNull().default("USD"),
