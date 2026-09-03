@@ -1,7 +1,9 @@
-import { ArrowRight, Bell, CreditCard, LockKeyhole, MapPin, Store, UsersRound, WalletCards } from 'lucide-react';
+import { FormEvent, useEffect, useState } from 'react';
+import { useUser } from '@clerk/react';
+import { ArrowRight, Bell, CreditCard, LockKeyhole, Mail, MapPin, Save, ShieldCheck, Store, UserRound, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { AppShell } from '@/components/app-shell';
-import { SectionHeading } from '@/components/primitives';
+import { LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 
 const groups = [
   {
@@ -35,6 +37,36 @@ const groups = [
 ];
 
 export default function Settings() {
+  const { user, isLoaded } = useUser();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [username, setUsername] = useState('');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    setFirstName(user.firstName ?? '');
+    setLastName(user.lastName ?? '');
+    setUsername(user.username ?? '');
+  }, [user?.id]);
+
+  const saveProfile = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!user) return;
+    setMessage('');
+    try {
+      await user.update({
+        firstName: firstName.trim() || null,
+        lastName: lastName.trim() || null,
+        username: username.trim() || null,
+      });
+      setMessage('Your account details have been updated.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Your account details could not be updated.');
+    }
+  };
+
+  if (!isLoaded) return <AppShell><LoadingState label="Loading account settings" /></AppShell>;
   return (
     <AppShell>
       <div className="mx-auto max-w-[1100px]">
@@ -46,6 +78,28 @@ export default function Settings() {
           </div>
           <Link href="/dashboard" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline underline-offset-4">Back to overview <ArrowRight className="h-4 w-4" /></Link>
         </div>
+
+        <section className="mt-9 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <SectionHeading eyebrow="Account profile" title="Your personal details" description="Change the name and username shown across your account. These identity details are managed securely by Clerk." />
+            <span className="grid h-10 w-10 place-items-center rounded-lg bg-[#e9e1cd] text-[#8a6826]"><UserRound className="h-5 w-5" /></span>
+          </div>
+          <form onSubmit={saveProfile} className="mt-6 grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-bold">First name<input value={firstName} onChange={(event) => setFirstName(event.target.value)} autoComplete="given-name" maxLength={64} className={inputClass} placeholder="Your first name" /></label>
+            <label className="text-sm font-bold">Last name<input value={lastName} onChange={(event) => setLastName(event.target.value)} autoComplete="family-name" maxLength={64} className={inputClass} placeholder="Your last name" /></label>
+            <label className="text-sm font-bold">Username<span className="ml-1 font-normal text-[#697687]">(optional)</span><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" maxLength={64} className={inputClass} placeholder="Choose a username" /></label>
+            <div className="rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 text-sm">
+              <p className="flex items-center gap-2 font-bold"><Mail className="h-4 w-4 text-[#a2772e]" />Primary email</p>
+              <p className="mt-1 truncate text-xs text-[#697687]">{user?.primaryEmailAddress?.emailAddress ?? 'No verified email on file'}</p>
+              <p className="mt-1 text-[11px] text-[#8994a2]">Email changes and verification are handled by Clerk account security.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 md:col-span-2">
+              <SubmitButton loading={false}><Save className="h-4 w-4" />Save account details</SubmitButton>
+              <Link href="/sign-in/forgot-password" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline underline-offset-4"><ShieldCheck className="h-4 w-4" />Change password</Link>
+            </div>
+          </form>
+          {message && <div className="mt-5"><Notice tone={message.includes('could not') || message.includes('not allowed') ? 'danger' : 'success'} title={message.includes('could not') || message.includes('not allowed') ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
+        </section>
 
         <div className="mt-9 space-y-8">
           {groups.map((group) => (
