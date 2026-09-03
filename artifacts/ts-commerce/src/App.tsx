@@ -36,6 +36,8 @@ import Invoices from '@/pages/invoices';
 import PublicInvoice from '@/pages/invoice-public';
 import Activity from '@/pages/activity';
 import Team from '@/pages/team';
+import Analytics from '@/pages/analytics';
+import Settings from '@/pages/settings';
 import Invite from '@/pages/invite';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId } from '@workspace/api-client-react';
@@ -118,6 +120,8 @@ function AuthRoutes() {
      <Route path="/invoice/:token" component={PublicInvoice} />
      <Route path="/invite/:token" component={Invite} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
+     <Route path="/analytics" component={() => <Protected><Analytics /></Protected>} />
+     <Route path="/settings" component={() => <Protected><Settings /></Protected>} />
      <Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
      <Route path="/activity" component={() => <Protected><Activity /></Protected>} />
