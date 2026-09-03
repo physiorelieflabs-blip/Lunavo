@@ -14,4 +14,14 @@ export interface AiSettingsInput {
   autonomyLevel: number;
   runMyBusiness: boolean;
   trainingOptIn: boolean;
+  /**
+     * @maxLength 180
+     * @nullable
+     */
+  goal?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  goalTarget?: number | null;
 }

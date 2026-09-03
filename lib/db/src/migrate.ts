@@ -26,6 +26,9 @@ const migrations = [
   "0015_customer_notes",
   "0016_customer_segments",
   "0017_subscription_currency",
+  "0018_ai_goals",
+  "0019_payment_links",
+  "0020_marketplace_management",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

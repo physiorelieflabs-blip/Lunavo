@@ -456,6 +456,13 @@ export interface AiSettings {
   autonomyLevel: number;
   runMyBusiness: boolean;
   trainingOptIn: boolean;
+  /** @nullable */
+  goal: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  goalTarget: number | null;
 }
 
 export interface AiSettingsInput {
@@ -466,6 +473,16 @@ export interface AiSettingsInput {
   autonomyLevel: number;
   runMyBusiness: boolean;
   trainingOptIn: boolean;
+  /**
+     * @maxLength 180
+     * @nullable
+     */
+  goal?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  goalTarget?: number | null;
 }
 
 export interface AiMetric {
@@ -498,6 +515,64 @@ export interface AiAgent {
   focus: string;
   status: string;
   insight: string;
+}
+
+export interface AiOpportunity {
+  category: string;
+  title: string;
+  detail: string;
+  priority: string;
+  /** @nullable */
+  href: string | null;
+}
+
+export interface AiPrediction {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  detail: string;
+  /** @nullable */
+  confidence: number | null;
+  estimate: boolean;
+}
+
+export interface AiBriefs {
+  morning: string;
+  weekly: string;
+  monthly: string;
+}
+
+export type AiSimulationInputScenario = typeof AiSimulationInputScenario[keyof typeof AiSimulationInputScenario];
+
+
+export const AiSimulationInputScenario = {
+  price_change: 'price_change',
+  discount_change: 'discount_change',
+  new_product: 'new_product',
+  new_branch: 'new_branch',
+  hiring: 'hiring',
+  supplier_change: 'supplier_change',
+  marketing_campaign: 'marketing_campaign',
+  inventory_change: 'inventory_change',
+} as const;
+
+export interface AiSimulationInput {
+  scenario: AiSimulationInputScenario;
+  value: number;
+}
+
+export interface AiSimulation {
+  scenario: string;
+  baselineRevenue: number;
+  estimatedRevenue: number;
+  /** @nullable */
+  estimatedCost: number | null;
+  /** @nullable */
+  estimatedMargin: number | null;
+  risk: string;
+  uncertainty: string;
+  assumptions: string[];
 }
 
 /**
@@ -588,11 +663,17 @@ export interface AiOverview {
   model: AiModel;
   settings: AiSettings;
   healthScore: number;
+  autonomyScore: number;
   brief: string;
   metrics: AiMetric[];
   signals: AiSignal[];
   recommendations: AiRecommendation[];
   agents: AiAgent[];
+  operatingTeam: AiAgent[];
+  opportunities: AiOpportunity[];
+  savings: AiOpportunity[];
+  predictions: AiPrediction[];
+  briefs: AiBriefs;
   awaitingApproval: number;
 }
 
@@ -1832,6 +1913,127 @@ export interface MarketplaceProduct {
   availabilityQuantity: number | null;
 }
 
+export interface MarketplaceListingInput {
+  /** @minimum 1 */
+  supplierProductId: number;
+}
+
+export type MarketplaceListingUpdateStatus = typeof MarketplaceListingUpdateStatus[keyof typeof MarketplaceListingUpdateStatus];
+
+
+export const MarketplaceListingUpdateStatus = {
+  paused: 'paused',
+  removed: 'removed',
+} as const;
+
+export interface MarketplaceListingUpdate {
+  status: MarketplaceListingUpdateStatus;
+}
+
+export interface MarketplaceBillingInput {
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  paymentReference: string;
+}
+
+export type MarketplaceListingReviewStatus = typeof MarketplaceListingReviewStatus[keyof typeof MarketplaceListingReviewStatus];
+
+
+export const MarketplaceListingReviewStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+  suspended: 'suspended',
+} as const;
+
+export interface MarketplaceListingReview {
+  status: MarketplaceListingReviewStatus;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  reviewNote?: string | null;
+}
+
+export interface MarketplaceAdminListing {
+  id: number;
+  merchantId: number;
+  merchantName: string;
+  productTitle: string;
+  status: string;
+  /** @nullable */
+  reviewNote: string | null;
+  listingFeeAmount: number;
+  listingFeeCurrency: string;
+  listingFeeStatus: string;
+  /** @nullable */
+  paymentReference: string | null;
+  createdAt: string;
+}
+
+export type MarketplaceBillingReviewStatus = typeof MarketplaceBillingReviewStatus[keyof typeof MarketplaceBillingReviewStatus];
+
+
+export const MarketplaceBillingReviewStatus = {
+  paid: 'paid',
+  rejected: 'rejected',
+} as const;
+
+export interface MarketplaceBillingReview {
+  status: MarketplaceBillingReviewStatus;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  reviewNote?: string | null;
+}
+
+export interface MarketplaceListing {
+  id: number;
+  supplierProductId: number;
+  productTitle: string;
+  productStatus: string;
+  status: string;
+  /** @nullable */
+  reviewNote: string | null;
+  listingFeeAmount: number;
+  listingFeeCurrency: string;
+  listingFeeStatus: string;
+  createdAt: string;
+  /** @nullable */
+  reviewedAt: string | null;
+}
+
+export interface MarketplaceBillingRecord {
+  id: number;
+  /** @nullable */
+  listingId: number | null;
+  kind: string;
+  amount: number;
+  currency: string;
+  status: string;
+  /** @nullable */
+  paymentReference: string | null;
+  /** @nullable */
+  reviewNote: string | null;
+  createdAt: string;
+  /** @nullable */
+  paidAt: string | null;
+}
+
+export type MarketplaceManagementMonthlyFee = {
+  amount: number;
+  currency: string;
+  status: string;
+};
+
+export interface MarketplaceManagement {
+  listings: MarketplaceListing[];
+  billing: MarketplaceBillingRecord[];
+  monthlyFee: MarketplaceManagementMonthlyFee;
+}
+
 export interface PublicCheckoutInput {
   /** @minimum 1 */
   supplierProductId: number;
@@ -1878,6 +2080,96 @@ export interface PublicCheckoutOrder {
   currency: string;
   status: PublicCheckoutOrderStatus;
   paymentMessage: string;
+}
+
+export interface PaymentLinkInput {
+  /**
+     * @minLength 2
+     * @maxLength 180
+     */
+  title: string;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  description?: string | null;
+  /** @minimum 0.01 */
+  amount: number;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+  /** @nullable */
+  expiresAt?: string | null;
+}
+
+export type PaymentLinkStatusInputStatus = typeof PaymentLinkStatusInputStatus[keyof typeof PaymentLinkStatusInputStatus];
+
+
+export const PaymentLinkStatusInputStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PaymentLinkStatusInput {
+  status: PaymentLinkStatusInputStatus;
+}
+
+export type PaymentLinkRecordStatus = typeof PaymentLinkRecordStatus[keyof typeof PaymentLinkRecordStatus];
+
+
+export const PaymentLinkRecordStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PaymentLinkRecord {
+  id: number;
+  token: string;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  amount: number;
+  currency: string;
+  status: PaymentLinkRecordStatus;
+  /** @nullable */
+  expiresAt: string | null;
+  publicPath: string;
+  createdAt: string;
+}
+
+export interface PublicPaymentLink {
+  token: string;
+  title: string;
+  /** @nullable */
+  description: string | null;
+  amount: number;
+  currency: string;
+  /** @nullable */
+  expiresAt: string | null;
+}
+
+export interface PaymentLinkCheckoutInput {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  customerName: string;
+  customerEmail: string;
+  /** @maxLength 40 */
+  customerPhone?: string;
+  /**
+     * @minLength 8
+     * @maxLength 500
+     */
+  shippingAddress: string;
+  marketingConsent?: boolean;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     */
+  idempotencyKey: string;
 }
 
 export type GetMarketExchangeRateParams = {

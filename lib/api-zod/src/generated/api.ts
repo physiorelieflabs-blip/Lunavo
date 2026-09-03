@@ -230,6 +230,8 @@ export const ListDashboardActivityResponse = zod.array(ListDashboardActivityResp
 export const getAiOverviewResponseSettingsAutonomyLevelMin = 0;
 export const getAiOverviewResponseSettingsAutonomyLevelMax = 4;
 
+export const getAiOverviewResponseSettingsGoalTargetMin = 0;
+
 
 
 export const GetAiOverviewResponse = zod.object({
@@ -246,9 +248,12 @@ export const GetAiOverviewResponse = zod.object({
   "settings": zod.object({
   "autonomyLevel": zod.int().min(getAiOverviewResponseSettingsAutonomyLevelMin).max(getAiOverviewResponseSettingsAutonomyLevelMax),
   "runMyBusiness": zod.boolean(),
-  "trainingOptIn": zod.boolean()
+  "trainingOptIn": zod.boolean(),
+  "goal": zod.string().nullable(),
+  "goalTarget": zod.number().min(getAiOverviewResponseSettingsGoalTargetMin).nullable()
 }),
   "healthScore": zod.number(),
+  "autonomyScore": zod.number(),
   "brief": zod.string(),
   "metrics": zod.array(zod.object({
   "key": zod.string(),
@@ -278,7 +283,62 @@ export const GetAiOverviewResponse = zod.object({
   "status": zod.string(),
   "insight": zod.string()
 })),
+  "operatingTeam": zod.array(zod.object({
+  "key": zod.string(),
+  "name": zod.string(),
+  "focus": zod.string(),
+  "status": zod.string(),
+  "insight": zod.string()
+})),
+  "opportunities": zod.array(zod.object({
+  "category": zod.string(),
+  "title": zod.string(),
+  "detail": zod.string(),
+  "priority": zod.string(),
+  "href": zod.string().nullable()
+})),
+  "savings": zod.array(zod.object({
+  "category": zod.string(),
+  "title": zod.string(),
+  "detail": zod.string(),
+  "priority": zod.string(),
+  "href": zod.string().nullable()
+})),
+  "predictions": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "value": zod.number(),
+  "unit": zod.string(),
+  "detail": zod.string(),
+  "confidence": zod.number().nullable(),
+  "estimate": zod.boolean()
+})),
+  "briefs": zod.object({
+  "morning": zod.string(),
+  "weekly": zod.string(),
+  "monthly": zod.string()
+}),
   "awaitingApproval": zod.int()
+})
+
+
+/**
+ * @summary Simulate a business scenario with uncertainty labels
+ */
+export const SimulateAiScenarioBody = zod.object({
+  "scenario": zod.enum(['price_change', 'discount_change', 'new_product', 'new_branch', 'hiring', 'supplier_change', 'marketing_campaign', 'inventory_change']),
+  "value": zod.number()
+})
+
+export const SimulateAiScenarioResponse = zod.object({
+  "scenario": zod.string(),
+  "baselineRevenue": zod.number(),
+  "estimatedRevenue": zod.number(),
+  "estimatedCost": zod.number().nullable(),
+  "estimatedMargin": zod.number().nullable(),
+  "risk": zod.string(),
+  "uncertainty": zod.string(),
+  "assumptions": zod.array(zod.string())
 })
 
 
@@ -303,12 +363,16 @@ export const TrainAiModelResponse = zod.object({
 export const getAiSettingsResponseAutonomyLevelMin = 0;
 export const getAiSettingsResponseAutonomyLevelMax = 4;
 
+export const getAiSettingsResponseGoalTargetMin = 0;
+
 
 
 export const GetAiSettingsResponse = zod.object({
   "autonomyLevel": zod.int().min(getAiSettingsResponseAutonomyLevelMin).max(getAiSettingsResponseAutonomyLevelMax),
   "runMyBusiness": zod.boolean(),
-  "trainingOptIn": zod.boolean()
+  "trainingOptIn": zod.boolean(),
+  "goal": zod.string().nullable(),
+  "goalTarget": zod.number().min(getAiSettingsResponseGoalTargetMin).nullable()
 })
 
 
@@ -318,23 +382,33 @@ export const GetAiSettingsResponse = zod.object({
 export const updateAiSettingsBodyAutonomyLevelMin = 0;
 export const updateAiSettingsBodyAutonomyLevelMax = 4;
 
+export const updateAiSettingsBodyGoalMax = 180;
+
+export const updateAiSettingsBodyGoalTargetMin = 0;
+
 
 
 export const UpdateAiSettingsBody = zod.object({
   "autonomyLevel": zod.int().min(updateAiSettingsBodyAutonomyLevelMin).max(updateAiSettingsBodyAutonomyLevelMax),
   "runMyBusiness": zod.boolean(),
-  "trainingOptIn": zod.boolean()
+  "trainingOptIn": zod.boolean(),
+  "goal": zod.string().max(updateAiSettingsBodyGoalMax).nullish(),
+  "goalTarget": zod.number().min(updateAiSettingsBodyGoalTargetMin).nullish()
 })
 
 export const updateAiSettingsResponseAutonomyLevelMin = 0;
 export const updateAiSettingsResponseAutonomyLevelMax = 4;
+
+export const updateAiSettingsResponseGoalTargetMin = 0;
 
 
 
 export const UpdateAiSettingsResponse = zod.object({
   "autonomyLevel": zod.int().min(updateAiSettingsResponseAutonomyLevelMin).max(updateAiSettingsResponseAutonomyLevelMax),
   "runMyBusiness": zod.boolean(),
-  "trainingOptIn": zod.boolean()
+  "trainingOptIn": zod.boolean(),
+  "goal": zod.string().nullable(),
+  "goalTarget": zod.number().min(updateAiSettingsResponseGoalTargetMin).nullable()
 })
 
 
@@ -710,6 +784,86 @@ export const UpdateOrderStatusResponse = zod.object({
   "productTitle": zod.string().nullable(),
   "shippingAddress": zod.string().nullable(),
   "fulfillmentStatus": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List the merchant's payment links
+ */
+export const ListPaymentLinksResponseItem = zod.object({
+  "id": zod.int(),
+  "token": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.enum(['active', 'archived']),
+  "expiresAt": zod.coerce.date().nullable(),
+  "publicPath": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListPaymentLinksResponse = zod.array(ListPaymentLinksResponseItem)
+
+
+/**
+ * @summary Create a fixed-price payment link
+ */
+export const createPaymentLinkBodyTitleMin = 2;
+export const createPaymentLinkBodyTitleMax = 180;
+
+export const createPaymentLinkBodyDescriptionMax = 1000;
+
+export const createPaymentLinkBodyAmountMin = 0.01;
+
+export const createPaymentLinkBodyCurrencyMin = 3;
+export const createPaymentLinkBodyCurrencyMax = 3;
+
+
+
+export const CreatePaymentLinkBody = zod.object({
+  "title": zod.string().min(createPaymentLinkBodyTitleMin).max(createPaymentLinkBodyTitleMax),
+  "description": zod.string().max(createPaymentLinkBodyDescriptionMax).nullish(),
+  "amount": zod.number().min(createPaymentLinkBodyAmountMin),
+  "currency": zod.string().min(createPaymentLinkBodyCurrencyMin).max(createPaymentLinkBodyCurrencyMax),
+  "expiresAt": zod.coerce.date().nullish()
+})
+
+export const CreatePaymentLinkResponse = zod.object({
+  "id": zod.int(),
+  "token": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.enum(['active', 'archived']),
+  "expiresAt": zod.coerce.date().nullable(),
+  "publicPath": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Archive or reactivate a payment link
+ */
+export const UpdatePaymentLinkParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdatePaymentLinkBody = zod.object({
+  "status": zod.enum(['active', 'archived'])
+})
+
+export const UpdatePaymentLinkResponse = zod.object({
+  "id": zod.int(),
+  "token": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.enum(['active', 'archived']),
+  "expiresAt": zod.coerce.date().nullable(),
+  "publicPath": zod.string(),
   "createdAt": zod.coerce.date()
 })
 
@@ -1804,6 +1958,75 @@ export const CreatePublicCheckoutResponse = zod.object({
 
 
 /**
+ * @summary View a public fixed-price payment link
+ */
+export const getPublicPaymentLinkPathTokenMin = 20;
+export const getPublicPaymentLinkPathTokenMax = 120;
+
+
+
+export const GetPublicPaymentLinkParams = zod.object({
+  "token": zod.coerce.string().min(getPublicPaymentLinkPathTokenMin).max(getPublicPaymentLinkPathTokenMax)
+})
+
+export const GetPublicPaymentLinkResponse = zod.object({
+  "token": zod.string(),
+  "title": zod.string(),
+  "description": zod.string().nullable(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "expiresAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Create a pending order from a public payment link
+ */
+export const createPaymentLinkCheckoutPathTokenMin = 20;
+export const createPaymentLinkCheckoutPathTokenMax = 120;
+
+
+
+export const CreatePaymentLinkCheckoutParams = zod.object({
+  "token": zod.coerce.string().min(createPaymentLinkCheckoutPathTokenMin).max(createPaymentLinkCheckoutPathTokenMax)
+})
+
+export const createPaymentLinkCheckoutBodyCustomerNameMin = 2;
+export const createPaymentLinkCheckoutBodyCustomerNameMax = 160;
+
+export const createPaymentLinkCheckoutBodyCustomerPhoneMax = 40;
+
+export const createPaymentLinkCheckoutBodyShippingAddressMin = 8;
+export const createPaymentLinkCheckoutBodyShippingAddressMax = 500;
+
+export const createPaymentLinkCheckoutBodyIdempotencyKeyMin = 8;
+export const createPaymentLinkCheckoutBodyIdempotencyKeyMax = 120;
+
+
+
+export const CreatePaymentLinkCheckoutBody = zod.object({
+  "customerName": zod.string().min(createPaymentLinkCheckoutBodyCustomerNameMin).max(createPaymentLinkCheckoutBodyCustomerNameMax),
+  "customerEmail": zod.email(),
+  "customerPhone": zod.string().max(createPaymentLinkCheckoutBodyCustomerPhoneMax).optional(),
+  "shippingAddress": zod.string().min(createPaymentLinkCheckoutBodyShippingAddressMin).max(createPaymentLinkCheckoutBodyShippingAddressMax),
+  "marketingConsent": zod.boolean().optional(),
+  "idempotencyKey": zod.string().min(createPaymentLinkCheckoutBodyIdempotencyKeyMin).max(createPaymentLinkCheckoutBodyIdempotencyKeyMax)
+})
+
+export const CreatePaymentLinkCheckoutResponse = zod.object({
+  "orderNumber": zod.string(),
+  "title": zod.string(),
+  "subtotal": zod.number(),
+  "tax": zod.number(),
+  "shipping": zod.number(),
+  "total": zod.number(),
+  "currency": zod.string(),
+  "status": zod.enum(['pending']),
+  "paymentMessage": zod.string()
+})
+
+
+/**
  * @summary Discover published merchant products opted into the central marketplace
  */
 export const listMarketplaceProductsQuerySearchMax = 120;
@@ -1843,6 +2066,124 @@ export const ListMarketplaceProductsResponseItem = zod.object({
   "availabilityQuantity": zod.int().nullable()
 })
 export const ListMarketplaceProductsResponse = zod.array(ListMarketplaceProductsResponseItem)
+
+
+/**
+ * @summary Get merchant marketplace listings and billing history
+ */
+export const GetMarketplaceManagementResponse = zod.object({
+  "listings": zod.array(zod.object({
+  "id": zod.int(),
+  "supplierProductId": zod.int(),
+  "productTitle": zod.string(),
+  "productStatus": zod.string(),
+  "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "listingFeeAmount": zod.number(),
+  "listingFeeCurrency": zod.string(),
+  "listingFeeStatus": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.coerce.date().nullable()
+})),
+  "billing": zod.array(zod.object({
+  "id": zod.int(),
+  "listingId": zod.int().nullable(),
+  "kind": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
+})),
+  "monthlyFee": zod.object({
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string()
+})
+})
+
+
+/**
+ * @summary Submit a published product for marketplace review
+ */
+
+
+
+export const CreateMarketplaceListingBody = zod.object({
+  "supplierProductId": zod.int().min(1)
+})
+
+export const CreateMarketplaceListingResponse = zod.object({
+  "id": zod.int(),
+  "supplierProductId": zod.int(),
+  "productTitle": zod.string(),
+  "productStatus": zod.string(),
+  "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "listingFeeAmount": zod.number(),
+  "listingFeeCurrency": zod.string(),
+  "listingFeeStatus": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Pause or remove a merchant marketplace listing
+ */
+export const UpdateMarketplaceListingParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateMarketplaceListingBody = zod.object({
+  "status": zod.enum(['paused', 'removed'])
+})
+
+export const UpdateMarketplaceListingResponse = zod.object({
+  "id": zod.int(),
+  "supplierProductId": zod.int(),
+  "productTitle": zod.string(),
+  "productStatus": zod.string(),
+  "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "listingFeeAmount": zod.number(),
+  "listingFeeCurrency": zod.string(),
+  "listingFeeStatus": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Submit a manual marketplace fee payment reference for review
+ */
+export const SubmitMarketplaceBillingParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const submitMarketplaceBillingBodyPaymentReferenceMin = 3;
+export const submitMarketplaceBillingBodyPaymentReferenceMax = 160;
+
+
+
+export const SubmitMarketplaceBillingBody = zod.object({
+  "paymentReference": zod.string().min(submitMarketplaceBillingBodyPaymentReferenceMin).max(submitMarketplaceBillingBodyPaymentReferenceMax)
+})
+
+export const SubmitMarketplaceBillingResponse = zod.object({
+  "id": zod.int(),
+  "listingId": zod.int().nullable(),
+  "kind": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
+})
 
 
 /**
@@ -1991,6 +2332,86 @@ export const GetAdminOverviewResponse = zod.object({
   "reviewedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 }))
+})
+
+
+/**
+ * @summary Review a marketplace listing
+ */
+export const ReviewMarketplaceListingParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const reviewMarketplaceListingBodyReviewNoteMax = 500;
+
+
+
+export const ReviewMarketplaceListingBody = zod.object({
+  "status": zod.enum(['approved', 'rejected', 'suspended']),
+  "reviewNote": zod.string().max(reviewMarketplaceListingBodyReviewNoteMax).nullish()
+})
+
+export const ReviewMarketplaceListingResponse = zod.object({
+  "id": zod.int(),
+  "supplierProductId": zod.int(),
+  "productTitle": zod.string(),
+  "productStatus": zod.string(),
+  "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "listingFeeAmount": zod.number(),
+  "listingFeeCurrency": zod.string(),
+  "listingFeeStatus": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary List marketplace listings awaiting platform review
+ */
+export const ListMarketplaceAdminQueueResponseItem = zod.object({
+  "id": zod.int(),
+  "merchantId": zod.int(),
+  "merchantName": zod.string(),
+  "productTitle": zod.string(),
+  "status": zod.string(),
+  "reviewNote": zod.string().nullable(),
+  "listingFeeAmount": zod.number(),
+  "listingFeeCurrency": zod.string(),
+  "listingFeeStatus": zod.string(),
+  "paymentReference": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const ListMarketplaceAdminQueueResponse = zod.array(ListMarketplaceAdminQueueResponseItem)
+
+
+/**
+ * @summary Verify or reject a marketplace fee reference
+ */
+export const ReviewMarketplaceBillingParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const reviewMarketplaceBillingBodyReviewNoteMax = 500;
+
+
+
+export const ReviewMarketplaceBillingBody = zod.object({
+  "status": zod.enum(['paid', 'rejected']),
+  "reviewNote": zod.string().max(reviewMarketplaceBillingBodyReviewNoteMax).nullish()
+})
+
+export const ReviewMarketplaceBillingResponse = zod.object({
+  "id": zod.int(),
+  "listingId": zod.int().nullable(),
+  "kind": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
 })
 
 

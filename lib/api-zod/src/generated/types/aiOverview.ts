@@ -6,8 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AiAgent } from './aiAgent';
+import type { AiBriefs } from './aiBriefs';
 import type { AiMetric } from './aiMetric';
 import type { AiModel } from './aiModel';
+import type { AiOpportunity } from './aiOpportunity';
+import type { AiPrediction } from './aiPrediction';
 import type { AiRecommendation } from './aiRecommendation';
 import type { AiSettings } from './aiSettings';
 import type { AiSignal } from './aiSignal';
@@ -16,10 +19,16 @@ export interface AiOverview {
   model: AiModel;
   settings: AiSettings;
   healthScore: number;
+  autonomyScore: number;
   brief: string;
   metrics: AiMetric[];
   signals: AiSignal[];
   recommendations: AiRecommendation[];
   agents: AiAgent[];
+  operatingTeam: AiAgent[];
+  opportunities: AiOpportunity[];
+  savings: AiOpportunity[];
+  predictions: AiPrediction[];
+  briefs: AiBriefs;
   awaitingApproval: number;
 }

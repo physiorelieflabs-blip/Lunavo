@@ -368,6 +368,66 @@ export const ordersTable = pgTable(
   ],
 );
 
+export const paymentLinksTable = pgTable(
+  "payment_links",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    token: text("token").notNull().unique(),
+    title: text("title").notNull(),
+    description: text("description"),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    status: text("status").notNull().default("active"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("payment_links_merchant_status_idx").on(table.merchantId, table.status),
+  ],
+);
+
+export const marketplaceListingsTable = pgTable(
+  "marketplace_listings",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id),
+    status: text("status").notNull().default("pending"),
+    reviewNote: text("review_note"),
+    listingFeeAmount: numeric("listing_fee_amount", { precision: 12, scale: 2 }).notNull().default("5"),
+    listingFeeCurrency: text("listing_fee_currency").notNull().default("USD"),
+    listingFeeStatus: text("listing_fee_status").notNull().default("due"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("marketplace_listings_merchant_product_unique").on(table.merchantId, table.supplierProductId),
+    index("marketplace_listings_merchant_status_idx").on(table.merchantId, table.status),
+  ],
+);
+
+export const marketplaceBillingRecordsTable = pgTable(
+  "marketplace_billing_records",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    listingId: integer("listing_id").references(() => marketplaceListingsTable.id),
+    kind: text("kind").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    status: text("status").notNull().default("due"),
+    paymentReference: text("payment_reference"),
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("marketplace_billing_merchant_created_idx").on(table.merchantId, table.createdAt),
+  ],
+);
+
 export const aiModelsTable = pgTable(
   "ai_models",
   {
@@ -406,6 +466,8 @@ export const aiSettingsTable = pgTable(
     autonomyLevel: integer("autonomy_level").notNull().default(1),
     runMyBusiness: boolean("run_my_business").notNull().default(false),
     trainingOptIn: boolean("training_opt_in").notNull().default(true),
+    goal: text("goal"),
+    goalTarget: numeric("goal_target", { precision: 12, scale: 2 }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()

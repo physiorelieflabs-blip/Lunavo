@@ -10,9 +10,12 @@ import {
 } from 'lucide-react';
 import {
   getGetAdminOverviewQueryKey,
+  getListMarketplaceAdminQueueQueryKey,
   getListMerchantsQueryKey,
   useGetAdminOverview,
+  useListMarketplaceAdminQueue,
   useReviewBankTransfer,
+  useReviewMarketplaceListing,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -31,6 +34,8 @@ import { dateLabel, money } from '@/lib/format';
 export default function Admin() {
   const overview = useGetAdminOverview();
   const review = useReviewBankTransfer();
+  const marketplace = useListMarketplaceAdminQueue();
+  const marketplaceReview = useReviewMarketplaceListing();
   const queryClient = useQueryClient();
 
   const reviewPayment = (id: number, status: 'confirmed' | 'rejected') => {
@@ -53,6 +58,16 @@ export default function Admin() {
           ]);
         },
       },
+    );
+  };
+
+  const reviewMarketplaceListing = (id: number, status: 'approved' | 'rejected' | 'suspended') => {
+    const action = status === 'approved' ? 'Approve' : status === 'rejected' ? 'Reject' : 'Suspend';
+    if (!window.confirm(`${action} this marketplace listing? This decision is audited.`)) return;
+    const reviewNote = window.prompt('Optional review note') ?? undefined;
+    marketplaceReview.mutate(
+      { id, data: { status, reviewNote: reviewNote || undefined } },
+      { onSuccess: () => void queryClient.invalidateQueries({ queryKey: getListMarketplaceAdminQueueQueryKey() }) },
     );
   };
 
@@ -260,6 +275,10 @@ export default function Admin() {
             )}
           </section>
         </div>
+        <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
+          <SectionHeading eyebrow="Marketplace administration" title="Review merchant listings" description="Approval and fee verification are separate decisions. A listing is not public until both the listing is approved and its fee is verified." />
+          {marketplace.isLoading ? <LoadingState label="Loading marketplace review queue" /> : marketplace.isError ? <ErrorState onRetry={() => void marketplace.refetch()} /> : marketplace.data?.length ? <div className="space-y-3">{marketplace.data.map((listing) => <div key={listing.id} className="rounded-xl border border-[#ded8cd] bg-[#f7f4ed] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-extrabold">{listing.productTitle}</p><p className="mt-1 text-xs text-[#697687]">{listing.merchantName} · {dateLabel(listing.createdAt)}</p><p className="mt-1 text-xs text-[#697687]">Fee {money(listing.listingFeeAmount, listing.listingFeeCurrency)} · {listing.listingFeeStatus}{listing.paymentReference ? ` · ref ${listing.paymentReference}` : ''}</p></div><div className="flex flex-wrap gap-2"><Badge tone={listing.status === 'approved' ? 'success' : listing.status === 'rejected' ? 'danger' : 'warning'}>{listing.status}</Badge><Badge tone={listing.listingFeeStatus === 'paid' ? 'success' : 'warning'}>{listing.listingFeeStatus}</Badge></div></div>{listing.reviewNote && <p className="mt-3 text-xs italic text-[#697687]">“{listing.reviewNote}”</p>}{listing.status === 'pending' && <div className="mt-4 flex flex-wrap gap-2"><button onClick={() => reviewMarketplaceListing(listing.id, 'approved')} disabled={marketplaceReview.isPending} className="inline-flex min-h-8 items-center gap-2 rounded-lg bg-[#2f6958] px-3 text-xs font-extrabold text-white disabled:opacity-50"><Check className="h-3.5 w-3.5" />Approve listing</button><button onClick={() => reviewMarketplaceListing(listing.id, 'rejected')} disabled={marketplaceReview.isPending} className="inline-flex min-h-8 items-center gap-2 rounded-lg border border-[#e2b9b3] bg-[#fff8f5] px-3 text-xs font-extrabold text-[#a33e38] disabled:opacity-50"><X className="h-3.5 w-3.5" />Reject</button></div>}</div>)}</div> : <EmptyState title="No marketplace listings" description="Merchant submissions will appear here for platform review." />}
+        </section>
       </div>
     </AppShell>
   );

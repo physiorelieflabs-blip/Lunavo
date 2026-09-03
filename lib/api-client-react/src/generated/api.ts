@@ -31,6 +31,8 @@ import type {
   AiOverview,
   AiSettings,
   AiSettingsInput,
+  AiSimulation,
+  AiSimulationInput,
   BankAccountInput,
   BankTransferInput,
   CheckoutSettings,
@@ -52,6 +54,15 @@ import type {
   ListMarketplaceProductsParams,
   ManualSupplierProductInput,
   MarketExchangeRate,
+  MarketplaceAdminListing,
+  MarketplaceBillingInput,
+  MarketplaceBillingRecord,
+  MarketplaceBillingReview,
+  MarketplaceListing,
+  MarketplaceListingInput,
+  MarketplaceListingReview,
+  MarketplaceListingUpdate,
+  MarketplaceManagement,
   MarketplaceProduct,
   Merchant,
   MerchantBalance,
@@ -60,11 +71,16 @@ import type {
   OrderStatusInput,
   PaymentIntent,
   PaymentIntentInput,
+  PaymentLinkCheckoutInput,
+  PaymentLinkInput,
+  PaymentLinkRecord,
+  PaymentLinkStatusInput,
   PaymentRecord,
   PaymentReviewInput,
   PaymentVerificationInput,
   PublicCheckoutInput,
   PublicCheckoutOrder,
+  PublicPaymentLink,
   PublicStore,
   ReconciliationInput,
   ReconciliationRecord,
@@ -886,6 +902,77 @@ export function useGetAiOverview<TData = Awaited<ReturnType<typeof getAiOverview
 
 
 
+
+export const getSimulateAiScenarioUrl = () => {
+
+
+
+
+  return `/api/ai/simulate`
+}
+
+/**
+ * @summary Simulate a business scenario with uncertainty labels
+ */
+export const simulateAiScenario = async (aiSimulationInput: AiSimulationInput, options?: Parameters<typeof customFetch>[1]): Promise<AiSimulation> => {
+
+  return customFetch<AiSimulation>(getSimulateAiScenarioUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiSimulationInput)
+  }
+);}
+
+
+
+
+
+export const getSimulateAiScenarioMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof simulateAiScenario>>, TError,{data: BodyType<AiSimulationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof simulateAiScenario>>, TError,{data: BodyType<AiSimulationInput>}, TContext> => {
+
+const mutationKey = ['simulateAiScenario'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof simulateAiScenario>>, {data: BodyType<AiSimulationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  simulateAiScenario(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SimulateAiScenarioMutationResult = NonNullable<Awaited<ReturnType<typeof simulateAiScenario>>>
+    export type SimulateAiScenarioMutationBody = BodyType<AiSimulationInput>
+    export type SimulateAiScenarioMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Simulate a business scenario with uncertainty labels
+ */
+export const useSimulateAiScenario = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof simulateAiScenario>>, TError,{data: BodyType<AiSimulationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof simulateAiScenario>>,
+        TError,
+        {data: BodyType<AiSimulationInput>},
+        TContext
+      > => {
+      return useMutation(getSimulateAiScenarioMutationOptions(options));
+    }
 
 export const getTrainAiModelUrl = () => {
 
@@ -1976,6 +2063,226 @@ export const useUpdateOrderStatus = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateOrderStatusMutationOptions(options));
+    }
+
+export const getListPaymentLinksUrl = () => {
+
+
+
+
+  return `/api/payment-links`
+}
+
+/**
+ * @summary List the merchant's payment links
+ */
+export const listPaymentLinks = async ( options?: Parameters<typeof customFetch>[1]): Promise<PaymentLinkRecord[]> => {
+
+  return customFetch<PaymentLinkRecord[]>(getListPaymentLinksUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPaymentLinksQueryKey = () => {
+    return [
+    `/api/payment-links`
+    ] as const;
+    }
+
+
+export const getListPaymentLinksQueryOptions = <TData = Awaited<ReturnType<typeof listPaymentLinks>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPaymentLinks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPaymentLinksQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPaymentLinks>>> = ({ signal }) => listPaymentLinks({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPaymentLinks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPaymentLinksQueryResult = NonNullable<Awaited<ReturnType<typeof listPaymentLinks>>>
+export type ListPaymentLinksQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the merchant's payment links
+ */
+
+export function useListPaymentLinks<TData = Awaited<ReturnType<typeof listPaymentLinks>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPaymentLinks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPaymentLinksQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePaymentLinkUrl = () => {
+
+
+
+
+  return `/api/payment-links`
+}
+
+/**
+ * @summary Create a fixed-price payment link
+ */
+export const createPaymentLink = async (paymentLinkInput: PaymentLinkInput, options?: Parameters<typeof customFetch>[1]): Promise<PaymentLinkRecord> => {
+
+  return customFetch<PaymentLinkRecord>(getCreatePaymentLinkUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(paymentLinkInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePaymentLinkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentLink>>, TError,{data: BodyType<PaymentLinkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPaymentLink>>, TError,{data: BodyType<PaymentLinkInput>}, TContext> => {
+
+const mutationKey = ['createPaymentLink'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPaymentLink>>, {data: BodyType<PaymentLinkInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPaymentLink(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePaymentLinkMutationResult = NonNullable<Awaited<ReturnType<typeof createPaymentLink>>>
+    export type CreatePaymentLinkMutationBody = BodyType<PaymentLinkInput>
+    export type CreatePaymentLinkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a fixed-price payment link
+ */
+export const useCreatePaymentLink = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentLink>>, TError,{data: BodyType<PaymentLinkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPaymentLink>>,
+        TError,
+        {data: BodyType<PaymentLinkInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePaymentLinkMutationOptions(options));
+    }
+
+export const getUpdatePaymentLinkUrl = (id: number,) => {
+
+
+
+
+  return `/api/payment-links/${id}`
+}
+
+/**
+ * @summary Archive or reactivate a payment link
+ */
+export const updatePaymentLink = async (id: number,
+    paymentLinkStatusInput: PaymentLinkStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<PaymentLinkRecord> => {
+
+  return customFetch<PaymentLinkRecord>(getUpdatePaymentLinkUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(paymentLinkStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePaymentLinkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePaymentLink>>, TError,{id: number;data: BodyType<PaymentLinkStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePaymentLink>>, TError,{id: number;data: BodyType<PaymentLinkStatusInput>}, TContext> => {
+
+const mutationKey = ['updatePaymentLink'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePaymentLink>>, {id: number;data: BodyType<PaymentLinkStatusInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updatePaymentLink(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePaymentLinkMutationResult = NonNullable<Awaited<ReturnType<typeof updatePaymentLink>>>
+    export type UpdatePaymentLinkMutationBody = BodyType<PaymentLinkStatusInput>
+    export type UpdatePaymentLinkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Archive or reactivate a payment link
+ */
+export const useUpdatePaymentLink = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePaymentLink>>, TError,{id: number;data: BodyType<PaymentLinkStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePaymentLink>>,
+        TError,
+        {id: number;data: BodyType<PaymentLinkStatusInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePaymentLinkMutationOptions(options));
     }
 
 export const getGetWithdrawalSecurityUrl = () => {
@@ -3807,6 +4114,155 @@ export const useCreatePublicCheckout = <TError = ErrorType<unknown>,
       return useMutation(getCreatePublicCheckoutMutationOptions(options));
     }
 
+export const getGetPublicPaymentLinkUrl = (token: string,) => {
+
+
+
+
+  return `/api/public/payment-links/${token}`
+}
+
+/**
+ * @summary View a public fixed-price payment link
+ */
+export const getPublicPaymentLink = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicPaymentLink> => {
+
+  return customFetch<PublicPaymentLink>(getGetPublicPaymentLinkUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicPaymentLinkQueryKey = (token: string,) => {
+    return [
+    `/api/public/payment-links/${token}`
+    ] as const;
+    }
+
+
+export const getGetPublicPaymentLinkQueryOptions = <TData = Awaited<ReturnType<typeof getPublicPaymentLink>>, TError = ErrorType<unknown>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicPaymentLink>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicPaymentLinkQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicPaymentLink>>> = ({ signal }) => getPublicPaymentLink(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicPaymentLink>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicPaymentLinkQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicPaymentLink>>>
+export type GetPublicPaymentLinkQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary View a public fixed-price payment link
+ */
+
+export function useGetPublicPaymentLink<TData = Awaited<ReturnType<typeof getPublicPaymentLink>>, TError = ErrorType<unknown>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicPaymentLink>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicPaymentLinkQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePaymentLinkCheckoutUrl = (token: string,) => {
+
+
+
+
+  return `/api/public/payment-links/${token}/checkout`
+}
+
+/**
+ * @summary Create a pending order from a public payment link
+ */
+export const createPaymentLinkCheckout = async (token: string,
+    paymentLinkCheckoutInput: PaymentLinkCheckoutInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutOrder> => {
+
+  return customFetch<PublicCheckoutOrder>(getCreatePaymentLinkCheckoutUrl(token),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(paymentLinkCheckoutInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePaymentLinkCheckoutMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentLinkCheckout>>, TError,{token: string;data: BodyType<PaymentLinkCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPaymentLinkCheckout>>, TError,{token: string;data: BodyType<PaymentLinkCheckoutInput>}, TContext> => {
+
+const mutationKey = ['createPaymentLinkCheckout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPaymentLinkCheckout>>, {token: string;data: BodyType<PaymentLinkCheckoutInput>}> = (props) => {
+          const {token,data} = props ?? {};
+
+          return  createPaymentLinkCheckout(token,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePaymentLinkCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof createPaymentLinkCheckout>>>
+    export type CreatePaymentLinkCheckoutMutationBody = BodyType<PaymentLinkCheckoutInput>
+    export type CreatePaymentLinkCheckoutMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a pending order from a public payment link
+ */
+export const useCreatePaymentLinkCheckout = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentLinkCheckout>>, TError,{token: string;data: BodyType<PaymentLinkCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPaymentLinkCheckout>>,
+        TError,
+        {token: string;data: BodyType<PaymentLinkCheckoutInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePaymentLinkCheckoutMutationOptions(options));
+    }
+
 export const getListMarketplaceProductsUrl = (params?: ListMarketplaceProductsParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -3890,6 +4346,298 @@ export function useListMarketplaceProducts<TData = Awaited<ReturnType<typeof lis
 
 
 
+
+export const getGetMarketplaceManagementUrl = () => {
+
+
+
+
+  return `/api/marketplace/management`
+}
+
+/**
+ * @summary Get merchant marketplace listings and billing history
+ */
+export const getMarketplaceManagement = async ( options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceManagement> => {
+
+  return customFetch<MarketplaceManagement>(getGetMarketplaceManagementUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMarketplaceManagementQueryKey = () => {
+    return [
+    `/api/marketplace/management`
+    ] as const;
+    }
+
+
+export const getGetMarketplaceManagementQueryOptions = <TData = Awaited<ReturnType<typeof getMarketplaceManagement>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceManagement>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMarketplaceManagementQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketplaceManagement>>> = ({ signal }) => getMarketplaceManagement({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceManagement>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMarketplaceManagementQueryResult = NonNullable<Awaited<ReturnType<typeof getMarketplaceManagement>>>
+export type GetMarketplaceManagementQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get merchant marketplace listings and billing history
+ */
+
+export function useGetMarketplaceManagement<TData = Awaited<ReturnType<typeof getMarketplaceManagement>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceManagement>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMarketplaceManagementQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateMarketplaceListingUrl = () => {
+
+
+
+
+  return `/api/marketplace/listings`
+}
+
+/**
+ * @summary Submit a published product for marketplace review
+ */
+export const createMarketplaceListing = async (marketplaceListingInput: MarketplaceListingInput, options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceListing> => {
+
+  return customFetch<MarketplaceListing>(getCreateMarketplaceListingUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(marketplaceListingInput)
+  }
+);}
+
+
+
+
+
+export const getCreateMarketplaceListingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMarketplaceListing>>, TError,{data: BodyType<MarketplaceListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createMarketplaceListing>>, TError,{data: BodyType<MarketplaceListingInput>}, TContext> => {
+
+const mutationKey = ['createMarketplaceListing'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createMarketplaceListing>>, {data: BodyType<MarketplaceListingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createMarketplaceListing(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateMarketplaceListingMutationResult = NonNullable<Awaited<ReturnType<typeof createMarketplaceListing>>>
+    export type CreateMarketplaceListingMutationBody = BodyType<MarketplaceListingInput>
+    export type CreateMarketplaceListingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Submit a published product for marketplace review
+ */
+export const useCreateMarketplaceListing = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMarketplaceListing>>, TError,{data: BodyType<MarketplaceListingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createMarketplaceListing>>,
+        TError,
+        {data: BodyType<MarketplaceListingInput>},
+        TContext
+      > => {
+      return useMutation(getCreateMarketplaceListingMutationOptions(options));
+    }
+
+export const getUpdateMarketplaceListingUrl = (id: number,) => {
+
+
+
+
+  return `/api/marketplace/listings/${id}`
+}
+
+/**
+ * @summary Pause or remove a merchant marketplace listing
+ */
+export const updateMarketplaceListing = async (id: number,
+    marketplaceListingUpdate: MarketplaceListingUpdate, options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceListing> => {
+
+  return customFetch<MarketplaceListing>(getUpdateMarketplaceListingUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(marketplaceListingUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateMarketplaceListingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMarketplaceListing>>, TError,{id: number;data: BodyType<MarketplaceListingUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMarketplaceListing>>, TError,{id: number;data: BodyType<MarketplaceListingUpdate>}, TContext> => {
+
+const mutationKey = ['updateMarketplaceListing'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMarketplaceListing>>, {id: number;data: BodyType<MarketplaceListingUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateMarketplaceListing(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateMarketplaceListingMutationResult = NonNullable<Awaited<ReturnType<typeof updateMarketplaceListing>>>
+    export type UpdateMarketplaceListingMutationBody = BodyType<MarketplaceListingUpdate>
+    export type UpdateMarketplaceListingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Pause or remove a merchant marketplace listing
+ */
+export const useUpdateMarketplaceListing = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMarketplaceListing>>, TError,{id: number;data: BodyType<MarketplaceListingUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateMarketplaceListing>>,
+        TError,
+        {id: number;data: BodyType<MarketplaceListingUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateMarketplaceListingMutationOptions(options));
+    }
+
+export const getSubmitMarketplaceBillingUrl = (id: number,) => {
+
+
+
+
+  return `/api/marketplace/billing/${id}/submit`
+}
+
+/**
+ * @summary Submit a manual marketplace fee payment reference for review
+ */
+export const submitMarketplaceBilling = async (id: number,
+    marketplaceBillingInput: MarketplaceBillingInput, options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceBillingRecord> => {
+
+  return customFetch<MarketplaceBillingRecord>(getSubmitMarketplaceBillingUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(marketplaceBillingInput)
+  }
+);}
+
+
+
+
+
+export const getSubmitMarketplaceBillingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitMarketplaceBilling>>, TError,{id: number;data: BodyType<MarketplaceBillingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitMarketplaceBilling>>, TError,{id: number;data: BodyType<MarketplaceBillingInput>}, TContext> => {
+
+const mutationKey = ['submitMarketplaceBilling'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitMarketplaceBilling>>, {id: number;data: BodyType<MarketplaceBillingInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  submitMarketplaceBilling(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitMarketplaceBillingMutationResult = NonNullable<Awaited<ReturnType<typeof submitMarketplaceBilling>>>
+    export type SubmitMarketplaceBillingMutationBody = BodyType<MarketplaceBillingInput>
+    export type SubmitMarketplaceBillingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Submit a manual marketplace fee payment reference for review
+ */
+export const useSubmitMarketplaceBilling = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitMarketplaceBilling>>, TError,{id: number;data: BodyType<MarketplaceBillingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitMarketplaceBilling>>,
+        TError,
+        {id: number;data: BodyType<MarketplaceBillingInput>},
+        TContext
+      > => {
+      return useMutation(getSubmitMarketplaceBillingMutationOptions(options));
+    }
 
 export const getExportMerchantDataUrl = (resource: 'customers' | 'orders' | 'products' | 'transactions',) => {
 
@@ -4334,6 +5082,227 @@ export function useGetAdminOverview<TData = Awaited<ReturnType<typeof getAdminOv
 
 
 
+
+export const getReviewMarketplaceListingUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/marketplace/listings/${id}/review`
+}
+
+/**
+ * @summary Review a marketplace listing
+ */
+export const reviewMarketplaceListing = async (id: number,
+    marketplaceListingReview: MarketplaceListingReview, options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceListing> => {
+
+  return customFetch<MarketplaceListing>(getReviewMarketplaceListingUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(marketplaceListingReview)
+  }
+);}
+
+
+
+
+
+export const getReviewMarketplaceListingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewMarketplaceListing>>, TError,{id: number;data: BodyType<MarketplaceListingReview>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewMarketplaceListing>>, TError,{id: number;data: BodyType<MarketplaceListingReview>}, TContext> => {
+
+const mutationKey = ['reviewMarketplaceListing'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewMarketplaceListing>>, {id: number;data: BodyType<MarketplaceListingReview>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  reviewMarketplaceListing(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewMarketplaceListingMutationResult = NonNullable<Awaited<ReturnType<typeof reviewMarketplaceListing>>>
+    export type ReviewMarketplaceListingMutationBody = BodyType<MarketplaceListingReview>
+    export type ReviewMarketplaceListingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Review a marketplace listing
+ */
+export const useReviewMarketplaceListing = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewMarketplaceListing>>, TError,{id: number;data: BodyType<MarketplaceListingReview>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewMarketplaceListing>>,
+        TError,
+        {id: number;data: BodyType<MarketplaceListingReview>},
+        TContext
+      > => {
+      return useMutation(getReviewMarketplaceListingMutationOptions(options));
+    }
+
+export const getListMarketplaceAdminQueueUrl = () => {
+
+
+
+
+  return `/api/admin/marketplace/listings`
+}
+
+/**
+ * @summary List marketplace listings awaiting platform review
+ */
+export const listMarketplaceAdminQueue = async ( options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceAdminListing[]> => {
+
+  return customFetch<MarketplaceAdminListing[]>(getListMarketplaceAdminQueueUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMarketplaceAdminQueueQueryKey = () => {
+    return [
+    `/api/admin/marketplace/listings`
+    ] as const;
+    }
+
+
+export const getListMarketplaceAdminQueueQueryOptions = <TData = Awaited<ReturnType<typeof listMarketplaceAdminQueue>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMarketplaceAdminQueue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMarketplaceAdminQueueQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMarketplaceAdminQueue>>> = ({ signal }) => listMarketplaceAdminQueue({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMarketplaceAdminQueue>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMarketplaceAdminQueueQueryResult = NonNullable<Awaited<ReturnType<typeof listMarketplaceAdminQueue>>>
+export type ListMarketplaceAdminQueueQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List marketplace listings awaiting platform review
+ */
+
+export function useListMarketplaceAdminQueue<TData = Awaited<ReturnType<typeof listMarketplaceAdminQueue>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMarketplaceAdminQueue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMarketplaceAdminQueueQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReviewMarketplaceBillingUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/marketplace/billing/${id}/review`
+}
+
+/**
+ * @summary Verify or reject a marketplace fee reference
+ */
+export const reviewMarketplaceBilling = async (id: number,
+    marketplaceBillingReview: MarketplaceBillingReview, options?: Parameters<typeof customFetch>[1]): Promise<MarketplaceBillingRecord> => {
+
+  return customFetch<MarketplaceBillingRecord>(getReviewMarketplaceBillingUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(marketplaceBillingReview)
+  }
+);}
+
+
+
+
+
+export const getReviewMarketplaceBillingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewMarketplaceBilling>>, TError,{id: number;data: BodyType<MarketplaceBillingReview>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewMarketplaceBilling>>, TError,{id: number;data: BodyType<MarketplaceBillingReview>}, TContext> => {
+
+const mutationKey = ['reviewMarketplaceBilling'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewMarketplaceBilling>>, {id: number;data: BodyType<MarketplaceBillingReview>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  reviewMarketplaceBilling(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewMarketplaceBillingMutationResult = NonNullable<Awaited<ReturnType<typeof reviewMarketplaceBilling>>>
+    export type ReviewMarketplaceBillingMutationBody = BodyType<MarketplaceBillingReview>
+    export type ReviewMarketplaceBillingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Verify or reject a marketplace fee reference
+ */
+export const useReviewMarketplaceBilling = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewMarketplaceBilling>>, TError,{id: number;data: BodyType<MarketplaceBillingReview>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewMarketplaceBilling>>,
+        TError,
+        {id: number;data: BodyType<MarketplaceBillingReview>},
+        TContext
+      > => {
+      return useMutation(getReviewMarketplaceBillingMutationOptions(options));
+    }
 
 export const getListMerchantsUrl = () => {
 

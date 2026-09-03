@@ -1,0 +1,3 @@
+ALTER TABLE ai_settings
+  ADD COLUMN IF NOT EXISTS goal TEXT,
+  ADD COLUMN IF NOT EXISTS goal_target NUMERIC(12, 2);

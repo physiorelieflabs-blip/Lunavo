@@ -165,6 +165,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiOverview"
+  /ai/simulate:
+    post:
+      operationId: simulateAiScenario
+      tags: [ai]
+      summary: Simulate a business scenario with uncertainty labels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiSimulationInput" }
+      responses:
+        "200":
+          description: Scenario estimate
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiSimulation" }
   /ai/train:
     post:
       operationId: trainAiModel
@@ -420,6 +436,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrderRecord"
+  /payment-links:
+    get:
+      operationId: listPaymentLinks
+      tags: [payments]
+      summary: List the merchant's payment links
+      responses:
+        "200":
+          description: Payment links
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PaymentLinkRecord" }
+    post:
+      operationId: createPaymentLink
+      tags: [payments]
+      summary: Create a fixed-price payment link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentLinkInput" }
+      responses:
+        "201":
+          description: Created payment link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentLinkRecord" }
+  /payment-links/{id}:
+    patch:
+      operationId: updatePaymentLink
+      tags: [payments]
+      summary: Archive or reactivate a payment link
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentLinkStatusInput" }
+      responses:
+        "200":
+          description: Updated payment link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentLinkRecord" }
   /security/withdrawal:
     get:
       operationId: getWithdrawalSecurity
@@ -854,6 +919,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicCheckoutOrder"
+  /public/payment-links/{token}:
+    get:
+      operationId: getPublicPaymentLink
+      tags: [checkout]
+      summary: View a public fixed-price payment link
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 20, maxLength: 120 }
+      responses:
+        "200":
+          description: Public payment link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicPaymentLink" }
+  /public/payment-links/{token}/checkout:
+    post:
+      operationId: createPaymentLinkCheckout
+      tags: [checkout]
+      summary: Create a pending order from a public payment link
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 20, maxLength: 120 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentLinkCheckoutInput" }
+      responses:
+        "201":
+          description: Pending order awaiting merchant payment confirmation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicCheckoutOrder" }
   /marketplace/products:
     get:
       operationId: listMarketplaceProducts
@@ -889,6 +991,83 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MarketplaceProduct"
+  /marketplace/management:
+    get:
+      operationId: getMarketplaceManagement
+      tags: [marketplace]
+      summary: Get merchant marketplace listings and billing history
+      security:
+        - clerkBearer: []
+      responses:
+        "200":
+          description: Merchant marketplace management data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceManagement" }
+  /marketplace/listings:
+    post:
+      operationId: createMarketplaceListing
+      tags: [marketplace]
+      summary: Submit a published product for marketplace review
+      security:
+        - clerkBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketplaceListingInput" }
+      responses:
+        "201":
+          description: Marketplace listing submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceListing" }
+  /marketplace/listings/{id}:
+    patch:
+      operationId: updateMarketplaceListing
+      tags: [marketplace]
+      summary: Pause or remove a merchant marketplace listing
+      security:
+        - clerkBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketplaceListingUpdate" }
+      responses:
+        "200":
+          description: Marketplace listing updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceListing" }
+  /marketplace/billing/{id}/submit:
+    post:
+      operationId: submitMarketplaceBilling
+      tags: [marketplace]
+      summary: Submit a manual marketplace fee payment reference for review
+      security:
+        - clerkBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketplaceBillingInput" }
+      responses:
+        "200":
+          description: Marketplace fee payment submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceBillingRecord" }
   /exports/{resource}:
     get:
       operationId: exportMerchantData
@@ -985,6 +1164,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminOverview"
+  /admin/marketplace/listings/{id}/review:
+    patch:
+      operationId: reviewMarketplaceListing
+      tags: [admin, marketplace]
+      summary: Review a marketplace listing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketplaceListingReview" }
+      responses:
+        "200":
+          description: Marketplace listing review result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceListing" }
+  /admin/marketplace/listings:
+    get:
+      operationId: listMarketplaceAdminQueue
+      tags: [admin, marketplace]
+      summary: List marketplace listings awaiting platform review
+      responses:
+        "200":
+          description: Marketplace review queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MarketplaceAdminListing" }
+  /admin/marketplace/billing/{id}/review:
+    patch:
+      operationId: reviewMarketplaceBilling
+      tags: [admin, marketplace]
+      summary: Verify or reject a marketplace fee reference
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketplaceBillingReview" }
+      responses:
+        "200":
+          description: Marketplace billing review result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceBillingRecord" }
   /admin/merchants:
     get:
       operationId: listMerchants
@@ -1565,13 +1799,17 @@ components:
         autonomyLevel: { type: integer, minimum: 0, maximum: 4 }
         runMyBusiness: { type: boolean }
         trainingOptIn: { type: boolean }
-      required: [autonomyLevel, runMyBusiness, trainingOptIn]
+        goal: { type: ["string", "null"] }
+        goalTarget: { type: ["number", "null"], minimum: 0 }
+      required: [autonomyLevel, runMyBusiness, trainingOptIn, goal, goalTarget]
     AiSettingsInput:
       type: object
       properties:
         autonomyLevel: { type: integer, minimum: 0, maximum: 4 }
         runMyBusiness: { type: boolean }
         trainingOptIn: { type: boolean }
+        goal: { type: ["string", "null"], maxLength: 180 }
+        goalTarget: { type: ["number", "null"], minimum: 0 }
       required: [autonomyLevel, runMyBusiness, trainingOptIn]
     AiMetric:
       type: object
@@ -1609,6 +1847,55 @@ components:
         status: { type: string }
         insight: { type: string }
       required: [key, name, focus, status, insight]
+    AiOpportunity:
+      type: object
+      properties:
+        category: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        priority: { type: string }
+        href: { type: ["string", "null"] }
+      required: [category, title, detail, priority, href]
+    AiPrediction:
+      type: object
+      properties:
+        key: { type: string }
+        label: { type: string }
+        value: { type: number }
+        unit: { type: string }
+        detail: { type: string }
+        confidence: { type: ["number", "null"] }
+        estimate: { type: boolean }
+      required: [key, label, value, unit, detail, confidence, estimate]
+    AiBriefs:
+      type: object
+      properties:
+        morning: { type: string }
+        weekly: { type: string }
+        monthly: { type: string }
+      required: [morning, weekly, monthly]
+    AiSimulationInput:
+      type: object
+      properties:
+        scenario:
+          type: string
+          enum: [price_change, discount_change, new_product, new_branch, hiring, supplier_change, marketing_campaign, inventory_change]
+        value: { type: number }
+      required: [scenario, value]
+    AiSimulation:
+      type: object
+      properties:
+        scenario: { type: string }
+        baselineRevenue: { type: number }
+        estimatedRevenue: { type: number }
+        estimatedCost: { type: ["number", "null"] }
+        estimatedMargin: { type: ["number", "null"] }
+        risk: { type: string }
+        uncertainty: { type: string }
+        assumptions:
+          type: array
+          items: { type: string }
+      required: [scenario, baselineRevenue, estimatedRevenue, estimatedCost, estimatedMargin, risk, uncertainty, assumptions]
     AiAction:
       type: object
       properties:
@@ -1670,6 +1957,7 @@ components:
         model: { $ref: "#/components/schemas/AiModel" }
         settings: { $ref: "#/components/schemas/AiSettings" }
         healthScore: { type: number }
+        autonomyScore: { type: number }
         brief: { type: string }
         metrics:
           type: array
@@ -1683,8 +1971,21 @@ components:
         agents:
           type: array
           items: { $ref: "#/components/schemas/AiAgent" }
+        operatingTeam:
+          type: array
+          items: { $ref: "#/components/schemas/AiAgent" }
+        opportunities:
+          type: array
+          items: { $ref: "#/components/schemas/AiOpportunity" }
+        savings:
+          type: array
+          items: { $ref: "#/components/schemas/AiOpportunity" }
+        predictions:
+          type: array
+          items: { $ref: "#/components/schemas/AiPrediction" }
+        briefs: { $ref: "#/components/schemas/AiBriefs" }
         awaitingApproval: { type: integer }
-      required: [model, settings, healthScore, brief, metrics, signals, recommendations, agents, awaitingApproval]
+      required: [model, settings, healthScore, autonomyScore, brief, metrics, signals, recommendations, agents, operatingTeam, opportunities, savings, predictions, briefs, awaitingApproval]
     Subscription:
       type: object
       properties:
@@ -2406,6 +2707,100 @@ components:
         availability: { type: ["string", "null"] }
         availabilityQuantity: { type: ["integer", "null"] }
       required: [id, merchantKey, merchantName, title, description, imageUrl, price, salePrice, currency, category, brand, availability, availabilityQuantity]
+    MarketplaceListingInput:
+      type: object
+      properties:
+        supplierProductId: { type: integer, minimum: 1 }
+      required: [supplierProductId]
+    MarketplaceListingUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [paused, removed]
+      required: [status]
+    MarketplaceBillingInput:
+      type: object
+      properties:
+        paymentReference: { type: string, minLength: 3, maxLength: 160 }
+      required: [paymentReference]
+    MarketplaceListingReview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected, suspended]
+        reviewNote: { type: ["string", "null"], maxLength: 500 }
+      required: [status]
+    MarketplaceAdminListing:
+      type: object
+      properties:
+        id: { type: integer }
+        merchantId: { type: integer }
+        merchantName: { type: string }
+        productTitle: { type: string }
+        status: { type: string }
+        reviewNote: { type: ["string", "null"] }
+        listingFeeAmount: { type: number }
+        listingFeeCurrency: { type: string }
+        listingFeeStatus: { type: string }
+        paymentReference: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, merchantId, merchantName, productTitle, status, reviewNote, listingFeeAmount, listingFeeCurrency, listingFeeStatus, paymentReference, createdAt]
+    MarketplaceBillingReview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [paid, rejected]
+        reviewNote: { type: ["string", "null"], maxLength: 500 }
+      required: [status]
+    MarketplaceListing:
+      type: object
+      properties:
+        id: { type: integer }
+        supplierProductId: { type: integer }
+        productTitle: { type: string }
+        productStatus: { type: string }
+        status: { type: string }
+        reviewNote: { type: ["string", "null"] }
+        listingFeeAmount: { type: number }
+        listingFeeCurrency: { type: string }
+        listingFeeStatus: { type: string }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: ["string", "null"], format: date-time }
+      required: [id, supplierProductId, productTitle, productStatus, status, reviewNote, listingFeeAmount, listingFeeCurrency, listingFeeStatus, createdAt, reviewedAt]
+    MarketplaceBillingRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        listingId: { type: ["integer", "null"] }
+        kind: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        status: { type: string }
+        paymentReference: { type: ["string", "null"] }
+        reviewNote: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        paidAt: { type: ["string", "null"], format: date-time }
+      required: [id, listingId, kind, amount, currency, status, paymentReference, reviewNote, createdAt, paidAt]
+    MarketplaceManagement:
+      type: object
+      properties:
+        listings:
+          type: array
+          items: { $ref: "#/components/schemas/MarketplaceListing" }
+        billing:
+          type: array
+          items: { $ref: "#/components/schemas/MarketplaceBillingRecord" }
+        monthlyFee:
+          type: object
+          properties:
+            amount: { type: number }
+            currency: { type: string }
+            status: { type: string }
+          required: [amount, currency, status]
+      required: [listings, billing, monthlyFee]
     PublicCheckoutInput:
       type: object
       properties:
@@ -2431,3 +2826,51 @@ components:
         status: { type: string, enum: [pending] }
         paymentMessage: { type: string }
       required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage]
+    PaymentLinkInput:
+      type: object
+      properties:
+        title: { type: string, minLength: 2, maxLength: 180 }
+        description: { type: ["string", "null"], maxLength: 1000 }
+        amount: { type: number, minimum: 0.01 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        expiresAt: { type: ["string", "null"], format: date-time }
+      required: [title, amount, currency]
+    PaymentLinkStatusInput:
+      type: object
+      properties:
+        status: { type: string, enum: [active, archived] }
+      required: [status]
+    PaymentLinkRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        token: { type: string }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        amount: { type: number }
+        currency: { type: string }
+        status: { type: string, enum: [active, archived] }
+        expiresAt: { type: ["string", "null"], format: date-time }
+        publicPath: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, token, title, description, amount, currency, status, expiresAt, publicPath, createdAt]
+    PublicPaymentLink:
+      type: object
+      properties:
+        token: { type: string }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        amount: { type: number }
+        currency: { type: string }
+        expiresAt: { type: ["string", "null"], format: date-time }
+      required: [token, title, description, amount, currency, expiresAt]
+    PaymentLinkCheckoutInput:
+      type: object
+      properties:
+        customerName: { type: string, minLength: 2, maxLength: 160 }
+        customerEmail: { type: string, format: email }
+        customerPhone: { type: string, maxLength: 40 }
+        shippingAddress: { type: string, minLength: 8, maxLength: 500 }
+        marketingConsent: { type: boolean }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      required: [customerName, customerEmail, shippingAddress, idempotencyKey]

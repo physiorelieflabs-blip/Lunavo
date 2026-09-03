@@ -253,6 +253,9 @@ function serializeSettings(settings: AiSettings) {
     autonomyLevel: settings.autonomyLevel,
     runMyBusiness: settings.runMyBusiness,
     trainingOptIn: settings.trainingOptIn,
+    goal: settings.goal,
+    goalTarget:
+      settings.goalTarget === null ? null : numberValue(settings.goalTarget),
   };
 }
 
@@ -459,6 +462,140 @@ export async function getAiOverviewForMerchant(merchant: MerchantContext) {
       insight: `${merchant.currency} ${data.reservedWithdrawal.toFixed(2)} is reserved in payout requests.`,
     },
   ];
+  const fulfillmentRate =
+    data.linkedOrderCount === 0
+      ? 1
+      : data.fulfilledLinkedOrderCount / data.linkedOrderCount;
+  const catalogAvailabilityRate =
+    data.catalogCount === 0
+      ? 1
+      : data.availableCatalogCount / data.catalogCount;
+  const repeatRate =
+    data.customerCount === 0
+      ? 0
+      : data.repeatCustomerCount / data.customerCount;
+  const confidence =
+    model.evaluationScore === null
+      ? null
+      : numberValue(model.evaluationScore);
+  const opportunities = [
+    ...(data.pendingOrderCount > 0
+      ? [{
+          category: "payments",
+          title: "Recover pending payment decisions",
+          detail: `${data.pendingOrderCount} checkout order${data.pendingOrderCount === 1 ? "" : "s"} are not included in paid revenue until verified.`,
+          priority: "high",
+          href: "/orders",
+        }]
+      : []),
+    ...(data.linkedOrderCount > data.fulfilledLinkedOrderCount
+      ? [{
+          category: "fulfillment",
+          title: "Clear the fulfillment queue",
+          detail: `${data.linkedOrderCount - data.fulfilledLinkedOrderCount} supplier-linked order${data.linkedOrderCount - data.fulfilledLinkedOrderCount === 1 ? "" : "s"} still need an operational update.`,
+          priority: "high",
+          href: "/dropshipping",
+        }]
+      : []),
+    ...(data.catalogCount > data.availableCatalogCount
+      ? [{
+          category: "inventory",
+          title: "Review unavailable catalog items",
+          detail: `${data.catalogCount - data.availableCatalogCount} catalog item${data.catalogCount - data.availableCatalogCount === 1 ? "" : "s"} currently report unavailable source inventory.`,
+          priority: "medium",
+          href: "/inventory",
+        }]
+      : []),
+    ...(data.customerCount > 0 && repeatRate < 0.2
+      ? [{
+          category: "customers",
+          title: "Build a retention motion",
+          detail: `Only ${round(repeatRate * 100)}% of customers have more than one non-cancelled order in the recorded data.`,
+          priority: "medium",
+          href: "/customers",
+        }]
+      : []),
+  ];
+  const savings = [
+    ...(data.catalogCount > data.availableCatalogCount
+      ? [{
+          category: "stock-risk",
+          title: "Avoid unavailable-product spend",
+          detail: "Pause promotion or review source availability before committing campaign budget. No savings amount is claimed because supplier cost data is not recorded.",
+          priority: "medium",
+          href: "/suppliers",
+        }]
+      : []),
+    ...(revenueChange < 0
+      ? [{
+          category: "marketing",
+          title: "Review campaign efficiency before spending more",
+          detail: "Recorded revenue is below the prior 30-day period. The platform has no external ad-spend evidence, so this is a review prompt rather than a quantified savings claim.",
+          priority: "medium",
+          href: "/marketing",
+        }]
+      : []),
+    ...(data.pendingOrderCount > 0
+      ? [{
+          category: "cash-flow",
+          title: "Resolve pending orders before planning payouts",
+          detail: "Pending orders are not available cash. Confirming the payment state prevents the balance view from overstating funds.",
+          priority: "high",
+          href: "/finance",
+        }]
+      : []),
+  ];
+  const operatingTeam = [
+    { key: "ceo", name: "TS CEO", focus: "Business priorities and trade-offs", status: "monitoring", insight: `Health is ${healthScore}/100 with ${opportunities.length} evidence-backed opportunit${opportunities.length === 1 ? "y" : "ies"}.` },
+    { key: "cfo", name: "TS CFO", focus: "Cash, margins, and financial controls", status: "guarded", insight: `${merchant.currency} ${data.reservedWithdrawal.toFixed(2)} is reserved for payout requests; no unrecorded costs are assumed.` },
+    { key: "cmo", name: "TS CMO", focus: "Campaigns, retention, and demand", status: data.customerCount ? "monitoring" : "waiting_for_data", insight: `${round(repeatRate * 100)}% repeat-customer rate from recorded orders.` },
+    { key: "coo", name: "TS COO", focus: "Orders, fulfillment, and bottlenecks", status: data.linkedOrderCount ? "monitoring" : "quiet", insight: `${Math.max(0, data.linkedOrderCount - data.fulfilledLinkedOrderCount)} supplier-linked fulfillment item${data.linkedOrderCount - data.fulfilledLinkedOrderCount === 1 ? "" : "s"} remain open.` },
+    { key: "cro", name: "TS CRO", focus: "Conversion, offers, and sales growth", status: data.orderCount ? "monitoring" : "waiting_for_data", insight: `${data.paidOrderCount} paid order${data.paidOrderCount === 1 ? "" : "s"} are available for sales analysis.` },
+    { key: "inventory-manager", name: "TS Inventory Manager", focus: "Availability and stock risk", status: data.catalogCount ? "monitoring" : "waiting_for_data", insight: `${round(catalogAvailabilityRate * 100)}% of source catalog items report available.` },
+    { key: "customer-manager", name: "TS Customer Manager", focus: "VIP, retention, and churn signals", status: data.customerCount ? "monitoring" : "waiting_for_data", insight: `${data.customerCount} customer${data.customerCount === 1 ? "" : "s"} in the tenant-scoped directory.` },
+    { key: "merchandiser", name: "TS Merchandiser", focus: "Product presentation and promotion", status: data.catalogCount ? "monitoring" : "waiting_for_data", insight: data.catalogCount ? "Catalog opportunities are based on availability and paid-order evidence." : "Waiting for a persisted catalog." },
+    { key: "risk-manager", name: "TS Risk Manager", focus: "Payment, payout, and permission safety", status: "guarded", insight: "Financial actions remain behind verified payment, payout security, and approval controls." },
+    { key: "support-agent", name: "TS Support Agent", focus: "Customer and merchant resolution", status: data.customerCount ? "monitoring" : "waiting_for_data", insight: "Support guidance can use recorded customer and order context without exposing another tenant." },
+    { key: "supplier-manager", name: "TS Supplier Manager", focus: "Source quality and fulfillment readiness", status: data.catalogCount ? "monitoring" : "quiet", insight: `${data.catalogCount} supplier product${data.catalogCount === 1 ? "" : "s"} are available for source review.` },
+    { key: "seo-manager", name: "TS SEO Manager", focus: "Discoverability and content structure", status: data.catalogCount ? "ready" : "waiting_for_data", insight: "SEO recommendations require persisted product content; no search ranking is claimed." },
+    { key: "store-optimizer", name: "TS Store Optimizer", focus: "Storefront and checkout experience", status: "ready", insight: "Store and checkout guidance stays reviewable and cannot publish changes without approval." },
+  ];
+  const predictions = [
+    {
+      key: "next_30_day_revenue",
+      label: "Estimated next 30-day revenue",
+      value: round(Math.max(0, data.currentRevenue * (1 + clamp(revenueChange / 100, -1, 2)))),
+      unit: merchant.currency,
+      detail: "A directional estimate from the current versus prior 30-day recorded revenue trend.",
+      confidence,
+      estimate: true,
+    },
+    {
+      key: "fulfillment_risk",
+      label: "Estimated open-fulfillment risk",
+      value: round((1 - fulfillmentRate) * 100),
+      unit: "%",
+      detail: "Share of supplier-linked orders not marked fulfilled. This is an estimate of operational exposure, not a delivery promise.",
+      confidence,
+      estimate: true,
+    },
+    {
+      key: "repeat_customer_rate",
+      label: "Recorded repeat-customer rate",
+      value: round(repeatRate * 100),
+      unit: "%",
+      detail: "Observed customer behavior from non-cancelled orders; future retention is not guaranteed.",
+      confidence,
+      estimate: true,
+    },
+  ];
+  const briefs = {
+    morning: data.orderCount === 0
+      ? "Good morning — there is not enough recorded commerce activity for a meaningful operating brief yet."
+      : `Good morning — ${data.paidOrderCount} paid order${data.paidOrderCount === 1 ? "" : "s"} generated ${merchant.currency} ${data.currentRevenue.toFixed(2)} in the last 30 days. Priorities: ${opportunities.slice(0, 2).map((item) => item.title.toLowerCase()).join("; ") || "keep monitoring the workspace"}.`,
+    weekly: `Weekly review: revenue is ${revenueChange >= 0 ? "up" : "down"} ${Math.abs(revenueChange)}% versus the previous 30-day period. Fulfillment is ${round(fulfillmentRate * 100)}% complete on linked orders and repeat-customer rate is ${round(repeatRate * 100)}%.`,
+    monthly: `Monthly strategy: protect verified cash, improve ${repeatRate < 0.2 ? "retention" : "repeat purchasing"}, and review ${catalogAvailabilityRate < 1 ? "source availability" : "catalog presentation"}. These are evidence-backed priorities, not guaranteed outcomes.`,
+  };
 
   const [awaiting] = await db
     .select({ count: sql<string>`count(*)` })
@@ -474,6 +611,7 @@ export async function getAiOverviewForMerchant(merchant: MerchantContext) {
     model: serializeModel(model),
     settings: serializeSettings(settings),
     healthScore,
+    autonomyScore: settings.autonomyLevel * 25,
     brief,
     metrics: [
       {
@@ -510,7 +648,56 @@ export async function getAiOverviewForMerchant(merchant: MerchantContext) {
     signals,
     recommendations,
     agents,
+    operatingTeam,
+    opportunities,
+    savings,
+    predictions,
+    briefs,
     awaitingApproval: Number(awaiting?.count ?? 0),
+  };
+}
+
+export async function simulateMerchantScenario(
+  merchant: MerchantContext,
+  input: {
+    scenario:
+      | "price_change"
+      | "discount_change"
+      | "new_product"
+      | "new_branch"
+      | "hiring"
+      | "supplier_change"
+      | "marketing_campaign"
+      | "inventory_change";
+    value: number;
+  },
+) {
+  const data = await snapshot(merchant);
+  const value = Number.isFinite(input.value) ? input.value : 0;
+  const effects: Record<typeof input.scenario, { multiplier: number; risk: string; assumption: string }> = {
+    price_change: { multiplier: clamp(1 + value * 0.005, 0, 3), risk: Math.abs(value) > 20 ? "high" : "medium", assumption: "Revenue response is approximated at 0.5% per 1% price change; demand elasticity is not observed." },
+    discount_change: { multiplier: clamp(1 + value * 0.002, 0, 3), risk: value > 15 ? "high" : "medium", assumption: "A discount may increase demand, but product-level conversion and margin data are not available." },
+    new_product: { multiplier: 1.1, risk: "medium", assumption: "New-product upside is a directional 10% scenario, not a demand forecast." },
+    new_branch: { multiplier: 1.25, risk: "high", assumption: "Branch expansion assumes additional demand and does not model rent, staffing, or local market differences." },
+    hiring: { multiplier: 1.05, risk: "medium", assumption: "Hiring is modeled as a 5% capacity scenario; salary and productivity data are unavailable." },
+    supplier_change: { multiplier: 1.03, risk: "medium", assumption: "Supplier change is modeled as a 3% revenue opportunity; supplier cost and reliability are not priced here." },
+    marketing_campaign: { multiplier: 1.15, risk: "medium", assumption: "Campaign impact is a 15% directional scenario; no external spend or attribution data is available." },
+    inventory_change: { multiplier: value < 0 ? 0.9 : 1.05, risk: Math.abs(value) > 30 ? "high" : "medium", assumption: "Inventory impact is directional; product-level demand and stockout history are not modeled." },
+  };
+  const effect = effects[input.scenario];
+  return {
+    scenario: input.scenario,
+    baselineRevenue: round(data.currentRevenue),
+    estimatedRevenue: round(Math.max(0, data.currentRevenue * effect.multiplier)),
+    estimatedCost: null,
+    estimatedMargin: null,
+    risk: effect.risk,
+    uncertainty: "High — this is a scenario estimate from limited first-party signals, not a forecast or guarantee.",
+    assumptions: [
+      effect.assumption,
+      `Baseline is ${merchant.currency} ${data.currentRevenue.toFixed(2)} in recorded revenue over the last 30 days.`,
+      "Taxes, shipping, refunds, fees, supplier costs, and external marketing spend are not silently inferred.",
+    ],
   };
 }
 
@@ -541,6 +728,7 @@ export async function allowedActionType(actionType: string): Promise<boolean> {
     "catalog_review",
     "fulfillment_review",
     "ad_draft",
+    "product_draft",
   ].includes(actionType);
 }
 

@@ -27,6 +27,9 @@ import {
   merchantBankAccountsTable,
   merchantsTable,
   ordersTable,
+  paymentLinksTable,
+  marketplaceListingsTable,
+  marketplaceBillingRecordsTable,
   paymentsTable,
   paymentIntentsTable,
   paymentRecordsTable,
@@ -50,6 +53,17 @@ import {
   ConfirmWithdrawalSecuritySetupResponse,
   CreateOrderBody,
   CreateOrderResponse,
+  CreatePaymentLinkBody,
+  CreatePaymentLinkResponse,
+  ListPaymentLinksResponse,
+  UpdatePaymentLinkBody,
+  UpdatePaymentLinkParams,
+  UpdatePaymentLinkResponse,
+  GetPublicPaymentLinkParams,
+  GetPublicPaymentLinkResponse,
+  CreatePaymentLinkCheckoutBody,
+  CreatePaymentLinkCheckoutParams,
+  CreatePaymentLinkCheckoutResponse,
   CreatePublicCheckoutBody,
   CreatePublicCheckoutParams,
   CreatePublicCheckoutResponse,
@@ -94,6 +108,22 @@ import {
   UpdateSupplierResponse,
   ListAdminWithdrawalsResponse,
   ListMarketplaceProductsResponse,
+  GetMarketplaceManagementResponse,
+  CreateMarketplaceListingBody,
+  CreateMarketplaceListingResponse,
+  UpdateMarketplaceListingParams,
+  UpdateMarketplaceListingBody,
+  UpdateMarketplaceListingResponse,
+  SubmitMarketplaceBillingParams,
+  SubmitMarketplaceBillingBody,
+  SubmitMarketplaceBillingResponse,
+  ReviewMarketplaceListingParams,
+  ReviewMarketplaceListingBody,
+  ReviewMarketplaceListingResponse,
+  ReviewMarketplaceBillingParams,
+  ReviewMarketplaceBillingBody,
+  ReviewMarketplaceBillingResponse,
+  ListMarketplaceAdminQueueResponse,
   ListCustomersResponse,
   UpdateCustomerBody,
   UpdateCustomerParams,
@@ -135,6 +165,8 @@ import {
   UpdateDropshipStatusParams,
   UpdateDropshipStatusResponse,
   GetAiOverviewResponse,
+  SimulateAiScenarioBody,
+  SimulateAiScenarioResponse,
   TrainAiModelResponse,
   GetAiSettingsResponse,
   UpdateAiSettingsBody,
@@ -190,6 +222,7 @@ import {
   listAiActionsForMerchant,
   serializeAiAction,
   trainMerchantAiModel,
+  simulateMerchantScenario,
 } from "../lib/ai";
 
 const router: IRouter = Router();
@@ -1084,6 +1117,66 @@ function serializePublicCheckoutOrder(
   };
 }
 
+function serializePaymentLink(link: typeof paymentLinksTable.$inferSelect) {
+  return {
+    id: link.id,
+    token: link.token,
+    title: link.title,
+    description: link.description,
+    amount: toNumber(link.amount),
+    currency: link.currency,
+    status: link.status,
+    expiresAt: link.expiresAt?.toISOString() ?? null,
+    publicPath: `/pay/${link.token}`,
+    createdAt: link.createdAt.toISOString(),
+  };
+}
+
+function serializePublicPaymentLink(link: typeof paymentLinksTable.$inferSelect) {
+  return {
+    token: link.token,
+    title: link.title,
+    description: link.description,
+    amount: toNumber(link.amount),
+    currency: link.currency,
+    expiresAt: link.expiresAt?.toISOString() ?? null,
+  };
+}
+
+function serializeMarketplaceListing(
+  listing: typeof marketplaceListingsTable.$inferSelect,
+  product: typeof supplierProductsTable.$inferSelect,
+) {
+  return {
+    id: listing.id,
+    supplierProductId: listing.supplierProductId,
+    productTitle: product.title,
+    productStatus: product.status,
+    status: listing.status,
+    reviewNote: listing.reviewNote,
+    listingFeeAmount: toNumber(listing.listingFeeAmount),
+    listingFeeCurrency: listing.listingFeeCurrency,
+    listingFeeStatus: listing.listingFeeStatus,
+    createdAt: listing.createdAt.toISOString(),
+    reviewedAt: listing.reviewedAt?.toISOString() ?? null,
+  };
+}
+
+function serializeMarketplaceBilling(record: typeof marketplaceBillingRecordsTable.$inferSelect) {
+  return {
+    id: record.id,
+    listingId: record.listingId,
+    kind: record.kind,
+    amount: toNumber(record.amount),
+    currency: record.currency,
+    status: record.status,
+    paymentReference: record.paymentReference,
+    reviewNote: record.reviewNote,
+    createdAt: record.createdAt.toISOString(),
+    paidAt: record.paidAt?.toISOString() ?? null,
+  };
+}
+
 function serializeWithdrawal(withdrawal: Withdrawal) {
   return {
     id: withdrawal.id,
@@ -1673,6 +1766,27 @@ router.get("/ai/overview", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/ai/simulate", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = SimulateAiScenarioBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose a supported scenario and numeric value" });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const simulation = await simulateMerchantScenario(
+      { id: merchant.id, currency: merchant.currency, storeName: merchant.storeName },
+      parsed.data,
+    );
+    res.json(SimulateAiScenarioResponse.parse(simulation));
+  } catch (error) {
+    req.log.error({ err: error }, "Could not simulate AI scenario");
+    res.status(500).json({ error: "Scenario simulation could not be completed" });
+  }
+});
+
 function decodeHtml(value: string): string {
   return value
     .replace(/<[^>]+>/g, "")
@@ -1826,6 +1940,11 @@ router.put("/ai/settings", async (req, res): Promise<void> => {
           autonomyLevel: parsed.data.autonomyLevel,
           runMyBusiness: parsed.data.runMyBusiness,
           trainingOptIn: parsed.data.trainingOptIn,
+          goal: parsed.data.goal?.trim() || null,
+          goalTarget:
+            parsed.data.goalTarget === null || parsed.data.goalTarget === undefined
+              ? null
+              : parsed.data.goalTarget.toFixed(2),
           updatedAt: new Date(),
         })
         .where(eq(aiSettingsTable.id, settings.id))
@@ -1845,6 +1964,9 @@ router.put("/ai/settings", async (req, res): Promise<void> => {
         autonomyLevel: updated.autonomyLevel,
         runMyBusiness: updated.runMyBusiness,
         trainingOptIn: updated.trainingOptIn,
+        goal: updated.goal,
+        goalTarget:
+          updated.goalTarget === null ? null : toNumber(updated.goalTarget),
       }),
     );
   } catch (error) {
@@ -2069,6 +2191,50 @@ router.post("/ai/actions/:id/execute", async (req, res): Promise<void> => {
           }),
           evidence: {
             productsConsidered: products.length,
+            merchantId: merchant.id,
+            generatedAt: new Date().toISOString(),
+          },
+        };
+      }
+      if (current.actionType === "product_draft") {
+        const source = (await tx
+          .select({
+            title: supplierProductsTable.title,
+            description: supplierProductsTable.description,
+            sellingPrice: supplierProductsTable.sellingPrice,
+            currency: supplierProductsTable.currency,
+            category: supplierProductsTable.category,
+          })
+          .from(supplierProductsTable)
+          .where(eq(supplierProductsTable.merchantId, merchant.id))
+          .orderBy(desc(supplierProductsTable.updatedAt))
+          .limit(1))[0];
+        const brief = current.reason.split("merchant brief:")[1]?.trim() || current.title.replace(/^Product draft:\s*/i, "").trim();
+        const sourceTitle = source?.title?.trim() || brief.slice(0, 80) || "New product";
+        const description = source?.description?.trim() || `A considered ${sourceTitle.toLowerCase()} designed around the customer need in the merchant brief.`;
+        result = {
+          outcome: "product_draft_prepared",
+          sideEffect: "none",
+          message: "Draft copy is ready for merchant review. Nothing was published or added to the catalog.",
+          draft: {
+            title: sourceTitle,
+            shortDescription: description.slice(0, 140),
+            description: `${description} Review product claims, specifications, delivery terms, and price before publishing.`,
+            features: ["Clear product positioning", "Reviewable customer benefits", "Merchant-controlled specifications"],
+            benefits: ["Makes the core value easier to understand", "Creates a consistent product-page structure", "Keeps unsupported claims out of the draft"],
+            seoTitle: `${sourceTitle} | ${merchant.storeName}`.slice(0, 60),
+            seoDescription: description.slice(0, 160),
+            tags: [source?.category, "new", "merchant-review"].filter(Boolean),
+            category: source?.category ?? null,
+            pricingSuggestion: source?.sellingPrice ? {
+              amount: Number(source.sellingPrice),
+              currency: source.currency,
+              basis: "Existing catalog price reference; verify margin and market fit before publishing.",
+            } : null,
+          },
+          evidence: {
+            brief,
+            sourceCatalogProduct: source?.title ?? null,
             merchantId: merchant.id,
             generatedAt: new Date().toISOString(),
           },
@@ -3904,6 +4070,319 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/payment-links", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const links = await db
+    .select()
+    .from(paymentLinksTable)
+    .where(eq(paymentLinksTable.merchantId, merchant.id))
+    .orderBy(desc(paymentLinksTable.createdAt));
+  res.json(ListPaymentLinksResponse.parse(links.map(serializePaymentLink)));
+});
+
+router.post("/payment-links", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreatePaymentLinkBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a title, amount, and valid currency" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const currency = parsed.data.currency.trim().toUpperCase();
+  if (currency !== merchant.currency) {
+    res.status(400).json({ error: `Payment links must use your merchant currency (${merchant.currency})` });
+    return;
+  }
+  try {
+    const [link] = await db.insert(paymentLinksTable).values({
+      merchantId: merchant.id,
+      token: randomUUID().replaceAll("-", ""),
+      title: parsed.data.title.trim(),
+      description: parsed.data.description?.trim() || null,
+      amount: parsed.data.amount.toFixed(2),
+      currency,
+      expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
+    }).returning();
+    if (!link) throw new Error("Payment link could not be created");
+    await db.insert(activityTable).values({
+      merchantId: merchant.id,
+      type: "payment_link_created",
+      title: `Payment link created: ${link.title}`,
+      description: `A ${link.currency} ${toNumber(link.amount).toFixed(2)} fixed-price checkout link is ready to share.`,
+      amount: link.amount,
+      currency: link.currency,
+      tone: "positive",
+    });
+    res.status(201).json(CreatePaymentLinkResponse.parse(serializePaymentLink(link)));
+  } catch (error) {
+    req.log.error({ err: error }, "payment link creation failed");
+    res.status(409).json({ error: "Payment link could not be created" });
+  }
+});
+
+router.patch("/payment-links/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdatePaymentLinkParams.safeParse(req.params);
+  const parsed = UpdatePaymentLinkBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose active or archived" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [link] = await db.update(paymentLinksTable)
+    .set({ status: parsed.data.status })
+    .where(and(eq(paymentLinksTable.id, params.data.id), eq(paymentLinksTable.merchantId, merchant.id)))
+    .returning();
+  if (!link) {
+    res.status(404).json({ error: "Payment link not found" });
+    return;
+  }
+  res.json(UpdatePaymentLinkResponse.parse(serializePaymentLink(link)));
+});
+
+router.get("/marketplace/management", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const [monthlyRecord] = await db.select().from(marketplaceBillingRecordsTable)
+    .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.kind, "monthly")))
+    .limit(1);
+  if (!monthlyRecord) {
+    await db.insert(marketplaceBillingRecordsTable).values({
+      merchantId: merchant.id,
+      kind: "monthly",
+      amount: "5",
+      currency: merchant.currency,
+      status: "due",
+    });
+  }
+  const [listingRows, billing] = await Promise.all([
+    db.select({ listing: marketplaceListingsTable, product: supplierProductsTable })
+      .from(marketplaceListingsTable)
+      .innerJoin(supplierProductsTable, eq(marketplaceListingsTable.supplierProductId, supplierProductsTable.id))
+      .where(eq(marketplaceListingsTable.merchantId, merchant.id))
+      .orderBy(desc(marketplaceListingsTable.createdAt)),
+    db.select().from(marketplaceBillingRecordsTable)
+      .where(eq(marketplaceBillingRecordsTable.merchantId, merchant.id))
+      .orderBy(desc(marketplaceBillingRecordsTable.createdAt)),
+  ]);
+  res.json(GetMarketplaceManagementResponse.parse({
+    listings: listingRows.map(({ listing, product }) => serializeMarketplaceListing(listing, product)),
+    billing: billing.map(serializeMarketplaceBilling),
+    monthlyFee: { amount: 5, currency: merchant.currency, status: billing.some((record) => record.kind === "monthly" && record.status === "paid") ? "paid" : "due" },
+  }));
+});
+
+router.post("/marketplace/listings", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = CreateMarketplaceListingBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose a published product to submit" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const product = (await db.select().from(supplierProductsTable)
+    .where(and(
+      eq(supplierProductsTable.id, parsed.data.supplierProductId),
+      eq(supplierProductsTable.merchantId, merchant.id),
+      eq(supplierProductsTable.status, "active"),
+      eq(supplierProductsTable.visibility, "active"),
+      sql`${supplierProductsTable.sellingPrice} is not null`,
+    )).limit(1))[0];
+  if (!product) {
+    res.status(409).json({ error: "Only published, priced products can enter the marketplace" });
+    return;
+  }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [listing] = await tx.insert(marketplaceListingsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: product.id,
+        listingFeeCurrency: merchant.currency,
+      }).onConflictDoUpdate({
+        target: [marketplaceListingsTable.merchantId, marketplaceListingsTable.supplierProductId],
+        set: { status: "pending", reviewNote: null, listingFeeStatus: "due", updatedAt: new Date() },
+      }).returning();
+      if (!listing) throw new Error("Marketplace listing could not be created");
+      const [existingBilling] = await tx.select().from(marketplaceBillingRecordsTable)
+        .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.listingId, listing.id), eq(marketplaceBillingRecordsTable.kind, "listing")))
+        .limit(1);
+      if (!existingBilling) {
+        await tx.insert(marketplaceBillingRecordsTable).values({
+          merchantId: merchant.id,
+          listingId: listing.id,
+          kind: "listing",
+          amount: listing.listingFeeAmount,
+          currency: merchant.currency,
+          status: "due",
+        });
+      }
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "marketplace_listing_submitted",
+        title: `Marketplace listing submitted: ${product.title}`,
+        description: "The listing is pending review and its fee is due. It is not represented as publicly active yet.",
+        currency: merchant.currency,
+        tone: "neutral",
+      });
+      return listing;
+    });
+    res.status(201).json(CreateMarketplaceListingResponse.parse(serializeMarketplaceListing(result, product)));
+  } catch (error) {
+    req.log.error({ err: error }, "marketplace listing creation failed");
+    res.status(409).json({ error: "Marketplace listing already exists or could not be created" });
+  }
+});
+
+router.patch("/marketplace/listings/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdateMarketplaceListingParams.safeParse(req.params);
+  const parsed = UpdateMarketplaceListingBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose paused or removed" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [updated] = await db.update(marketplaceListingsTable)
+    .set({ status: parsed.data.status, updatedAt: new Date() })
+    .where(and(eq(marketplaceListingsTable.id, params.data.id), eq(marketplaceListingsTable.merchantId, merchant.id)))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Marketplace listing not found" });
+    return;
+  }
+  const product = (await db.select().from(supplierProductsTable).where(eq(supplierProductsTable.id, updated.supplierProductId)).limit(1))[0];
+  if (!product) {
+    res.status(404).json({ error: "Marketplace product not found" });
+    return;
+  }
+  res.json(UpdateMarketplaceListingResponse.parse(serializeMarketplaceListing(updated, product)));
+});
+
+router.post("/marketplace/billing/:id/submit", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = SubmitMarketplaceBillingParams.safeParse(req.params);
+  const parsed = SubmitMarketplaceBillingBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "A payment reference is required" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const [record] = await db.update(marketplaceBillingRecordsTable)
+    .set({ paymentReference: parsed.data.paymentReference.trim(), status: "submitted" })
+    .where(and(eq(marketplaceBillingRecordsTable.id, params.data.id), eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.status, "due")))
+    .returning();
+  if (!record) {
+    res.status(404).json({ error: "Due marketplace fee not found" });
+    return;
+  }
+  if (record.listingId) {
+    await db.update(marketplaceListingsTable).set({ listingFeeStatus: "submitted", updatedAt: new Date() })
+      .where(and(eq(marketplaceListingsTable.id, record.listingId), eq(marketplaceListingsTable.merchantId, merchant.id)));
+  }
+  res.json(SubmitMarketplaceBillingResponse.parse(serializeMarketplaceBilling(record)));
+});
+
+router.patch("/admin/marketplace/listings/:id/review", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const params = ReviewMarketplaceListingParams.safeParse(req.params);
+  const parsed = ReviewMarketplaceListingBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose a valid listing review state" });
+    return;
+  }
+  const [updated] = await db.update(marketplaceListingsTable)
+    .set({
+      status: parsed.data.status,
+      reviewNote: parsed.data.reviewNote ?? null,
+      reviewedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(marketplaceListingsTable.id, params.data.id))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Marketplace listing not found" });
+    return;
+  }
+  const product = (await db.select().from(supplierProductsTable).where(eq(supplierProductsTable.id, updated.supplierProductId)).limit(1))[0];
+  if (!product) {
+    res.status(404).json({ error: "Marketplace product not found" });
+    return;
+  }
+  res.json(ReviewMarketplaceListingResponse.parse(serializeMarketplaceListing(updated, product)));
+});
+
+router.get("/admin/marketplace/listings", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const rows = await db
+    .select({
+      listing: marketplaceListingsTable,
+      productTitle: supplierProductsTable.title,
+      merchantName: merchantsTable.storeName,
+      paymentReference: marketplaceBillingRecordsTable.paymentReference,
+    })
+    .from(marketplaceListingsTable)
+    .innerJoin(supplierProductsTable, eq(marketplaceListingsTable.supplierProductId, supplierProductsTable.id))
+    .innerJoin(merchantsTable, eq(marketplaceListingsTable.merchantId, merchantsTable.id))
+    .leftJoin(marketplaceBillingRecordsTable, and(
+      eq(marketplaceBillingRecordsTable.listingId, marketplaceListingsTable.id),
+      eq(marketplaceBillingRecordsTable.kind, "listing"),
+    ))
+    .orderBy(desc(marketplaceListingsTable.createdAt))
+    .limit(100);
+  res.json(ListMarketplaceAdminQueueResponse.parse(rows.map(({ listing, productTitle, merchantName, paymentReference }) => ({
+    id: listing.id,
+    merchantId: listing.merchantId,
+    merchantName: merchantName || "Independent merchant",
+    productTitle,
+    status: listing.status,
+    reviewNote: listing.reviewNote,
+    listingFeeAmount: toNumber(listing.listingFeeAmount),
+    listingFeeCurrency: listing.listingFeeCurrency,
+    listingFeeStatus: listing.listingFeeStatus,
+    paymentReference: paymentReference ?? null,
+    createdAt: listing.createdAt.toISOString(),
+  }))));
+});
+
+router.patch("/admin/marketplace/billing/:id/review", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const params = ReviewMarketplaceBillingParams.safeParse(req.params);
+  const parsed = ReviewMarketplaceBillingBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Choose paid or rejected" });
+    return;
+  }
+  const [updated] = await db.update(marketplaceBillingRecordsTable)
+    .set({
+      status: parsed.data.status,
+      reviewNote: parsed.data.reviewNote ?? null,
+      paidAt: parsed.data.status === "paid" ? new Date() : null,
+    })
+    .where(eq(marketplaceBillingRecordsTable.id, params.data.id))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Marketplace billing record not found" });
+    return;
+  }
+  if (updated.listingId) {
+    await db.update(marketplaceListingsTable)
+      .set({ listingFeeStatus: updated.status, updatedAt: new Date() })
+      .where(eq(marketplaceListingsTable.id, updated.listingId));
+  }
+  res.json(ReviewMarketplaceBillingResponse.parse(serializeMarketplaceBilling(updated)));
+});
+
 router.get("/marketplace/products", async (req, res): Promise<void> => {
   const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 120) : "";
   const category = typeof req.query.category === "string" ? req.query.category.trim().slice(0, 120) : "";
@@ -3913,7 +4392,16 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
   const filters = [
     eq(merchantsTable.status, "active"),
     eq(supplierProductsTable.status, "active"),
-    eq(supplierProductsTable.marketplaceVisibility, true),
+    or(
+      and(
+        eq(marketplaceListingsTable.status, "approved"),
+        eq(marketplaceListingsTable.listingFeeStatus, "paid"),
+      ),
+      and(
+        isNull(marketplaceListingsTable.id),
+        eq(supplierProductsTable.marketplaceVisibility, true),
+      ),
+    ),
     sql`${supplierProductsTable.sellingPrice} is not null`,
   ];
   if (search) filters.push(sql`(${supplierProductsTable.title} ilike ${`%${search}%`} or coalesce(${supplierProductsTable.description}, '') ilike ${`%${search}%`})`);
@@ -3925,6 +4413,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     .select({ product: supplierProductsTable, merchantKey: merchantsTable.clerkUserId, merchantName: merchantsTable.storeName })
     .from(supplierProductsTable)
     .innerJoin(merchantsTable, eq(supplierProductsTable.merchantId, merchantsTable.id))
+    .leftJoin(marketplaceListingsTable, eq(marketplaceListingsTable.supplierProductId, supplierProductsTable.id))
     .where(and(...filters))
     .orderBy(desc(supplierProductsTable.publishedAt), desc(supplierProductsTable.importedAt))
     .limit(100);
@@ -4227,6 +4716,108 @@ router.post(
     }
   },
 );
+
+router.get("/public/payment-links/:token", async (req, res): Promise<void> => {
+  const params = GetPublicPaymentLinkParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid payment link" });
+    return;
+  }
+  const link = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
+  if (!link || link.status !== "active" || (link.expiresAt !== null && link.expiresAt <= new Date())) {
+    res.status(404).json({ error: "Payment link is unavailable" });
+    return;
+  }
+  res.json(GetPublicPaymentLinkResponse.parse(serializePublicPaymentLink(link)));
+});
+
+router.post("/public/payment-links/:token/checkout", async (req, res): Promise<void> => {
+  const params = CreatePaymentLinkCheckoutParams.safeParse(req.params);
+  const parsed = CreatePaymentLinkCheckoutBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Enter valid customer and shipping details" });
+    return;
+  }
+  const link = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
+  if (!link || link.status !== "active" || (link.expiresAt !== null && link.expiresAt <= new Date())) {
+    res.status(404).json({ error: "Payment link is unavailable" });
+    return;
+  }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const replay = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
+      if (replay) return replay.order;
+      const email = parsed.data.customerEmail.trim().toLowerCase();
+      let customer = (await tx.select().from(customersTable).where(and(eq(customersTable.merchantId, link.merchantId), eq(customersTable.email, email))).limit(1))[0];
+      if (customer) {
+        [customer] = await tx.update(customersTable).set({
+          name: parsed.data.customerName.trim(),
+          phone: parsed.data.customerPhone?.trim() || null,
+          ...(parsed.data.marketingConsent === undefined ? {} : {
+            marketingConsent: parsed.data.marketingConsent,
+            consentCapturedAt: parsed.data.marketingConsent ? (customer.consentCapturedAt ?? new Date()) : null,
+          }),
+        }).where(eq(customersTable.id, customer.id)).returning();
+      } else {
+        [customer] = await tx.insert(customersTable).values({
+          merchantId: link.merchantId,
+          name: parsed.data.customerName.trim(),
+          email,
+          phone: parsed.data.customerPhone?.trim() || null,
+          marketingConsent: parsed.data.marketingConsent ?? false,
+          consentCapturedAt: parsed.data.marketingConsent ? new Date() : null,
+        }).returning();
+      }
+      if (!customer) throw new Error("Customer could not be saved");
+      const amount = toNumber(link.amount);
+      const [order] = await tx.insert(ordersTable).values({
+        merchantId: link.merchantId,
+        customerId: customer.id,
+        orderNumber: `LINK-${randomUUID().slice(0, 8).toUpperCase()}`,
+        subtotal: amount.toFixed(2),
+        taxAmount: "0.00",
+        shippingAmount: "0.00",
+        total: amount.toFixed(2),
+        quantity: 1,
+        currency: link.currency,
+        status: "pending",
+        supplierProductId: null,
+        shippingAddress: parsed.data.shippingAddress.trim(),
+        fulfillmentStatus: "not_required",
+        idempotencyKey: parsed.data.idempotencyKey,
+      }).onConflictDoNothing({ target: [ordersTable.merchantId, ordersTable.idempotencyKey] }).returning();
+      if (!order) {
+        const existing = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
+        if (existing) return existing.order;
+        throw new Error("Payment link order could not be created");
+      }
+      await tx.insert(activityTable).values({
+        merchantId: link.merchantId,
+        type: "payment_link_checkout_submitted",
+        title: `Payment link order ${order.orderNumber} received`,
+        description: `${customer.name} submitted a fixed-price order awaiting payment confirmation.`,
+        amount: link.amount,
+        currency: link.currency,
+        tone: "positive",
+      });
+      return order;
+    });
+    res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
+      orderNumber: result.orderNumber,
+      title: link.title,
+      subtotal: toNumber(result.subtotal),
+      tax: toNumber(result.taxAmount),
+      shipping: toNumber(result.shippingAmount),
+      total: toNumber(result.total),
+      currency: result.currency,
+      status: "pending",
+      paymentMessage: "Order received. Payment is not captured online; the merchant will confirm payment before fulfillment.",
+    }));
+  } catch (error) {
+    req.log.error({ err: error }, "payment link checkout failed");
+    res.status(409).json({ error: error instanceof Error ? error.message : "Payment link checkout could not be created" });
+  }
+});
 
 router.get("/dropship/queue", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
