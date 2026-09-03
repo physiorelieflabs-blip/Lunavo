@@ -42,6 +42,8 @@ export default function Settings() {
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
   const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [messageIsError, setMessageIsError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -54,6 +56,8 @@ export default function Settings() {
     event.preventDefault();
     if (!user) return;
     setMessage('');
+    setMessageIsError(false);
+    setSaving(true);
     try {
       await user.update({
         firstName: firstName.trim() || null,
@@ -62,7 +66,10 @@ export default function Settings() {
       });
       setMessage('Your account details have been updated.');
     } catch (error) {
+      setMessageIsError(true);
       setMessage(error instanceof Error ? error.message : 'Your account details could not be updated.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -94,11 +101,11 @@ export default function Settings() {
               <p className="mt-1 text-[11px] text-[#8994a2]">Email changes and verification are handled by Clerk account security.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2">
-              <SubmitButton loading={false}><Save className="h-4 w-4" />Save account details</SubmitButton>
+              <SubmitButton loading={saving}><Save className="h-4 w-4" />Save account details</SubmitButton>
               <Link href="/sign-in/forgot-password" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline underline-offset-4"><ShieldCheck className="h-4 w-4" />Change password</Link>
             </div>
           </form>
-          {message && <div className="mt-5"><Notice tone={message.includes('could not') || message.includes('not allowed') ? 'danger' : 'success'} title={message.includes('could not') || message.includes('not allowed') ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
+          {message && <div className="mt-5"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
         </section>
 
         <div className="mt-9 space-y-8">
@@ -124,3 +131,5 @@ export default function Settings() {
     </AppShell>
   );
 }
+
+const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20';
