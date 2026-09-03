@@ -10,7 +10,5 @@ export type PublicCheckoutVerificationResponsePaymentProvider = typeof PublicChe
 
 
 export const PublicCheckoutVerificationResponsePaymentProvider = {
-  whop: 'whop',
-  manual: 'manual',
   ts_pay: 'ts_pay',
 } as const;

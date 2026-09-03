@@ -14,3 +14,4 @@
 - [Staff workspace authorization](staff-workspace-authorization.md) — resolve tenants from active membership and validate workspace/location scope server-side; unmapped staff routes fail closed.
 - [Subscription regional time](subscription-regional-time.md) — subscription thresholds use the saved IANA billing timezone and local calendar dates, not elapsed UTC hours.
 - [Provider integration boundary](whop-connector-boundary.md) — providers are optional back-office evidence tools; customer checkout and payment status stay first-party inside TS Commerce.
+- [Generated query options](generated-query-options.md) — custom options passed to generated TanStack hooks must include the matching generated query key.

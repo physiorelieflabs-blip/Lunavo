@@ -2514,8 +2514,6 @@ export type PublicCheckoutOrderPaymentProvider = typeof PublicCheckoutOrderPayme
 
 
 export const PublicCheckoutOrderPaymentProvider = {
-  whop: 'whop',
-  manual: 'manual',
   ts_pay: 'ts_pay',
 } as const;
 
@@ -2973,10 +2971,6 @@ export interface PaymentLinkCheckoutInput {
   idempotencyKey: string;
 }
 
-export interface PublicWhopCheckoutVerificationInput {
-  checkoutId?: string;
-}
-
 export type PublicCheckoutPaymentSessionStatus = typeof PublicCheckoutPaymentSessionStatus[keyof typeof PublicCheckoutPaymentSessionStatus];
 
 
@@ -2989,8 +2983,6 @@ export type PublicCheckoutPaymentSessionPaymentProvider = typeof PublicCheckoutP
 
 
 export const PublicCheckoutPaymentSessionPaymentProvider = {
-  whop: 'whop',
-  manual: 'manual',
   ts_pay: 'ts_pay',
 } as const;
 
@@ -3026,8 +3018,6 @@ export type PublicCheckoutVerificationResponsePaymentProvider = typeof PublicChe
 
 
 export const PublicCheckoutVerificationResponsePaymentProvider = {
-  whop: 'whop',
-  manual: 'manual',
   ts_pay: 'ts_pay',
 } as const;
 
@@ -3120,49 +3110,6 @@ base: string;
  * @maxLength 3
  */
 quote: string;
-};
-
-export type CreatePublicInvoiceWhopCheckout201Provider = typeof CreatePublicInvoiceWhopCheckout201Provider[keyof typeof CreatePublicInvoiceWhopCheckout201Provider];
-
-
-export const CreatePublicInvoiceWhopCheckout201Provider = {
-  whop: 'whop',
-} as const;
-
-export type CreatePublicInvoiceWhopCheckout201PaymentStatus = typeof CreatePublicInvoiceWhopCheckout201PaymentStatus[keyof typeof CreatePublicInvoiceWhopCheckout201PaymentStatus];
-
-
-export const CreatePublicInvoiceWhopCheckout201PaymentStatus = {
-  submitted: 'submitted',
-} as const;
-
-export type CreatePublicInvoiceWhopCheckout201 = {
-  provider: CreatePublicInvoiceWhopCheckout201Provider;
-  checkoutId: string;
-  purchaseUrl: string;
-  paymentToken: string;
-  paymentIntentId: number;
-  paymentStatus: CreatePublicInvoiceWhopCheckout201PaymentStatus;
-};
-
-export type VerifyPublicInvoiceWhopPayment200Status = typeof VerifyPublicInvoiceWhopPayment200Status[keyof typeof VerifyPublicInvoiceWhopPayment200Status];
-
-
-export const VerifyPublicInvoiceWhopPayment200Status = {
-  paid: 'paid',
-  pending: 'pending',
-  failed: 'failed',
-} as const;
-
-export type VerifyPublicInvoiceWhopPayment200 = {
-  invoiceNumber: string;
-  amountPaid: number;
-  total: number;
-  currency: string;
-  status: VerifyPublicInvoiceWhopPayment200Status;
-  paymentMessage: string;
-  /** @nullable */
-  providerPaymentId: string | null;
 };
 
 export type ListMarketplaceProductsParams = {

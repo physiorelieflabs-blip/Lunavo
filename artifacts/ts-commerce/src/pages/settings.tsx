@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { ArrowRight, Bell, CreditCard, LockKeyhole, Mail, MapPin, Save, ShieldCheck, Store, UserRound, UsersRound, WalletCards } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
+import { getGetCheckoutSettingsQueryKey, getGetCurrencySettingsQueryKey, useGetCheckoutSettings, useGetCurrencySettings, useUpdateCheckoutSettings, useUpdateCurrencySettings } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 
@@ -38,12 +40,23 @@ const groups = [
 
 export default function Settings() {
   const { user, isLoaded } = useUser();
+  const queryClient = useQueryClient();
+  const currencySettings = useGetCurrencySettings();
+  const updateCurrency = useUpdateCurrencySettings();
+  const checkoutSettings = useGetCheckoutSettings();
+  const updateCheckout = useUpdateCheckoutSettings();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [messageIsError, setMessageIsError] = useState(false);
+  const [currency, setCurrency] = useState('');
+  const [taxRate, setTaxRate] = useState('');
+  const [shippingFee, setShippingFee] = useState('');
+  const [freeShippingThreshold, setFreeShippingThreshold] = useState('');
+  const [commerceMessage, setCommerceMessage] = useState('');
+  const [commerceMessageIsError, setCommerceMessageIsError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -51,6 +64,22 @@ export default function Settings() {
     setLastName(user.lastName ?? '');
     setUsername(user.username ?? '');
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!currencySettings.data) return;
+    setCurrency(currencySettings.data.currency);
+  }, [currencySettings.data]);
+
+  useEffect(() => {
+    if (!checkoutSettings.data) return;
+    setTaxRate(String(checkoutSettings.data.taxRate));
+    setShippingFee(String(checkoutSettings.data.shippingFee));
+    setFreeShippingThreshold(
+      checkoutSettings.data.freeShippingThreshold === null
+        ? ''
+        : String(checkoutSettings.data.freeShippingThreshold),
+    );
+  }, [checkoutSettings.data]);
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
@@ -71,6 +100,60 @@ export default function Settings() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveCurrency = () => {
+    setCommerceMessage('');
+    setCommerceMessageIsError(false);
+    if (!currency) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage('Choose a settlement currency before saving.');
+      return;
+    }
+    updateCurrency.mutate({ data: { currency } }, {
+      onSuccess: (result) => {
+        setCurrency(result.currency);
+        setCommerceMessage(`Settlement currency saved as ${result.currency}. Historical orders remain unchanged.`);
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: getGetCurrencySettingsQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() }),
+        ]);
+      },
+      onError: () => {
+        setCommerceMessageIsError(true);
+        setCommerceMessage('Settlement currency could not be saved. Choose one of the supported currencies.');
+      },
+    });
+  };
+
+  const saveCheckout = (event: FormEvent) => {
+    event.preventDefault();
+    setCommerceMessage('');
+    setCommerceMessageIsError(false);
+    const tax = Number(taxRate);
+    const shipping = Number(shippingFee);
+    const threshold = freeShippingThreshold.trim() === '' ? null : Number(freeShippingThreshold);
+    if (
+      !Number.isFinite(tax) || tax < 0 || tax > 100 ||
+      !Number.isFinite(shipping) || shipping < 0 ||
+      (threshold !== null && (!Number.isFinite(threshold) || threshold < 0))
+    ) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage('Checkout rules could not be saved. Use a tax rate from 0 to 100 and non-negative amounts.');
+      return;
+    }
+    updateCheckout.mutate({
+      data: { taxRate: tax, shippingFee: shipping, freeShippingThreshold: threshold },
+    }, {
+      onSuccess: () => {
+        setCommerceMessage('Checkout rules saved. New orders will use these server-calculated values.');
+        void queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() });
+      },
+      onError: () => {
+        setCommerceMessageIsError(true);
+        setCommerceMessage('Checkout rules could not be saved. Check the values and try again.');
+      },
+    });
   };
 
   if (!isLoaded) return <AppShell><LoadingState label="Loading account settings" /></AppShell>;
@@ -107,6 +190,45 @@ export default function Settings() {
           </form>
           {message && <div className="mt-5"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
         </section>
+
+        <section className="mt-9 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <SectionHeading eyebrow="Settlement" title="Choose your currency" description="This controls new dashboard settlements and withdrawals. Existing orders keep their original currency." />
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#e9e1cd] text-[#8a6826]"><WalletCards className="h-5 w-5" /></span>
+            </div>
+            {currencySettings.isError ? <Notice tone="danger" title="Currency settings unavailable">Refresh the page and try again.</Notice> : <div className="mt-5 flex flex-wrap items-end gap-3">
+              <label className="min-w-[180px] flex-1 text-sm font-bold">Settlement currency
+                <select value={currency} onChange={(event) => setCurrency(event.target.value)} disabled={currencySettings.isLoading || updateCurrency.isPending} className={inputClass} aria-label="Settlement currency">
+                  {!currency && <option value="">Loading currencies…</option>}
+                  {(currencySettings.data?.availableCurrencies ?? (currency ? [currency] : [])).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <button type="button" onClick={saveCurrency} disabled={currencySettings.isLoading || updateCurrency.isPending || !currency} className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#182333] px-4 text-sm font-extrabold text-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-50">{updateCurrency.isPending ? 'Saving…' : 'Save currency'}<Save className="h-4 w-4" /></button>
+            </div>}
+          </div>
+          <div className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <SectionHeading eyebrow="Customer checkout" title="Tax and shipping defaults" description="These rules are calculated on the server and snapshotted on each new order." />
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#e9e1cd] text-[#8a6826]"><CreditCard className="h-5 w-5" /></span>
+            </div>
+            {checkoutSettings.isError ? <Notice tone="danger" title="Checkout settings unavailable">Refresh the page and try again.</Notice> : <form onSubmit={saveCheckout} className="mt-5 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="text-sm font-bold">Tax (%)
+                  <input value={taxRate} onChange={(event) => setTaxRate(event.target.value)} type="number" min="0" max="100" step="0.01" required className={inputClass} />
+                </label>
+                <label className="text-sm font-bold">Shipping ({(checkoutSettings.data?.currency ?? currency) || '—'})
+                  <input value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} type="number" min="0" step="0.01" required className={inputClass} />
+                </label>
+                <label className="text-sm font-bold">Free over ({(checkoutSettings.data?.currency ?? currency) || '—'})
+                  <input value={freeShippingThreshold} onChange={(event) => setFreeShippingThreshold(event.target.value)} type="number" min="0" step="0.01" placeholder="No threshold" className={inputClass} />
+                </label>
+              </div>
+              <div className="flex justify-end"><SubmitButton loading={updateCheckout.isPending}>Save checkout rules</SubmitButton></div>
+            </form>}
+          </div>
+        </section>
+        {commerceMessage && <div className="mt-5"><Notice tone={commerceMessageIsError ? 'danger' : 'success'} title={commerceMessageIsError ? 'Settings not saved' : 'Settings saved'}>{commerceMessage}</Notice></div>}
 
         <div className="mt-9 space-y-8">
           {groups.map((group) => (

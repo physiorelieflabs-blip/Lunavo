@@ -1090,9 +1090,6 @@ paths:
       tags: [checkout]
       summary: Read the current status of a public TS Commerce payment session
       parameters: [ { name: paymentToken, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
-      requestBody:
-        required: false
-        content: { application/json: { schema: { $ref: "#/components/schemas/PublicWhopCheckoutVerificationInput" } } }
       responses:
         "200":
           description: Public order payment verification result
@@ -1211,54 +1208,6 @@ paths:
         "201":
           description: Payment reference pending merchant review
           content: { application/json: { schema: { $ref: "#/components/schemas/InvoicePaymentSubmission" } } }
-  /public/invoices/{token}/whop-checkout:
-    post:
-      operationId: createPublicInvoiceWhopCheckout
-      tags: [checkout]
-      summary: Create a hosted Whop checkout for an invoice balance
-      parameters: [ { name: token, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
-      responses:
-        "201":
-          description: Hosted invoice checkout
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  provider: { type: string, enum: [whop] }
-                  checkoutId: { type: string }
-                  purchaseUrl: { type: string, format: uri }
-                  paymentToken: { type: string }
-                  paymentIntentId: { type: integer }
-                  paymentStatus: { type: string, enum: [submitted] }
-                required: [provider, checkoutId, purchaseUrl, paymentToken, paymentIntentId, paymentStatus]
-  /public/invoices/{token}/whop-verify:
-    post:
-      operationId: verifyPublicInvoiceWhopPayment
-      tags: [checkout]
-      summary: Verify a hosted Whop invoice payment server-side
-      parameters: [ { name: token, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/PublicWhopCheckoutVerificationInput" }
-      responses:
-        "200":
-          description: Invoice payment verification result
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  invoiceNumber: { type: string }
-                  amountPaid: { type: number }
-                  total: { type: number }
-                  currency: { type: string }
-                  status: { type: string, enum: [paid, pending, failed] }
-                  paymentMessage: { type: string }
-                  providerPaymentId: { type: ["string", "null"] }
-                required: [invoiceNumber, amountPaid, total, currency, status, paymentMessage, providerPaymentId]
   /marketplace/products:
     get:
       operationId: listMarketplaceProducts
@@ -3690,7 +3639,7 @@ components:
         paymentMessage: { type: string }
         paymentToken: { type: ["string", "null"] }
         paymentIntentId: { type: ["integer", "null"] }
-        paymentProvider: { type: string, enum: [whop, manual, ts_pay] }
+        paymentProvider: { type: string, enum: [ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [created, submitted, verified, failed, manual] }
       required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
@@ -3960,10 +3909,6 @@ components:
         marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [customerName, customerEmail, shippingAddress, idempotencyKey]
-    PublicWhopCheckoutVerificationInput:
-      type: object
-      properties:
-        checkoutId: { type: string }
     PublicCheckoutPaymentSession:
       type: object
       properties:
@@ -3971,7 +3916,7 @@ components:
         status: { type: string, enum: [pending, paid] }
         paymentToken: { type: string }
         paymentIntentId: { type: integer }
-        paymentProvider: { type: string, enum: [whop, manual, ts_pay] }
+        paymentProvider: { type: string, enum: [ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [submitted, manual] }
       required: [orderNumber, status, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
@@ -3989,7 +3934,7 @@ components:
         paymentMessage: { type: string }
         paymentToken: { type: string }
         paymentIntentId: { type: integer }
-        paymentProvider: { type: string, enum: [whop, manual, ts_pay] }
+        paymentProvider: { type: string, enum: [ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [verified, pending, failed] }
         providerPaymentId: { type: ["string", "null"] }

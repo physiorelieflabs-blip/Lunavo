@@ -7658,65 +7658,6 @@ router.get("/public/invoices/:token", async (req, res): Promise<void> => {
   }));
 });
 
-router.post("/public/invoices/:token/whop-checkout", async (req, res): Promise<void> => {
-  const token = String(req.params.token ?? "").trim();
-  if (token.length < 20 || token.length > 120) {
-    res.status(400).json({ error: "Invalid invoice link" });
-    return;
-  }
-  const invoice = (await db.select().from(invoicesTable).where(eq(invoicesTable.publicToken, token)).limit(1))[0];
-  if (!invoice || invoice.status === "draft" || invoice.status === "void") {
-    res.status(404).json({ error: "Invoice is unavailable" });
-    return;
-  }
-  try {
-    const payment = await ensurePublicWhopInvoiceCheckout(invoice, requestOrigin(req));
-    res.status(201).json({
-      provider: "whop",
-      checkoutId: payment.checkoutId,
-      purchaseUrl: payment.purchaseUrl,
-      paymentToken: payment.paymentToken,
-      paymentIntentId: payment.paymentIntentId,
-      paymentStatus: payment.status,
-    });
-  } catch (error) {
-    res.status(502).json({
-      error: error instanceof Error ? error.message : "Hosted invoice checkout could not be created",
-    });
-  }
-});
-
-router.post("/public/invoices/:token/whop-verify", async (req, res): Promise<void> => {
-  const token = String(req.params.token ?? "").trim();
-  const checkoutId = typeof req.body?.checkoutId === "string" ? req.body.checkoutId.trim() : null;
-  if (token.length < 20 || token.length > 120) {
-    res.status(400).json({ error: "Invalid invoice link" });
-    return;
-  }
-  try {
-    const result = await verifyPublicWhopInvoice(token, checkoutId);
-    const detail = await serializeInvoice(result.invoice);
-    res.json({
-      invoiceNumber: detail.invoiceNumber,
-      amountPaid: detail.amountPaid,
-      total: detail.total,
-      currency: detail.currency,
-      status: result.status,
-      paymentMessage:
-        result.status === "paid"
-          ? "Payment verified by Whop and recorded in the invoice ledger."
-          : result.status === "failed"
-            ? "Whop reported a failed payment. No invoice balance was changed; you can retry."
-            : "Whop has not reported a completed payment yet. Check again shortly.",
-      providerPaymentId: result.providerPaymentId,
-    });
-  } catch (error) {
-    res.status(409).json({
-      error: error instanceof Error ? error.message : "Invoice payment could not be verified",
-    });
-  }
-});
-
 router.post("/public/invoices/:token/payment-reference", async (req, res): Promise<void> => {
   const params = SubmitInvoicePaymentReferenceParams.safeParse(req.params); const body = SubmitInvoicePaymentReferenceBody.safeParse(req.body);
   if (!params.success || !body.success) { res.status(400).json({ error: "Enter a valid amount and payment reference" }); return; }
@@ -8296,6 +8237,9 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
 });
 
 router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
+  res.status(410).json({ error: "Hosted provider checkout has been retired. Use Pay from bank or Pay from dashboard inside TS Commerce." });
+  return;
+  /*
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   if (identity.isAdmin) {
@@ -8479,9 +8423,13 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
       error: error instanceof Error ? error.message : "Whop checkout could not be created",
     });
   }
+  */
 });
 
 router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
+  res.status(410).json({ error: "Hosted provider verification has been retired. Use the TS Commerce payment review queue." });
+  return;
+  /*
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   if (identity.isAdmin) {
@@ -8687,6 +8635,7 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
       error: error instanceof Error ? error.message : "Whop payment could not be verified",
     });
   }
+  */
 });
 
 router.get("/admin/overview", async (req, res): Promise<void> => {
@@ -9729,52 +9678,6 @@ router.post("/refunds", async (req, res): Promise<void> => {
 router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const id = Number(req.params.id); const merchant = await getOrCreateMerchant(identity);
   try {
-    let providerRefund: WhopRefund | null = null;
-    const providerTarget = (
-      await db
-        .select({ refund: refundRecordsTable, payment: paymentRecordsTable })
-        .from(refundRecordsTable)
-        .innerJoin(paymentRecordsTable, eq(refundRecordsTable.paymentRecordId, paymentRecordsTable.id))
-        .where(and(eq(refundRecordsTable.id, id), eq(refundRecordsTable.merchantId, merchant.id)))
-        .limit(1)
-    )[0];
-    if (
-      providerTarget?.refund.status === "requested" &&
-      providerTarget.payment.method === "whop_hosted"
-    ) {
-      const providerPaymentId = providerTarget.payment.evidenceReference;
-      if (!providerPaymentId) throw new Error("The Whop payment reference is missing");
-      if (providerTarget.refund.providerRefundId) {
-        providerRefund = await whopRequest<WhopRefund>(
-          `/api/v1/refunds/${encodeURIComponent(providerTarget.refund.providerRefundId)}`,
-        );
-      } else {
-        providerRefund = await requestWhopRefund(
-          providerPaymentId,
-          providerTarget.refund.amountMinor,
-          `ts-commerce-refund:${providerTarget.refund.id}`,
-        );
-      }
-      const providerStatus = String(providerRefund.status ?? "").toLowerCase();
-      await db
-        .update(refundRecordsTable)
-        .set({
-          providerRefundId: providerRefund.id ?? null,
-          providerStatus: providerStatus || "pending",
-          providerFailureReason:
-            providerRefund.failure_reason ?? providerRefund.failure_message ?? null,
-        })
-        .where(eq(refundRecordsTable.id, id));
-      if (["failed", "canceled"].includes(providerStatus)) {
-        throw new Error(
-          providerRefund.failure_message ||
-            `Whop reported that the refund ${providerStatus}`,
-        );
-      }
-      if (providerStatus !== "succeeded") {
-        throw new Error("Whop accepted the refund request; it is still processing");
-      }
-    }
     const refund = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${refundRecordsTable} where id=${id} and merchant_id=${merchant.id} for update`);
       const current = (await tx.select().from(refundRecordsTable).where(and(eq(refundRecordsTable.id, id), eq(refundRecordsTable.merchantId, merchant.id))).limit(1))[0];
@@ -9787,9 +9690,9 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
          status: "processed",
          approvedBy: identity.clerkUserId,
          approvedAt: new Date(),
-         providerRefundId: providerRefund?.id ?? current.providerRefundId,
-         providerStatus: providerRefund?.status ?? current.providerStatus,
-         providerFailureReason: providerRefund?.failure_reason ?? current.providerFailureReason,
+          providerRefundId: current.providerRefundId,
+          providerStatus: current.providerStatus,
+          providerFailureReason: current.providerFailureReason,
        }).where(eq(refundRecordsTable.id, id)).returning();
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: current.paymentRecordId, refundId: id, amountMinor: -current.amountMinor, currency: current.currency, entryType: "refund", referenceKey: `refund:${id}` });
       if (current.inventoryRestock && order?.supplierProductId) {

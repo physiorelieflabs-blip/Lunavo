@@ -1,13 +1,13 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { CheckCircle2, FileText } from 'lucide-react';
 import { useParams } from 'wouter';
-import { useGetPublicInvoice, useSubmitInvoicePaymentReference } from '@workspace/api-client-react';
+import { getGetPublicInvoiceQueryKey, useGetPublicInvoice, useSubmitInvoicePaymentReference } from '@workspace/api-client-react';
 import { Button, ErrorState, LoadingState, Notice, SubmitButton } from '@/components/primitives';
 import { money } from '@/lib/format';
 
 const input = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]';
 export default function PublicInvoice() {
-  const { token = '' } = useParams<{token:string}>(); const invoice = useGetPublicInvoice(token, { query: { retry: false } }); const submit = useSubmitInvoicePaymentReference(); const [reference,setReference] = useState(''); const [sender,setSender] = useState(''); const [message,setMessage] = useState('');
+  const { token = '' } = useParams<{token:string}>(); const invoice = useGetPublicInvoice(token, { query: { queryKey: getGetPublicInvoiceQueryKey(token), retry: false } }); const submit = useSubmitInvoicePaymentReference(); const [reference,setReference] = useState(''); const [sender,setSender] = useState(''); const [message,setMessage] = useState('');
   if (invoice.isLoading) return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><div className="w-full max-w-md"><LoadingState label="Loading invoice"/></div></main>;
   if (invoice.isError || !invoice.data) return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><ErrorState onRetry={() => void invoice.refetch()}/></main>;
   const value = invoice.data;
