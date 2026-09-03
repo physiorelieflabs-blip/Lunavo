@@ -14,6 +14,15 @@ export interface CustomerRecord {
   phone: string | null;
   /** @nullable */
   notes: string | null;
+  /**
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 40
+     */
+  tags: string[];
+  marketingConsent: boolean;
+  /** @nullable */
+  consentCapturedAt: Date | null;
   orderCount: number;
   totalSpent: number;
   createdAt: Date;

@@ -24,6 +24,7 @@ const migrations = [
   "0013_supplier_payments",
   "0014_checkout_pricing",
   "0015_customer_notes",
+  "0016_customer_segments",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

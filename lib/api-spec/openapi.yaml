@@ -1493,15 +1493,20 @@ components:
         email: { type: string, format: email }
         phone: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
+        tags: { type: array, maxItems: 20, items: { type: string, minLength: 1, maxLength: 40 } }
+        marketingConsent: { type: boolean }
+        consentCapturedAt: { type: ["string", "null"], format: date-time }
         orderCount: { type: integer }
         totalSpent: { type: number }
         createdAt: { type: string, format: date-time }
-      required: [id, name, email, phone, notes, orderCount, totalSpent, createdAt]
+      required: [id, name, email, phone, notes, tags, marketingConsent, consentCapturedAt, orderCount, totalSpent, createdAt]
     CustomerUpdate:
       type: object
       properties:
         notes: { type: ["string", "null"], maxLength: 4000 }
-      required: [notes]
+        tags: { type: array, maxItems: 20, items: { type: string, minLength: 1, maxLength: 40 } }
+        marketingConsent: { type: boolean }
+      required: [notes, tags, marketingConsent]
     OrderRecord:
       type: object
       properties:
@@ -2400,6 +2405,7 @@ components:
         customerPhone: { type: string, maxLength: 40 }
         shippingAddress: { type: string, minLength: 8, maxLength: 500 }
         quantity: { type: integer, minimum: 1, maximum: 100 }
+        marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [supplierProductId, customerName, customerEmail, shippingAddress, quantity, idempotencyKey]
     PublicCheckoutOrder:

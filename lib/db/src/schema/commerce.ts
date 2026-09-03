@@ -119,6 +119,9 @@ export const customersTable = pgTable(
     email: text("email").notNull(),
     phone: text("phone"),
     notes: text("notes"),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    marketingConsent: boolean("marketing_consent").notNull().default(false),
+    consentCapturedAt: timestamp("consent_captured_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

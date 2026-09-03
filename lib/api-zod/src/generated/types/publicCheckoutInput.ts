@@ -27,6 +27,7 @@ export interface PublicCheckoutInput {
      * @maximum 100
      */
   quantity: number;
+  marketingConsent?: boolean;
   /**
      * @minLength 8
      * @maxLength 120

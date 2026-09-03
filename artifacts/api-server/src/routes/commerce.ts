@@ -245,6 +245,10 @@ function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
 }
 
+function normalizeCustomerTags(tags: string[]): string[] {
+  return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+}
+
 function csvCell(value: unknown): string {
   return `"${String(value ?? "").replaceAll('"', '""').replaceAll("\r", " ").replaceAll("\n", " ")}"`;
 }
@@ -3334,7 +3338,10 @@ router.get("/customers", async (req, res): Promise<void> => {
         name: customer.name,
         email: customer.email,
         phone: customer.phone,
-      notes: customer.notes,
+        notes: customer.notes,
+        tags: Array.isArray(customer.tags) ? customer.tags : [],
+        marketingConsent: customer.marketingConsent,
+        consentCapturedAt: customer.consentCapturedAt,
         orderCount: Number(orderCount),
         totalSpent: toNumber(totalSpent),
         createdAt: customer.createdAt,
@@ -3349,7 +3356,7 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
   const params = UpdateCustomerParams.safeParse(req.params);
   const parsed = UpdateCustomerBody.safeParse(req.body);
   if (!params.success || !parsed.success) {
-    res.status(400).json({ error: "Customer notes must be 4,000 characters or fewer" });
+    res.status(400).json({ error: "Customer notes, tags, and consent settings are invalid" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
@@ -3365,19 +3372,24 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
   }
   const [updated] = await db.update(customersTable).set({
     notes: parsed.data.notes?.trim() || null,
+    tags: normalizeCustomerTags(parsed.data.tags),
+    marketingConsent: parsed.data.marketingConsent,
+    consentCapturedAt: parsed.data.marketingConsent
+      ? (existing.consentCapturedAt ?? new Date())
+      : null,
     updatedAt: new Date(),
   }).where(and(
     eq(customersTable.id, existing.id),
     eq(customersTable.merchantId, merchant.id),
   )).returning();
   if (!updated) {
-    res.status(500).json({ error: "Customer notes could not be saved" });
+    res.status(500).json({ error: "Customer profile could not be saved" });
     return;
   }
   await addActivity(merchant.id, {
-    type: "customer_note_updated",
+    type: "customer_profile_updated",
     title: "Customer profile updated",
-    description: `Notes updated for ${updated.name}.`,
+    description: `Notes, tags, or consent updated for ${updated.name}.`,
     tone: "neutral",
   });
   const [{ orderCount, totalSpent }] = await db.select({
@@ -3390,6 +3402,9 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
     email: updated.email,
     phone: updated.phone,
     notes: updated.notes,
+    tags: Array.isArray(updated.tags) ? updated.tags : [],
+    marketingConsent: updated.marketingConsent,
+    consentCapturedAt: updated.consentCapturedAt,
     orderCount: Number(orderCount),
     totalSpent: toNumber(totalSpent),
     createdAt: updated.createdAt,
@@ -3407,7 +3422,7 @@ router.get("/exports/:resource", async (req, res): Promise<void> => {
 
   if (resource === "customers") {
     const customers = await db.select().from(customersTable).where(eq(customersTable.merchantId, merchant.id)).orderBy(asc(customersTable.createdAt));
-    document = csvDocument(["id", "name", "email", "phone", "notes", "created_at"], customers.map((customer) => [customer.id, customer.name, customer.email, customer.phone, customer.notes, customer.createdAt.toISOString()]));
+    document = csvDocument(["id", "name", "email", "phone", "notes", "tags", "marketing_consent", "consent_captured_at", "created_at"], customers.map((customer) => [customer.id, customer.name, customer.email, customer.phone, customer.notes, Array.isArray(customer.tags) ? customer.tags.join("|") : "", customer.marketingConsent, customer.consentCapturedAt?.toISOString() ?? "", customer.createdAt.toISOString()]));
     filename = `ts-commerce-customers-${today}.csv`;
   } else if (resource === "orders") {
     const orders = await db.select({ order: ordersTable, customerName: customersTable.name, customerEmail: customersTable.email }).from(ordersTable).innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id)).where(eq(ordersTable.merchantId, merchant.id)).orderBy(asc(ordersTable.createdAt));
@@ -3993,7 +4008,8 @@ router.post(
         const total = Number(
           (subtotal + shippingAmount + taxAmount).toFixed(2),
         );
-        const email = parsed.data.customerEmail.trim().toLowerCase();
+         const email = parsed.data.customerEmail.trim().toLowerCase();
+         const marketingConsent = parsed.data.marketingConsent;
         let customer = (
           await tx
             .select()
@@ -4012,6 +4028,10 @@ router.post(
             .set({
               name: parsed.data.customerName.trim(),
               phone: parsed.data.customerPhone?.trim() || null,
+              ...(marketingConsent === undefined ? {} : {
+                marketingConsent,
+                consentCapturedAt: marketingConsent ? (customer.consentCapturedAt ?? new Date()) : null,
+              }),
             })
             .where(eq(customersTable.id, customer.id))
             .returning();
@@ -4023,6 +4043,8 @@ router.post(
               name: parsed.data.customerName.trim(),
               email,
               phone: parsed.data.customerPhone?.trim() || null,
+              marketingConsent: marketingConsent ?? false,
+              consentCapturedAt: marketingConsent ? new Date() : null,
             })
             .returning();
         }

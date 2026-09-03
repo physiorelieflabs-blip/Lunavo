@@ -534,12 +534,21 @@ export const ResearchWebResponse = zod.object({
 /**
  * @summary List the merchant's customers
  */
+export const listCustomersResponseTagsItemMax = 40;
+
+export const listCustomersResponseTagsMax = 20;
+
+
+
 export const ListCustomersResponseItem = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "email": zod.email(),
   "phone": zod.string().nullable(),
   "notes": zod.string().nullable(),
+  "tags": zod.array(zod.string().min(1).max(listCustomersResponseTagsItemMax)).max(listCustomersResponseTagsMax),
+  "marketingConsent": zod.boolean(),
+  "consentCapturedAt": zod.coerce.date().nullable(),
   "orderCount": zod.int(),
   "totalSpent": zod.number(),
   "createdAt": zod.coerce.date()
@@ -556,11 +565,23 @@ export const UpdateCustomerParams = zod.object({
 
 export const updateCustomerBodyNotesMax = 4000;
 
+export const updateCustomerBodyTagsItemMax = 40;
+
+export const updateCustomerBodyTagsMax = 20;
+
 
 
 export const UpdateCustomerBody = zod.object({
-  "notes": zod.string().max(updateCustomerBodyNotesMax).nullable()
+  "notes": zod.string().max(updateCustomerBodyNotesMax).nullable(),
+  "tags": zod.array(zod.string().min(1).max(updateCustomerBodyTagsItemMax)).max(updateCustomerBodyTagsMax),
+  "marketingConsent": zod.boolean()
 })
+
+export const updateCustomerResponseTagsItemMax = 40;
+
+export const updateCustomerResponseTagsMax = 20;
+
+
 
 export const UpdateCustomerResponse = zod.object({
   "id": zod.int(),
@@ -568,6 +589,9 @@ export const UpdateCustomerResponse = zod.object({
   "email": zod.email(),
   "phone": zod.string().nullable(),
   "notes": zod.string().nullable(),
+  "tags": zod.array(zod.string().min(1).max(updateCustomerResponseTagsItemMax)).max(updateCustomerResponseTagsMax),
+  "marketingConsent": zod.boolean(),
+  "consentCapturedAt": zod.coerce.date().nullable(),
   "orderCount": zod.int(),
   "totalSpent": zod.number(),
   "createdAt": zod.coerce.date()
@@ -1757,6 +1781,7 @@ export const CreatePublicCheckoutBody = zod.object({
   "customerPhone": zod.string().max(createPublicCheckoutBodyCustomerPhoneMax).optional(),
   "shippingAddress": zod.string().min(createPublicCheckoutBodyShippingAddressMin).max(createPublicCheckoutBodyShippingAddressMax),
   "quantity": zod.int().min(1).max(createPublicCheckoutBodyQuantityMax),
+  "marketingConsent": zod.boolean().optional(),
   "idempotencyKey": zod.string().min(createPublicCheckoutBodyIdempotencyKeyMin).max(createPublicCheckoutBodyIdempotencyKeyMax)
 })
 

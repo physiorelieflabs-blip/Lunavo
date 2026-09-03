@@ -332,6 +332,15 @@ export interface CustomerRecord {
   phone: string | null;
   /** @nullable */
   notes: string | null;
+  /**
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 40
+     */
+  tags: string[];
+  marketingConsent: boolean;
+  /** @nullable */
+  consentCapturedAt: string | null;
   orderCount: number;
   totalSpent: number;
   createdAt: string;
@@ -343,6 +352,13 @@ export interface CustomerUpdate {
      * @nullable
      */
   notes: string | null;
+  /**
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 40
+     */
+  tags: string[];
+  marketingConsent: boolean;
 }
 
 export interface OrderRecord {
@@ -1831,6 +1847,7 @@ export interface PublicCheckoutInput {
      * @maximum 100
      */
   quantity: number;
+  marketingConsent?: boolean;
   /**
      * @minLength 8
      * @maxLength 120

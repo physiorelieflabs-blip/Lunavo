@@ -12,4 +12,11 @@ export interface CustomerUpdate {
      * @nullable
      */
   notes: string | null;
+  /**
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 40
+     */
+  tags: string[];
+  marketingConsent: boolean;
 }
