@@ -1,7 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { CheckCircle2, ExternalLink, ShoppingBag } from 'lucide-react';
 import { useRoute } from 'wouter';
-import { useCreatePublicCheckout, useGetPublicStore } from '@workspace/api-client-react';
+import { useCreatePublicCheckout, useGetPublicStore, useSubmitPublicPaymentReference } from '@workspace/api-client-react';
 import { Logo, PublicHeader } from '@/components/app-shell';
 import { Button, EmptyState, ErrorState, LoadingState, Notice, SubmitButton } from '@/components/primitives';
 import { money } from '@/lib/format';
@@ -11,6 +11,7 @@ export default function Checkout() {
   const merchantKey = params?.merchantKey ?? '';
   const store = useGetPublicStore(merchantKey);
   const checkout = useCreatePublicCheckout();
+  const submitEvidence = useSubmitPublicPaymentReference();
   const [selectedId, setSelectedId] = useState<number | null>(() => {
     const requested = Number(new URLSearchParams(window.location.search).get('productId'));
     return Number.isInteger(requested) && requested > 0 ? requested : null;
@@ -23,6 +24,8 @@ export default function Checkout() {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [receipt, setReceipt] = useState<Awaited<typeof checkout.data> | null>(null);
   const [message, setMessage] = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [senderName, setSenderName] = useState('');
   const selected = useMemo(
     () => store.data?.products.find((product) => product.id === selectedId) ?? null,
     [selectedId, store.data?.products],
@@ -51,14 +54,24 @@ export default function Checkout() {
         idempotencyKey: crypto.randomUUID(),
       },
     }, {
-      onSuccess: (order) => {
-        if (order.paymentUrl) {
-          window.location.assign(order.paymentUrl);
-          return;
-        }
-        setReceipt(order);
-      },
+      onSuccess: (order) => setReceipt(order),
       onError: () => setMessage('We could not submit this order. Check your details and try again.'),
+    });
+  };
+
+  const submitPaymentEvidence = (event: FormEvent) => {
+    event.preventDefault();
+    if (!receipt?.paymentToken) return;
+    submitEvidence.mutate({
+      paymentToken: receipt.paymentToken,
+      data: { paymentReference: paymentReference.trim(), senderName: senderName.trim() || undefined },
+    }, {
+      onSuccess: (result) => {
+        setMessage(result.paymentMessage);
+        setPaymentReference('');
+        setSenderName('');
+      },
+      onError: () => setMessage('Payment evidence could not be submitted. Check the reference and try again.'),
     });
   };
 
@@ -69,7 +82,7 @@ export default function Checkout() {
         <div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Public checkout</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-5xl">{store.data.storeName}</h1><p className="mt-3 max-w-xl text-sm leading-6 text-[#697687]">Choose an item and send your order details securely to this store.</p></div>
         <Logo />
       </div>
-      {receipt ? <section className="mt-10 rounded-2xl border border-[#b8d6ca] bg-[#eff8f3] p-7 md:p-10"><CheckCircle2 className="h-8 w-8 text-[#2f6958]" /><p className="mt-5 font-mono text-[10px] uppercase tracking-[.16em] text-[#2f6958]">Order received</p><h2 className="mt-2 text-2xl font-extrabold">Thanks — {receipt.orderNumber}</h2><p className="mt-3 max-w-xl text-sm leading-6 text-[#315e6c]">{receipt.paymentMessage}</p><div className="mt-6 max-w-md divide-y divide-[#b8d6ca] border-y border-[#b8d6ca] text-sm"><div className="flex items-center justify-between py-3"><span className="text-[#477563]">Subtotal</span><strong className="font-mono" data-testid="receipt-subtotal">{money(receipt.subtotal, receipt.currency)}</strong></div><div className="flex items-center justify-between py-3"><span className="text-[#477563]">Tax</span><strong className="font-mono" data-testid="receipt-tax">{money(receipt.tax, receipt.currency)}</strong></div><div className="flex items-center justify-between py-3"><span className="text-[#477563]">Shipping</span><strong className="font-mono" data-testid="receipt-shipping">{money(receipt.shipping, receipt.currency)}</strong></div><div className="flex items-center justify-between py-3 text-base"><span className="font-extrabold text-[#245746]">Order total</span><strong className="font-mono text-[#182333]" data-testid="receipt-total">{money(receipt.total, receipt.currency)}</strong></div></div><Button variant="secondary" className="mt-7" onClick={() => setReceipt(null)}>Place another order</Button></section> : <div className="mt-10 grid gap-7 lg:grid-cols-[1.1fr_.9fr]">
+      {receipt ? <section className="mt-10 rounded-2xl border border-[#b8d6ca] bg-[#eff8f3] p-7 md:p-10"><CheckCircle2 className="h-8 w-8 text-[#2f6958]" /><p className="mt-5 font-mono text-[10px] uppercase tracking-[.16em] text-[#2f6958]">Order received</p><h2 className="mt-2 text-2xl font-extrabold">Thanks — {receipt.orderNumber}</h2><p className="mt-3 max-w-xl text-sm leading-6 text-[#315e6c]">{receipt.paymentMessage}</p><div className="mt-6 max-w-md divide-y divide-[#b8d6ca] border-y border-[#b8d6ca] text-sm"><div className="flex items-center justify-between py-3"><span className="text-[#477563]">Subtotal</span><strong className="font-mono" data-testid="receipt-subtotal">{money(receipt.subtotal, receipt.currency)}</strong></div><div className="flex items-center justify-between py-3"><span className="text-[#477563]">Tax</span><strong className="font-mono" data-testid="receipt-tax">{money(receipt.tax, receipt.currency)}</strong></div><div className="flex items-center justify-between py-3"><span className="text-[#477563]">Shipping</span><strong className="font-mono" data-testid="receipt-shipping">{money(receipt.shipping, receipt.currency)}</strong></div><div className="flex items-center justify-between py-3 text-base"><span className="font-extrabold text-[#245746]">Order total</span><strong className="font-mono text-[#182333]" data-testid="receipt-total">{money(receipt.total, receipt.currency)}</strong></div></div>{receipt.paymentStatus !== 'verified' && <form onSubmit={submitPaymentEvidence} className="mt-7 max-w-xl rounded-xl border border-[#dfc27a] bg-[#fff7df] p-5"><h3 className="font-extrabold text-[#765817]">Submit payment evidence in TS Commerce</h3><p className="mt-1 text-xs leading-5 text-[#765817]">Enter the reference from your bank or cash payment. The merchant approves it before the order enters fulfillment.</p><label className="mt-4 block text-sm font-bold text-[#765817]">Payment reference<input required minLength={2} maxLength={240} value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#dfc27a] bg-[#fffdf5] px-3 font-mono text-sm outline-none focus:border-[#a2772e]" placeholder="e.g. TRX-48291" /></label><label className="mt-4 block text-sm font-bold text-[#765817]">Sender name <span className="font-normal">(optional)</span><input maxLength={160} value={senderName} onChange={(event) => setSenderName(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#dfc27a] bg-[#fffdf5] px-3 text-sm outline-none focus:border-[#a2772e]" placeholder="Name on the payment" /></label><div className="mt-4"><SubmitButton loading={submitEvidence.isPending}>Submit for merchant approval</SubmitButton></div></form>}{message && <div className="mt-5"><Notice tone={message.includes('could not') ? 'danger' : 'success'} title="Payment update">{message}</Notice></div>}<Button variant="secondary" className="mt-7" onClick={() => setReceipt(null)}>Place another order</Button></section> : <div className="mt-10 grid gap-7 lg:grid-cols-[1.1fr_.9fr]">
         <section>
           {store.data.products.length ? <div className="grid gap-4 sm:grid-cols-2">{store.data.products.map((product) => <button key={product.id} type="button" onClick={() => setSelectedId(product.id)} className={`overflow-hidden rounded-2xl border text-left transition ${selectedId === product.id ? 'border-[#a2772e] ring-2 ring-[#d6aa46]/40' : 'border-[#d9d2c4]'} bg-[#fbfaf6]`}><div className="h-44 bg-[#eee9df]">{product.imageUrl ? <img src={product.imageUrl} alt="" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-[#a2772e]"><ShoppingBag className="h-9 w-9" /></div>}</div><div className="p-5"><h2 className="font-extrabold">{product.title}</h2>{product.description && <p className="mt-2 line-clamp-2 text-xs leading-5 text-[#697687]">{product.description}</p>}<p className="mt-5 font-mono text-lg font-bold">{money(product.price, product.currency)}</p></div></button>)}</div> : <EmptyState title="This store has no products yet" description="The merchant has not published a priced product." />}
         </section>

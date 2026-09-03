@@ -14,7 +14,7 @@ import { logger } from "./logger";
  * with previous payload versions.
  */
 export const domainEventTypes = [
-  "order.created", "order.cancelled", "payment.verified", "refund.processed",
+  "order.created", "order.cancelled", "payment.verified", "payment.evidence_submitted", "refund.processed",
   "invoice.sent", "invoice.payment_submitted", "invoice.payment_verified",
   "inventory.adjusted", "inventory.reserved", "inventory.released", "inventory.committed",
   "marketplace.listing_reviewed", "marketplace.fee_reviewed",
@@ -97,6 +97,7 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "order.created": ["New order recorded", "An order was created.", "info"],
     "order.cancelled": ["Order cancelled", "A pending order was cancelled.", "warning"],
     "payment.verified": ["Payment verified", "Verified payment was posted to the authoritative ledger.", "success"],
+    "payment.evidence_submitted": ["Payment evidence submitted", "A customer submitted payment evidence for merchant approval.", "warning"],
     "refund.processed": ["Refund processed", "A refund was processed against a verified payment.", "warning"],
     "invoice.sent": ["Invoice sent", "An invoice is now available to the customer.", "info"],
     "invoice.payment_submitted": ["Invoice payment submitted", "Customer payment evidence is awaiting review.", "warning"],

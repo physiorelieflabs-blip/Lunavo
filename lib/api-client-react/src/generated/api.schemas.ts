@@ -2516,6 +2516,7 @@ export type PublicCheckoutOrderPaymentProvider = typeof PublicCheckoutOrderPayme
 export const PublicCheckoutOrderPaymentProvider = {
   whop: 'whop',
   manual: 'manual',
+  ts_pay: 'ts_pay',
 } as const;
 
 export type PublicCheckoutOrderPaymentStatus = typeof PublicCheckoutOrderPaymentStatus[keyof typeof PublicCheckoutOrderPaymentStatus];
@@ -2990,6 +2991,7 @@ export type PublicCheckoutPaymentSessionPaymentProvider = typeof PublicCheckoutP
 export const PublicCheckoutPaymentSessionPaymentProvider = {
   whop: 'whop',
   manual: 'manual',
+  ts_pay: 'ts_pay',
 } as const;
 
 export type PublicCheckoutPaymentSessionPaymentStatus = typeof PublicCheckoutPaymentSessionPaymentStatus[keyof typeof PublicCheckoutPaymentSessionPaymentStatus];
@@ -3026,6 +3028,7 @@ export type PublicCheckoutVerificationResponsePaymentProvider = typeof PublicChe
 export const PublicCheckoutVerificationResponsePaymentProvider = {
   whop: 'whop',
   manual: 'manual',
+  ts_pay: 'ts_pay',
 } as const;
 
 export type PublicCheckoutVerificationResponsePaymentStatus = typeof PublicCheckoutVerificationResponsePaymentStatus[keyof typeof PublicCheckoutVerificationResponsePaymentStatus];
@@ -3055,6 +3058,55 @@ export interface PublicCheckoutVerificationResponse {
   paymentStatus: PublicCheckoutVerificationResponsePaymentStatus;
   /** @nullable */
   providerPaymentId: string | null;
+}
+
+export interface PublicPaymentReferenceInput {
+  /**
+     * @minLength 2
+     * @maxLength 240
+     */
+  paymentReference: string;
+  /**
+     * @minLength 2
+     * @maxLength 160
+     * @nullable
+     */
+  senderName?: string | null;
+}
+
+export type PublicPaymentReferenceResponseStatus = typeof PublicPaymentReferenceResponseStatus[keyof typeof PublicPaymentReferenceResponseStatus];
+
+
+export const PublicPaymentReferenceResponseStatus = {
+  pending: 'pending',
+  paid: 'paid',
+} as const;
+
+export type PublicPaymentReferenceResponsePaymentProvider = typeof PublicPaymentReferenceResponsePaymentProvider[keyof typeof PublicPaymentReferenceResponsePaymentProvider];
+
+
+export const PublicPaymentReferenceResponsePaymentProvider = {
+  ts_pay: 'ts_pay',
+} as const;
+
+export type PublicPaymentReferenceResponsePaymentStatus = typeof PublicPaymentReferenceResponsePaymentStatus[keyof typeof PublicPaymentReferenceResponsePaymentStatus];
+
+
+export const PublicPaymentReferenceResponsePaymentStatus = {
+  submitted: 'submitted',
+  verified: 'verified',
+} as const;
+
+export interface PublicPaymentReferenceResponse {
+  orderNumber: string;
+  status: PublicPaymentReferenceResponseStatus;
+  paymentMessage: string;
+  paymentToken: string;
+  paymentIntentId: number;
+  paymentProvider: PublicPaymentReferenceResponsePaymentProvider;
+  /** @nullable */
+  paymentUrl: string | null;
+  paymentStatus: PublicPaymentReferenceResponsePaymentStatus;
 }
 
 export type GetMarketExchangeRateParams = {

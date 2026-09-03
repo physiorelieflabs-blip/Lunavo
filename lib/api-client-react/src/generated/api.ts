@@ -109,6 +109,8 @@ import type {
   PublicInvitationPreview,
   PublicInvoice,
   PublicPaymentLink,
+  PublicPaymentReferenceInput,
+  PublicPaymentReferenceResponse,
   PublicStore,
   PublicWhopCheckoutVerificationInput,
   ReconciliationInput,
@@ -4619,7 +4621,7 @@ export const getCreatePublicCheckoutUrl = (merchantKey: string,) => {
 }
 
 /**
- * @summary Create a customer order and hosted Whop payment session from a public catalog
+ * @summary Create a customer order and native TS Commerce payment intent from a public catalog
  */
 export const createPublicCheckout = async (merchantKey: string,
     publicCheckoutInput: PublicCheckoutInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutOrder> => {
@@ -4669,7 +4671,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatePublicCheckoutMutationError = ErrorType<unknown>
 
     /**
- * @summary Create a customer order and hosted Whop payment session from a public catalog
+ * @summary Create a customer order and native TS Commerce payment intent from a public catalog
  */
 export const useCreatePublicCheckout = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPublicCheckout>>, TError,{merchantKey: string;data: BodyType<PublicCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -4768,7 +4770,7 @@ export const getCreatePaymentLinkCheckoutUrl = (token: string,) => {
 }
 
 /**
- * @summary Create an order and hosted Whop payment session from a public payment link
+ * @summary Create an order and native TS Commerce payment intent from a public payment link
  */
 export const createPaymentLinkCheckout = async (token: string,
     paymentLinkCheckoutInput: PaymentLinkCheckoutInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutOrder> => {
@@ -4818,7 +4820,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatePaymentLinkCheckoutMutationError = ErrorType<unknown>
 
     /**
- * @summary Create an order and hosted Whop payment session from a public payment link
+ * @summary Create an order and native TS Commerce payment intent from a public payment link
  */
 export const useCreatePaymentLinkCheckout = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentLinkCheckout>>, TError,{token: string;data: BodyType<PaymentLinkCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -4831,7 +4833,7 @@ export const useCreatePaymentLinkCheckout = <TError = ErrorType<unknown>,
       return useMutation(getCreatePaymentLinkCheckoutMutationOptions(options));
     }
 
-export const getRetryPublicWhopCheckoutUrl = (paymentToken: string,) => {
+export const getRetryPublicPaymentSessionUrl = (paymentToken: string,) => {
 
 
 
@@ -4840,11 +4842,11 @@ export const getRetryPublicWhopCheckoutUrl = (paymentToken: string,) => {
 }
 
 /**
- * @summary Recreate or reuse a hosted Whop checkout for a public order
+ * @summary Reopen a native TS Commerce payment session for a public order
  */
-export const retryPublicWhopCheckout = async (paymentToken: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutPaymentSession> => {
+export const retryPublicPaymentSession = async (paymentToken: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutPaymentSession> => {
 
-  return customFetch<PublicCheckoutPaymentSession>(getRetryPublicWhopCheckoutUrl(paymentToken),
+  return customFetch<PublicCheckoutPaymentSession>(getRetryPublicPaymentSessionUrl(paymentToken),
   {
     ...options,
     method: 'POST'
@@ -4857,11 +4859,11 @@ export const retryPublicWhopCheckout = async (paymentToken: string, options?: Pa
 
 
 
-export const getRetryPublicWhopCheckoutMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryPublicWhopCheckout>>, TError,{paymentToken: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof retryPublicWhopCheckout>>, TError,{paymentToken: string}, TContext> => {
+export const getRetryPublicPaymentSessionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryPublicPaymentSession>>, TError,{paymentToken: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryPublicPaymentSession>>, TError,{paymentToken: string}, TContext> => {
 
-const mutationKey = ['retryPublicWhopCheckout'];
+const mutationKey = ['retryPublicPaymentSession'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4871,10 +4873,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryPublicWhopCheckout>>, {paymentToken: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryPublicPaymentSession>>, {paymentToken: string}> = (props) => {
           const {paymentToken} = props ?? {};
 
-          return  retryPublicWhopCheckout(paymentToken,requestOptions)
+          return  retryPublicPaymentSession(paymentToken,requestOptions)
         }
 
 
@@ -4884,25 +4886,25 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type RetryPublicWhopCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof retryPublicWhopCheckout>>>
+    export type RetryPublicPaymentSessionMutationResult = NonNullable<Awaited<ReturnType<typeof retryPublicPaymentSession>>>
 
-    export type RetryPublicWhopCheckoutMutationError = ErrorType<unknown>
+    export type RetryPublicPaymentSessionMutationError = ErrorType<unknown>
 
     /**
- * @summary Recreate or reuse a hosted Whop checkout for a public order
+ * @summary Reopen a native TS Commerce payment session for a public order
  */
-export const useRetryPublicWhopCheckout = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryPublicWhopCheckout>>, TError,{paymentToken: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useRetryPublicPaymentSession = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryPublicPaymentSession>>, TError,{paymentToken: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof retryPublicWhopCheckout>>,
+        Awaited<ReturnType<typeof retryPublicPaymentSession>>,
         TError,
         {paymentToken: string},
         TContext
       > => {
-      return useMutation(getRetryPublicWhopCheckoutMutationOptions(options));
+      return useMutation(getRetryPublicPaymentSessionMutationOptions(options));
     }
 
-export const getVerifyPublicWhopCheckoutUrl = (paymentToken: string,) => {
+export const getVerifyPublicPaymentSessionUrl = (paymentToken: string,) => {
 
 
 
@@ -4911,12 +4913,12 @@ export const getVerifyPublicWhopCheckoutUrl = (paymentToken: string,) => {
 }
 
 /**
- * @summary Verify a public order's hosted Whop payment server-side
+ * @summary Read the current status of a public TS Commerce payment session
  */
-export const verifyPublicWhopCheckout = async (paymentToken: string,
+export const verifyPublicPaymentSession = async (paymentToken: string,
     publicWhopCheckoutVerificationInput?: PublicWhopCheckoutVerificationInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicCheckoutVerificationResponse> => {
 
-  return customFetch<PublicCheckoutVerificationResponse>(getVerifyPublicWhopCheckoutUrl(paymentToken),
+  return customFetch<PublicCheckoutVerificationResponse>(getVerifyPublicPaymentSessionUrl(paymentToken),
   {
     ...options,
     method: 'POST',
@@ -4929,11 +4931,11 @@ export const verifyPublicWhopCheckout = async (paymentToken: string,
 
 
 
-export const getVerifyPublicWhopCheckoutMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyPublicWhopCheckout>>, TError,{paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof verifyPublicWhopCheckout>>, TError,{paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}, TContext> => {
+export const getVerifyPublicPaymentSessionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyPublicPaymentSession>>, TError,{paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof verifyPublicPaymentSession>>, TError,{paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}, TContext> => {
 
-const mutationKey = ['verifyPublicWhopCheckout'];
+const mutationKey = ['verifyPublicPaymentSession'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4943,10 +4945,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyPublicWhopCheckout>>, {paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyPublicPaymentSession>>, {paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}> = (props) => {
           const {paymentToken,data} = props ?? {};
 
-          return  verifyPublicWhopCheckout(paymentToken,data,requestOptions)
+          return  verifyPublicPaymentSession(paymentToken,data,requestOptions)
         }
 
 
@@ -4956,22 +4958,94 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type VerifyPublicWhopCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof verifyPublicWhopCheckout>>>
-    export type VerifyPublicWhopCheckoutMutationBody = BodyType<PublicWhopCheckoutVerificationInput> | undefined
-    export type VerifyPublicWhopCheckoutMutationError = ErrorType<unknown>
+    export type VerifyPublicPaymentSessionMutationResult = NonNullable<Awaited<ReturnType<typeof verifyPublicPaymentSession>>>
+    export type VerifyPublicPaymentSessionMutationBody = BodyType<PublicWhopCheckoutVerificationInput> | undefined
+    export type VerifyPublicPaymentSessionMutationError = ErrorType<unknown>
 
     /**
- * @summary Verify a public order's hosted Whop payment server-side
+ * @summary Read the current status of a public TS Commerce payment session
  */
-export const useVerifyPublicWhopCheckout = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyPublicWhopCheckout>>, TError,{paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useVerifyPublicPaymentSession = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyPublicPaymentSession>>, TError,{paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof verifyPublicWhopCheckout>>,
+        Awaited<ReturnType<typeof verifyPublicPaymentSession>>,
         TError,
         {paymentToken: string;data?: BodyType<PublicWhopCheckoutVerificationInput>},
         TContext
       > => {
-      return useMutation(getVerifyPublicWhopCheckoutMutationOptions(options));
+      return useMutation(getVerifyPublicPaymentSessionMutationOptions(options));
+    }
+
+export const getSubmitPublicPaymentReferenceUrl = (paymentToken: string,) => {
+
+
+
+
+  return `/api/public/checkout/${paymentToken}/payment-reference`
+}
+
+/**
+ * @summary Submit customer payment evidence inside TS Commerce
+ */
+export const submitPublicPaymentReference = async (paymentToken: string,
+    publicPaymentReferenceInput: PublicPaymentReferenceInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicPaymentReferenceResponse> => {
+
+  return customFetch<PublicPaymentReferenceResponse>(getSubmitPublicPaymentReferenceUrl(paymentToken),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publicPaymentReferenceInput)
+  }
+);}
+
+
+
+
+
+export const getSubmitPublicPaymentReferenceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitPublicPaymentReference>>, TError,{paymentToken: string;data: BodyType<PublicPaymentReferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitPublicPaymentReference>>, TError,{paymentToken: string;data: BodyType<PublicPaymentReferenceInput>}, TContext> => {
+
+const mutationKey = ['submitPublicPaymentReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitPublicPaymentReference>>, {paymentToken: string;data: BodyType<PublicPaymentReferenceInput>}> = (props) => {
+          const {paymentToken,data} = props ?? {};
+
+          return  submitPublicPaymentReference(paymentToken,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitPublicPaymentReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof submitPublicPaymentReference>>>
+    export type SubmitPublicPaymentReferenceMutationBody = BodyType<PublicPaymentReferenceInput>
+    export type SubmitPublicPaymentReferenceMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Submit customer payment evidence inside TS Commerce
+ */
+export const useSubmitPublicPaymentReference = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitPublicPaymentReference>>, TError,{paymentToken: string;data: BodyType<PublicPaymentReferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitPublicPaymentReference>>,
+        TError,
+        {paymentToken: string;data: BodyType<PublicPaymentReferenceInput>},
+        TContext
+      > => {
+      return useMutation(getSubmitPublicPaymentReferenceMutationOptions(options));
     }
 
 export const getListInvoicesUrl = () => {

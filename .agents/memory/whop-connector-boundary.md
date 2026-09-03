@@ -1,12 +1,10 @@
 ---
-name: Whop connector boundary
-description: Whop connected-account checkout behavior and accounting verification constraints
+name: Provider integration boundary
+description: Provider integrations are optional back-office evidence tools, not the customer-facing commerce or banking layer
 ---
 
-The connected Whop account can create products, plans, and checkout configurations through the authenticated Replit connector proxy, while the MCP checkout helper may reject the same connected-account request when it injects a company scope. Hosted checkout URLs must remain server-created, and local subscription or ledger state must change only after a server-side Whop payment record is verified.
+TS Commerce customer checkout, payment links, invoices, subscriptions, and payment status screens must remain first-party. Customers submit payment evidence inside TS Commerce, and merchant approval—not a provider redirect—controls authoritative order and ledger state. Provider connectors may remain available only for explicitly isolated back-office evidence/import tooling.
 
-**Why:** The connected account exposed no usable company-list permission, and the MCP checkout operation rejected a company-scoped request even though the raw authenticated proxy succeeded.
+**Why:** The product direction is to own the customer-facing commerce and payment experience rather than send customers to existing provider websites. A hosted redirect is also not proof of payment.
 
-Whop payment and refund amount fields may arrive as `{ amount, currency }` money objects rather than plain numbers.
-
-**How to apply:** Use the server-only connector proxy for Whop API calls, keep provider IDs in non-secret configuration, match verified payments to the local pending record by checkout identity, amount, currency, and successful provider status, and fail closed for unsupported currencies or lifecycle states. A hosted redirect alone is never payment evidence. The connector does not require a Whop API key or webhook secret for checkout, verification, or provider-backed refunds; polling can re-run guarded verification for pending order, invoice, and subscription checkouts. When hosted checkout is unavailable, create a manual payment intent and keep the order pending for merchant evidence review rather than returning a dead checkout error.
+**How to apply:** Public checkout responses must return a TS Pay/native payment intent with no purchase URL. Store customer references as pending evidence, require locked/idempotent merchant verification before posting sale or invoice accounting, and keep provider-specific helpers out of public routes. Preserve historical provider records without treating them as the new customer flow.

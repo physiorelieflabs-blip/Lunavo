@@ -2238,7 +2238,7 @@ export const GetPublicStoreResponse = zod.object({
 
 
 /**
- * @summary Create a customer order and hosted Whop payment session from a public catalog
+ * @summary Create a customer order and native TS Commerce payment intent from a public catalog
  */
 export const createPublicCheckoutPathMerchantKeyMax = 128;
 
@@ -2287,7 +2287,7 @@ export const CreatePublicCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string().nullable(),
   "paymentIntentId": zod.int().nullable(),
-  "paymentProvider": zod.enum(['whop', 'manual']),
+  "paymentProvider": zod.enum(['whop', 'manual', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
@@ -2316,7 +2316,7 @@ export const GetPublicPaymentLinkResponse = zod.object({
 
 
 /**
- * @summary Create an order and hosted Whop payment session from a public payment link
+ * @summary Create an order and native TS Commerce payment intent from a public payment link
  */
 export const createPaymentLinkCheckoutPathTokenMin = 20;
 export const createPaymentLinkCheckoutPathTokenMax = 120;
@@ -2361,52 +2361,52 @@ export const CreatePaymentLinkCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string().nullable(),
   "paymentIntentId": zod.int().nullable(),
-  "paymentProvider": zod.enum(['whop', 'manual']),
+  "paymentProvider": zod.enum(['whop', 'manual', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
 
 /**
- * @summary Recreate or reuse a hosted Whop checkout for a public order
+ * @summary Reopen a native TS Commerce payment session for a public order
  */
-export const retryPublicWhopCheckoutPathPaymentTokenMin = 20;
-export const retryPublicWhopCheckoutPathPaymentTokenMax = 120;
+export const retryPublicPaymentSessionPathPaymentTokenMin = 20;
+export const retryPublicPaymentSessionPathPaymentTokenMax = 120;
 
 
 
-export const RetryPublicWhopCheckoutParams = zod.object({
-  "paymentToken": zod.coerce.string().min(retryPublicWhopCheckoutPathPaymentTokenMin).max(retryPublicWhopCheckoutPathPaymentTokenMax)
+export const RetryPublicPaymentSessionParams = zod.object({
+  "paymentToken": zod.coerce.string().min(retryPublicPaymentSessionPathPaymentTokenMin).max(retryPublicPaymentSessionPathPaymentTokenMax)
 })
 
-export const RetryPublicWhopCheckoutResponse = zod.object({
+export const RetryPublicPaymentSessionResponse = zod.object({
   "orderNumber": zod.string(),
   "status": zod.enum(['pending', 'paid']),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['whop', 'manual']),
+  "paymentProvider": zod.enum(['whop', 'manual', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['submitted', 'manual'])
 })
 
 
 /**
- * @summary Verify a public order's hosted Whop payment server-side
+ * @summary Read the current status of a public TS Commerce payment session
  */
-export const verifyPublicWhopCheckoutPathPaymentTokenMin = 20;
-export const verifyPublicWhopCheckoutPathPaymentTokenMax = 120;
+export const verifyPublicPaymentSessionPathPaymentTokenMin = 20;
+export const verifyPublicPaymentSessionPathPaymentTokenMax = 120;
 
 
 
-export const VerifyPublicWhopCheckoutParams = zod.object({
-  "paymentToken": zod.coerce.string().min(verifyPublicWhopCheckoutPathPaymentTokenMin).max(verifyPublicWhopCheckoutPathPaymentTokenMax)
+export const VerifyPublicPaymentSessionParams = zod.object({
+  "paymentToken": zod.coerce.string().min(verifyPublicPaymentSessionPathPaymentTokenMin).max(verifyPublicPaymentSessionPathPaymentTokenMax)
 })
 
-export const VerifyPublicWhopCheckoutBody = zod.object({
+export const VerifyPublicPaymentSessionBody = zod.object({
   "checkoutId": zod.string().optional()
 })
 
-export const VerifyPublicWhopCheckoutResponse = zod.object({
+export const VerifyPublicPaymentSessionResponse = zod.object({
   "orderNumber": zod.string(),
   "title": zod.string(),
   "subtotal": zod.number(),
@@ -2418,10 +2418,47 @@ export const VerifyPublicWhopCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['whop', 'manual']),
+  "paymentProvider": zod.enum(['whop', 'manual', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['verified', 'pending', 'failed']),
   "providerPaymentId": zod.string().nullable()
+})
+
+
+/**
+ * @summary Submit customer payment evidence inside TS Commerce
+ */
+export const submitPublicPaymentReferencePathPaymentTokenMin = 20;
+export const submitPublicPaymentReferencePathPaymentTokenMax = 120;
+
+
+
+export const SubmitPublicPaymentReferenceParams = zod.object({
+  "paymentToken": zod.coerce.string().min(submitPublicPaymentReferencePathPaymentTokenMin).max(submitPublicPaymentReferencePathPaymentTokenMax)
+})
+
+export const submitPublicPaymentReferenceBodyPaymentReferenceMin = 2;
+export const submitPublicPaymentReferenceBodyPaymentReferenceMax = 240;
+
+export const submitPublicPaymentReferenceBodySenderNameMin = 2;
+export const submitPublicPaymentReferenceBodySenderNameMax = 160;
+
+
+
+export const SubmitPublicPaymentReferenceBody = zod.object({
+  "paymentReference": zod.string().min(submitPublicPaymentReferenceBodyPaymentReferenceMin).max(submitPublicPaymentReferenceBodyPaymentReferenceMax),
+  "senderName": zod.string().min(submitPublicPaymentReferenceBodySenderNameMin).max(submitPublicPaymentReferenceBodySenderNameMax).nullish()
+})
+
+export const SubmitPublicPaymentReferenceResponse = zod.object({
+  "orderNumber": zod.string(),
+  "status": zod.enum(['pending', 'paid']),
+  "paymentMessage": zod.string(),
+  "paymentToken": zod.string(),
+  "paymentIntentId": zod.int(),
+  "paymentProvider": zod.enum(['ts_pay']),
+  "paymentUrl": zod.url().nullable(),
+  "paymentStatus": zod.enum(['submitted', 'verified'])
 })
 
 

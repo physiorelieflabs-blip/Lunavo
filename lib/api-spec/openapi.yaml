@@ -1015,7 +1015,7 @@ paths:
     post:
       operationId: createPublicCheckout
       tags: [checkout]
-      summary: Create a customer order and hosted Whop payment session from a public catalog
+      summary: Create a customer order and native TS Commerce payment intent from a public catalog
       parameters:
         - name: merchantKey
           in: path
@@ -1032,7 +1032,7 @@ paths:
               $ref: "#/components/schemas/PublicCheckoutInput"
       responses:
         "201":
-          description: Order with a hosted Whop payment session
+          description: Order with a native TS Commerce payment intent
           content:
             application/json:
               schema:
@@ -1057,7 +1057,7 @@ paths:
     post:
       operationId: createPaymentLinkCheckout
       tags: [checkout]
-      summary: Create an order and hosted Whop payment session from a public payment link
+      summary: Create an order and native TS Commerce payment intent from a public payment link
       parameters:
         - name: token
           in: path
@@ -1070,25 +1070,25 @@ paths:
             schema: { $ref: "#/components/schemas/PaymentLinkCheckoutInput" }
       responses:
         "201":
-          description: Order with a hosted Whop payment session
+          description: Order with a native TS Commerce payment intent
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PublicCheckoutOrder" }
   /public/checkout/{paymentToken}/retry:
     post:
-      operationId: retryPublicWhopCheckout
+      operationId: retryPublicPaymentSession
       tags: [checkout]
-      summary: Recreate or reuse a hosted Whop checkout for a public order
+      summary: Reopen a native TS Commerce payment session for a public order
       parameters: [ { name: paymentToken, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
       responses:
         "201":
-          description: Hosted checkout retry
+          description: Native payment session retry
           content: { application/json: { schema: { $ref: "#/components/schemas/PublicCheckoutPaymentSession" } } }
   /public/checkout/{paymentToken}/verify:
     post:
-      operationId: verifyPublicWhopCheckout
+      operationId: verifyPublicPaymentSession
       tags: [checkout]
-      summary: Verify a public order's hosted Whop payment server-side
+      summary: Read the current status of a public TS Commerce payment session
       parameters: [ { name: paymentToken, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
       requestBody:
         required: false
@@ -1097,6 +1097,22 @@ paths:
         "200":
           description: Public order payment verification result
           content: { application/json: { schema: { $ref: "#/components/schemas/PublicCheckoutVerificationResponse" } } }
+  /public/checkout/{paymentToken}/payment-reference:
+    post:
+      operationId: submitPublicPaymentReference
+      tags: [checkout]
+      summary: Submit customer payment evidence inside TS Commerce
+      parameters: [ { name: paymentToken, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublicPaymentReferenceInput" }
+      responses:
+        "200":
+          description: Payment evidence submitted for merchant approval
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/PublicPaymentReferenceResponse" } }
   /invoices:
     get:
       operationId: listInvoices
@@ -3674,7 +3690,7 @@ components:
         paymentMessage: { type: string }
         paymentToken: { type: ["string", "null"] }
         paymentIntentId: { type: ["integer", "null"] }
-        paymentProvider: { type: string, enum: [whop, manual] }
+        paymentProvider: { type: string, enum: [whop, manual, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [created, submitted, verified, failed, manual] }
       required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
@@ -3955,7 +3971,7 @@ components:
         status: { type: string, enum: [pending, paid] }
         paymentToken: { type: string }
         paymentIntentId: { type: integer }
-        paymentProvider: { type: string, enum: [whop, manual] }
+        paymentProvider: { type: string, enum: [whop, manual, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [submitted, manual] }
       required: [orderNumber, status, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
@@ -3973,8 +3989,26 @@ components:
         paymentMessage: { type: string }
         paymentToken: { type: string }
         paymentIntentId: { type: integer }
-        paymentProvider: { type: string, enum: [whop, manual] }
+        paymentProvider: { type: string, enum: [whop, manual, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [verified, pending, failed] }
         providerPaymentId: { type: ["string", "null"] }
       required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus, providerPaymentId]
+    PublicPaymentReferenceInput:
+      type: object
+      properties:
+        paymentReference: { type: string, minLength: 2, maxLength: 240 }
+        senderName: { type: ["string", "null"], minLength: 2, maxLength: 160 }
+      required: [paymentReference]
+    PublicPaymentReferenceResponse:
+      type: object
+      properties:
+        orderNumber: { type: string }
+        status: { type: string, enum: [pending, paid] }
+        paymentMessage: { type: string }
+        paymentToken: { type: string }
+        paymentIntentId: { type: integer }
+        paymentProvider: { type: string, enum: [ts_pay] }
+        paymentUrl: { type: ["string", "null"], format: uri }
+        paymentStatus: { type: string, enum: [submitted, verified] }
+      required: [orderNumber, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]

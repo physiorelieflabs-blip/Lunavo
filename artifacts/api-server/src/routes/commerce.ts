@@ -89,6 +89,9 @@ import {
   CreatePublicCheckoutBody,
   CreatePublicCheckoutParams,
   CreatePublicCheckoutResponse,
+  SubmitPublicPaymentReferenceParams,
+  SubmitPublicPaymentReferenceBody,
+  SubmitPublicPaymentReferenceResponse,
   CreateSupplierPaymentBody,
   CreateSupplierPaymentParams,
   CreateSupplierPaymentResponse,
@@ -1422,7 +1425,6 @@ function serializePublicCheckoutOrder(
     status: string;
   } | null,
 ) {
-  const manual = !payment;
   return {
     orderNumber: order.orderNumber,
     title: product.title,
@@ -1432,17 +1434,12 @@ function serializePublicCheckoutOrder(
     total: toNumber(order.total),
     currency: order.currency,
     status: "pending" as const,
-    paymentMessage:
-      payment?.purchaseUrl
-        ? "Your order is reserved. Continue to Whop to complete payment; the order enters the sales ledger only after server-side payment verification."
-        : manual
-          ? "Your order is reserved. Online checkout is unavailable, so submit your payment reference to the merchant for approval. The order enters fulfillment only after verification."
-          : "Your order is reserved. The hosted payment attempt is being prepared; retry from this page if the checkout does not open.",
+    paymentMessage: "Your order is reserved in TS Commerce. Submit your payment evidence here for merchant approval; the order enters fulfillment only after verification.",
     paymentToken: order.publicPaymentToken,
     paymentIntentId: payment?.paymentIntentId ?? null,
-    paymentProvider: manual ? ("manual" as const) : ("whop" as const),
+    paymentProvider: "ts_pay" as const,
     paymentUrl: payment?.purchaseUrl ?? null,
-    paymentStatus: manual ? ("manual" as const) : payment?.status ?? "created",
+    paymentStatus: payment?.status ?? "created",
   };
 }
 
@@ -7295,21 +7292,10 @@ router.post(
         });
         return { order, product };
       });
-       let payment: PublicWhopCheckout | null;
-      try {
-        payment = await ensurePublicWhopCheckout(
-          result.order,
-          result.product.title,
-          requestOrigin(req),
-        );
-      } catch (error) {
-        req.log.error({ err: error, orderId: result.order.id }, "customer checkout creation failed");
-         await ensurePublicManualPaymentIntent(result.order);
-         payment = null;
-      }
+       await ensurePublicManualPaymentIntent(result.order);
       res.status(201).json(
         CreatePublicCheckoutResponse.parse(
-          serializePublicCheckoutOrder(result.order, result.product, payment),
+           serializePublicCheckoutOrder(result.order, result.product, null),
         ),
       );
     } catch (error) {
@@ -7417,18 +7403,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       });
       return order;
     });
-     let payment: PublicWhopCheckout | null;
-    try {
-      payment = await ensurePublicWhopCheckout(
-        result,
-        link.title,
-        requestOrigin(req),
-      );
-    } catch (error) {
-      req.log.error({ err: error, orderId: result.id }, "payment-link checkout creation failed");
-       await ensurePublicManualPaymentIntent(result);
-       payment = null;
-    }
+    const paymentIntent = await ensurePublicManualPaymentIntent(result);
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
       title: link.title,
@@ -7438,16 +7413,12 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       total: toNumber(result.total),
       currency: result.currency,
       status: "pending",
-       paymentMessage: payment?.purchaseUrl
-        ? "Your order is reserved. Continue to Whop to complete payment; the order enters the sales ledger only after server-side payment verification."
-         : payment
-           ? "Your order is reserved. Retry payment from this page if the hosted checkout does not open."
-           : "Your order is reserved. Online checkout is unavailable, so submit your payment reference to the merchant for approval.",
+       paymentMessage: "Your order is reserved in TS Commerce. Submit your payment evidence here for merchant approval; the order enters fulfillment only after verification.",
       paymentToken: result.publicPaymentToken,
-       paymentIntentId: payment?.paymentIntentId ?? (await ensurePublicManualPaymentIntent(result)).id,
-       paymentProvider: payment ? "whop" : "manual",
-       paymentUrl: payment?.purchaseUrl ?? null,
-       paymentStatus: payment?.status ?? "manual",
+       paymentIntentId: paymentIntent.id,
+       paymentProvider: "ts_pay",
+       paymentUrl: null,
+       paymentStatus: "created",
     }));
   } catch (error) {
     req.log.error({ err: error }, "payment link checkout failed");
@@ -7472,45 +7443,19 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
     res.status(404).json({ error: "Payment session is unavailable" });
     return;
   }
-  const product = order.supplierProductId
-    ? (
-        await db
-          .select()
-          .from(supplierProductsTable)
-          .where(eq(supplierProductsTable.id, order.supplierProductId))
-          .limit(1)
-      )[0]
-    : null;
   try {
-    const payment = await ensurePublicWhopCheckout(
-      order,
-      product?.title ?? "TS Commerce payment",
-      requestOrigin(req),
-    );
-    res.status(201).json({
-      orderNumber: order.orderNumber,
-      status: order.status,
-      paymentToken,
-      paymentIntentId: payment.paymentIntentId,
-      paymentProvider: "whop",
-      paymentUrl: payment.purchaseUrl,
-      paymentStatus: payment.status,
-    });
-  } catch (error) {
-    if (order.status === "paid") {
-      res.status(409).json({ error: "This order has already been paid" });
-      return;
-    }
     const intent = await ensurePublicManualPaymentIntent(order);
     res.status(201).json({
       orderNumber: order.orderNumber,
       status: order.status,
       paymentToken,
       paymentIntentId: intent.id,
-      paymentProvider: "manual",
+      paymentProvider: "ts_pay",
       paymentUrl: null,
-      paymentStatus: "manual",
+      paymentStatus: intent.status === "submitted" ? "submitted" : "manual",
     });
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "Payment session could not be reopened" });
   }
 });
 
@@ -7523,7 +7468,31 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
     return;
   }
   try {
-    const result = await verifyPublicWhopOrder(paymentToken, checkoutId);
+    const order = (
+      await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.publicPaymentToken, paymentToken))
+        .limit(1)
+    )[0];
+    if (!order) throw new Error("Payment session not found");
+    const intent = (
+      await db
+        .select()
+        .from(paymentIntentsTable)
+        .where(eq(paymentIntentsTable.orderId, order.id))
+        .limit(1)
+    )[0];
+    if (!intent) throw new Error("Payment session is not ready");
+    const result = {
+      order,
+      status: order.status === "paid" || intent.status === "verified"
+        ? "paid" as const
+        : intent.status === "failed"
+          ? "failed" as const
+          : "pending" as const,
+      providerPaymentId: null,
+    };
     const product = result.order.supplierProductId
       ? (
           await db
@@ -7544,10 +7513,10 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
       status: result.status,
       paymentMessage:
         result.status === "paid"
-          ? "Payment verified by Whop. The order is now in the merchant sales ledger."
+           ? "Payment verified by TS Commerce. The order is now in the merchant sales ledger."
           : result.status === "failed"
-            ? "Whop reported a failed payment. No balance or sale was created; you can retry."
-            : "Whop has not reported a completed payment yet. Check again shortly.",
+             ? "This payment attempt was not approved. No balance or sale was created; submit updated evidence."
+             : "Payment evidence is awaiting merchant approval. No sale is posted until the merchant verifies it.",
       paymentToken,
       paymentIntentId: (
         await db
@@ -7556,7 +7525,7 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
           .where(eq(paymentIntentsTable.orderId, result.order.id))
           .limit(1)
       )[0]?.id ?? null,
-      paymentProvider: "whop",
+       paymentProvider: "ts_pay",
       paymentUrl: null,
       paymentStatus: result.status === "paid" ? "verified" : result.status,
       providerPaymentId: result.providerPaymentId,
@@ -7565,6 +7534,105 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
     res.status(409).json({
       error: error instanceof Error ? error.message : "Payment could not be verified",
     });
+  }
+});
+
+router.post("/public/checkout/:paymentToken/payment-reference", async (req, res): Promise<void> => {
+  const params = SubmitPublicPaymentReferenceParams.safeParse(req.params);
+  const parsed = SubmitPublicPaymentReferenceBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Enter a valid payment reference" });
+    return;
+  }
+  const paymentToken = params.data.paymentToken;
+  const order = (
+    await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.publicPaymentToken, paymentToken))
+      .limit(1)
+  )[0];
+  if (!order || order.status === "cancelled") {
+    res.status(404).json({ error: "Payment session is unavailable" });
+    return;
+  }
+  try {
+    const intent = await ensurePublicManualPaymentIntent(order);
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${paymentIntentsTable} where id=${intent.id} and merchant_id=${order.merchantId} for update`);
+      await tx.execute(sql`select id from ${ordersTable} where id=${order.id} and merchant_id=${order.merchantId} for update`);
+      const currentIntent = (
+        await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1)
+      )[0];
+      const currentOrder = (
+        await tx.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1)
+      )[0];
+      if (!currentIntent || !currentOrder) throw new Error("Payment session is no longer available");
+      if (currentOrder.status === "paid" || currentIntent.status === "verified") {
+        return { order: currentOrder, intent: currentIntent, status: "paid" as const };
+      }
+      const evidence = parsed.data.senderName
+        ? `${parsed.data.paymentReference.trim()} | Sender: ${parsed.data.senderName.trim()}`
+        : parsed.data.paymentReference.trim();
+      const [updatedIntent] = await tx
+        .update(paymentIntentsTable)
+        .set({ status: "submitted", evidenceReference: evidence })
+        .where(eq(paymentIntentsTable.id, currentIntent.id))
+        .returning();
+      const payment = (
+        await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, currentIntent.id)).limit(1)
+      )[0];
+      if (payment) {
+        await tx.update(paymentRecordsTable).set({ status: "submitted", evidenceReference: evidence }).where(eq(paymentRecordsTable.id, payment.id));
+      } else {
+        await tx.insert(paymentRecordsTable).values({
+          intentId: currentIntent.id,
+          merchantId: currentOrder.merchantId,
+          orderId: currentOrder.id,
+          amountMinor: currentIntent.amountMinor,
+          currency: currentIntent.currency,
+          method: currentIntent.method,
+          status: "submitted",
+          evidenceReference: evidence,
+        });
+      }
+      await tx.insert(activityTable).values({
+        merchantId: currentOrder.merchantId,
+        type: "payment_evidence_submitted",
+        title: `Payment evidence received for ${currentOrder.orderNumber}`,
+        description: "A customer submitted payment evidence for merchant approval.",
+        amount: currentOrder.total,
+        currency: currentOrder.currency,
+        tone: "warning",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: currentOrder.merchantId,
+        eventType: "payment.evidence_submitted",
+        aggregateType: "payment_intent",
+        aggregateId: currentIntent.id,
+        actorType: "customer",
+        source: "public_checkout",
+        idempotencyKey: `payment-intent:${currentIntent.id}:evidence:${evidence}`,
+        payload: { orderId: currentOrder.id, amountMinor: currentIntent.amountMinor, currency: currentIntent.currency },
+        before: { status: currentIntent.status },
+        after: { status: "submitted" },
+      });
+      return { order: currentOrder, intent: updatedIntent ?? currentIntent, status: "pending" as const };
+    });
+    res.json(SubmitPublicPaymentReferenceResponse.parse({
+      orderNumber: result.order.orderNumber,
+      status: result.status,
+      paymentMessage: result.status === "paid"
+        ? "This order is already paid."
+        : "Payment evidence submitted inside TS Commerce. The merchant must approve it before the order enters fulfillment.",
+      paymentToken,
+      paymentIntentId: result.intent.id,
+      paymentProvider: "ts_pay",
+      paymentUrl: null,
+      paymentStatus: result.status === "paid" ? "verified" : "submitted",
+    }));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "Payment evidence could not be submitted" });
   }
 });
 
