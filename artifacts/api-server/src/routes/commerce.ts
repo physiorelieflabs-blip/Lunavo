@@ -7028,6 +7028,7 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
       and(
         eq(supplierProductsTable.merchantId, merchant.id),
         eq(supplierProductsTable.status, "active"),
+        eq(supplierProductsTable.visibility, "active"),
         sql`${supplierProductsTable.sellingPrice} is not null`,
       ),
     )
@@ -7084,10 +7085,6 @@ router.post(
       res.status(404).json({ error: "Store not found" });
       return;
     }
-    if (!isCustomerWhopConfigured()) {
-      res.status(503).json({ error: "Online customer checkout is temporarily unavailable" });
-      return;
-    }
     try {
       const location = await resolveOrderLocation(merchant.id, null, null, true);
       const result = await db.transaction(async (tx) => {
@@ -7118,6 +7115,7 @@ router.post(
                 eq(supplierProductsTable.id, parsed.data.supplierProductId),
                 eq(supplierProductsTable.merchantId, merchant.id),
                 eq(supplierProductsTable.status, "active"),
+                eq(supplierProductsTable.visibility, "active"),
                 sql`${supplierProductsTable.sellingPrice} is not null`,
               ),
             )

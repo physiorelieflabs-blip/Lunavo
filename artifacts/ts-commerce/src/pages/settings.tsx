@@ -91,8 +91,26 @@ export default function Settings() {
       await user.update({
         firstName: firstName.trim() || null,
         lastName: lastName.trim() || null,
-        username: username.trim() || null,
       });
+      const nextUsername = username.trim();
+      const currentUsername = user.username ?? '';
+      if (nextUsername !== currentUsername) {
+        try {
+          await user.update({ username: nextUsername || null });
+        } catch {
+          await user.reload();
+          setFirstName(user.firstName ?? '');
+          setLastName(user.lastName ?? '');
+          setUsername(user.username ?? '');
+          setMessageIsError(true);
+          setMessage('Your name was updated, but the username could not be changed. Usernames may be disabled for this Clerk workspace.');
+          return;
+        }
+      }
+      await user.reload();
+      setFirstName(user.firstName ?? '');
+      setLastName(user.lastName ?? '');
+      setUsername(user.username ?? '');
       setMessage('Your account details have been updated.');
     } catch (error) {
       setMessageIsError(true);

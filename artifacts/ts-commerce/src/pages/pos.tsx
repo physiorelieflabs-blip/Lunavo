@@ -11,7 +11,7 @@ import { money } from '@/lib/format';
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none placeholder:text-[#8994a2] focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
 const offlineQueueKey = 'ts-commerce-pos-queue';
 type PosPaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'mobile_money';
-type QueuedSale = { id: string; payload: CreateOrderInput; paymentMethod?: PosPaymentMethod; currency?: string; createdAt: string };
+type QueuedSale = { id: string; payload: CreateOrderInput; paymentMethod?: PosPaymentMethod; currency?: string; productTitle?: string; createdAt: string };
 
 function readQueue(key: string): QueuedSale[] {
   try {
@@ -45,7 +45,7 @@ export default function Pos() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>('cash');
   const [queue, setQueue] = useState<QueuedSale[]>([]);
-  const [lastReceipt, setLastReceipt] = useState<{ orderNumber: string; total: number; method: string; customerName: string; productTitle: string } | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<{ orderNumber: string; total: number; method: string; customerName: string; productTitle: string; currency: string } | null>(null);
   const [message, setMessage] = useState('');
   const [online, setOnline] = useState(() => navigator.onLine);
 
@@ -131,7 +131,7 @@ export default function Pos() {
                   const next = queue.filter((item) => item.payload.idempotencyKey !== payload.idempotencyKey);
                   persistQueue(next);
                 } else {
-                  setLastReceipt({ orderNumber: order.orderNumber, total: order.total, method, customerName: payload.customerName, productTitle: receiptProductTitle });
+                  setLastReceipt({ orderNumber: order.orderNumber, total: order.total, method, customerName: payload.customerName, productTitle: receiptProductTitle, currency });
                   resetSale();
                 }
                 setMessage(fromQueue ? 'Offline sale synced and payment verified.' : 'Sale recorded, payment verified, and inventory/ledger views updated.');
@@ -163,10 +163,10 @@ export default function Pos() {
       idempotencyKey: crypto.randomUUID(),
     };
     if (!online) {
-      const next = [...queue, { id: payload.idempotencyKey!, payload, paymentMethod, currency: selectedProduct.currency, createdAt: new Date().toISOString() }];
+      const next = [...queue, { id: payload.idempotencyKey!, payload, paymentMethod, currency: selectedProduct.currency, productTitle: selectedProduct.title, createdAt: new Date().toISOString() }];
       persistQueue(next);
       setMessage('You are offline. This sale is queued on this device and will sync when connection returns.');
-      setLastReceipt({ orderNumber: 'OFFLINE QUEUED', total, method: paymentMethod, customerName: payload.customerName, productTitle: selectedProduct.title });
+      setLastReceipt({ orderNumber: 'OFFLINE QUEUED', total, method: paymentMethod, customerName: payload.customerName, productTitle: selectedProduct.title, currency: selectedProduct.currency });
       resetSale();
       return;
     }
@@ -176,8 +176,14 @@ export default function Pos() {
   const syncQueue = () => {
     if (!online || !queue.length || createOrder.isPending || createPayment.isPending || verifyPayment.isPending) return;
     const [item] = queue;
-    if (item) submitPayload(item.payload, 'Queued sale', item.paymentMethod ?? 'cash', item.currency ?? 'USD', true);
+    if (item) submitPayload(item.payload, item.productTitle ?? 'Queued sale', item.paymentMethod ?? 'cash', item.currency ?? 'USD', true);
   };
+
+  useEffect(() => {
+    if (!online || !queue.length) return;
+    const timer = window.setTimeout(syncQueue, 0);
+    return () => window.clearTimeout(timer);
+  }, [online, queue.length]);
 
   if (products.isLoading || customers.isLoading) return <AppShell><LoadingState label="Loading point of sale" /></AppShell>;
   if (products.isError || customers.isError || !products.data || !customers.data) return <AppShell><ErrorState onRetry={() => { void Promise.all([products.refetch(), customers.refetch()]); }} /></AppShell>;
@@ -205,8 +211,8 @@ export default function Pos() {
           <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-[#d9d2c4] pt-5"><div><p className="text-xs uppercase tracking-[.12em] text-[#697687]">Ticket total</p><p className="mt-1 font-mono text-3xl font-bold">{money(total, selectedProduct?.currency)}</p><p className="text-xs text-[#697687]">{money(lineSubtotal, selectedProduct?.currency)} subtotal · {money(discountAmount, selectedProduct?.currency)} discount</p></div><SubmitButton loading={createOrder.isPending || createPayment.isPending || verifyPayment.isPending || !selectedProduct || inventoryWarning}>{online ? 'Complete sale' : 'Queue sale offline'}</SubmitButton></div>
         </form>
         <aside className="space-y-5">
-          <section className="rounded-2xl border border-[#bba15e] bg-[#f5edda] p-5"><div className="flex items-center gap-2 text-[#85601b]"><Clipboard className="h-5 w-5" /><p className="font-mono text-[10px] uppercase tracking-[.16em]">Receipt desk</p></div>{lastReceipt ? <><p className="mt-5 text-xs uppercase tracking-[.12em] text-[#697687]">{lastReceipt.orderNumber}</p><h2 className="mt-2 text-xl font-extrabold">{lastReceipt.productTitle}</h2><div className="mt-5 space-y-2 border-y border-[#d8c68f] py-4 text-sm"><div className="flex justify-between"><span>Customer</span><strong>{lastReceipt.customerName}</strong></div><div className="flex justify-between"><span>Payment</span><strong className="capitalize">{lastReceipt.method.replace('_', ' ')}</strong></div><div className="flex justify-between"><span>Total</span><strong className="font-mono">{money(lastReceipt.total)}</strong></div></div><Button variant="secondary" className="mt-5 w-full" onClick={() => window.print()}><Printer className="h-4 w-4" />Print receipt</Button></> : <EmptyState title="No receipt yet" description="Complete a verified sale to create a print-ready receipt summary." />}</section>
-          <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><SectionHeading eyebrow="Queue safety" title="Offline sync" description="Queued tickets are stored only on this device until they are accepted by the server." />{queue.length ? <><div className="space-y-2">{queue.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f7f4ed] p-3 text-xs"><span className="min-w-0 truncate font-bold">{item.payload.customerName} · {money(item.payload.total)}</span><button type="button" onClick={() => persistQueue(queue.filter((candidate) => candidate.id !== item.id))} className="ml-3 text-[#943b35]" aria-label={`Remove queued sale for ${item.payload.customerName}`}><Trash2 className="h-4 w-4" /></button></div>)}</div><Button className="mt-4 w-full" onClick={syncQueue} disabled={!online || createOrder.isPending}><CheckCircle2 className="h-4 w-4" />{online ? 'Sync queued sales' : 'Waiting for connection'}</Button></> : <p className="text-sm text-[#697687]">No tickets waiting to sync.</p>}</section>
+           <section className="rounded-2xl border border-[#bba15e] bg-[#f5edda] p-5"><div className="flex items-center gap-2 text-[#85601b]"><Clipboard className="h-5 w-5" /><p className="font-mono text-[10px] uppercase tracking-[.16em]">Receipt desk</p></div>{lastReceipt ? <><p className="mt-5 text-xs uppercase tracking-[.12em] text-[#697687]">{lastReceipt.orderNumber}</p><h2 className="mt-2 text-xl font-extrabold">{lastReceipt.productTitle}</h2><div className="mt-5 space-y-2 border-y border-[#d8c68f] py-4 text-sm"><div className="flex justify-between"><span>Customer</span><strong>{lastReceipt.customerName}</strong></div><div className="flex justify-between"><span>Payment</span><strong className="capitalize">{lastReceipt.method.replace('_', ' ')}</strong></div><div className="flex justify-between"><span>Total</span><strong className="font-mono">{money(lastReceipt.total, lastReceipt.currency)}</strong></div></div><Button variant="secondary" className="mt-5 w-full" onClick={() => window.print()}><Printer className="h-4 w-4" />Print receipt</Button></> : <EmptyState title="No receipt yet" description="Complete a verified sale to create a print-ready receipt summary." />}</section>
+           <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><SectionHeading eyebrow="Queue safety" title="Offline sync" description="Queued tickets are stored only on this device until they are accepted by the server." />{queue.length ? <><div className="space-y-2">{queue.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f7f4ed] p-3 text-xs"><span className="min-w-0 truncate font-bold">{item.payload.customerName} · {money(item.payload.total, item.currency)}</span><button type="button" onClick={() => persistQueue(queue.filter((candidate) => candidate.id !== item.id))} className="ml-3 text-[#943b35]" aria-label={`Remove queued sale for ${item.payload.customerName}`}><Trash2 className="h-4 w-4" /></button></div>)}</div><Button className="mt-4 w-full" onClick={syncQueue} disabled={!online || createOrder.isPending}><CheckCircle2 className="h-4 w-4" />{online ? 'Sync queued sales' : 'Waiting for connection'}</Button></> : <p className="text-sm text-[#697687]">No tickets waiting to sync.</p>}</section>
           <div className="rounded-2xl border border-[#bfd6dc] bg-[#eef7f8] p-4 text-sm text-[#315e6c]"><UsersRound className="mb-2 h-5 w-5" /><strong>Customer lookup is live.</strong><p className="mt-1 text-xs leading-5">Returning customers keep their order history and spend totals in the same merchant-owned CRM record.</p></div>
         </aside>
       </div>
