@@ -38,4 +38,5 @@ export interface CreateOrderInput {
   supplierProductId?: number;
   /** @maxLength 500 */
   shippingAddress?: string;
+  locationId?: string;
 }

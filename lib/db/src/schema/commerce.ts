@@ -39,6 +39,131 @@ export const merchantsTable = pgTable("merchants", {
     .defaultNow(),
 });
 
+/**
+ * Physical and operational sites are tenant-owned. A location is never
+ * inferred from a client supplied merchant id; services resolve it through
+ * the authenticated membership's merchant id.
+ */
+export const merchantLocationsTable = pgTable(
+  "merchant_locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    name: text("name").notNull(),
+    locationType: text("location_type").notNull().default("store"),
+    country: text("country").notNull(),
+    currency: text("currency").notNull(),
+    timezone: text("timezone").notNull(),
+    address: jsonb("address").notNull().default({}),
+    contact: jsonb("contact").notNull().default({}),
+    isActive: boolean("is_active").notNull().default(true),
+    isDefault: boolean("is_default").notNull().default(false),
+    supportsFulfillment: boolean("supports_fulfillment").notNull().default(false),
+    supportsPos: boolean("supports_pos").notNull().default(false),
+    supportsInventory: boolean("supports_inventory").notNull().default(false),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("merchant_locations_merchant_active_idx").on(table.merchantId, table.isActive),
+    uniqueIndex("merchant_locations_one_default_unique").on(table.merchantId).where(sql`${table.isDefault}`),
+  ],
+);
+
+/** Tenant-local roles. Built-in template keys are immutable at the service layer. */
+export const merchantRolesTable = pgTable(
+  "merchant_roles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    isSystem: boolean("is_system").notNull().default(false),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex("merchant_roles_merchant_key_unique").on(table.merchantId, table.key)],
+);
+
+/** Explicit keys rather than implicit role names make authorization auditable. */
+export const merchantRolePermissionsTable = pgTable(
+  "merchant_role_permissions",
+  {
+    roleId: uuid("role_id").notNull().references(() => merchantRolesTable.id, { onDelete: "cascade" }),
+    permission: text("permission").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("merchant_role_permissions_role_permission_unique").on(table.roleId, table.permission)],
+);
+
+export const merchantMembershipsTable = pgTable(
+  "merchant_memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    clerkUserId: text("clerk_user_id").notNull(),
+    roleId: uuid("role_id").notNull().references(() => merchantRolesTable.id),
+    status: text("status").notNull().default("active"),
+    invitedBy: text("invited_by"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("merchant_memberships_merchant_clerk_user_unique").on(table.merchantId, table.clerkUserId),
+    index("merchant_memberships_clerk_status_idx").on(table.clerkUserId, table.status),
+  ],
+);
+
+export const merchantMembershipLocationsTable = pgTable(
+  "merchant_membership_locations",
+  {
+    membershipId: uuid("membership_id").notNull().references(() => merchantMembershipsTable.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id").notNull().references(() => merchantLocationsTable.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("merchant_membership_locations_unique").on(table.membershipId, table.locationId)],
+);
+
+/** Token values are deliberately absent: only a SHA-256 hash is durable. */
+export const merchantInvitationsTable = pgTable(
+  "merchant_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    email: text("email").notNull(),
+    roleId: uuid("role_id").notNull().references(() => merchantRolesTable.id),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    invitedBy: text("invited_by").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    acceptedBy: text("accepted_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("merchant_invitations_merchant_email_idx").on(table.merchantId, table.email),
+    uniqueIndex("merchant_invitations_active_email_unique")
+      .on(table.merchantId, table.email)
+      .where(sql`${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL`),
+  ],
+);
+
+export const merchantInvitationLocationsTable = pgTable(
+  "merchant_invitation_locations",
+  {
+    invitationId: uuid("invitation_id").notNull().references(() => merchantInvitationsTable.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id").notNull().references(() => merchantLocationsTable.id, { onDelete: "cascade" }),
+  },
+  (table) => [uniqueIndex("merchant_invitation_locations_unique").on(table.invitationId, table.locationId)],
+);
+
 export const subscriptionsTable = pgTable(
   "subscriptions",
   {
@@ -351,6 +476,8 @@ export const inventoryReservationsTable = pgTable(
     merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
     supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id),
     orderId: integer("order_id").notNull().references(() => ordersTable.id),
+    // Product stock remains merchant-global; this is event provenance only.
+    locationId: uuid("location_id").references(() => merchantLocationsTable.id),
     quantity: integer("quantity").notNull(),
     status: text("status").notNull().default("reserved"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -362,6 +489,7 @@ export const inventoryReservationsTable = pgTable(
       .on(table.orderId, table.supplierProductId)
       .where(sql`${table.status} = 'reserved'`),
     index("inventory_reservations_merchant_product_idx").on(table.merchantId, table.supplierProductId),
+    index("inventory_reservations_merchant_location_idx").on(table.merchantId, table.locationId),
   ],
 );
 
@@ -372,6 +500,8 @@ export const inventoryMovementsTable = pgTable(
     merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
     supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id),
     orderId: integer("order_id").references(() => ordersTable.id),
+    // Product stock remains merchant-global; this is event provenance only.
+    locationId: uuid("location_id").references(() => merchantLocationsTable.id),
     quantityDelta: integer("quantity_delta").notNull(),
     reason: text("reason").notNull(),
     referenceKey: text("reference_key").notNull(),
@@ -380,6 +510,7 @@ export const inventoryMovementsTable = pgTable(
   (table) => [
     uniqueIndex("inventory_movements_reference_unique").on(table.referenceKey),
     index("inventory_movements_merchant_product_idx").on(table.merchantId, table.supplierProductId),
+    index("inventory_movements_merchant_location_idx").on(table.merchantId, table.locationId),
   ],
 );
 
@@ -408,6 +539,7 @@ export const ordersTable = pgTable(
     merchantId: integer("merchant_id")
       .notNull()
       .references(() => merchantsTable.id),
+    locationId: uuid("location_id").notNull().references(() => merchantLocationsTable.id),
     customerId: integer("customer_id")
       .notNull()
       .references(() => customersTable.id),
@@ -457,6 +589,7 @@ export const ordersTable = pgTable(
       table.merchantId,
       table.idempotencyKey,
     ),
+    index("orders_merchant_location_created_idx").on(table.merchantId, table.locationId, table.createdAt),
   ],
 );
 
@@ -489,6 +622,7 @@ export const invoicesTable = pgTable(
   {
     id: serial("id").primaryKey(),
     merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    locationId: uuid("location_id").notNull().references(() => merchantLocationsTable.id),
     customerId: integer("customer_id").references(() => customersTable.id),
     orderId: integer("order_id").references(() => ordersTable.id),
     paymentLinkId: integer("payment_link_id").references(() => paymentLinksTable.id),
@@ -520,6 +654,7 @@ export const invoicesTable = pgTable(
   (table) => [
     uniqueIndex("invoices_merchant_number_unique").on(table.merchantId, table.invoiceNumber),
     index("invoices_merchant_status_created_idx").on(table.merchantId, table.status, table.createdAt),
+    index("invoices_merchant_location_created_idx").on(table.merchantId, table.locationId, table.createdAt),
     index("invoices_public_token_idx").on(table.publicToken),
   ],
 );

@@ -10,3 +10,4 @@
 - [Checkout pricing snapshots](checkout-pricing.md) — server-calculated tax and shipping are stored with each order and never recomputed for history.
 - [Invoice payment accounting](invoice-payment-accounting.md) — invoice payment evidence becomes authoritative only through locked, idempotent verification and ledger posting.
 - [Domain event replay boundary](domain-event-replay.md) — commerce mutations emit transactional facts; replay may rebuild projections but never rerun authoritative money or stock changes.
+- [Staff workspace authorization](staff-workspace-authorization.md) — resolve tenants from active membership and validate workspace/location scope server-side; unmapped staff routes fail closed.

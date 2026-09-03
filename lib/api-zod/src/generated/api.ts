@@ -678,6 +678,76 @@ export const UpdateCustomerResponse = zod.object({
 
 
 /**
+ * @summary Get the tenant-wide connected customer record
+ */
+export const GetCustomerContextParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetCustomerContextResponse = zod.object({
+  "customer": zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),
+  "lifetime": zod.object({
+  "currency": zod.string().nullable(),
+  "orderTotalMinor": zod.int(),
+  "verifiedPaidMinor": zod.int(),
+  "refundedMinor": zod.int(),
+  "netRevenueMinor": zod.int(),
+  "ledgerEffectMinor": zod.int(),
+  "reservedUnits": zod.int(),
+  "committedUnits": zod.int(),
+  "releasedUnits": zod.int()
+}),
+  "orders": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "invoices": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "paymentIntents": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "paymentRecords": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "refunds": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "events": zod.array(zod.object({
+  "id": zod.uuid(),
+  "eventType": zod.string(),
+  "payloadVersion": zod.int(),
+  "aggregateType": zod.string(),
+  "aggregateId": zod.string(),
+  "actorType": zod.string(),
+  "source": zod.string(),
+  "status": zod.string(),
+  "attempts": zod.int(),
+  "occurredAt": zod.coerce.date(),
+  "processedAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})),
+  "nextActions": zod.array(zod.object({
+  "action": zod.enum(['verify_payment', 'approve_refund', 'fulfill_order', 'submit_supplier_payment', 'send_invoice', 'void_invoice', 'review_invoice_payment']),
+  "target": zod.string()
+}))
+})
+
+
+/**
  * @summary List the merchant's recorded orders
  */
 
@@ -734,7 +804,8 @@ export const CreateOrderBody = zod.object({
   "orderNumber": zod.string().min(createOrderBodyOrderNumberMin).max(createOrderBodyOrderNumberMax).optional(),
   "idempotencyKey": zod.string().min(createOrderBodyIdempotencyKeyMin).max(createOrderBodyIdempotencyKeyMax).optional(),
   "supplierProductId": zod.int().min(1).optional(),
-  "shippingAddress": zod.string().max(createOrderBodyShippingAddressMax).optional()
+  "shippingAddress": zod.string().max(createOrderBodyShippingAddressMax).optional(),
+  "locationId": zod.uuid().optional()
 })
 
 
@@ -785,6 +856,102 @@ export const UpdateOrderStatusResponse = zod.object({
   "shippingAddress": zod.string().nullable(),
   "fulfillmentStatus": zod.string(),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get the location-scoped connected order record
+ */
+export const GetOrderContextParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetOrderContextResponse = zod.object({
+  "order": zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),
+  "customer": zod.union([zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),zod.null()]),
+  "product": zod.union([zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),zod.null()]),
+  "paymentIntents": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "paymentRecords": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "ledgerEntries": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "refunds": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "invoices": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "inventoryReservations": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "inventoryMovements": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "transitions": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "fulfillment": zod.record(zod.string(), zod.unknown()),
+  "events": zod.array(zod.object({
+  "id": zod.uuid(),
+  "eventType": zod.string(),
+  "payloadVersion": zod.int(),
+  "aggregateType": zod.string(),
+  "aggregateId": zod.string(),
+  "actorType": zod.string(),
+  "source": zod.string(),
+  "status": zod.string(),
+  "attempts": zod.int(),
+  "occurredAt": zod.coerce.date(),
+  "processedAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})),
+  "impact": zod.object({
+  "currency": zod.string().nullable(),
+  "orderTotalMinor": zod.int(),
+  "verifiedPaidMinor": zod.int(),
+  "refundedMinor": zod.int(),
+  "netRevenueMinor": zod.int(),
+  "ledgerEffectMinor": zod.int(),
+  "reservedUnits": zod.int(),
+  "committedUnits": zod.int(),
+  "releasedUnits": zod.int()
+}),
+  "nextActions": zod.array(zod.object({
+  "action": zod.enum(['verify_payment', 'approve_refund', 'fulfill_order', 'submit_supplier_payment', 'send_invoice', 'void_invoice', 'review_invoice_payment']),
+  "target": zod.string()
+}))
 })
 
 
@@ -2118,6 +2285,7 @@ export const CreateInvoiceBody = zod.object({
   "customerId": zod.int().nullish(),
   "orderId": zod.int().nullish(),
   "paymentLinkId": zod.int().nullish(),
+  "locationId": zod.uuid().nullish(),
   "customerName": zod.string().min(createInvoiceBodyCustomerNameMin).max(createInvoiceBodyCustomerNameMax),
   "customerEmail": zod.email().max(createInvoiceBodyCustomerEmailMax),
   "customerPhone": zod.string().max(createInvoiceBodyCustomerPhoneMax).nullish(),
@@ -2225,6 +2393,86 @@ export const GetInvoiceResponse = zod.object({
 })),
   "createdAt": zod.coerce.date(),
   "sentAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Get the location-scoped connected immutable invoice record
+ */
+export const GetInvoiceContextParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetInvoiceContextResponse = zod.object({
+  "invoice": zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "customer": zod.union([zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),zod.null()]),
+  "order": zod.union([zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+}),zod.null()]),
+  "submissions": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "paymentIntents": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "paymentRecords": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "ledgerEntries": zod.array(zod.object({
+  "id": zod.string(),
+  "target": zod.string(),
+  "snapshot": zod.record(zod.string(), zod.unknown())
+})),
+  "events": zod.array(zod.object({
+  "id": zod.uuid(),
+  "eventType": zod.string(),
+  "payloadVersion": zod.int(),
+  "aggregateType": zod.string(),
+  "aggregateId": zod.string(),
+  "actorType": zod.string(),
+  "source": zod.string(),
+  "status": zod.string(),
+  "attempts": zod.int(),
+  "occurredAt": zod.coerce.date(),
+  "processedAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})),
+  "impact": zod.object({
+  "currency": zod.string().nullable(),
+  "orderTotalMinor": zod.int(),
+  "verifiedPaidMinor": zod.int(),
+  "refundedMinor": zod.int(),
+  "netRevenueMinor": zod.int(),
+  "ledgerEffectMinor": zod.int(),
+  "reservedUnits": zod.int(),
+  "committedUnits": zod.int(),
+  "releasedUnits": zod.int()
+}),
+  "nextActions": zod.array(zod.object({
+  "action": zod.enum(['verify_payment', 'approve_refund', 'fulfill_order', 'submit_supplier_payment', 'send_invoice', 'void_invoice', 'review_invoice_payment']),
+  "target": zod.string()
+}))
 })
 
 
@@ -3313,6 +3561,18 @@ export const CreateInventoryAdjustmentResponse = zod.object({
 /**
  * @summary List tenant-scoped domain event history
  */
+export const listDomainEventsQueryAggregateTypeMax = 80;
+
+export const listDomainEventsQueryAggregateIdMax = 120;
+
+
+
+export const ListDomainEventsQueryParams = zod.object({
+  "aggregateType": zod.coerce.string().min(1).max(listDomainEventsQueryAggregateTypeMax).optional(),
+  "aggregateId": zod.coerce.string().min(1).max(listDomainEventsQueryAggregateIdMax).optional(),
+  "correlationId": zod.uuid().optional()
+})
+
 export const ListDomainEventsResponseItem = zod.object({
   "id": zod.uuid(),
   "eventType": zod.string(),
@@ -3395,6 +3655,379 @@ export const MarkNotificationReadResponse = zod.object({
   "source": zod.string().nullable(),
   "readAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
+})
+
+
+export const GetTeamAccessResponse = zod.object({
+  "merchantId": zod.int(),
+  "role": zod.string(),
+  "permissions": zod.array(zod.string()),
+  "locationIds": zod.array(zod.uuid()).nullable()
+})
+
+
+export const ListAccessibleWorkspacesResponseItem = zod.object({
+  "id": zod.int(),
+  "storeName": zod.string(),
+  "currency": zod.string(),
+  "role": zod.string(),
+  "permissions": zod.array(zod.string())
+})
+export const ListAccessibleWorkspacesResponse = zod.array(ListAccessibleWorkspacesResponseItem)
+
+
+export const GetCurrentWorkspaceHeader = zod.object({
+  "X-TS-Commerce-Workspace-Id": zod.int().optional()
+})
+
+export const GetCurrentWorkspaceResponse = zod.object({
+  "id": zod.int(),
+  "storeName": zod.string(),
+  "currency": zod.string(),
+  "role": zod.string(),
+  "permissions": zod.array(zod.string())
+})
+
+
+export const ListTeamLocationsResponseItem = zod.object({
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "locationType": zod.string(),
+  "country": zod.string(),
+  "currency": zod.string(),
+  "timezone": zod.string(),
+  "address": zod.record(zod.string(), zod.unknown()),
+  "contact": zod.record(zod.string(), zod.unknown()),
+  "isActive": zod.boolean(),
+  "isDefault": zod.boolean(),
+  "supportsFulfillment": zod.boolean(),
+  "supportsPos": zod.boolean(),
+  "supportsInventory": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListTeamLocationsResponse = zod.array(ListTeamLocationsResponseItem)
+
+
+export const createTeamLocationBodyOneNameMax = 160;
+
+export const createTeamLocationBodyOneLocationTypeMax = 64;
+
+export const createTeamLocationBodyOneCountryMin = 2;
+export const createTeamLocationBodyOneCountryMax = 3;
+
+export const createTeamLocationBodyOneCurrencyMin = 3;
+export const createTeamLocationBodyOneCurrencyMax = 3;
+
+export const createTeamLocationBodyOneTimezoneMax = 100;
+
+
+
+export const CreateTeamLocationBody = zod.object({
+  "name": zod.string().min(1).max(createTeamLocationBodyOneNameMax),
+  "locationType": zod.string().min(1).max(createTeamLocationBodyOneLocationTypeMax).optional(),
+  "country": zod.string().min(createTeamLocationBodyOneCountryMin).max(createTeamLocationBodyOneCountryMax),
+  "currency": zod.string().min(createTeamLocationBodyOneCurrencyMin).max(createTeamLocationBodyOneCurrencyMax),
+  "timezone": zod.string().min(1).max(createTeamLocationBodyOneTimezoneMax),
+  "address": zod.record(zod.string(), zod.unknown()).optional(),
+  "contact": zod.record(zod.string(), zod.unknown()).optional(),
+  "isDefault": zod.boolean().optional(),
+  "supportsFulfillment": zod.boolean().optional(),
+  "supportsPos": zod.boolean().optional(),
+  "supportsInventory": zod.boolean().optional()
+})
+
+export const CreateTeamLocationResponse = zod.object({
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "locationType": zod.string(),
+  "country": zod.string(),
+  "currency": zod.string(),
+  "timezone": zod.string(),
+  "address": zod.record(zod.string(), zod.unknown()),
+  "contact": zod.record(zod.string(), zod.unknown()),
+  "isActive": zod.boolean(),
+  "isDefault": zod.boolean(),
+  "supportsFulfillment": zod.boolean(),
+  "supportsPos": zod.boolean(),
+  "supportsInventory": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const UpdateTeamLocationParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const updateTeamLocationBodyNameMax = 160;
+
+export const updateTeamLocationBodyLocationTypeMax = 64;
+
+export const updateTeamLocationBodyCountryMin = 2;
+export const updateTeamLocationBodyCountryMax = 3;
+
+export const updateTeamLocationBodyCurrencyMin = 3;
+export const updateTeamLocationBodyCurrencyMax = 3;
+
+export const updateTeamLocationBodyTimezoneMax = 100;
+
+
+
+export const UpdateTeamLocationBody = zod.object({
+  "name": zod.string().min(1).max(updateTeamLocationBodyNameMax).optional(),
+  "locationType": zod.string().min(1).max(updateTeamLocationBodyLocationTypeMax).optional(),
+  "country": zod.string().min(updateTeamLocationBodyCountryMin).max(updateTeamLocationBodyCountryMax).optional(),
+  "currency": zod.string().min(updateTeamLocationBodyCurrencyMin).max(updateTeamLocationBodyCurrencyMax).optional(),
+  "timezone": zod.string().min(1).max(updateTeamLocationBodyTimezoneMax).optional(),
+  "address": zod.record(zod.string(), zod.unknown()).optional(),
+  "contact": zod.record(zod.string(), zod.unknown()).optional(),
+  "isDefault": zod.boolean().optional(),
+  "supportsFulfillment": zod.boolean().optional(),
+  "supportsPos": zod.boolean().optional(),
+  "supportsInventory": zod.boolean().optional()
+})
+
+export const UpdateTeamLocationResponse = zod.object({
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "locationType": zod.string(),
+  "country": zod.string(),
+  "currency": zod.string(),
+  "timezone": zod.string(),
+  "address": zod.record(zod.string(), zod.unknown()),
+  "contact": zod.record(zod.string(), zod.unknown()),
+  "isActive": zod.boolean(),
+  "isDefault": zod.boolean(),
+  "supportsFulfillment": zod.boolean(),
+  "supportsPos": zod.boolean(),
+  "supportsInventory": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const DisableTeamLocationParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const DisableTeamLocationResponse = zod.object({
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "locationType": zod.string(),
+  "country": zod.string(),
+  "currency": zod.string(),
+  "timezone": zod.string(),
+  "address": zod.record(zod.string(), zod.unknown()),
+  "contact": zod.record(zod.string(), zod.unknown()),
+  "isActive": zod.boolean(),
+  "isDefault": zod.boolean(),
+  "supportsFulfillment": zod.boolean(),
+  "supportsPos": zod.boolean(),
+  "supportsInventory": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const SetDefaultTeamLocationParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const SetDefaultTeamLocationResponse = zod.object({
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "locationType": zod.string(),
+  "country": zod.string(),
+  "currency": zod.string(),
+  "timezone": zod.string(),
+  "address": zod.record(zod.string(), zod.unknown()),
+  "contact": zod.record(zod.string(), zod.unknown()),
+  "isActive": zod.boolean(),
+  "isDefault": zod.boolean(),
+  "supportsFulfillment": zod.boolean(),
+  "supportsPos": zod.boolean(),
+  "supportsInventory": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const ListTeamRolesResponseItem = zod.object({
+  "id": zod.uuid(),
+  "key": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullable(),
+  "isSystem": zod.boolean(),
+  "permissions": zod.array(zod.string())
+})
+export const ListTeamRolesResponse = zod.array(ListTeamRolesResponseItem)
+
+
+export const ListTeamMembershipsResponseItem = zod.object({
+  "id": zod.uuid(),
+  "clerkUserId": zod.string(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "status": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "disabledAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListTeamMembershipsResponse = zod.array(ListTeamMembershipsResponseItem)
+
+
+export const UpdateTeamMembershipParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const UpdateTeamMembershipBody = zod.object({
+  "roleId": zod.uuid(),
+  "locationIds": zod.array(zod.uuid())
+})
+
+export const UpdateTeamMembershipResponse = zod.object({
+  "id": zod.uuid(),
+  "clerkUserId": zod.string(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "status": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "disabledAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const DisableTeamMembershipParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const DisableTeamMembershipResponse = zod.object({
+  "id": zod.uuid(),
+  "clerkUserId": zod.string(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "status": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "disabledAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const ListTeamInvitationsResponseItem = zod.object({
+  "id": zod.uuid(),
+  "email": zod.email(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "expiresAt": zod.coerce.date(),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const ListTeamInvitationsResponse = zod.array(ListTeamInvitationsResponseItem)
+
+
+export const CreateTeamInvitationBody = zod.object({
+  "email": zod.email(),
+  "roleId": zod.uuid(),
+  "locationIds": zod.array(zod.uuid())
+})
+
+export const CreateTeamInvitationResponse = zod.object({
+  "id": zod.uuid(),
+  "email": zod.email(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "expiresAt": zod.coerce.date(),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "inviteUrl": zod.string(),
+  "delivery": zod.string()
+}))
+
+
+export const RevokeTeamInvitationParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const RevokeTeamInvitationResponse = zod.object({
+  "id": zod.uuid(),
+  "email": zod.email(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "expiresAt": zod.coerce.date(),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const RotateTeamInvitationLinkParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const RotateTeamInvitationLinkResponse = zod.object({
+  "id": zod.uuid(),
+  "email": zod.email(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "expiresAt": zod.coerce.date(),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "inviteUrl": zod.string(),
+  "delivery": zod.string()
+}))
+
+
+export const getPublicInvitationPreviewPathTokenMin = 20;
+
+
+
+export const GetPublicInvitationPreviewParams = zod.object({
+  "token": zod.coerce.string().min(getPublicInvitationPreviewPathTokenMin)
+})
+
+export const GetPublicInvitationPreviewResponse = zod.object({
+  "merchantName": zod.string(),
+  "roleName": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "status": zod.string()
+})
+
+
+export const acceptTeamInvitationBodyTokenMin = 20;
+
+
+
+export const AcceptTeamInvitationBody = zod.object({
+  "token": zod.string().min(acceptTeamInvitationBodyTokenMin)
+})
+
+export const AcceptTeamInvitationResponse = zod.object({
+  "id": zod.uuid(),
+  "clerkUserId": zod.string(),
+  "roleId": zod.uuid(),
+  "roleKey": zod.string(),
+  "status": zod.string(),
+  "locationIds": zod.array(zod.uuid()),
+  "acceptedAt": zod.coerce.date().nullable(),
+  "disabledAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
 })
 
 

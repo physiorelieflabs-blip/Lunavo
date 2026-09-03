@@ -14,6 +14,8 @@ export interface InvoiceInput {
   orderId?: number | null;
   /** @nullable */
   paymentLinkId?: number | null;
+  /** @nullable */
+  locationId?: string | null;
   /**
      * @minLength 2
      * @maxLength 160

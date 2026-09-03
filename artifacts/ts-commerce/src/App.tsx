@@ -32,6 +32,9 @@ import MarketplaceManagement from '@/pages/marketplace-management';
 import Invoices from '@/pages/invoices';
 import PublicInvoice from '@/pages/invoice-public';
 import Activity from '@/pages/activity';
+import Team from '@/pages/team';
+import Invite from '@/pages/invite';
+import { setSelectedWorkspaceId } from '@workspace/api-client-react';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -74,7 +77,10 @@ function ClerkQueryCacheInvalidator() {
   useEffect(() => {
     const unsubscribe = addListener(({ user }) => {
       const id = user?.id ?? null;
-      if (previous.current !== undefined && previous.current !== id) client.clear();
+      if (previous.current !== undefined && previous.current !== id) {
+        client.clear();
+        setSelectedWorkspaceId(null);
+      }
       previous.current = id;
     });
     return unsubscribe;
@@ -92,6 +98,7 @@ function AuthRoutes() {
     <Route path="/checkout/:merchantKey" component={Checkout} />
      <Route path="/pay/:token" component={PaymentLinkCheckout} />
      <Route path="/invoice/:token" component={PublicInvoice} />
+     <Route path="/invite/:token" component={Invite} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
      <Route path="/activity" component={() => <Protected><Activity /></Protected>} />
@@ -107,6 +114,7 @@ function AuthRoutes() {
      <Route path="/pos" component={() => <Protected><Pos /></Protected>} />
      <Route path="/marketing" component={() => <Protected><Marketing /></Protected>} />
      <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
+     <Route path="/team" component={() => <Protected><Team /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
     <Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} />
@@ -125,7 +133,7 @@ function Router() {
 }
 
 function AuthRoutesWithoutClerk() {
-  return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+   return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
  function AuthUnavailable({ mode }: { mode: string }) {

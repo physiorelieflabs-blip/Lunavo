@@ -20,6 +20,9 @@ export const domainEventTypes = [
   "marketplace.listing_reviewed", "marketplace.fee_reviewed",
   "ai.action_proposed", "ai.action_approved", "ai.action_executed",
   "ai.action_rejected", "ai.action_rolled_back",
+  "location.created", "location.updated", "location.disabled",
+  "invitation.created", "invitation.revoked", "invitation.accepted",
+  "membership.role_changed", "membership.scope_changed", "membership.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -29,7 +32,7 @@ export type EmitDomainEventInput = {
   eventType: DomainEventType;
   aggregateType: string;
   aggregateId: string | number;
-  actorType: "merchant" | "customer" | "admin" | "system" | "ai";
+  actorType: "merchant" | "staff" | "customer" | "admin" | "system" | "ai";
   actorId?: string | null;
   source: "merchant_api" | "public_checkout" | "admin_api" | "system" | "ai";
   idempotencyKey: string;
@@ -85,6 +88,7 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
   const links: Record<string, string> = {
     order: "/orders", invoice: "/invoices", inventory: "/inventory",
     marketplace_listing: "/marketplace/manage", ai_action: "/ai",
+    location: "/settings/team", invitation: "/settings/team", membership: "/settings/team",
   };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
     "order.created": ["New order recorded", "An order was created.", "info"],
@@ -98,6 +102,15 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "inventory.reserved": ["Inventory reserved", "Stock is held pending payment verification.", "info"],
     "inventory.released": ["Inventory reservation released", "A pending stock hold was released.", "warning"],
     "inventory.committed": ["Inventory committed", "Reserved stock was committed after verified payment.", "success"],
+    "location.created": ["Location added", "A new merchant location was created.", "info"],
+    "location.updated": ["Location updated", "A merchant location was updated.", "info"],
+    "location.disabled": ["Location disabled", "A merchant location was disabled.", "warning"],
+    "invitation.created": ["Team invitation created", "A staff invitation is ready to share.", "info"],
+    "invitation.revoked": ["Team invitation revoked", "A staff invitation was revoked.", "warning"],
+    "invitation.accepted": ["Team invitation accepted", "A staff member joined the workspace.", "success"],
+    "membership.role_changed": ["Staff role updated", "A staff member's role changed.", "info"],
+    "membership.scope_changed": ["Staff location access updated", "A staff member's location access changed.", "info"],
+    "membership.status_changed": ["Staff access updated", "A staff member's access status changed.", "warning"],
   };
   const label = labels[event.eventType as DomainEventType];
   if (!label) return null;

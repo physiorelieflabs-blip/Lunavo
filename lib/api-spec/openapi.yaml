@@ -381,6 +381,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CustomerRecord"
+  /customers/{id}/context:
+    get:
+      operationId: getCustomerContext
+      tags: [dashboard]
+      summary: Get the tenant-wide connected customer record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Authoritative customer record and related commerce records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerContext" }
   /orders:
     get:
       operationId: listOrders
@@ -436,6 +452,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrderRecord"
+  /orders/{id}/context:
+    get:
+      operationId: getOrderContext
+      tags: [dashboard]
+      summary: Get the location-scoped connected order record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Authoritative order record and related commerce records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderContext" }
   /payment-links:
     get:
       operationId: listPaymentLinks
@@ -986,6 +1018,16 @@ paths:
         "200":
           description: Invoice detail
           content: { application/json: { schema: { $ref: "#/components/schemas/Invoice" } } }
+  /invoices/{id}/context:
+    get:
+      operationId: getInvoiceContext
+      tags: [payments]
+      summary: Get the location-scoped connected immutable invoice record
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer } } ]
+      responses:
+        "200":
+          description: Authoritative invoice snapshot and related commerce records
+          content: { application/json: { schema: { $ref: "#/components/schemas/InvoiceContext" } } }
   /invoices/{id}/send:
     post:
       operationId: sendInvoice
@@ -1615,6 +1657,19 @@ paths:
       operationId: listDomainEvents
       tags: [dashboard]
       summary: List tenant-scoped domain event history
+      parameters:
+        - name: aggregateType
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 80 }
+        - name: aggregateId
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 120 }
+        - name: correlationId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: Merchant event history
@@ -1656,8 +1711,206 @@ paths:
         "200":
           description: Updated notification
           content: { application/json: { schema: { $ref: "#/components/schemas/NotificationRecord" } } }
+  /team/access:
+    get:
+      operationId: getTeamAccess
+      tags: [team]
+      responses: {"200": {description: Access, content: {application/json: {schema: {$ref: "#/components/schemas/TeamAccess"}}}}}
+  /workspaces:
+    get:
+      operationId: listAccessibleWorkspaces
+      tags: [team]
+      responses: {"200": {description: Active workspaces, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Workspace"}}}}}}
+  /workspaces/current:
+    get:
+      operationId: getCurrentWorkspace
+      tags: [team]
+      parameters: [{name: X-TS-Commerce-Workspace-Id, in: header, required: false, schema: {type: integer}}]
+      responses: {"200": {description: Current workspace, content: {application/json: {schema: {$ref: "#/components/schemas/Workspace"}}}}}
+  /team/locations:
+    get:
+      operationId: listTeamLocations
+      tags: [team]
+      responses: {"200": {description: Locations, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/TeamLocation"}}}}}}
+    post:
+      operationId: createTeamLocation
+      tags: [team]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/TeamLocationInput"}}}}
+      responses: {"201": {description: Location, content: {application/json: {schema: {$ref: "#/components/schemas/TeamLocation"}}}}}
+  /team/locations/{id}:
+    patch:
+      operationId: updateTeamLocation
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/TeamLocationUpdate"}}}}
+      responses: {"200": {description: Location, content: {application/json: {schema: {$ref: "#/components/schemas/TeamLocation"}}}}}
+  /team/locations/{id}/disable:
+    post:
+      operationId: disableTeamLocation
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {"200": {description: Location, content: {application/json: {schema: {$ref: "#/components/schemas/TeamLocation"}}}}}
+  /team/locations/{id}/default:
+    post:
+      operationId: setDefaultTeamLocation
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {"200": {description: Location, content: {application/json: {schema: {$ref: "#/components/schemas/TeamLocation"}}}}}
+  /team/roles:
+    get:
+      operationId: listTeamRoles
+      tags: [team]
+      responses: {"200": {description: Roles, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/TeamRole"}}}}}}
+  /team/memberships:
+    get:
+      operationId: listTeamMemberships
+      tags: [team]
+      responses: {"200": {description: Memberships, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/TeamMembership"}}}}}}
+  /team/memberships/{id}:
+    patch:
+      operationId: updateTeamMembership
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/TeamMembershipUpdate"}}}}
+      responses: {"200": {description: Membership, content: {application/json: {schema: {$ref: "#/components/schemas/TeamMembership"}}}}}
+  /team/memberships/{id}/disable:
+    post:
+      operationId: disableTeamMembership
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {"200": {description: Membership, content: {application/json: {schema: {$ref: "#/components/schemas/TeamMembership"}}}}}
+  /team/invitations:
+    get:
+      operationId: listTeamInvitations
+      tags: [team]
+      responses: {"200": {description: Invitations, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/TeamInvitation"}}}}}}
+    post:
+      operationId: createTeamInvitation
+      tags: [team]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/TeamInvitationInput"}}}}
+      responses: {"201": {description: Invitation, content: {application/json: {schema: {$ref: "#/components/schemas/TeamInvitationCreated"}}}}}
+  /team/invitations/{id}/revoke:
+    post:
+      operationId: revokeTeamInvitation
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {"200": {description: Invitation, content: {application/json: {schema: {$ref: "#/components/schemas/TeamInvitation"}}}}}
+  /team/invitations/{id}/rotate-link:
+    post:
+      operationId: rotateTeamInvitationLink
+      tags: [team]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {"200": {description: Invitation, content: {application/json: {schema: {$ref: "#/components/schemas/TeamInvitationCreated"}}}}}
+  /public/invitations/{token}:
+    get:
+      operationId: getPublicInvitationPreview
+      tags: [team]
+      parameters: [{name: token, in: path, required: true, schema: {type: string, minLength: 20}}]
+      responses: {"200": {description: Invitation preview, content: {application/json: {schema: {$ref: "#/components/schemas/PublicInvitationPreview"}}}}}
+  /invitations/accept:
+    post:
+      operationId: acceptTeamInvitation
+      tags: [team]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/AcceptInvitationInput"}}}}
+      responses: {"200": {description: Accepted membership, content: {application/json: {schema: {$ref: "#/components/schemas/TeamMembership"}}}}}
 components:
   schemas:
+    Workspace:
+      type: object
+      required: [id, storeName, currency, role, permissions]
+      properties: {id: {type: integer}, storeName: {type: string}, currency: {type: string}, role: {type: string}, permissions: {type: array, items: {type: string}}}
+    TeamAccess:
+      type: object
+      required: [merchantId, role, permissions, locationIds]
+      properties: {merchantId: {type: integer}, role: {type: string}, permissions: {type: array, items: {type: string}}, locationIds: {type: array, items: {type: string, format: uuid}, nullable: true}}
+    TeamLocation:
+      type: object
+      required: [id, name, locationType, country, currency, timezone, address, contact, isActive, isDefault, supportsFulfillment, supportsPos, supportsInventory, createdAt, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        locationType: {type: string}
+        country: {type: string}
+        currency: {type: string}
+        timezone: {type: string}
+        address: {type: object, additionalProperties: true}
+        contact: {type: object, additionalProperties: true}
+        isActive: {type: boolean}
+        isDefault: {type: boolean}
+        supportsFulfillment: {type: boolean}
+        supportsPos: {type: boolean}
+        supportsInventory: {type: boolean}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    TeamLocationInput:
+      allOf: [{$ref: "#/components/schemas/TeamLocationUpdate"}]
+      required: [name, country, currency, timezone]
+    TeamLocationUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 160}
+        locationType: {type: string, minLength: 1, maxLength: 64}
+        country: {type: string, minLength: 2, maxLength: 3}
+        currency: {type: string, minLength: 3, maxLength: 3}
+        timezone: {type: string, minLength: 1, maxLength: 100}
+        address: {type: object, additionalProperties: true}
+        contact: {type: object, additionalProperties: true}
+        isDefault: {type: boolean}
+        supportsFulfillment: {type: boolean}
+        supportsPos: {type: boolean}
+        supportsInventory: {type: boolean}
+    TeamRole:
+      type: object
+      required: [id, key, name, description, isSystem, permissions]
+      properties: {id: {type: string, format: uuid}, key: {type: string}, name: {type: string}, description: {type: string, nullable: true}, isSystem: {type: boolean}, permissions: {type: array, items: {type: string}}}
+    TeamMembership:
+      type: object
+      required: [id, clerkUserId, roleId, roleKey, status, locationIds, acceptedAt, disabledAt, createdAt, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        clerkUserId: {type: string}
+        roleId: {type: string, format: uuid}
+        roleKey: {type: string}
+        status: {type: string}
+        locationIds: {type: array, items: {type: string, format: uuid}}
+        acceptedAt: {type: string, format: date-time, nullable: true}
+        disabledAt: {type: string, format: date-time, nullable: true}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    TeamMembershipUpdate:
+      type: object
+      required: [roleId, locationIds]
+      properties: {roleId: {type: string, format: uuid}, locationIds: {type: array, items: {type: string, format: uuid}}}
+    TeamInvitation:
+      type: object
+      required: [id, email, roleId, roleKey, locationIds, expiresAt, acceptedAt, revokedAt, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        roleId: {type: string, format: uuid}
+        roleKey: {type: string}
+        locationIds: {type: array, items: {type: string, format: uuid}}
+        expiresAt: {type: string, format: date-time}
+        acceptedAt: {type: string, format: date-time, nullable: true}
+        revokedAt: {type: string, format: date-time, nullable: true}
+        createdAt: {type: string, format: date-time}
+    TeamInvitationInput:
+      type: object
+      required: [email, roleId, locationIds]
+      properties: {email: {type: string, format: email}, roleId: {type: string, format: uuid}, locationIds: {type: array, items: {type: string, format: uuid}}}
+    TeamInvitationCreated:
+      allOf: [{$ref: "#/components/schemas/TeamInvitation"}]
+      required: [inviteUrl, delivery]
+      properties: {inviteUrl: {type: string}, delivery: {type: string}}
+    PublicInvitationPreview:
+      type: object
+      required: [merchantName, roleName, expiresAt, status]
+      properties: {merchantName: {type: string}, roleName: {type: string}, expiresAt: {type: string, format: date-time}, status: {type: string}}
+    AcceptInvitationInput:
+      type: object
+      required: [token]
+      properties: {token: {type: string, minLength: 20}}
     InventoryReservation:
       type: object
       properties:
@@ -1907,6 +2160,7 @@ components:
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
         supplierProductId: { type: integer, minimum: 1 }
         shippingAddress: { type: string, maxLength: 500 }
+        locationId: { type: string, format: uuid }
       required: [customerName, customerEmail, total]
     OrderStatusInput:
       type: object
@@ -3002,6 +3256,7 @@ components:
         customerId: { type: ["integer", "null"] }
         orderId: { type: ["integer", "null"] }
         paymentLinkId: { type: ["integer", "null"] }
+        locationId: { type: ["string", "null"], format: uuid }
         customerName: { type: string, minLength: 2, maxLength: 160 }
         customerEmail: { type: string, format: email, maxLength: 254 }
         customerPhone: { type: ["string", "null"], maxLength: 40 }
@@ -3097,6 +3352,84 @@ components:
         occurredAt: { type: string, format: date-time }
         processedAt: { type: ["string", "null"], format: date-time }
         lastError: { type: ["string", "null"] }
+    ContextObject:
+      type: object
+      additionalProperties: true
+    ContextRecord:
+      type: object
+      required: [id, target, snapshot]
+      properties:
+        id: { type: string }
+        target: { type: string }
+        snapshot: { $ref: "#/components/schemas/ContextObject" }
+    ContextAction:
+      type: object
+      required: [action, target]
+      properties:
+        action:
+          type: string
+          enum: [verify_payment, approve_refund, fulfill_order, submit_supplier_payment, send_invoice, void_invoice, review_invoice_payment]
+        target: { type: string }
+    ContextImpact:
+      type: object
+      required: [currency, orderTotalMinor, verifiedPaidMinor, refundedMinor, netRevenueMinor, ledgerEffectMinor, reservedUnits, committedUnits, releasedUnits]
+      properties:
+        currency: { type: ["string", "null"] }
+        orderTotalMinor: { type: integer }
+        verifiedPaidMinor: { type: integer }
+        refundedMinor: { type: integer }
+        netRevenueMinor: { type: integer }
+        ledgerEffectMinor: { type: integer }
+        reservedUnits: { type: integer }
+        committedUnits: { type: integer }
+        releasedUnits: { type: integer }
+    OrderContext:
+      type: object
+      required: [order, customer, product, paymentIntents, paymentRecords, ledgerEntries, refunds, invoices, inventoryReservations, inventoryMovements, transitions, fulfillment, events, impact, nextActions]
+      properties:
+        order: { $ref: "#/components/schemas/ContextRecord" }
+        customer: { anyOf: [{ $ref: "#/components/schemas/ContextRecord" }, { type: "null" }] }
+        product: { anyOf: [{ $ref: "#/components/schemas/ContextRecord" }, { type: "null" }] }
+        paymentIntents: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        paymentRecords: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        ledgerEntries: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        refunds: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        invoices: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        inventoryReservations: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        inventoryMovements: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        transitions: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        fulfillment: { $ref: "#/components/schemas/ContextObject" }
+        events: { type: array, items: { $ref: "#/components/schemas/DomainEventRecord" } }
+        impact: { $ref: "#/components/schemas/ContextImpact" }
+        nextActions: { type: array, items: { $ref: "#/components/schemas/ContextAction" } }
+    CustomerContext:
+      type: object
+      required: [customer, lifetime, orders, invoices, paymentIntents, paymentRecords, refunds, events, nextActions]
+      properties:
+        customer: { $ref: "#/components/schemas/ContextRecord" }
+        lifetime: { $ref: "#/components/schemas/ContextImpact" }
+        orders: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        invoices: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        paymentIntents: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        paymentRecords: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        refunds: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        events: { type: array, items: { $ref: "#/components/schemas/DomainEventRecord" } }
+        nextActions: { type: array, items: { $ref: "#/components/schemas/ContextAction" } }
+    InvoiceContext:
+      type: object
+      required: [invoice, lines, customer, order, submissions, paymentIntents, paymentRecords, ledgerEntries, events, impact, nextActions]
+      properties:
+        invoice: { $ref: "#/components/schemas/ContextRecord" }
+        lines: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        customer: { anyOf: [{ $ref: "#/components/schemas/ContextRecord" }, { type: "null" }] }
+        order: { anyOf: [{ $ref: "#/components/schemas/ContextRecord" }, { type: "null" }] }
+        submissions: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        paymentIntents: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        paymentRecords: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        ledgerEntries: { type: array, items: { $ref: "#/components/schemas/ContextRecord" } }
+        events: { type: array, items: { $ref: "#/components/schemas/DomainEventRecord" } }
+        impact: { $ref: "#/components/schemas/ContextImpact" }
+        nextActions: { type: array, items: { $ref: "#/components/schemas/ContextAction" } }
     NotificationRecord:
       type: object
       required: [id, eventId, entityType, entityId, title, body, severity, deepLink, actionLabel, actorType, source, readAt, createdAt]

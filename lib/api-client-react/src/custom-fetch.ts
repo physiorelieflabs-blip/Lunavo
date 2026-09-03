@@ -17,6 +17,27 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _workspaceId: string | null = null;
+const WORKSPACE_STORAGE_KEY = "ts-commerce.selected-workspace-id";
+
+function readStoredWorkspaceId(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage.getItem(WORKSPACE_STORAGE_KEY); } catch { return null; }
+}
+
+/** Persisted tenant selection used by every generated authenticated request. */
+export function setSelectedWorkspaceId(workspaceId: string | number | null): void {
+  _workspaceId = workspaceId == null ? null : String(workspaceId);
+  if (typeof window === "undefined") return;
+  try {
+    if (_workspaceId) window.localStorage.setItem(WORKSPACE_STORAGE_KEY, _workspaceId);
+    else window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  } catch { /* Storage may be unavailable in privacy-restricted browsers. */ }
+}
+
+export function getSelectedWorkspaceId(): string | null {
+  return _workspaceId ?? (_workspaceId = readStoredWorkspaceId());
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -336,6 +357,12 @@ export async function customFetch<T = unknown>(
   }
 
   const headers = mergeHeaders(isRequest(input) ? input.headers : undefined, headersInit);
+  const workspaceId = getSelectedWorkspaceId();
+  // Public checkout/invitation endpoints never need a tenant selector and
+  // must not receive a stale browser workspace hint.
+  if (workspaceId && !/\/public(?:\/|$)/.test(resolveUrl(input)) && !headers.has("x-ts-commerce-workspace-id")) {
+    headers.set("x-ts-commerce-workspace-id", workspaceId);
+  }
 
   if (
     typeof init.body === "string" &&

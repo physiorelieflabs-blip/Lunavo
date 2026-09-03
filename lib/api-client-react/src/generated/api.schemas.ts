@@ -5,6 +5,145 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+export interface Workspace {
+  id: number;
+  storeName: string;
+  currency: string;
+  role: string;
+  permissions: string[];
+}
+
+export interface TeamAccess {
+  merchantId: number;
+  role: string;
+  permissions: string[];
+  locationIds: string[] | null;
+}
+
+export type TeamLocationAddress = { [key: string]: unknown };
+
+export type TeamLocationContact = { [key: string]: unknown };
+
+export interface TeamLocation {
+  id: string;
+  name: string;
+  locationType: string;
+  country: string;
+  currency: string;
+  timezone: string;
+  address: TeamLocationAddress;
+  contact: TeamLocationContact;
+  isActive: boolean;
+  isDefault: boolean;
+  supportsFulfillment: boolean;
+  supportsPos: boolean;
+  supportsInventory: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TeamLocationUpdateAddress = { [key: string]: unknown };
+
+export type TeamLocationUpdateContact = { [key: string]: unknown };
+
+export interface TeamLocationUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  name?: string;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  locationType?: string;
+  /**
+     * @minLength 2
+     * @maxLength 3
+     */
+  country?: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency?: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  timezone?: string;
+  address?: TeamLocationUpdateAddress;
+  contact?: TeamLocationUpdateContact;
+  isDefault?: boolean;
+  supportsFulfillment?: boolean;
+  supportsPos?: boolean;
+  supportsInventory?: boolean;
+}
+
+export type TeamLocationInput = TeamLocationUpdate & Required<Pick<TeamLocationUpdate, 'name' | 'country' | 'currency' | 'timezone'>>;
+
+export interface TeamRole {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  isSystem: boolean;
+  permissions: string[];
+}
+
+export interface TeamMembership {
+  id: string;
+  clerkUserId: string;
+  roleId: string;
+  roleKey: string;
+  status: string;
+  locationIds: string[];
+  acceptedAt: string | null;
+  disabledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamMembershipUpdate {
+  roleId: string;
+  locationIds: string[];
+}
+
+export interface TeamInvitation {
+  id: string;
+  email: string;
+  roleId: string;
+  roleKey: string;
+  locationIds: string[];
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface TeamInvitationInput {
+  email: string;
+  roleId: string;
+  locationIds: string[];
+}
+
+export type TeamInvitationCreated = TeamInvitation & {
+  inviteUrl: string;
+  delivery: string;
+};
+
+export interface PublicInvitationPreview {
+  merchantName: string;
+  roleName: string;
+  expiresAt: string;
+  status: string;
+}
+
+export interface AcceptInvitationInput {
+  /** @minLength 20 */
+  token: string;
+}
+
 export type InventoryReservationStatus = typeof InventoryReservationStatus[keyof typeof InventoryReservationStatus];
 
 
@@ -421,6 +560,7 @@ export interface CreateOrderInput {
   supplierProductId?: number;
   /** @maxLength 500 */
   shippingAddress?: string;
+  locationId?: string;
 }
 
 export type OrderStatusInputStatus = typeof OrderStatusInputStatus[keyof typeof OrderStatusInputStatus];
@@ -2164,6 +2304,8 @@ export interface InvoiceInput {
   orderId?: number | null;
   /** @nullable */
   paymentLinkId?: number | null;
+  /** @nullable */
+  locationId?: string | null;
   /**
      * @minLength 2
      * @maxLength 160
@@ -2341,6 +2483,89 @@ export interface DomainEventRecord {
   lastError: string | null;
 }
 
+export interface ContextObject { [key: string]: unknown }
+
+export interface ContextRecord {
+  id: string;
+  target: string;
+  snapshot: ContextObject;
+}
+
+export type ContextActionAction = typeof ContextActionAction[keyof typeof ContextActionAction];
+
+
+export const ContextActionAction = {
+  verify_payment: 'verify_payment',
+  approve_refund: 'approve_refund',
+  fulfill_order: 'fulfill_order',
+  submit_supplier_payment: 'submit_supplier_payment',
+  send_invoice: 'send_invoice',
+  void_invoice: 'void_invoice',
+  review_invoice_payment: 'review_invoice_payment',
+} as const;
+
+export interface ContextAction {
+  action: ContextActionAction;
+  target: string;
+}
+
+export interface ContextImpact {
+  /** @nullable */
+  currency: string | null;
+  orderTotalMinor: number;
+  verifiedPaidMinor: number;
+  refundedMinor: number;
+  netRevenueMinor: number;
+  ledgerEffectMinor: number;
+  reservedUnits: number;
+  committedUnits: number;
+  releasedUnits: number;
+}
+
+export interface OrderContext {
+  order: ContextRecord;
+  customer: ContextRecord | null;
+  product: ContextRecord | null;
+  paymentIntents: ContextRecord[];
+  paymentRecords: ContextRecord[];
+  ledgerEntries: ContextRecord[];
+  refunds: ContextRecord[];
+  invoices: ContextRecord[];
+  inventoryReservations: ContextRecord[];
+  inventoryMovements: ContextRecord[];
+  transitions: ContextRecord[];
+  fulfillment: ContextObject;
+  events: DomainEventRecord[];
+  impact: ContextImpact;
+  nextActions: ContextAction[];
+}
+
+export interface CustomerContext {
+  customer: ContextRecord;
+  lifetime: ContextImpact;
+  orders: ContextRecord[];
+  invoices: ContextRecord[];
+  paymentIntents: ContextRecord[];
+  paymentRecords: ContextRecord[];
+  refunds: ContextRecord[];
+  events: DomainEventRecord[];
+  nextActions: ContextAction[];
+}
+
+export interface InvoiceContext {
+  invoice: ContextRecord;
+  lines: ContextRecord[];
+  customer: ContextRecord | null;
+  order: ContextRecord | null;
+  submissions: ContextRecord[];
+  paymentIntents: ContextRecord[];
+  paymentRecords: ContextRecord[];
+  ledgerEntries: ContextRecord[];
+  events: DomainEventRecord[];
+  impact: ContextImpact;
+  nextActions: ContextAction[];
+}
+
 export interface NotificationRecord {
   id: string;
   /** @nullable */
@@ -2455,5 +2680,19 @@ minPrice?: number;
  * @minimum 0
  */
 maxPrice?: number;
+};
+
+export type ListDomainEventsParams = {
+/**
+ * @minLength 1
+ * @maxLength 80
+ */
+aggregateType?: string;
+/**
+ * @minLength 1
+ * @maxLength 120
+ */
+aggregateId?: string;
+correlationId?: string;
 };
 

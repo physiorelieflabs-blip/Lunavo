@@ -1,9 +1,11 @@
 import {
   randomBytes,
   randomUUID,
+  createHash,
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   and,
@@ -52,6 +54,13 @@ import {
   domainEventsTable,
   domainEventConsumptionsTable,
   notificationsTable,
+  merchantLocationsTable,
+  merchantRolesTable,
+  merchantRolePermissionsTable,
+  merchantMembershipsTable,
+  merchantMembershipLocationsTable,
+  merchantInvitationsTable,
+  merchantInvitationLocationsTable,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -226,11 +235,48 @@ import {
   SubmitInvoicePaymentReferenceBody,
   SubmitInvoicePaymentReferenceResponse,
   ListDomainEventsResponse,
+  GetCustomerContextParams,
+  GetCustomerContextResponse,
+  GetOrderContextParams,
+  GetOrderContextResponse,
+  GetInvoiceContextParams,
+  GetInvoiceContextResponse,
   ReplayDomainEventParams,
   ReplayDomainEventResponse,
   ListNotificationsResponse,
   MarkNotificationReadParams,
   MarkNotificationReadResponse,
+  GetTeamAccessResponse,
+  ListAccessibleWorkspacesResponse,
+  GetCurrentWorkspaceResponse,
+  ListTeamLocationsResponse,
+  CreateTeamLocationBody,
+  CreateTeamLocationResponse,
+  UpdateTeamLocationParams,
+  UpdateTeamLocationBody,
+  UpdateTeamLocationResponse,
+  DisableTeamLocationParams,
+  DisableTeamLocationResponse,
+  SetDefaultTeamLocationParams,
+  SetDefaultTeamLocationResponse,
+  ListTeamRolesResponse,
+  ListTeamMembershipsResponse,
+  UpdateTeamMembershipParams,
+  UpdateTeamMembershipBody,
+  UpdateTeamMembershipResponse,
+  DisableTeamMembershipParams,
+  DisableTeamMembershipResponse,
+  ListTeamInvitationsResponse,
+  CreateTeamInvitationBody,
+  CreateTeamInvitationResponse,
+  RevokeTeamInvitationParams,
+  RevokeTeamInvitationResponse,
+  RotateTeamInvitationLinkParams,
+  RotateTeamInvitationLinkResponse,
+  GetPublicInvitationPreviewParams,
+  GetPublicInvitationPreviewResponse,
+  AcceptTeamInvitationBody,
+  AcceptTeamInvitationResponse,
 } from "@workspace/api-zod";
 import {
   createTotpUri,
@@ -240,6 +286,7 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
 import {
   importPublicSupplierProduct,
   type ImportedSupplierProduct,
@@ -257,6 +304,51 @@ import {
 } from "../lib/ai";
 
 const router: IRouter = Router();
+class CommerceAuthorizationError extends Error {
+  readonly statusCode = 403;
+}
+const workspaceContext = new AsyncLocalStorage<{
+  requestedMerchantId: number | null;
+  requiredPermission: Parameters<typeof requirePermission>[2] | null;
+  explicitAuthorization: boolean;
+  blocksLocationScoped: boolean;
+}>();
+// Workspace selection is an authenticated, server-validated identifier. Do not
+// accept forwarded hosts or client-supplied tenant IDs in mutation bodies.
+router.use((req, _res, next) => {
+  const raw = req.header("x-ts-commerce-workspace-id");
+  const requestedMerchantId = raw && /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : null;
+  const path = req.path;
+  const explicitAuthorization = /^(\/healthz|\/public\/|\/admin\/|\/invitations\/accept|\/workspaces(?:\/|$)|\/team(?:\/|$))/.test(path);
+  const requiredPermission =
+    /^\/settings(?:\/|$)|^\/store$/.test(path) ? "team.manage" :
+    /^\/dashboard(?:\/|$)/.test(path) ? "orders.read" :
+    /^\/ai\/actions\/[^/]+\/(approve|reject)/.test(path) ? "ai.approve" :
+    /^\/ai\/actions\/[^/]+\/(execute|rollback)/.test(path) ? "ai.execute" :
+    /^\/ai(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "ai.execute") :
+    /^(\/withdrawals|\/security\/withdrawal)/.test(path) ? "withdrawals.manage" :
+    /^\/bank-account/.test(path) ? "bank_accounts.manage" :
+    /^\/payments\/[^/]+\/verify/.test(path) ? "payments.verify" :
+    /^\/invoices\/[^/]+\/payments\/[^/]+\/verify/.test(path) ? "payments.verify" :
+    /^\/refunds/.test(path) ? "refunds.manage" :
+    /^\/reconciliations?|^\/balances/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
+    /^\/payments(?:\/|$)/.test(path) ? "finance.manage" :
+    /^\/subscription(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
+    /^\/inventory\/adjustments/.test(path) ? "inventory.adjust" :
+    /^\/inventory(?:\/|$)/.test(path) ? "inventory.read" :
+    /^\/orders(?:\/|$)/.test(path) ? (req.method === "GET" ? "orders.read" : "orders.manage") :
+    /^\/invoices(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
+    /^\/payment-links(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
+    /^\/customers(?:\/|$)/.test(path) ? (req.method === "GET" ? "customers.read" : "customers.manage") :
+    /^\/exports(?:\/|$)/.test(path) ? "customers.export" :
+    /^\/supplier-products|^\/supplier-import-history|^\/suppliers(?:\/|$)/.test(path) ? "marketplace.manage" :
+    /^\/dropship(?:\/|$)/.test(path) ? "fulfillment.manage" :
+    /^\/marketplace\/(management|listings|billing)/.test(path) ? "marketplace.manage" :
+    /^\/marketplace\/products/.test(path) ? "marketplace.manage" :
+    /^\/events(?:\/|$)|^\/notifications(?:\/|$)/.test(path) ? "orders.read" : null;
+  const blocksLocationScoped = /^(\/settings|\/store|\/dashboard|\/ai|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/marketplace|\/events|\/notifications)/.test(path);
+  workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
+});
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
 const SUPPORTED_CURRENCIES = [
   "USD",
@@ -301,6 +393,7 @@ type Identity = {
   email: string;
   name: string;
   emailVerified: boolean;
+  verifiedEmails: Set<string>;
   isAdmin: boolean;
 };
 
@@ -445,6 +538,7 @@ async function getIdentity(req: Request): Promise<Identity | null> {
     email,
     name: name || email.split("@")[0],
     emailVerified,
+    verifiedEmails: new Set(user.emailAddresses.filter((address) => address.verification?.status === "verified").map((address) => address.emailAddress.toLowerCase())),
     isAdmin: email === ADMIN_EMAIL && emailVerified,
   };
 }
@@ -468,7 +562,69 @@ async function requireAdmin(req: Request, res: Response) {
   return identity;
 }
 
+/** Converts durable authorization failures into an API 403, not an Express 500. */
+async function requireTenantPermission(identity: Identity, merchantId: number, permission: Parameters<typeof requirePermission>[2], res: Response) {
+  try {
+    return await requirePermission(identity.clerkUserId, merchantId, permission);
+  } catch {
+    res.status(403).json({ error: "You do not have permission for this action" });
+    return null;
+  }
+}
+
+/** Resolve location server-side; client values can only narrow an active membership scope. */
+async function resolveOrderLocation(
+  merchantId: number,
+  access: TenantAccess | null,
+  requestedLocationId?: string | null,
+  forceDefault = false,
+) {
+  const locations = await db.select().from(merchantLocationsTable)
+    .where(and(eq(merchantLocationsTable.merchantId, merchantId), eq(merchantLocationsTable.isActive, true)))
+    .orderBy(desc(merchantLocationsTable.isDefault));
+  if (forceDefault) {
+    const location = locations.find((item) => item.isDefault);
+    if (!location) throw new Error("Merchant has no active default location");
+    return location;
+  }
+  const allowed = locations.filter((item) => access?.locationIds === null || access?.locationIds.has(item.id));
+  if (!allowed.length) throw new Error("No active location is assigned to your membership");
+  if (requestedLocationId) {
+    const requested = allowed.find((item) => item.id === requestedLocationId);
+    if (requested) return requested;
+  }
+  return allowed.find((item) => item.isDefault) ?? allowed[0]!;
+}
+
 async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
+  const context = workspaceContext.getStore();
+  const requestedMerchantId = context?.requestedMerchantId ?? null;
+  const memberships = await db.select({ merchantId: merchantMembershipsTable.merchantId })
+    .from(merchantMembershipsTable)
+    .where(and(eq(merchantMembershipsTable.clerkUserId, identity.clerkUserId), eq(merchantMembershipsTable.status, "active")));
+  const selectedMerchantId = requestedMerchantId ?? (memberships.length === 1 ? memberships[0]!.merchantId : null);
+  if (requestedMerchantId && !memberships.some((membership) => membership.merchantId === requestedMerchantId)) {
+    throw new CommerceAuthorizationError("Selected workspace is not an active membership");
+  }
+  if (selectedMerchantId) {
+    const selected = (await db.select().from(merchantsTable).where(eq(merchantsTable.id, selectedMerchantId)).limit(1))[0];
+    if (!selected) throw new CommerceAuthorizationError("Selected workspace no longer exists");
+    const access = await getTenantAccess(identity.clerkUserId, selected.id);
+    if (!access) throw new CommerceAuthorizationError("Active workspace membership required");
+    if (context?.requiredPermission && !access.permissions.has(context.requiredPermission)) {
+      throw new CommerceAuthorizationError(`Missing required permission: ${context.requiredPermission}`);
+    }
+    if (!context?.requiredPermission && !context?.explicitAuthorization) {
+      throw new CommerceAuthorizationError("This merchant route has no authorization policy");
+    }
+    if (context?.blocksLocationScoped && access.locationIds !== null) {
+      throw new CommerceAuthorizationError("This route is unavailable to location-scoped staff");
+    }
+    return selected;
+  }
+  if (memberships.length > 1) {
+    throw new CommerceAuthorizationError("Workspace selection required");
+  }
   let merchant = (
     await db
       .select()
@@ -515,6 +671,7 @@ async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
         .returning();
     }
     await getSubscriptionForMerchant(merchant, identity.isAdmin);
+    await ensureTenantOwnerMembership(merchant.id, identity.clerkUserId);
     return merchant;
   }
 
@@ -544,6 +701,11 @@ async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
       amountDue: identity.isAdmin ? "0" : MONTHLY_FEE.toFixed(2),
       status: identity.isAdmin ? "active" : "pending",
     }).onConflictDoNothing({ target: subscriptionsTable.merchantId });
+    // The membership is seeded after the transaction below, because the
+    // access helper opens its own transaction.
+    return created;
+  }).then(async (created) => {
+    await ensureTenantOwnerMembership(created.id, identity.clerkUserId);
     return created;
   });
 }
@@ -3657,6 +3819,47 @@ router.patch("/suppliers/:id", async (req, res): Promise<void> => {
   );
 });
 
+function contextRecord(id: string | number, target: string, snapshot: Record<string, unknown>) {
+  return { id: String(id), target, snapshot };
+}
+
+function minorFromDecimal(value: string | number | null | undefined) {
+  return Math.round(toNumber(value) * 100);
+}
+
+function contextImpact(
+  currency: string | null,
+  orderTotalMinor: number,
+  paymentRecords: Array<typeof paymentRecordsTable.$inferSelect>,
+  refunds: Array<typeof refundRecordsTable.$inferSelect>,
+  ledgerEntries: Array<typeof ledgerEntriesTable.$inferSelect>,
+  reservations: Array<typeof inventoryReservationsTable.$inferSelect> = [],
+  movements: Array<typeof inventoryMovementsTable.$inferSelect> = [],
+) {
+  const verifiedPaidMinor = paymentRecords
+    .filter((record) => record.status === "verified")
+    .reduce((sum, record) => sum + record.amountMinor, 0);
+  const refundedMinor = refunds
+    .filter((refund) => refund.status === "processed")
+    .reduce((sum, refund) => sum + refund.amountMinor, 0);
+  return {
+    currency,
+    orderTotalMinor,
+    verifiedPaidMinor,
+    refundedMinor,
+    netRevenueMinor: verifiedPaidMinor - refundedMinor,
+    ledgerEffectMinor: ledgerEntries.reduce((sum, entry) => sum + entry.amountMinor, 0),
+    reservedUnits: reservations.filter((item) => item.status === "reserved").reduce((sum, item) => sum + item.quantity, 0),
+    committedUnits: movements.filter((item) => item.reason === "sale").reduce((sum, item) => sum + Math.abs(item.quantityDelta), 0),
+    releasedUnits: reservations.filter((item) => ["released", "expired"].includes(item.status)).reduce((sum, item) => sum + item.quantity, 0)
+      + movements.filter((item) => item.reason === "order_release").reduce((sum, item) => sum + Math.abs(item.quantityDelta), 0),
+  };
+}
+
+function contextEvents(events: Array<typeof domainEventsTable.$inferSelect>) {
+  return events.map(serializeDomainEvent);
+}
+
 router.get("/customers", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -3689,6 +3892,47 @@ router.get("/customers", async (req, res): Promise<void> => {
       })),
     ),
   );
+});
+
+router.get("/customers/:id/context", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = GetCustomerContextParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid customer" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  // Customers are tenant-global. The route policy blocks location-scoped memberships.
+  const access = await requireTenantPermission(identity, merchant.id, "customers.read", res); if (!access) return;
+  const customer = (await db.select().from(customersTable).where(and(eq(customersTable.id, params.data.id), eq(customersTable.merchantId, merchant.id))).limit(1))[0];
+  if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
+  const orders = await db.select().from(ordersTable).where(and(eq(ordersTable.merchantId, merchant.id), eq(ordersTable.customerId, customer.id))).orderBy(desc(ordersTable.createdAt));
+  const orderIds = orders.map((order) => order.id);
+  const [invoices, intents, records, refunds, events] = await Promise.all([
+    db.select().from(invoicesTable).where(and(eq(invoicesTable.merchantId, merchant.id), eq(invoicesTable.customerId, customer.id))).orderBy(desc(invoicesTable.createdAt)),
+    orderIds.length ? db.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.merchantId, merchant.id), inArray(paymentIntentsTable.orderId, orderIds))) : Promise.resolve([]),
+    orderIds.length ? db.select().from(paymentRecordsTable).where(and(eq(paymentRecordsTable.merchantId, merchant.id), inArray(paymentRecordsTable.orderId, orderIds))) : Promise.resolve([]),
+    orderIds.length ? db.select().from(refundRecordsTable).where(and(eq(refundRecordsTable.merchantId, merchant.id), inArray(refundRecordsTable.orderId, orderIds))) : Promise.resolve([]),
+    db.select().from(domainEventsTable).where(eq(domainEventsTable.merchantId, merchant.id)).orderBy(desc(domainEventsTable.occurredAt)).limit(200),
+  ]);
+  const intentIds = intents.map((intent) => intent.id);
+  const recordIds = records.map((record) => record.id);
+  const refundIds = refunds.map((refund) => refund.id);
+  const relevantEvents = events.filter((event) => (event.aggregateType === "customer" && event.aggregateId === String(customer.id))
+    || (event.aggregateType === "order" && orderIds.includes(Number(event.aggregateId)))
+    || (event.aggregateType === "payment_intent" && intentIds.includes(Number(event.aggregateId)))
+    || (event.aggregateType === "payment_record" && recordIds.includes(Number(event.aggregateId)))
+    || (event.aggregateType === "refund" && refundIds.includes(Number(event.aggregateId))));
+  const currency = orders.length && orders.every((order) => order.currency === orders[0]!.currency) ? orders[0]!.currency : null;
+  const lifetime = contextImpact(currency, orders.reduce((sum, order) => sum + minorFromDecimal(order.total), 0), records, refunds, []);
+  res.json(GetCustomerContextResponse.parse({
+    customer: contextRecord(customer.id, `/customers/${customer.id}`, customer),
+    lifetime,
+    orders: orders.map((order) => contextRecord(order.id, `/orders/${order.id}/context`, order)),
+    invoices: invoices.map((invoice) => contextRecord(invoice.id, `/invoices/${invoice.id}/context`, invoice)),
+    paymentIntents: intents.map((intent) => contextRecord(intent.id, `/payments/${intent.id}`, intent)),
+    paymentRecords: records.map((record) => contextRecord(record.id, `/payments/${record.intentId}`, record)),
+    refunds: refunds.map((refund) => contextRecord(refund.id, `/refunds/${refund.id}`, refund)),
+    events: contextEvents(relevantEvents),
+    nextActions: [],
+  }));
 });
 
 router.patch("/customers/:id", async (req, res): Promise<void> => {
@@ -3791,6 +4035,7 @@ router.get("/orders", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "orders.read", res); if (!access) return;
   const orders = await db
     .select({
       order: ordersTable,
@@ -3803,7 +4048,7 @@ router.get("/orders", async (req, res): Promise<void> => {
       supplierProductsTable,
       eq(ordersTable.supplierProductId, supplierProductsTable.id),
     )
-    .where(eq(ordersTable.merchantId, merchant.id))
+    .where(and(eq(ordersTable.merchantId, merchant.id), access.locationIds ? inArray(ordersTable.locationId, [...access.locationIds]) : undefined))
     .orderBy(desc(ordersTable.createdAt))
     .limit(100);
   res.json(
@@ -3813,6 +4058,55 @@ router.get("/orders", async (req, res): Promise<void> => {
       ),
     ),
   );
+});
+
+router.get("/orders/:id/context", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = GetOrderContextParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid order" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "orders.read", res); if (!access) return;
+  const order = (await db.select().from(ordersTable).where(and(eq(ordersTable.id, params.data.id), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
+  if (!order || !(await requireLocationScope(access, order.locationId))) { res.status(404).json({ error: "Order not found" }); return; }
+  const [customer, product, intents, records, ledgerEntries, refunds, invoices, reservations, movements, transitions, events] = await Promise.all([
+    db.select().from(customersTable).where(and(eq(customersTable.id, order.customerId), eq(customersTable.merchantId, merchant.id))).limit(1),
+    order.supplierProductId ? db.select().from(supplierProductsTable).where(and(eq(supplierProductsTable.id, order.supplierProductId), eq(supplierProductsTable.merchantId, merchant.id))).limit(1) : Promise.resolve([]),
+    db.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.merchantId, merchant.id), eq(paymentIntentsTable.orderId, order.id))),
+    db.select().from(paymentRecordsTable).where(and(eq(paymentRecordsTable.merchantId, merchant.id), eq(paymentRecordsTable.orderId, order.id))),
+    db.select().from(ledgerEntriesTable).where(and(eq(ledgerEntriesTable.merchantId, merchant.id), eq(ledgerEntriesTable.orderId, order.id))),
+    db.select().from(refundRecordsTable).where(and(eq(refundRecordsTable.merchantId, merchant.id), eq(refundRecordsTable.orderId, order.id))),
+    db.select().from(invoicesTable).where(and(eq(invoicesTable.merchantId, merchant.id), eq(invoicesTable.orderId, order.id))),
+    db.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.orderId, order.id))),
+    db.select().from(inventoryMovementsTable).where(and(eq(inventoryMovementsTable.merchantId, merchant.id), eq(inventoryMovementsTable.orderId, order.id))),
+    db.select().from(commerceTransitionHistoryTable).where(and(eq(commerceTransitionHistoryTable.merchantId, merchant.id), eq(commerceTransitionHistoryTable.orderId, order.id))).orderBy(desc(commerceTransitionHistoryTable.createdAt)),
+    db.select().from(domainEventsTable).where(eq(domainEventsTable.merchantId, merchant.id)).orderBy(desc(domainEventsTable.occurredAt)).limit(200),
+  ]);
+  const nextActions: Array<{ action: string; target: string }> = [];
+  if (intents.some((intent) => ["created", "submitted"].includes(intent.status)) && access.permissions.has("payments.verify")) nextActions.push({ action: "verify_payment", target: `/payments/${intents.find((intent) => ["created", "submitted"].includes(intent.status))!.id}/verify` });
+  if (refunds.some((refund) => refund.status === "requested") && access.permissions.has("refunds.manage")) nextActions.push({ action: "approve_refund", target: `/refunds/${refunds.find((refund) => refund.status === "requested")!.id}/approve` });
+  if (["paid", "fulfilled"].includes(order.status) && ["pending", "ready"].includes(order.fulfillmentStatus) && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "fulfill_order", target: `/dropship/queue/${order.id}` });
+  if (order.supplierProductId && order.supplierPaymentStatus === "unpaid" && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "submit_supplier_payment", target: `/dropship/queue/${order.id}` });
+  res.json(GetOrderContextResponse.parse({
+    order: contextRecord(order.id, `/orders/${order.id}/context`, order),
+    customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}/context`, customer[0]) : null,
+    product: product[0] ? contextRecord(product[0].id, `/supplier-products/${product[0].id}`, { id: product[0].id, title: product[0].title, sku: product[0].sku, sourceUrl: product[0].sourceUrl, sourceDomain: product[0].sourceDomain, inventoryStatus: product[0].inventoryStatus }) : null,
+    paymentIntents: intents.map((item) => contextRecord(item.id, `/payments/${item.id}`, item)),
+    paymentRecords: records.map((item) => contextRecord(item.id, `/payments/${item.intentId}`, item)),
+    ledgerEntries: ledgerEntries.map((item) => contextRecord(item.id, `/ledger/${item.id}`, item)),
+    refunds: refunds.map((item) => contextRecord(item.id, `/refunds/${item.id}`, item)),
+    invoices: invoices.map((item) => contextRecord(item.id, `/invoices/${item.id}/context`, item)),
+    inventoryReservations: reservations.map((item) => contextRecord(item.id, `/inventory/reservations/${item.id}`, item)),
+    inventoryMovements: movements.map((item) => contextRecord(item.id, `/inventory/movements/${item.id}`, item)),
+    transitions: transitions.map((item) => contextRecord(item.id, `/orders/${order.id}/history/${item.id}`, item)),
+    fulfillment: { status: order.fulfillmentStatus, supplierOrderReference: order.supplierOrderReference, trackingNumber: order.trackingNumber, note: order.fulfillmentNote, submittedAt: order.fulfillmentSubmittedAt, updatedAt: order.fulfillmentUpdatedAt, target: `/dropship/queue/${order.id}` },
+    events: contextEvents(events.filter((event) => event.aggregateId === String(order.id)
+      || (event.aggregateType === "payment_intent" && intents.some((item) => item.id === Number(event.aggregateId)))
+      || (event.aggregateType === "payment_record" && records.some((item) => item.id === Number(event.aggregateId)))
+      || (event.aggregateType === "refund" && refunds.some((item) => item.id === Number(event.aggregateId)))
+      || (event.aggregateType === "invoice" && invoices.some((item) => item.id === Number(event.aggregateId))))),
+    impact: contextImpact(order.currency, minorFromDecimal(order.total), records, refunds, ledgerEntries, reservations, movements),
+    nextActions,
+  }));
 });
 
 function serializeDomainEvent(event: typeof domainEventsTable.$inferSelect) {
@@ -3827,8 +4121,17 @@ function serializeDomainEvent(event: typeof domainEventsTable.$inferSelect) {
 router.get("/events", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  const aggregateType = typeof req.query.aggregateType === "string" ? req.query.aggregateType.trim() : "";
+  const aggregateId = typeof req.query.aggregateId === "string" ? req.query.aggregateId.trim() : "";
+  const correlationId = typeof req.query.correlationId === "string" ? req.query.correlationId.trim() : "";
+  if ((aggregateType && aggregateType.length > 80) || (aggregateId && aggregateId.length > 120)
+    || (correlationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(correlationId))) {
+    res.status(400).json({ error: "Invalid event filters" }); return;
+  }
   const events = await db.select().from(domainEventsTable)
-    .where(eq(domainEventsTable.merchantId, merchant.id)).orderBy(desc(domainEventsTable.occurredAt)).limit(200);
+    .where(and(eq(domainEventsTable.merchantId, merchant.id), aggregateType ? eq(domainEventsTable.aggregateType, aggregateType) : undefined,
+      aggregateId ? eq(domainEventsTable.aggregateId, aggregateId) : undefined,
+      correlationId ? eq(domainEventsTable.correlationId, correlationId) : undefined)).orderBy(desc(domainEventsTable.occurredAt)).limit(200);
   res.json(ListDomainEventsResponse.parse(events.map(serializeDomainEvent)));
 });
 
@@ -3880,6 +4183,192 @@ router.post("/notifications/:id/read", async (req, res): Promise<void> => {
   res.json(MarkNotificationReadResponse.parse({ ...notification, source: event?.source ?? null }));
 });
 
+// Team administration is deliberately tenant-derived: this surface never
+// accepts a merchant id from the browser.
+router.get("/workspaces", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const rows = await db.select({ merchant: merchantsTable, role: merchantRolesTable.key, roleId: merchantRolesTable.id })
+    .from(merchantMembershipsTable).innerJoin(merchantsTable, eq(merchantMembershipsTable.merchantId, merchantsTable.id))
+    .innerJoin(merchantRolesTable, eq(merchantMembershipsTable.roleId, merchantRolesTable.id))
+    .where(and(eq(merchantMembershipsTable.clerkUserId, identity.clerkUserId), eq(merchantMembershipsTable.status, "active")));
+  const permissions = rows.length ? await db.select().from(merchantRolePermissionsTable).where(inArray(merchantRolePermissionsTable.roleId, rows.map(row => row.roleId))) : [];
+  res.json(ListAccessibleWorkspacesResponse.parse(rows.map(row => ({ id: row.merchant.id, storeName: row.merchant.storeName, currency: row.merchant.currency, role: row.role, permissions: permissions.filter(permission => permission.roleId === row.roleId).map(permission => permission.permission) }))));
+});
+router.get("/workspaces/current", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const access = await requireTenantPermission(identity, merchant.id, "orders.read", res); if (!access) return;
+    res.json(GetCurrentWorkspaceResponse.parse({ id: merchant.id, storeName: merchant.storeName, currency: merchant.currency, role: access.roleKey, permissions: [...access.permissions] }));
+  } catch (error) { res.status(403).json({ error: error instanceof Error ? error.message : "Workspace unavailable" }); }
+});
+router.get("/team/access", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "orders.read", res); if (!access) return;
+  res.json(GetTeamAccessResponse.parse({ merchantId: merchant.id, role: access.roleKey, permissions: [...access.permissions], locationIds: access.locationIds ? [...access.locationIds] : null }));
+});
+const teamLocation = (row: typeof merchantLocationsTable.$inferSelect) => ({
+  id: row.id, name: row.name, locationType: row.locationType, country: row.country, currency: row.currency, timezone: row.timezone,
+  address: jsonRecord(row.address), contact: jsonRecord(row.contact), isActive: row.isActive, isDefault: row.isDefault,
+  supportsFulfillment: row.supportsFulfillment, supportsPos: row.supportsPos, supportsInventory: row.supportsInventory, createdAt: row.createdAt, updatedAt: row.updatedAt,
+});
+async function teamMembership(row: typeof merchantMembershipsTable.$inferSelect, roleKey?: string) {
+  const locations = await db.select({ locationId: merchantMembershipLocationsTable.locationId }).from(merchantMembershipLocationsTable).where(eq(merchantMembershipLocationsTable.membershipId, row.id));
+  const role = roleKey ? null : (await db.select({ key: merchantRolesTable.key }).from(merchantRolesTable).where(eq(merchantRolesTable.id, row.roleId)).limit(1))[0];
+  return { id: row.id, clerkUserId: row.clerkUserId, roleId: row.roleId, roleKey: roleKey ?? role?.key ?? "unknown", status: row.status, locationIds: locations.map((x) => x.locationId), acceptedAt: row.acceptedAt, disabledAt: row.disabledAt, createdAt: row.createdAt, updatedAt: row.updatedAt };
+}
+async function teamInvitation(row: typeof merchantInvitationsTable.$inferSelect, roleKey?: string) {
+  const locations = await db.select({ locationId: merchantInvitationLocationsTable.locationId }).from(merchantInvitationLocationsTable).where(eq(merchantInvitationLocationsTable.invitationId, row.id));
+  const role = roleKey ? null : (await db.select({ key: merchantRolesTable.key }).from(merchantRolesTable).where(eq(merchantRolesTable.id, row.roleId)).limit(1))[0];
+  return { id: row.id, email: row.email, roleId: row.roleId, roleKey: roleKey ?? role?.key ?? "unknown", locationIds: locations.map((x) => x.locationId), expiresAt: row.expiresAt, acceptedAt: row.acceptedAt, revokedAt: row.revokedAt, createdAt: row.createdAt };
+}
+router.get("/team/locations", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "locations.manage", res))) return;
+  res.json(ListTeamLocationsResponse.parse((await db.select().from(merchantLocationsTable).where(eq(merchantLocationsTable.merchantId, merchant.id)).orderBy(asc(merchantLocationsTable.name))).map(teamLocation)));
+});
+router.post("/team/locations", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "locations.manage", res))) return;
+  const parsed = CreateTeamLocationBody.safeParse(req.body); if (!parsed.success) { res.status(400).json({ error: "Invalid location" }); return; } const body = parsed.data;
+  const [location] = await db.transaction(async (tx) => {
+    const existing = await tx.select({ id: merchantLocationsTable.id }).from(merchantLocationsTable).where(eq(merchantLocationsTable.merchantId, merchant.id)).limit(1);
+    const makeDefault = existing.length === 0 || body.isDefault === true;
+    if (makeDefault && existing.length) {
+      await tx.update(merchantLocationsTable).set({ isDefault: false, updatedBy: identity.clerkUserId })
+        .where(and(eq(merchantLocationsTable.merchantId, merchant.id), eq(merchantLocationsTable.isDefault, true)));
+    }
+    const [created] = await tx.insert(merchantLocationsTable).values({
+      merchantId: merchant.id, name: body.name.trim(), country: body.country.trim().toUpperCase(), currency: body.currency.trim().toUpperCase(), timezone: body.timezone.trim(), createdBy: identity.clerkUserId, updatedBy: identity.clerkUserId,
+      locationType: body.locationType ?? "store", address: body.address ?? {}, contact: body.contact ?? {},
+      isDefault: makeDefault, supportsFulfillment: body.supportsFulfillment === true, supportsPos: body.supportsPos === true, supportsInventory: body.supportsInventory === true,
+    }).returning();
+    await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "location.created", aggregateType: "location", aggregateId: created.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `location.created:${created.id}`, payload: { locationId: created.id, name: created.name }, after: { isActive: created.isActive, isDefault: created.isDefault } });
+    return [created];
+  });
+  res.status(201).json(CreateTeamLocationResponse.parse(teamLocation(location)));
+});
+router.patch("/team/locations/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "locations.manage", res))) return;
+  const params = UpdateTeamLocationParams.safeParse(req.params), body = UpdateTeamLocationBody.safeParse(req.body); if (!params.success || !body.success) { res.status(400).json({ error: "Invalid location update" }); return; }
+  if (body.data.isDefault !== undefined) { res.status(400).json({ error: "Use the set-default endpoint to change the default location" }); return; }
+  const [updated] = await db.transaction(async tx => { const [row] = await tx.update(merchantLocationsTable).set({ ...body.data, country: body.data.country?.toUpperCase(), currency: body.data.currency?.toUpperCase(), updatedBy: identity.clerkUserId }).where(and(eq(merchantLocationsTable.id, params.data.id), eq(merchantLocationsTable.merchantId, merchant.id))).returning(); if (row) await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "location.updated", aggregateType: "location", aggregateId: row.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `location.updated:${row.id}:${row.updatedAt.getTime()}`, payload: {}, after: { isDefault: row.isDefault } }); return [row]; });
+  if (!updated) { res.status(404).json({ error: "Location not found" }); return; } res.json(UpdateTeamLocationResponse.parse(teamLocation(updated)));
+});
+async function changeLocationFlag(req: Request, res: Response, kind: "disable" | "default") {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "locations.manage", res))) return;
+  const params = (kind === "disable" ? DisableTeamLocationParams : SetDefaultTeamLocationParams).safeParse(req.params); if (!params.success) { res.status(400).json({ error: "Invalid location" }); return; }
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT id FROM merchant_locations WHERE merchant_id = ${merchant.id} FOR UPDATE`);
+    const locations = await tx.select().from(merchantLocationsTable).where(eq(merchantLocationsTable.merchantId, merchant.id));
+    const target = locations.find(location => location.id === params.data.id);
+    if (!target) return { error: "not_found" as const };
+    if (kind === "default" && !target.isActive) return { error: "inactive" as const };
+    if (kind === "disable" && target.isDefault) {
+      const replacement = locations.find(location => location.id !== target.id && location.isActive);
+      if (!replacement) return { error: "sole_default" as const };
+      await tx.update(merchantLocationsTable).set({ isDefault: false, updatedBy: identity.clerkUserId }).where(eq(merchantLocationsTable.id, target.id));
+      await tx.update(merchantLocationsTable).set({ isDefault: true, updatedBy: identity.clerkUserId }).where(eq(merchantLocationsTable.id, replacement.id));
+    } else if (kind === "default") {
+      await tx.update(merchantLocationsTable).set({ isDefault: false, updatedBy: identity.clerkUserId }).where(and(eq(merchantLocationsTable.merchantId, merchant.id), eq(merchantLocationsTable.isDefault, true)));
+    }
+    const [next] = await tx.update(merchantLocationsTable).set(kind === "disable" ? { isActive: false, isDefault: false, updatedBy: identity.clerkUserId } : { isDefault: true, updatedBy: identity.clerkUserId }).where(eq(merchantLocationsTable.id, target.id)).returning();
+    await emitDomainEvent(tx, { merchantId: merchant.id, eventType: kind === "disable" ? "location.disabled" : "location.updated", aggregateType: "location", aggregateId: next.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `location.${kind}:${next.id}:${next.updatedAt.getTime()}`, payload: {}, after: { isActive: next.isActive, isDefault: next.isDefault } });
+    return { row: next };
+  });
+  if ("error" in result) { res.status(result.error === "not_found" ? 404 : 409).json({ error: result.error === "inactive" ? "An inactive location cannot be the default" : result.error === "sole_default" ? "The sole active default location cannot be disabled" : "Location not found" }); return; }
+  res.json((kind === "disable" ? DisableTeamLocationResponse : SetDefaultTeamLocationResponse).parse(teamLocation(result.row)));
+}
+router.post("/team/locations/:id/disable", (req, res) => void changeLocationFlag(req, res, "disable"));
+router.post("/team/locations/:id/default", (req, res) => void changeLocationFlag(req, res, "default"));
+router.get("/team/roles", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return;
+  const roles = await db.select().from(merchantRolesTable).where(eq(merchantRolesTable.merchantId, merchant.id));
+  const permissions = await db.select().from(merchantRolePermissionsTable).where(inArray(merchantRolePermissionsTable.roleId, roles.map((role) => role.id)));
+  res.json(ListTeamRolesResponse.parse(roles.map((role) => ({ id: role.id, key: role.key, name: role.name, description: role.description, isSystem: role.isSystem, permissions: permissions.filter((permission) => permission.roleId === role.id).map((permission) => permission.permission) }))));
+});
+router.post("/team/invitations", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return;
+  const parsed = CreateTeamInvitationBody.safeParse(req.body); if (!parsed.success) { res.status(400).json({ error: "Invalid invitation" }); return; }
+  const { roleId, locationIds } = parsed.data; const email = parsed.data.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !roleId || !(await validateTenantLocations(merchant.id, locationIds))) { res.status(400).json({ error: "A valid email, tenant role, and tenant locations are required" }); return; }
+  const role = (await db.select().from(merchantRolesTable).where(and(eq(merchantRolesTable.id, roleId), eq(merchantRolesTable.merchantId, merchant.id))).limit(1))[0];
+  if (!role || role.key === "owner") { res.status(400).json({ error: "Owner role cannot be assigned by invitation" }); return; }
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  try {
+    const invitation = await db.transaction(async (tx) => {
+      // The partial unique index treats expired rows as active. Close expired
+      // invitations before issuing a replacement rather than relying on an
+      // exception or silently retaining a usable-looking stale link.
+      const stale = await tx.select().from(merchantInvitationsTable).where(and(
+        eq(merchantInvitationsTable.merchantId, merchant.id),
+        eq(merchantInvitationsTable.email, email),
+        isNull(merchantInvitationsTable.acceptedAt),
+        isNull(merchantInvitationsTable.revokedAt),
+        lt(merchantInvitationsTable.expiresAt, new Date()),
+      ));
+      for (const expired of stale) {
+        await tx.update(merchantInvitationsTable).set({ revokedAt: new Date() }).where(eq(merchantInvitationsTable.id, expired.id));
+        await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "invitation.revoked", aggregateType: "invitation", aggregateId: expired.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `invitation.expired:${expired.id}`, payload: { reason: "expired" }, after: {} });
+      }
+      const [created] = await tx.insert(merchantInvitationsTable).values({ merchantId: merchant.id, email, roleId, tokenHash, invitedBy: identity.clerkUserId, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000) }).returning();
+      if (locationIds.length) await tx.insert(merchantInvitationLocationsTable).values(locationIds.map((locationId) => ({ invitationId: created.id, locationId })));
+      await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "invitation.created", aggregateType: "invitation", aggregateId: created.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `invitation.created:${created.id}`, payload: { invitationId: created.id, email }, after: { roleId } });
+      return created;
+    });
+    // There is no email transport configured. The bearer URL is intentionally
+    // returned exactly once and is never persisted.
+    res.status(201).json(CreateTeamInvitationResponse.parse({ ...(await teamInvitation(invitation, role.key)), inviteUrl: `/invite/${token}`, delivery: "copy_link_required" }));
+  } catch { res.status(409).json({ error: "An active invitation already exists for this email" }); }
+});
+router.get("/team/memberships", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return;
+  const rows = await db.select({ membership: merchantMembershipsTable, roleKey: merchantRolesTable.key }).from(merchantMembershipsTable).innerJoin(merchantRolesTable, eq(merchantMembershipsTable.roleId, merchantRolesTable.id)).where(eq(merchantMembershipsTable.merchantId, merchant.id));
+  res.json(ListTeamMembershipsResponse.parse(await Promise.all(rows.map(x => teamMembership(x.membership, x.roleKey)))));
+});
+router.patch("/team/memberships/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return;
+  const params = UpdateTeamMembershipParams.safeParse(req.params), body = UpdateTeamMembershipBody.safeParse(req.body); if (!params.success || !body.success || !(await validateTenantLocations(merchant.id, body.success ? body.data.locationIds : []))) { res.status(400).json({ error: "Invalid membership update" }); return; }
+  const result = await db.transaction(async tx => { const target = (await tx.select({ membership: merchantMembershipsTable, roleKey: merchantRolesTable.key }).from(merchantMembershipsTable).innerJoin(merchantRolesTable, eq(merchantMembershipsTable.roleId, merchantRolesTable.id)).where(and(eq(merchantMembershipsTable.id, params.data.id), eq(merchantMembershipsTable.merchantId, merchant.id))).limit(1))[0]; const role = (await tx.select().from(merchantRolesTable).where(and(eq(merchantRolesTable.id, body.data.roleId), eq(merchantRolesTable.merchantId, merchant.id))).limit(1))[0]; if (!target || !role || target.roleKey === "owner" || role.key === "owner") return null; const [updated] = await tx.update(merchantMembershipsTable).set({ roleId: role.id }).where(eq(merchantMembershipsTable.id, target.membership.id)).returning(); await tx.delete(merchantMembershipLocationsTable).where(eq(merchantMembershipLocationsTable.membershipId, updated.id)); if (body.data.locationIds.length) await tx.insert(merchantMembershipLocationsTable).values(body.data.locationIds.map(locationId => ({ membershipId: updated.id, locationId }))); await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "membership.role_changed", aggregateType: "membership", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `membership.updated:${updated.id}:${updated.updatedAt.getTime()}`, payload: {}, after: { roleId: role.id, locationIds: body.data.locationIds } }); return { updated, roleKey: role.key }; });
+  if (!result) { res.status(404).json({ error: "Membership or role not found, or owner is protected" }); return; } res.json(UpdateTeamMembershipResponse.parse(await teamMembership(result.updated, result.roleKey)));
+});
+router.post("/team/memberships/:id/disable", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return; const params = DisableTeamMembershipParams.safeParse(req.params); if (!params.success) { res.status(400).json({ error: "Invalid membership" }); return; }
+  const result = await db.transaction(async tx => { const target = (await tx.select({ membership: merchantMembershipsTable, roleKey: merchantRolesTable.key }).from(merchantMembershipsTable).innerJoin(merchantRolesTable, eq(merchantMembershipsTable.roleId, merchantRolesTable.id)).where(and(eq(merchantMembershipsTable.id, params.data.id), eq(merchantMembershipsTable.merchantId, merchant.id))).limit(1))[0]; if (!target || target.roleKey === "owner") return null; const [updated] = await tx.update(merchantMembershipsTable).set({ status: "disabled", disabledAt: new Date() }).where(eq(merchantMembershipsTable.id, target.membership.id)).returning(); await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "membership.status_changed", aggregateType: "membership", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `membership.disabled:${updated.id}`, payload: {}, after: { status: "disabled" } }); return teamMembership(updated, target.roleKey); }); if (!result) { res.status(404).json({ error: "Membership not found or owner is protected" }); return; } res.json(DisableTeamMembershipResponse.parse(result));
+});
+router.get("/team/invitations", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return;
+  const rows = await db.select({ invitation: merchantInvitationsTable, roleKey: merchantRolesTable.key }).from(merchantInvitationsTable).innerJoin(merchantRolesTable, eq(merchantInvitationsTable.roleId, merchantRolesTable.id)).where(eq(merchantInvitationsTable.merchantId, merchant.id)); res.json(ListTeamInvitationsResponse.parse(await Promise.all(rows.map(x => teamInvitation(x.invitation, x.roleKey)))));
+});
+router.post("/team/invitations/:id/revoke", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return; const params = RevokeTeamInvitationParams.safeParse(req.params); if (!params.success) { res.status(400).json({ error: "Invalid invitation" }); return; }
+  const row = await db.transaction(async tx => { const [updated] = await tx.update(merchantInvitationsTable).set({ revokedAt: new Date() }).where(and(eq(merchantInvitationsTable.id, params.data.id), eq(merchantInvitationsTable.merchantId, merchant.id), isNull(merchantInvitationsTable.acceptedAt), isNull(merchantInvitationsTable.revokedAt))).returning(); if (updated) await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "invitation.revoked", aggregateType: "invitation", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `invitation.revoked:${updated.id}`, payload: {}, after: { revokedAt: updated.revokedAt?.toISOString() } }); return updated; }); if (!row) { res.status(404).json({ error: "Active invitation not found" }); return; } res.json(RevokeTeamInvitationResponse.parse(await teamInvitation(row)));
+});
+router.post("/team/invitations/:id/rotate-link", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity); if (!(await requireTenantPermission(identity, merchant.id, "team.manage", res))) return; const params = RotateTeamInvitationLinkParams.safeParse(req.params); if (!params.success) { res.status(400).json({ error: "Invalid invitation" }); return; } const token = randomBytes(32).toString("base64url");
+  const row = await db.transaction(async tx => { const [updated] = await tx.update(merchantInvitationsTable).set({ tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000) }).where(and(eq(merchantInvitationsTable.id, params.data.id), eq(merchantInvitationsTable.merchantId, merchant.id), isNull(merchantInvitationsTable.acceptedAt), isNull(merchantInvitationsTable.revokedAt))).returning(); if (updated) await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "invitation.revoked", aggregateType: "invitation", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `invitation.rotated:${updated.id}:${updated.updatedAt.getTime()}`, payload: { reason: "link_rotated" }, after: {} }); return updated; }); if (!row) { res.status(404).json({ error: "Active invitation not found" }); return; } res.json(RotateTeamInvitationLinkResponse.parse({ ...(await teamInvitation(row)), inviteUrl: `/invite/${token}`, delivery: "copy_link_required" }));
+});
+router.get("/public/invitations/:token", async (req, res): Promise<void> => {
+  res.setHeader("Referrer-Policy", "no-referrer");
+  const params = GetPublicInvitationPreviewParams.safeParse(req.params); if (!params.success) { res.status(404).json({ error: "Invitation not found" }); return; } const hash = createHash("sha256").update(params.data.token).digest("hex");
+  const row = (await db.select({ invitation: merchantInvitationsTable, merchantName: merchantsTable.storeName, roleName: merchantRolesTable.name }).from(merchantInvitationsTable).innerJoin(merchantsTable, eq(merchantInvitationsTable.merchantId, merchantsTable.id)).innerJoin(merchantRolesTable, eq(merchantInvitationsTable.roleId, merchantRolesTable.id)).where(eq(merchantInvitationsTable.tokenHash, hash)).limit(1))[0];
+  if (!row) { res.status(404).json({ error: "Invitation not found" }); return; } const status = row.invitation.acceptedAt ? "accepted" : row.invitation.revokedAt ? "revoked" : row.invitation.expiresAt <= new Date() ? "expired" : "active"; res.json(GetPublicInvitationPreviewResponse.parse({ merchantName: row.merchantName, roleName: row.roleName, expiresAt: row.invitation.expiresAt, status }));
+});
+router.post("/invitations/accept", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const parsed = AcceptTeamInvitationBody.safeParse(req.body); if (!parsed.success) { res.status(400).json({ error: "Invalid invitation token" }); return; } const hash = createHash("sha256").update(parsed.data.token).digest("hex");
+  try {
+    const membership = await db.transaction(async tx => { const row = (await tx.select({ invitation: merchantInvitationsTable, role: merchantRolesTable }).from(merchantInvitationsTable).innerJoin(merchantRolesTable, eq(merchantInvitationsTable.roleId, merchantRolesTable.id)).where(eq(merchantInvitationsTable.tokenHash, hash)).limit(1))[0]; if (!row || row.invitation.revokedAt || row.invitation.acceptedAt || row.invitation.expiresAt <= new Date() || !identity.verifiedEmails.has(row.invitation.email) || row.role.merchantId !== row.invitation.merchantId || row.role.key === "owner") throw new Error("invalid_invitation"); const [claimed] = await tx.update(merchantInvitationsTable).set({ acceptedAt: new Date(), acceptedBy: identity.clerkUserId }).where(and(eq(merchantInvitationsTable.id, row.invitation.id), isNull(merchantInvitationsTable.acceptedAt), isNull(merchantInvitationsTable.revokedAt), eq(merchantInvitationsTable.tokenHash, hash))).returning(); if (!claimed) throw new Error("invalid_invitation"); const existing = (await tx.select().from(merchantMembershipsTable).where(and(eq(merchantMembershipsTable.merchantId, claimed.merchantId), eq(merchantMembershipsTable.clerkUserId, identity.clerkUserId))).limit(1))[0]; if (existing?.status === "active") throw new Error("membership_exists"); const [member] = existing ? await tx.update(merchantMembershipsTable).set({ roleId: claimed.roleId, status: "active", acceptedAt: new Date(), disabledAt: null }).where(eq(merchantMembershipsTable.id, existing.id)).returning() : await tx.insert(merchantMembershipsTable).values({ merchantId: claimed.merchantId, clerkUserId: identity.clerkUserId, roleId: claimed.roleId, status: "active", acceptedAt: new Date(), invitedBy: claimed.invitedBy }).returning(); const scopes = await tx.select({ locationId: merchantInvitationLocationsTable.locationId }).from(merchantInvitationLocationsTable).innerJoin(merchantLocationsTable, eq(merchantInvitationLocationsTable.locationId, merchantLocationsTable.id)).where(and(eq(merchantInvitationLocationsTable.invitationId, claimed.id), eq(merchantLocationsTable.merchantId, claimed.merchantId))); await tx.delete(merchantMembershipLocationsTable).where(eq(merchantMembershipLocationsTable.membershipId, member.id)); if (scopes.length) await tx.insert(merchantMembershipLocationsTable).values(scopes.map(x => ({ membershipId: member.id, locationId: x.locationId }))); await emitDomainEvent(tx, { merchantId: claimed.merchantId, eventType: "invitation.accepted", aggregateType: "invitation", aggregateId: claimed.id, actorType: "staff", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `invitation.accepted:${claimed.id}`, payload: { membershipId: member.id }, after: {} }); return { member, roleKey: row.role.key }; }); res.json(AcceptTeamInvitationResponse.parse(await teamMembership(membership.member, membership.roleKey)));
+  } catch (error) { res.status(409).json({ error: error instanceof Error && error.message === "membership_exists" ? "You already have an active membership" : "Invitation cannot be accepted" }); }
+});
+
 router.post("/orders", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -3889,6 +4378,8 @@ router.post("/orders", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "orders.manage", res); if (!access) return;
+  const location = await resolveOrderLocation(merchant.id, access, (parsed.data as { locationId?: string }).locationId);
   const enforced = await enforceSubscription(merchant, identity.isAdmin);
   if (enforced.merchant.status === "suspended" || enforced.merchant.status === "banned") {
     res.status(403).json({ error: "New orders are paused for this account" });
@@ -4017,6 +4508,7 @@ router.post("/orders", async (req, res): Promise<void> => {
         .insert(ordersTable)
         .values({
           merchantId: merchant.id,
+          locationId: location.id,
           customerId: customer.id,
           orderNumber,
            subtotal: total,
@@ -4103,6 +4595,7 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "orders.manage", res); if (!access) return;
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(
@@ -4129,7 +4622,7 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
           )
           .limit(1)
       )[0];
-      if (!existing) throw new Error("Order not found");
+      if (!existing || !(await requireLocationScope(access, existing.order.locationId))) throw new Error("Order not found");
       const nextStatus = parsed.data.status;
       if (existing.order.status === nextStatus) return existing;
       if (existing.order.status !== "pending") {
@@ -4248,7 +4741,8 @@ router.get("/payment-links", async (req, res): Promise<void> => {
 router.get("/invoices", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const invoices = await db.select().from(invoicesTable).where(eq(invoicesTable.merchantId, merchant.id)).orderBy(desc(invoicesTable.createdAt));
+  const access = await requireTenantPermission(identity, merchant.id, "finance.read", res); if (!access) return;
+  const invoices = await db.select().from(invoicesTable).where(and(eq(invoicesTable.merchantId, merchant.id), access.locationIds ? inArray(invoicesTable.locationId, [...access.locationIds]) : undefined)).orderBy(desc(invoicesTable.createdAt));
   res.json(ListInvoicesResponse.parse(await Promise.all((await Promise.all(invoices.map(refreshInvoiceOverdue))).map(serializeInvoice))));
 });
 
@@ -4257,6 +4751,8 @@ router.post("/invoices", async (req, res): Promise<void> => {
   const parsed = CreateInvoiceBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Enter a customer, currency, and at least one valid line item" }); return; }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "finance.manage", res); if (!access) return;
+  const location = await resolveOrderLocation(merchant.id, access, (parsed.data as { locationId?: string }).locationId);
   const input = parsed.data; const currency = input.currency.trim().toUpperCase();
   if (currency !== merchant.currency) { res.status(400).json({ error: `Invoices must use your merchant currency (${merchant.currency})` }); return; }
   try {
@@ -4283,7 +4779,7 @@ router.post("/invoices", async (req, res): Promise<void> => {
       if (discountMinor > subtotalMinor) throw new Error("Discount cannot exceed the invoice subtotal");
       const totalMinor = subtotalMinor - discountMinor + taxMinor + shippingMinor;
       const [created] = await tx.insert(invoicesTable).values({
-        merchantId: merchant.id, customerId: input.customerId ?? null, orderId: input.orderId ?? null, paymentLinkId: input.paymentLinkId ?? null,
+        merchantId: merchant.id, locationId: location.id, customerId: input.customerId ?? null, orderId: input.orderId ?? null, paymentLinkId: input.paymentLinkId ?? null,
         invoiceNumber: `INV-${randomUUID().slice(0, 8).toUpperCase()}`, publicToken: randomUUID().replaceAll("-", ""),
         customerName: input.customerName.trim(), customerEmail: input.customerEmail.trim().toLowerCase(), customerPhone: input.customerPhone?.trim() || null,
         billingAddress: input.billingAddress?.trim() ? { formatted: input.billingAddress.trim() } : null, shippingAddress: input.shippingAddress?.trim() ? { formatted: input.shippingAddress.trim() } : null,
@@ -4302,16 +4798,59 @@ router.get("/invoices/:id", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return;
   const params = GetInvoiceParams.safeParse(req.params); if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "finance.read", res); if (!access) return;
   const invoice = (await db.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
-  if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+  if (!invoice || !(await requireLocationScope(access, invoice.locationId))) { res.status(404).json({ error: "Invoice not found" }); return; }
   res.json(GetInvoiceResponse.parse(await serializeInvoice(invoice)));
+});
+
+router.get("/invoices/:id/context", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = GetInvoiceContextParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "finance.read", res); if (!access) return;
+  const invoice = (await db.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
+  if (!invoice || !(await requireLocationScope(access, invoice.locationId))) { res.status(404).json({ error: "Invoice not found" }); return; }
+  const [lines, customer, order, submissions, ledgerEntries, events] = await Promise.all([
+    db.select().from(invoiceLinesTable).where(eq(invoiceLinesTable.invoiceId, invoice.id)).orderBy(asc(invoiceLinesTable.position)),
+    invoice.customerId ? db.select().from(customersTable).where(and(eq(customersTable.id, invoice.customerId), eq(customersTable.merchantId, merchant.id))).limit(1) : Promise.resolve([]),
+    invoice.orderId ? db.select().from(ordersTable).where(and(eq(ordersTable.id, invoice.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1) : Promise.resolve([]),
+    db.select().from(invoicePaymentSubmissionsTable).where(and(eq(invoicePaymentSubmissionsTable.invoiceId, invoice.id), eq(invoicePaymentSubmissionsTable.merchantId, merchant.id))).orderBy(desc(invoicePaymentSubmissionsTable.createdAt)),
+    db.select().from(ledgerEntriesTable).where(and(eq(ledgerEntriesTable.invoiceId, invoice.id), eq(ledgerEntriesTable.merchantId, merchant.id))),
+    db.select().from(domainEventsTable).where(eq(domainEventsTable.merchantId, merchant.id)).orderBy(desc(domainEventsTable.occurredAt)).limit(200),
+  ]);
+  const submissionIds = submissions.map((submission) => submission.id);
+  const [intents, records] = await Promise.all([
+    submissionIds.length ? db.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.merchantId, merchant.id), inArray(paymentIntentsTable.invoicePaymentSubmissionId, submissionIds))) : Promise.resolve([]),
+    submissionIds.length ? db.select().from(paymentRecordsTable).where(and(eq(paymentRecordsTable.merchantId, merchant.id), inArray(paymentRecordsTable.invoicePaymentSubmissionId, submissionIds))) : Promise.resolve([]),
+  ]);
+  const nextActions: Array<{ action: string; target: string }> = [];
+  if (invoice.status === "draft" && access.permissions.has("finance.manage")) nextActions.push({ action: "send_invoice", target: `/invoices/${invoice.id}/send` });
+  if (["draft", "sent", "viewed", "overdue"].includes(invoice.status) && toNumber(invoice.amountPaid) === 0 && access.permissions.has("finance.manage")) nextActions.push({ action: "void_invoice", target: `/invoices/${invoice.id}/void` });
+  if (submissions.some((submission) => submission.status === "pending_review") && access.permissions.has("payments.verify")) nextActions.push({ action: "review_invoice_payment", target: `/invoices/${invoice.id}/payments/${submissions.find((submission) => submission.status === "pending_review")!.id}/verify` });
+  res.json(GetInvoiceContextResponse.parse({
+    invoice: contextRecord(invoice.id, `/invoices/${invoice.id}/context`, invoice),
+    lines: lines.map((line) => contextRecord(line.id, `/invoices/${invoice.id}/lines/${line.id}`, line)),
+    customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}/context`, customer[0]) : null,
+    order: order[0] ? contextRecord(order[0].id, `/orders/${order[0].id}/context`, order[0]) : null,
+    submissions: submissions.map((item) => contextRecord(item.id, `/invoices/${invoice.id}/payments/${item.id}`, item)),
+    paymentIntents: intents.map((item) => contextRecord(item.id, `/payments/${item.id}`, item)),
+    paymentRecords: records.map((item) => contextRecord(item.id, `/payments/${item.intentId}`, item)),
+    ledgerEntries: ledgerEntries.map((item) => contextRecord(item.id, `/ledger/${item.id}`, item)),
+    events: contextEvents(events.filter((event) => event.aggregateId === String(invoice.id)
+      || (event.aggregateType === "payment_intent" && intents.some((item) => item.id === Number(event.aggregateId)))
+      || (event.aggregateType === "payment_record" && records.some((item) => item.id === Number(event.aggregateId))))),
+    impact: contextImpact(invoice.currency, minorFromDecimal(invoice.total), records, [], ledgerEntries),
+    nextActions,
+  }));
 });
 
 router.post("/invoices/:id/send", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const params = SendInvoiceParams.safeParse(req.params);
-  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; } const merchant = await getOrCreateMerchant(identity);
+  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; } const merchant = await getOrCreateMerchant(identity); const access = await requireTenantPermission(identity, merchant.id, "finance.manage", res); if (!access) return;
   const current = (await db.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
-  if (!current) { res.status(404).json({ error: "Invoice not found" }); return; }
+  if (!current || !(await requireLocationScope(access, current.locationId))) { res.status(404).json({ error: "Invoice not found" }); return; }
   if (current.status !== "draft") { res.status(409).json({ error: "Only draft invoices can be sent" }); return; }
   const invoice = await db.transaction(async (tx) => {
     const [updated] = await tx.update(invoicesTable).set({ status: "sent", sentAt: new Date() }).where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, "draft"))).returning();
@@ -4330,12 +4869,12 @@ router.post("/invoices/:id/send", async (req, res): Promise<void> => {
 
 router.post("/invoices/:id/void", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const params = VoidInvoiceParams.safeParse(req.params);
-  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; } const merchant = await getOrCreateMerchant(identity);
+  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; } const merchant = await getOrCreateMerchant(identity); const access = await requireTenantPermission(identity, merchant.id, "finance.manage", res); if (!access) return;
   try {
     const invoice = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${invoicesTable} where id=${params.data.id} and merchant_id=${merchant.id} for update`);
       const current = (await tx.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
-      if (!current) throw new Error("Invoice not found");
+       if (!current || !(await requireLocationScope(access, current.locationId))) throw new Error("Invoice not found");
       if (current.status === "void") return current;
       if (toNumber(current.amountPaid) > 0 || current.status === "paid") throw new Error("Invoices with verified payments cannot be voided");
       const [updated] = await tx.update(invoicesTable).set({ status: "void", voidedAt: new Date() })
@@ -4784,6 +5323,7 @@ router.post(
       return;
     }
     try {
+      const location = await resolveOrderLocation(merchant.id, null, null, true);
       const result = await db.transaction(async (tx) => {
         const existing = (
           await tx
@@ -4914,6 +5454,7 @@ router.post(
           .insert(ordersTable)
           .values({
             merchantId: merchant.id,
+            locationId: location.id,
             customerId: customer.id,
             orderNumber: `WEB-${randomUUID().slice(0, 8).toUpperCase()}`,
             subtotal: subtotal.toFixed(2),
@@ -4955,6 +5496,7 @@ router.post(
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
         const [reservation] = await tx.insert(inventoryReservationsTable).values({
           merchantId: merchant.id,
+          locationId: order.locationId,
           supplierProductId: product.id,
           orderId: order.id,
           quantity,
@@ -5028,6 +5570,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
     res.status(404).json({ error: "Payment link is unavailable" });
     return;
   }
+  const location = await resolveOrderLocation(link.merchantId, null, null, true);
   try {
     const result = await db.transaction(async (tx) => {
       const replay = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
@@ -5057,6 +5600,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       const amount = toNumber(link.amount);
       const [order] = await tx.insert(ordersTable).values({
         merchantId: link.merchantId,
+        locationId: location.id,
         customerId: customer.id,
         orderNumber: `LINK-${randomUUID().slice(0, 8).toUpperCase()}`,
         subtotal: amount.toFixed(2),
@@ -6303,7 +6847,7 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
                .returning();
               if (!updatedProduct) throw new Error("Inventory changed before payment verification");
            }
-           await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: reservation.supplierProductId, orderId: order.id, quantityDelta: -reservation.quantity, reason: "sale", referenceKey: `sale:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
+           await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, locationId: order.locationId, supplierProductId: reservation.supplierProductId, orderId: order.id, quantityDelta: -reservation.quantity, reason: "sale", referenceKey: `sale:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
             await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "inventory.committed", aggregateType: "inventory_reservation", aggregateId: reservation.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `inventory-reservation:${reservation.id}:committed`, payload: { orderId: order.id, supplierProductId: reservation.supplierProductId, quantity: reservation.quantity } });
          }
        }
@@ -6386,7 +6930,7 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
          await tx.execute(sql`select id from ${inventoryReservationsTable} where order_id=${order.id} and merchant_id=${merchant.id} for update`);
          const reservation = (await tx.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.orderId, order.id), eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.supplierProductId, order.supplierProductId))).limit(1))[0];
           if (reservation && reservation.status !== "consumed") throw new Error("Only consumed inventory can be restocked");
-         const [movement] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: order.supplierProductId, orderId: order.id, quantityDelta: order.quantity, reason: "refund_restock", referenceKey: `restock:refund:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey }).returning();
+         const [movement] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, locationId: order.locationId, supplierProductId: order.supplierProductId, orderId: order.id, quantityDelta: order.quantity, reason: "refund_restock", referenceKey: `restock:refund:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey }).returning();
          if (movement) {
            await tx.update(supplierProductsTable).set({ availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} + ${reservation?.quantity ?? order.quantity}` }).where(and(eq(supplierProductsTable.id, order.supplierProductId), eq(supplierProductsTable.merchantId, merchant.id), sql`${supplierProductsTable.availabilityQuantity} is not null`));
          }
@@ -6414,8 +6958,9 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
 router.get("/inventory/reservations", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "inventory.read", res); if (!access) return;
   const rows = await db.select().from(inventoryReservationsTable)
-    .where(eq(inventoryReservationsTable.merchantId, merchant.id))
+    .where(and(eq(inventoryReservationsTable.merchantId, merchant.id), access.locationIds ? inArray(inventoryReservationsTable.locationId, [...access.locationIds]) : undefined))
     .orderBy(desc(inventoryReservationsTable.createdAt)).limit(500);
   res.json(ListInventoryReservationsResponse.parse(rows));
 });
@@ -6423,8 +6968,9 @@ router.get("/inventory/reservations", async (req, res): Promise<void> => {
 router.get("/inventory/movements", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "inventory.read", res); if (!access) return;
   const rows = await db.select().from(inventoryMovementsTable)
-    .where(eq(inventoryMovementsTable.merchantId, merchant.id))
+    .where(and(eq(inventoryMovementsTable.merchantId, merchant.id), access.locationIds ? inArray(inventoryMovementsTable.locationId, [...access.locationIds]) : undefined))
     .orderBy(desc(inventoryMovementsTable.createdAt)).limit(500);
   res.json(ListInventoryMovementsResponse.parse(rows));
 });
@@ -6434,6 +6980,12 @@ router.post("/inventory/adjustments", async (req, res): Promise<void> => {
   const body = CreateInventoryAdjustmentBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid inventory adjustment" }); return; }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "inventory.adjust", res); if (!access) return;
+  if (access.locationIds !== null) {
+    res.status(403).json({ error: "Inventory is merchant-global; location-scoped staff cannot make global inventory adjustments" });
+    return;
+  }
+  const location = await resolveOrderLocation(merchant.id, access);
   try {
     const movement = await db.transaction(async (tx) => {
       const prior = (await tx.select().from(inventoryMovementsTable).where(and(eq(inventoryMovementsTable.merchantId, merchant.id), eq(inventoryMovementsTable.referenceKey, body.data.referenceKey))).limit(1))[0];
@@ -6452,7 +7004,7 @@ router.post("/inventory/adjustments", async (req, res): Promise<void> => {
        ));
        const activeReserved = Number(reserved?.quantity ?? 0);
        if (product.availabilityQuantity + body.data.quantityDelta < activeReserved) throw new Error("Adjustment would undercut active reservations");
-      const [created] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: product.id, quantityDelta: body.data.quantityDelta, reason: body.data.reason.trim(), referenceKey: body.data.referenceKey.trim() }).returning();
+      const [created] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, locationId: location.id, supplierProductId: product.id, quantityDelta: body.data.quantityDelta, reason: body.data.reason.trim(), referenceKey: body.data.referenceKey.trim() }).returning();
       if (!created) throw new Error("Adjustment could not be recorded");
       await tx.update(supplierProductsTable).set({ availabilityQuantity: product.availabilityQuantity + body.data.quantityDelta }).where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)));
        await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "inventory.adjusted", aggregateType: "inventory_movement", aggregateId: created.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `inventory-adjustment:${created.id}`, payload: { supplierProductId: product.id, quantityDelta: created.quantityDelta, reason: created.reason, referenceKey: created.referenceKey } });

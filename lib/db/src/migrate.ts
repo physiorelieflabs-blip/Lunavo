@@ -32,6 +32,9 @@ const migrations = [
   "0021_invoices",
   "0022_invoice_accounting",
   "0023_domain_event_outbox",
+  "0024_staff_roles_locations",
+  "0025_operational_location_ownership",
+  "0026_customer_management_permission",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

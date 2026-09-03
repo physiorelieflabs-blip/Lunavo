@@ -13,10 +13,10 @@ import { logger } from "./lib/logger";
 const app: Express = express();
 
 app.disable("x-powered-by");
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Referrer-Policy", /^\/(?:api\/public\/invitations|invite)(?:\/|$)/.test(req.path) ? "no-referrer" : "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   next();
 });
@@ -26,10 +26,14 @@ app.use(
     logger,
     serializers: {
       req(req) {
+        const pathname = req.url?.split("?")[0]?.replace(
+          /\/public\/invitations\/[^/]+/g,
+          "/public/invitations/:redacted",
+        );
         return {
           id: req.id,
           method: req.method,
-          url: req.url?.split("?")[0],
+          url: pathname,
         };
       },
       res(res) {
@@ -59,8 +63,10 @@ app.use((error: unknown, req: express.Request, res: express.Response, next: expr
     next(error);
     return;
   }
-  req.log.error({ err: error }, "Unhandled request error");
-  res.status(500).json({ error: "Internal server error" });
+  const statusCode = error && typeof error === "object" && "statusCode" in error && (error as { statusCode?: unknown }).statusCode === 403 ? 403 : 500;
+  if (statusCode === 403) req.log.warn({ err: error }, "Merchant authorization denied");
+  else req.log.error({ err: error }, "Unhandled request error");
+  res.status(statusCode).json({ error: statusCode === 403 ? "You do not have permission for this action" : "Internal server error" });
 });
 
 export default app;

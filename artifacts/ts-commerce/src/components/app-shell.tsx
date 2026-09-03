@@ -1,4 +1,6 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces } from '@workspace/api-client-react';
 import { useClerk, useUser } from '@clerk/react';
 import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
@@ -25,6 +27,7 @@ const merchantLinks = [
   { href: '/finance', label: 'Finance', icon: WalletCards },
    { href: '/invoices', label: 'Invoices', icon: FileText },
    { href: '/activity', label: 'Notifications & activity', icon: Bell },
+   { href: '/team', label: 'Team & locations', icon: Users },
 ];
 
 const adminLinks = [
@@ -38,8 +41,26 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
   const [open, setOpen] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
+  const queryClient = useQueryClient();
+  const workspaces = useListAccessibleWorkspaces({ query: { queryKey: getListAccessibleWorkspacesQueryKey(), retry: false, staleTime: 60_000 } });
+  const currentWorkspace = useGetCurrentWorkspace({ query: { queryKey: getGetCurrentWorkspaceQueryKey(), retry: false, staleTime: 60_000 } });
+  useEffect(() => {
+    if (!admin && !getSelectedWorkspaceId() && workspaces.data?.length) {
+      // First multi-workspace visit has no server default. Persist a valid
+      // membership before reloading so every generated query shares its scope.
+      setSelectedWorkspaceId(workspaces.data[0]!.id);
+      queryClient.clear();
+      window.location.reload();
+    }
+  }, [admin, queryClient, workspaces.data]);
   const links = admin ? adminLinks : merchantLinks;
-  const displayName = admin ? 'TS / OPERATIONS' : user?.fullName || 'Your workspace';
+  const displayName = admin ? 'TS / OPERATIONS' : currentWorkspace.data?.storeName || user?.fullName || 'Your workspace';
+  const switchWorkspace = (merchantId: number) => {
+    if (merchantId === currentWorkspace.data?.id) return;
+    setSelectedWorkspaceId(merchantId);
+    queryClient.clear();
+    window.location.assign('/dashboard');
+  };
   const activeLabel = links.find((link) => location === link.href)?.label ?? (admin ? 'Control room' : 'Overview');
 
   return (
@@ -52,6 +73,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
         <div className="mt-12 rounded-[14px] border border-[#3c4b5a] bg-[#263644] px-4 py-3.5" data-testid="panel-workspace">
           <p className="font-mono text-[9px] uppercase tracking-[.18em] text-[#9aa7b5]">{admin ? 'Master admin' : 'Merchant workspace'}</p>
           <p className="mt-2 truncate text-sm font-bold text-[#ece3cf]" title={displayName}>{displayName}</p>
+           {!admin && (workspaces.data?.length ?? 0) > 1 && <select aria-label="Switch workspace" value={currentWorkspace.data?.id ?? ''} onChange={(event) => switchWorkspace(Number(event.target.value))} className="mt-3 w-full rounded bg-[#1f2b38] px-2 py-1.5 text-xs font-bold text-[#ece3cf] ring-1 ring-[#536174]"><option value="" disabled>Choose workspace</option>{workspaces.data?.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.storeName}</option>)}</select>}
           <div className="mt-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.1em] text-[#7cae98]"><span className="h-1.5 w-1.5 rounded-full bg-[#7cae98]" />Live workspace</div>
         </div>
         <nav className="nav-scrollbar mt-8 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1" aria-label="Main navigation">
