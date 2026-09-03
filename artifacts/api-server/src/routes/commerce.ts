@@ -333,6 +333,7 @@ import {
   whopCustomerProductId,
   whopPlanId,
   whopRequest,
+  whopMoneyMajor,
   type WhopCheckoutConfiguration,
   type WhopPlan,
   type WhopPayment,
@@ -1617,7 +1618,7 @@ async function findWhopCustomerPayment(
       (typeof candidate.metadata?.checkout_id === "string"
         ? candidate.metadata.checkout_id
         : null);
-    const amount = Number(candidate.amount ?? NaN);
+    const amount = whopMoneyMajor(candidate.amount ?? candidate.total);
     const currency = String(candidate.currency ?? "").toUpperCase();
     return (
       candidateCheckoutId === intent.evidenceReference &&
@@ -2091,7 +2092,7 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
       candidate.checkout_configuration_id ??
       candidate.checkout_id ??
       (typeof candidate.metadata?.checkout_id === "string" ? candidate.metadata.checkout_id : null);
-    const amount = Number(candidate.amount ?? NaN);
+    const amount = whopMoneyMajor(candidate.amount ?? candidate.total);
     const currency = String(candidate.currency ?? "").toUpperCase();
     return candidateCheckoutId === intent.evidenceReference &&
       Number.isFinite(amount) &&
@@ -2201,7 +2202,7 @@ async function requestWhopRefund(
     : [];
   const exact = candidates
     .filter((refund) => {
-      const amount = Number(refund.amount ?? NaN);
+      const amount = whopMoneyMajor(refund.amount);
       return Number.isFinite(amount) && Math.abs(amount - amountMinor / 100) < 0.01;
     })
     .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")));
@@ -8405,7 +8406,7 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
         candidate.plan?.id ??
         null;
       const status = String(candidate.status ?? "").toLowerCase();
-      const amount = Number(candidate.amount ?? NaN);
+      const amount = whopMoneyMajor(candidate.amount ?? candidate.total);
       const createdAt = candidate.created_at ? new Date(candidate.created_at).getTime() : NaN;
       return (
         (candidateCheckoutId === checkoutId ||

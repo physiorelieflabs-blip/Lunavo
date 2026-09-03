@@ -16,13 +16,18 @@ export type WhopCheckoutConfiguration = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type WhopMoney = {
+  amount?: number | string | null;
+  currency?: string | null;
+};
+
 export type WhopPayment = {
   id?: string;
   status?: string | null;
   substatus?: string | null;
-  amount?: number | string | null;
-  total?: number | string | null;
-  refunded_amount?: number | string | null;
+  amount?: number | string | WhopMoney | null;
+  total?: number | string | WhopMoney | null;
+  refunded_amount?: number | string | WhopMoney | null;
   refundable?: boolean | null;
   dispute_alerted_at?: string | null;
   failure_message?: string | null;
@@ -42,11 +47,18 @@ export type WhopPayment = {
 export type WhopRefund = {
   id?: string;
   payment_id?: string | null;
-  amount?: number | string | null;
+  amount?: number | string | WhopMoney | null;
   status?: string | null;
   failure_message?: string | null;
   failure_reason?: string | null;
 };
+
+export function whopMoneyMajor(value: number | string | WhopMoney | null | undefined): number {
+  if (value && typeof value === "object") {
+    return Number(value.amount ?? NaN);
+  }
+  return Number(value ?? NaN);
+}
 
 export type WhopPlan = {
   id: string;

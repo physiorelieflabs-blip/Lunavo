@@ -24,6 +24,7 @@ async function verifyCheckout(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ checkoutId: checkout.checkoutId }),
+      signal: AbortSignal.timeout(10_000),
     },
   );
   if (!response.ok) {
@@ -53,7 +54,14 @@ async function pollWhopCheckouts(baseUrl: string): Promise<void> {
     .limit(100);
 
   for (const checkout of orderCheckouts) {
-    await verifyCheckout(baseUrl, "/api/public/checkout", checkout);
+    try {
+      await verifyCheckout(baseUrl, "/api/public/checkout", checkout);
+    } catch (error) {
+      console.warn(
+        "Whop order polling request failed",
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 
   const invoices = await db.select().from(invoicesTable).limit(100);
@@ -88,10 +96,17 @@ async function pollWhopCheckouts(baseUrl: string): Promise<void> {
     ) {
       continue;
     }
-    await verifyCheckout(baseUrl, "/api/public/invoices", {
-      token: invoice.publicToken,
-      checkoutId: intent.evidenceReference,
-    });
+    try {
+      await verifyCheckout(baseUrl, "/api/public/invoices", {
+        token: invoice.publicToken,
+        checkoutId: intent.evidenceReference,
+      });
+    } catch (error) {
+      console.warn(
+        "Whop invoice polling request failed",
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 }
 
