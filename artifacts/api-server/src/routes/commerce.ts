@@ -1960,49 +1960,54 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
     enforced.subscription,
     identity.isAdmin,
   );
-  const paidStatuses = ["paid", "fulfilled"];
   const now = new Date();
   const currentPeriodStart = new Date(now.getTime() - 7 * 86400000);
   const previousPeriodStart = new Date(now.getTime() - 14 * 86400000);
   const [metrics] = await db
     .select({
-      revenue: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${inArray(ordersTable.status, paidStatuses)}), 0)`,
       orders: sql<string>`count(*) filter (where ${ordersTable.status} <> 'cancelled')`,
       customers: sql<string>`count(distinct ${ordersTable.customerId})`,
-      pendingBalance: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} = 'pending'), 0)`,
+      pendingBalance: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} = 'pending' and ${ordersTable.currency} = ${enforced.merchant.currency}), 0)`,
     })
     .from(ordersTable)
+    .where(eq(ordersTable.merchantId, enforced.merchant.id));
+  const [ledgerRevenue] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+    })
+    .from(ledgerEntriesTable)
     .where(
       and(
-        eq(ordersTable.merchantId, enforced.merchant.id),
-        eq(ordersTable.currency, enforced.merchant.currency),
+        eq(ledgerEntriesTable.merchantId, enforced.merchant.id),
+        eq(ledgerEntriesTable.currency, enforced.merchant.currency),
+        eq(ledgerEntriesTable.entryType, "sale"),
       ),
     );
   const [currentPeriod] = await db
     .select({
-      total: sql<string>`coalesce(sum(${ordersTable.total}), 0)`,
+      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
     })
-    .from(ordersTable)
+    .from(ledgerEntriesTable)
     .where(
       and(
-        eq(ordersTable.merchantId, enforced.merchant.id),
-        eq(ordersTable.currency, enforced.merchant.currency),
-        inArray(ordersTable.status, paidStatuses),
-        gte(ordersTable.createdAt, currentPeriodStart),
+        eq(ledgerEntriesTable.merchantId, enforced.merchant.id),
+        eq(ledgerEntriesTable.currency, enforced.merchant.currency),
+        eq(ledgerEntriesTable.entryType, "sale"),
+        gte(ledgerEntriesTable.createdAt, currentPeriodStart),
       ),
     );
   const [previousPeriod] = await db
     .select({
-      total: sql<string>`coalesce(sum(${ordersTable.total}), 0)`,
+      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
     })
-    .from(ordersTable)
+    .from(ledgerEntriesTable)
     .where(
       and(
-        eq(ordersTable.merchantId, enforced.merchant.id),
-        eq(ordersTable.currency, enforced.merchant.currency),
-        inArray(ordersTable.status, paidStatuses),
-        gte(ordersTable.createdAt, previousPeriodStart),
-        lt(ordersTable.createdAt, currentPeriodStart),
+        eq(ledgerEntriesTable.merchantId, enforced.merchant.id),
+        eq(ledgerEntriesTable.currency, enforced.merchant.currency),
+        eq(ledgerEntriesTable.entryType, "sale"),
+        gte(ledgerEntriesTable.createdAt, previousPeriodStart),
+        lt(ledgerEntriesTable.createdAt, currentPeriodStart),
       ),
     );
   const [withdrawalReserve] = await db
@@ -2020,19 +2025,20 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
   seriesStart.setHours(0, 0, 0, 0);
   seriesStart.setDate(seriesStart.getDate() - 6);
   const recentSales = await db
-    .select({ total: ordersTable.total, createdAt: ordersTable.createdAt })
-    .from(ordersTable)
+    .select({ amountMinor: ledgerEntriesTable.amountMinor, createdAt: ledgerEntriesTable.createdAt })
+    .from(ledgerEntriesTable)
     .where(
       and(
-        eq(ordersTable.merchantId, enforced.merchant.id),
-        inArray(ordersTable.status, paidStatuses),
-        gte(ordersTable.createdAt, seriesStart),
+        eq(ledgerEntriesTable.merchantId, enforced.merchant.id),
+        eq(ledgerEntriesTable.currency, enforced.merchant.currency),
+        eq(ledgerEntriesTable.entryType, "sale"),
+        gte(ledgerEntriesTable.createdAt, seriesStart),
       ),
     );
   const seriesAmounts = new Map<string, number>();
   for (const sale of recentSales) {
     const key = sale.createdAt.toISOString().slice(0, 10);
-    seriesAmounts.set(key, (seriesAmounts.get(key) ?? 0) + toNumber(sale.total));
+    seriesAmounts.set(key, (seriesAmounts.get(key) ?? 0) + sale.amountMinor / 100);
   }
   const revenueSeries = Array.from({ length: 7 }, (_, index) => {
     const day = new Date(seriesStart);
@@ -2042,19 +2048,34 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       amount: seriesAmounts.get(day.toISOString().slice(0, 10)) ?? 0,
     };
   });
-  const revenue = toNumber(metrics?.revenue);
-  const currentRevenue = toNumber(currentPeriod?.total);
-  const previousRevenue = toNumber(previousPeriod?.total);
+  const revenue = Number(ledgerRevenue?.total ?? 0) / 100;
+  const currentRevenue = Number(currentPeriod?.total ?? 0) / 100;
+  const previousRevenue = Number(previousPeriod?.total ?? 0) / 100;
   const revenueChange =
     previousRevenue === 0
       ? currentRevenue > 0
         ? 100
         : 0
       : Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100);
+  const [ledgerBalance] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+    })
+    .from(ledgerEntriesTable)
+    .where(
+      and(
+        eq(ledgerEntriesTable.merchantId, enforced.merchant.id),
+        eq(ledgerEntriesTable.currency, enforced.merchant.currency),
+      ),
+    );
+  const earningsHeldForSubscription =
+    subscription.currency === enforced.merchant.currency
+      ? subscription.earningsHeld
+      : 0;
   const availableBalance = Math.max(
     0,
-    revenue -
-      subscription.earningsHeld -
+    Number(ledgerBalance?.total ?? 0) / 100 -
+      earningsHeldForSubscription -
       toNumber(withdrawalReserve?.total),
   );
   res.json(
@@ -2074,7 +2095,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       availableBalance,
       pendingBalance: toNumber(metrics?.pendingBalance),
       withdrawalReserved: toNumber(withdrawalReserve?.total),
-      earningsHeldForSubscription: subscription.earningsHeld,
+      earningsHeldForSubscription,
       subscription,
       revenueSeries,
     }),
@@ -3401,13 +3422,13 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
             .where(eq(paymentsTable.currency, merchant.currency))
         : await tx
             .select({
-              total: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${ordersTable.status} in ('paid', 'fulfilled')), 0)`,
+              total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
             })
-            .from(ordersTable)
+            .from(ledgerEntriesTable)
             .where(
               and(
-                eq(ordersTable.merchantId, merchant.id),
-                eq(ordersTable.currency, merchant.currency),
+                eq(ledgerEntriesTable.merchantId, merchant.id),
+                eq(ledgerEntriesTable.currency, merchant.currency),
               ),
             );
       const [subscription] = await tx
@@ -3427,8 +3448,12 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
           ),
         );
       const available =
-        toNumber(revenue?.total) -
-        (identity.isAdmin ? 0 : toNumber(subscription?.earningsHeld)) -
+        (identity.isAdmin
+          ? toNumber(revenue?.total)
+          : Number(revenue?.total ?? 0) / 100) -
+        (identity.isAdmin || subscription?.currency !== merchant.currency
+          ? 0
+          : toNumber(subscription?.earningsHeld)) -
         toNumber(reserved?.total);
       if (amount > available) {
         throw new Error(`Only ${Math.max(0, available).toFixed(2)} is available to withdraw`);
@@ -8177,7 +8202,28 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
 router.get("/balances", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity);
   const rows = await db.select({ currency: ledgerEntriesTable.currency, balance: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}),0)` }).from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).groupBy(ledgerEntriesTable.currency);
-  res.json(GetMerchantBalancesResponse.parse(rows.map((r) => ({ currency: r.currency, ledgerBalanceMinor: Number(r.balance), availableBalanceMinor: Number(r.balance), heldBalanceMinor: 0 }))));
+  const [subscription, withdrawalRows] = await Promise.all([
+    db.select({ currency: subscriptionsTable.currency, earningsHeld: subscriptionsTable.earningsHeld }).from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1).then(([row]) => row),
+    db.select({
+      currency: withdrawalsTable.currency,
+      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)`,
+    }).from(withdrawalsTable).where(and(
+      eq(withdrawalsTable.merchantId, merchant.id),
+      inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
+    )).groupBy(withdrawalsTable.currency),
+  ]);
+  const withdrawalByCurrency = new Map(withdrawalRows.map((row) => [row.currency, toNumber(row.total)]));
+  res.json(GetMerchantBalancesResponse.parse(rows.map((r) => {
+    const ledgerBalanceMinor = Number(r.balance);
+    const withdrawalHeldMinor = Math.round((withdrawalByCurrency.get(r.currency) ?? 0) * 100);
+    const subscriptionHeldMinor = subscription?.currency === r.currency ? Math.round(toNumber(subscription.earningsHeld) * 100) : 0;
+    return {
+      currency: r.currency,
+      ledgerBalanceMinor,
+      availableBalanceMinor: Math.max(0, ledgerBalanceMinor - withdrawalHeldMinor - subscriptionHeldMinor),
+      heldBalanceMinor: withdrawalHeldMinor + subscriptionHeldMinor,
+    };
+  })));
 });
 
 router.post("/refunds", async (req, res): Promise<void> => {
