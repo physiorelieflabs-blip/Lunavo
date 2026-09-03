@@ -53,10 +53,6 @@ app.use(
     ),
   })),
 );
-app.use(
-  "/api/webhooks/whop",
-  express.raw({ type: "application/json", limit: "256kb" }),
-);
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 
