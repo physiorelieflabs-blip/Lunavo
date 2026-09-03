@@ -324,6 +324,10 @@ export const ordersTable = pgTable(
     fulfillmentUpdatedAt: timestamp("fulfillment_updated_at", {
       withTimezone: true,
     }),
+    supplierPaymentStatus: text("supplier_payment_status").notNull().default("unpaid"),
+    supplierPaymentReference: text("supplier_payment_reference"),
+    supplierPaymentAmountMinor: integer("supplier_payment_amount_minor"),
+    supplierPaidAt: timestamp("supplier_paid_at", { withTimezone: true }),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

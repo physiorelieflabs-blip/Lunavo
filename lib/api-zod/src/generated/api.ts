@@ -1513,6 +1513,10 @@ export const ListDropshipQueueResponseItem = zod.object({
   "currency": zod.string(),
   "orderStatus": zod.string(),
   "fulfillmentStatus": zod.string(),
+  "supplierPaymentStatus": zod.enum(['unpaid', 'paid', 'failed']),
+  "supplierPaymentReference": zod.string().nullable(),
+  "supplierPaymentAmountMinor": zod.int().nullable(),
+  "supplierPaidAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 })
 export const ListDropshipQueueResponse = zod.array(ListDropshipQueueResponseItem)
@@ -1563,7 +1567,38 @@ export const UpdateDropshipStatusResponse = zod.object({
   "currency": zod.string(),
   "orderStatus": zod.string(),
   "fulfillmentStatus": zod.string(),
+  "supplierPaymentStatus": zod.enum(['unpaid', 'paid', 'failed']),
+  "supplierPaymentReference": zod.string().nullable(),
+  "supplierPaymentAmountMinor": zod.int().nullable(),
+  "supplierPaidAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Record an internal supplier payment from verified merchant funds
+ */
+export const CreateSupplierPaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const createSupplierPaymentBodySupplierPaymentReferenceMax = 240;
+
+
+
+export const CreateSupplierPaymentBody = zod.object({
+  "supplierPaymentReference": zod.string().max(createSupplierPaymentBodySupplierPaymentReferenceMax).nullish()
+})
+
+export const CreateSupplierPaymentResponse = zod.object({
+  "orderId": zod.int(),
+  "orderNumber": zod.string(),
+  "status": zod.enum(['paid']),
+  "amountMinor": zod.int(),
+  "currency": zod.string(),
+  "supplierPaymentReference": zod.string(),
+  "supplierPaidAt": zod.coerce.date(),
+  "availableBalanceMinor": zod.int()
 })
 
 

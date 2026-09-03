@@ -21,6 +21,7 @@ const migrations = [
   "0010_authoritative_accounting",
   "0011_inventory_reservations_movements",
   "0012_withdrawal_pins",
+  "0013_supplier_payments",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

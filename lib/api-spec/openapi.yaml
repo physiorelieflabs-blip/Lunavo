@@ -733,6 +733,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DropshipQueueRecord"
+    post:
+      operationId: createSupplierPayment
+      tags: [dropshipping, payments]
+      summary: Record an internal supplier payment from verified merchant funds
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierPaymentInput"
+      responses:
+        "201":
+          description: Supplier payment recorded in the internal ledger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierPaymentRecord"
   /public/store/{merchantKey}:
     get:
       operationId: getPublicStore
@@ -2219,8 +2241,12 @@ components:
         currency: { type: string }
         orderStatus: { type: string }
         fulfillmentStatus: { type: string }
+        supplierPaymentStatus: { type: string, enum: [unpaid, paid, failed] }
+        supplierPaymentReference: { type: ["string", "null"] }
+        supplierPaymentAmountMinor: { type: ["integer", "null"] }
+        supplierPaidAt: { type: ["string", "null"], format: date-time }
         createdAt: { type: string, format: date-time }
-      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, sourceUrl, supplierCost, profit, sellingPrice, total, quantity, currency, orderStatus, fulfillmentStatus, supplierOrderReference, trackingNumber, fulfillmentNote, fulfillmentSubmittedAt, fulfillmentUpdatedAt, createdAt]
+      required: [id, orderNumber, customerName, customerEmail, customerPhone, shippingAddress, productTitle, supplierUrl, sourceUrl, supplierCost, profit, sellingPrice, total, quantity, currency, orderStatus, fulfillmentStatus, supplierOrderReference, trackingNumber, fulfillmentNote, fulfillmentSubmittedAt, fulfillmentUpdatedAt, supplierPaymentStatus, supplierPaymentReference, supplierPaymentAmountMinor, supplierPaidAt, createdAt]
     DropshipStatusInput:
       type: object
       properties:
@@ -2231,6 +2257,22 @@ components:
         trackingNumber: { type: ["string", "null"], maxLength: 240 }
         fulfillmentNote: { type: ["string", "null"], maxLength: 2000 }
       required: [fulfillmentStatus]
+    SupplierPaymentInput:
+      type: object
+      properties:
+        supplierPaymentReference: { type: ["string", "null"], maxLength: 240 }
+    SupplierPaymentRecord:
+      type: object
+      properties:
+        orderId: { type: integer }
+        orderNumber: { type: string }
+        status: { type: string, enum: [paid] }
+        amountMinor: { type: integer }
+        currency: { type: string }
+        supplierPaymentReference: { type: string }
+        supplierPaidAt: { type: string, format: date-time }
+        availableBalanceMinor: { type: integer }
+      required: [orderId, orderNumber, status, amountMinor, currency, supplierPaymentReference, supplierPaidAt, availableBalanceMinor]
     PublicStore:
       type: object
       properties:

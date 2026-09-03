@@ -1599,6 +1599,15 @@ export interface SupplierUpdateInput {
   notes?: string | null;
 }
 
+export type DropshipQueueRecordSupplierPaymentStatus = typeof DropshipQueueRecordSupplierPaymentStatus[keyof typeof DropshipQueueRecordSupplierPaymentStatus];
+
+
+export const DropshipQueueRecordSupplierPaymentStatus = {
+  unpaid: 'unpaid',
+  paid: 'paid',
+  failed: 'failed',
+} as const;
+
 export interface DropshipQueueRecord {
   id: number;
   orderNumber: string;
@@ -1632,6 +1641,13 @@ export interface DropshipQueueRecord {
   currency: string;
   orderStatus: string;
   fulfillmentStatus: string;
+  supplierPaymentStatus: DropshipQueueRecordSupplierPaymentStatus;
+  /** @nullable */
+  supplierPaymentReference: string | null;
+  /** @nullable */
+  supplierPaymentAmountMinor: number | null;
+  /** @nullable */
+  supplierPaidAt: string | null;
   createdAt: string;
 }
 
@@ -1667,6 +1683,32 @@ export interface DropshipStatusInput {
      * @nullable
      */
   fulfillmentNote?: string | null;
+}
+
+export interface SupplierPaymentInput {
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  supplierPaymentReference?: string | null;
+}
+
+export type SupplierPaymentRecordStatus = typeof SupplierPaymentRecordStatus[keyof typeof SupplierPaymentRecordStatus];
+
+
+export const SupplierPaymentRecordStatus = {
+  paid: 'paid',
+} as const;
+
+export interface SupplierPaymentRecord {
+  orderId: number;
+  orderNumber: string;
+  status: SupplierPaymentRecordStatus;
+  amountMinor: number;
+  currency: string;
+  supplierPaymentReference: string;
+  supplierPaidAt: string;
+  availableBalanceMinor: number;
 }
 
 export type PublicStoreProductVariantsItem = { [key: string]: unknown };

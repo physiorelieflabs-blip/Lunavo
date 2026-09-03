@@ -77,6 +77,8 @@ import type {
   SupplierBatchInput,
   SupplierBatchResponse,
   SupplierImportAttempt,
+  SupplierPaymentInput,
+  SupplierPaymentRecord,
   SupplierProductInput,
   SupplierProductRecord,
   SupplierProductUpdateInput,
@@ -3359,6 +3361,78 @@ export const useUpdateDropshipStatus = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateDropshipStatusMutationOptions(options));
+    }
+
+export const getCreateSupplierPaymentUrl = (id: number,) => {
+
+
+
+
+  return `/api/dropship/queue/${id}`
+}
+
+/**
+ * @summary Record an internal supplier payment from verified merchant funds
+ */
+export const createSupplierPayment = async (id: number,
+    supplierPaymentInput?: SupplierPaymentInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierPaymentRecord> => {
+
+  return customFetch<SupplierPaymentRecord>(getCreateSupplierPaymentUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(supplierPaymentInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSupplierPaymentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierPayment>>, TError,{id: number;data?: BodyType<SupplierPaymentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSupplierPayment>>, TError,{id: number;data?: BodyType<SupplierPaymentInput>}, TContext> => {
+
+const mutationKey = ['createSupplierPayment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSupplierPayment>>, {id: number;data?: BodyType<SupplierPaymentInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createSupplierPayment(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSupplierPaymentMutationResult = NonNullable<Awaited<ReturnType<typeof createSupplierPayment>>>
+    export type CreateSupplierPaymentMutationBody = BodyType<SupplierPaymentInput> | undefined
+    export type CreateSupplierPaymentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record an internal supplier payment from verified merchant funds
+ */
+export const useCreateSupplierPayment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierPayment>>, TError,{id: number;data?: BodyType<SupplierPaymentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSupplierPayment>>,
+        TError,
+        {id: number;data?: BodyType<SupplierPaymentInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSupplierPaymentMutationOptions(options));
     }
 
 export const getGetPublicStoreUrl = (merchantKey: string,) => {

@@ -16,7 +16,7 @@ const merchantLinks = [
   { href: '/orders', label: 'Orders', icon: PackageCheck },
   { href: '/pos', label: 'TS POS', icon: ShoppingCart },
   { href: '/customers', label: 'Customers', icon: UsersRound },
-  { href: '/dropshipping', label: 'Auto DS', icon: Route },
+  { href: '/dropshipping', label: 'Supplier fulfillment', icon: Route },
   { href: '/withdrawals', label: 'Withdrawals', icon: ShieldCheck },
   { href: '/suppliers', label: 'Suppliers', icon: Store },
   { href: '/inventory', label: 'Inventory', icon: Warehouse },

@@ -5,6 +5,7 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { DropshipQueueRecordSupplierPaymentStatus } from './dropshipQueueRecordSupplierPaymentStatus';
 
 export interface DropshipQueueRecord {
   id: number;
@@ -39,5 +40,12 @@ export interface DropshipQueueRecord {
   currency: string;
   orderStatus: string;
   fulfillmentStatus: string;
+  supplierPaymentStatus: DropshipQueueRecordSupplierPaymentStatus;
+  /** @nullable */
+  supplierPaymentReference: string | null;
+  /** @nullable */
+  supplierPaymentAmountMinor: number | null;
+  /** @nullable */
+  supplierPaidAt: Date | null;
   createdAt: Date;
 }

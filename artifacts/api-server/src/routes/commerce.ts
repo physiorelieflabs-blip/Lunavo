@@ -53,6 +53,9 @@ import {
   CreatePublicCheckoutBody,
   CreatePublicCheckoutParams,
   CreatePublicCheckoutResponse,
+  CreateSupplierPaymentBody,
+  CreateSupplierPaymentParams,
+  CreateSupplierPaymentResponse,
   CreateSubscriptionBody,
   CreateSubscriptionResponse,
   UpdateDropshipStatusBody,
@@ -670,6 +673,10 @@ function serializeOrder(
     productTitle: product?.title ?? null,
     shippingAddress: order.shippingAddress,
     fulfillmentStatus: order.fulfillmentStatus,
+    supplierPaymentStatus: order.supplierPaymentStatus,
+    supplierPaymentReference: order.supplierPaymentReference,
+    supplierPaymentAmountMinor: order.supplierPaymentAmountMinor,
+    supplierPaidAt: order.supplierPaidAt,
     createdAt: order.createdAt,
   };
 }
@@ -4010,6 +4017,117 @@ router.get("/dropship/queue", async (req, res): Promise<void> => {
       ),
     ),
   );
+});
+
+router.post("/dropship/queue/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = CreateSupplierPaymentParams.safeParse(req.params);
+  const parsed = CreateSupplierPaymentBody.safeParse(req.body ?? {});
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Enter a valid supplier payment reference" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${ordersTable} where ${ordersTable.id} = ${params.data.id} and ${ordersTable.merchantId} = ${merchant.id} for update`,
+      );
+      const existing = (
+        await tx
+          .select({ order: ordersTable, product: supplierProductsTable })
+          .from(ordersTable)
+          .innerJoin(
+            supplierProductsTable,
+            eq(ordersTable.supplierProductId, supplierProductsTable.id),
+          )
+          .where(
+            and(
+              eq(ordersTable.id, params.data.id),
+              eq(ordersTable.merchantId, merchant.id),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (!existing) throw new Error("Dropshipping order not found");
+      if (!["paid", "fulfilled"].includes(existing.order.status)) {
+        throw new Error("Confirm the customer payment before paying the supplier");
+      }
+      if (existing.product.price === null) {
+        throw new Error("This product has no supplier cost recorded");
+      }
+      const amountMinor = Math.round(toNumber(existing.product.price) * existing.order.quantity * 100);
+      if (amountMinor <= 0) throw new Error("Supplier payment amount must be positive");
+      const [balance] = await tx
+        .select({ total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)` })
+        .from(ledgerEntriesTable)
+        .where(
+          and(
+            eq(ledgerEntriesTable.merchantId, merchant.id),
+            eq(ledgerEntriesTable.currency, existing.order.currency),
+          ),
+        );
+      const balanceMinor = Number(balance?.total ?? 0);
+      if (existing.order.supplierPaymentStatus === "paid") {
+        return {
+          orderId: existing.order.id,
+          orderNumber: existing.order.orderNumber,
+          status: "paid" as const,
+          amountMinor: existing.order.supplierPaymentAmountMinor ?? amountMinor,
+          currency: existing.order.currency,
+          supplierPaymentReference: existing.order.supplierPaymentReference ?? `supplier:${existing.order.orderNumber}`,
+          supplierPaidAt: existing.order.supplierPaidAt ?? new Date(),
+          availableBalanceMinor: balanceMinor,
+        };
+      }
+      if (balanceMinor < amountMinor) {
+        throw new Error(`Insufficient ${existing.order.currency} funds. Available balance is ${(Math.max(0, balanceMinor) / 100).toFixed(2)}`);
+      }
+      const supplierPaymentReference = parsed.data.supplierPaymentReference?.trim() || `supplier:${existing.order.orderNumber}`;
+      const supplierPaidAt = new Date();
+      await tx.insert(ledgerEntriesTable).values({
+        merchantId: merchant.id,
+        orderId: existing.order.id,
+        amountMinor: -amountMinor,
+        currency: existing.order.currency,
+        entryType: "supplier_payment",
+        referenceKey: `supplier-payment:${existing.order.id}`,
+      });
+      await tx
+        .update(ordersTable)
+        .set({
+          supplierPaymentStatus: "paid",
+          supplierPaymentReference,
+          supplierPaymentAmountMinor: amountMinor,
+          supplierPaidAt,
+        })
+        .where(eq(ordersTable.id, existing.order.id));
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "supplier_payment_recorded",
+        title: `Supplier funds allocated for ${existing.order.orderNumber}`,
+        description: "The supplier cost was debited from the internal TS Pay ledger after verified customer payment.",
+        amount: (amountMinor / 100).toFixed(2),
+        currency: existing.order.currency,
+        tone: "negative",
+      });
+      return {
+        orderId: existing.order.id,
+        orderNumber: existing.order.orderNumber,
+        status: "paid" as const,
+        amountMinor,
+        currency: existing.order.currency,
+        supplierPaymentReference,
+        supplierPaidAt,
+        availableBalanceMinor: balanceMinor - amountMinor,
+      };
+    });
+    res.status(201).json(CreateSupplierPaymentResponse.parse(result));
+  } catch (error) {
+    req.log.error({ err: error }, "supplier payment failed");
+    res.status(409).json({ error: error instanceof Error ? error.message : "Supplier payment could not be recorded" });
+  }
 });
 
 router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
