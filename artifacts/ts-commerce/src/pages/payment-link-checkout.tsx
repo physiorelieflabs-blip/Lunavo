@@ -27,6 +27,10 @@ export default function PaymentLinkCheckout() {
     setMessage('');
     checkout.mutate({ token, data: { customerName, customerEmail, customerPhone: customerPhone || undefined, shippingAddress, marketingConsent, idempotencyKey: crypto.randomUUID() } }, {
       onSuccess: (result) => {
+        if (result.paymentUrl) {
+          window.location.assign(result.paymentUrl);
+          return;
+        }
         setCompleted({ orderNumber: result.orderNumber, total: result.total, currency: result.currency });
         setMessage('Your order is pending merchant payment confirmation.');
       },

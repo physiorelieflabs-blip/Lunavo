@@ -578,6 +578,7 @@ export const ordersTable = pgTable(
     supplierPaymentReference: text("supplier_payment_reference"),
     supplierPaymentAmountMinor: integer("supplier_payment_amount_minor"),
     supplierPaidAt: timestamp("supplier_paid_at", { withTimezone: true }),
+    publicPaymentToken: text("public_payment_token").unique(),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

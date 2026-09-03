@@ -7,4 +7,4 @@ The connected Whop account can create products, plans, and checkout configuratio
 
 **Why:** The connected account exposed no usable company-list permission, and the MCP checkout operation rejected a company-scoped request even though the raw authenticated proxy succeeded.
 
-**How to apply:** Use the server-only connector proxy for Whop API calls, keep provider IDs in non-secret configuration, match verified payments to the local pending record, and fail closed for currencies or provider lifecycle states that the configured Whop plan does not support.
+**How to apply:** Use the server-only connector proxy for Whop API calls, keep provider IDs in non-secret configuration, match verified payments to the local pending record by checkout identity, amount, currency, and successful provider status, and fail closed for unsupported currencies or lifecycle states. A hosted redirect alone is never payment evidence.

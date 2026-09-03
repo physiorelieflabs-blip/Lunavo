@@ -327,11 +327,14 @@ import {
 } from "../lib/ai";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
+  isCustomerWhopConfigured,
   isWhopConfigured,
   whopCompanyId,
+  whopCustomerProductId,
   whopPlanId,
   whopRequest,
   type WhopCheckoutConfiguration,
+  type WhopPlan,
   type WhopPayment,
 } from "../lib/whop-client";
 
@@ -1394,6 +1397,13 @@ function serializeDropshipQueueItem(
 function serializePublicCheckoutOrder(
   order: Order,
   product: typeof supplierProductsTable.$inferSelect,
+  payment?: {
+    paymentToken: string;
+    paymentIntentId: number;
+    checkoutId: string | null;
+    purchaseUrl: string | null;
+    status: string;
+  } | null,
 ) {
   return {
     orderNumber: order.orderNumber,
@@ -1405,7 +1415,14 @@ function serializePublicCheckoutOrder(
     currency: order.currency,
     status: "pending" as const,
     paymentMessage:
-      "Order received. Payment is not captured online; the store will confirm payment before fulfillment.",
+      payment?.purchaseUrl
+        ? "Your order is reserved. Continue to Whop to complete payment; the order enters the sales ledger only after server-side payment verification."
+        : "Your order is reserved. The hosted payment attempt is being prepared; retry from this page if the checkout does not open.",
+    paymentToken: order.publicPaymentToken,
+    paymentIntentId: payment?.paymentIntentId ?? null,
+    paymentProvider: "whop" as const,
+    paymentUrl: payment?.purchaseUrl ?? null,
+    paymentStatus: payment?.status ?? "created",
   };
 }
 
@@ -1433,6 +1450,730 @@ function serializePublicPaymentLink(link: typeof paymentLinksTable.$inferSelect)
     currency: link.currency,
     expiresAt: link.expiresAt?.toISOString() ?? null,
   };
+}
+
+function requestOrigin(req: Request): string {
+  const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedHost = req.header("x-forwarded-host")?.split(",")[0]?.trim();
+  const protocol = forwardedProto === "https" ? "https" : req.protocol;
+  const host = forwardedHost || req.get("host");
+  return host ? `${protocol}://${host}` : "";
+}
+
+type PublicWhopCheckout = {
+  paymentToken: string;
+  paymentIntentId: number;
+  checkoutId: string;
+  purchaseUrl: string;
+  status: "submitted";
+};
+
+async function ensurePublicWhopCheckout(
+  order: Order,
+  title: string,
+  origin: string,
+): Promise<PublicWhopCheckout> {
+  if (!isCustomerWhopConfigured()) {
+    throw new Error("Online customer checkout is not configured");
+  }
+  if (!order.publicPaymentToken) {
+    throw new Error("This order cannot be paid online because it has no public payment token");
+  }
+  if (order.status === "paid") {
+    throw new Error("This order has already been paid");
+  }
+
+  let intent = (
+    await db
+      .select()
+      .from(paymentIntentsTable)
+      .where(eq(paymentIntentsTable.orderId, order.id))
+      .limit(1)
+  )[0];
+  if (!intent) {
+    [intent] = await db
+      .insert(paymentIntentsTable)
+      .values({
+        merchantId: order.merchantId,
+        orderId: order.id,
+        amountMinor: Math.round(toNumber(order.total) * 100),
+        currency: order.currency,
+        method: "whop_hosted",
+        idempotencyKey: `public-order:${order.id}`,
+        status: "created",
+      })
+      .onConflictDoNothing({ target: paymentIntentsTable.orderId })
+      .returning();
+    if (!intent) {
+      intent = (
+        await db
+          .select()
+          .from(paymentIntentsTable)
+          .where(eq(paymentIntentsTable.orderId, order.id))
+          .limit(1)
+      )[0];
+    }
+  }
+  if (!intent) throw new Error("Payment attempt could not be prepared");
+  if (intent.status === "verified") {
+    throw new Error("This order has already been paid");
+  }
+
+  if (intent.evidenceReference && intent.status === "submitted") {
+    try {
+      const existing = await whopRequest<WhopCheckoutConfiguration>(
+        `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
+      );
+      if (existing.purchase_url) {
+        return {
+          paymentToken: order.publicPaymentToken,
+          paymentIntentId: intent.id,
+          checkoutId: existing.id,
+          purchaseUrl: existing.purchase_url,
+          status: "submitted",
+        };
+      }
+    } catch {
+      // The provider checkout may have expired or been deleted. A new one is safe.
+    }
+  }
+
+  const plan = await whopRequest<WhopPlan>("/api/v1/plans", {
+    method: "POST",
+    body: {
+      company_id: whopCompanyId(),
+      product_id: whopCustomerProductId(),
+      plan_type: "one_time",
+      initial_price: Number(toNumber(order.total).toFixed(2)),
+      currency: order.currency.toLowerCase(),
+      visibility: "hidden",
+      internal_notes: `TS Commerce order ${order.orderNumber}; payment intent ${intent.id}`,
+    },
+  });
+  if (!plan.id) throw new Error("Whop did not return a customer payment plan");
+
+  if (!origin) throw new Error("The checkout return address could not be determined");
+  const checkout = await whopRequest<WhopCheckoutConfiguration>(
+    "/api/v1/checkout_configurations",
+    {
+      method: "POST",
+      body: {
+        company_id: whopCompanyId(),
+        plan_id: plan.id,
+        redirect_url: `${origin}/checkout/payment-return?token=${encodeURIComponent(order.publicPaymentToken)}`,
+        metadata: {
+          provider: "ts-commerce",
+          merchant_id: String(order.merchantId),
+          order_id: String(order.id),
+          order_number: order.orderNumber,
+          payment_intent_id: String(intent.id),
+          payment_token: order.publicPaymentToken,
+        },
+      },
+    },
+  );
+  if (!checkout.id || !checkout.purchase_url) {
+    throw new Error("Whop returned an incomplete customer checkout");
+  }
+  const [updated] = await db
+    .update(paymentIntentsTable)
+    .set({ status: "submitted", evidenceReference: checkout.id })
+    .where(eq(paymentIntentsTable.id, intent.id))
+    .returning();
+  if (!updated) throw new Error("Could not save the customer checkout reference");
+  return {
+    paymentToken: order.publicPaymentToken,
+    paymentIntentId: intent.id,
+    checkoutId: checkout.id,
+    purchaseUrl: checkout.purchase_url,
+    status: "submitted",
+  };
+}
+
+async function findWhopCustomerPayment(
+  intent: typeof paymentIntentsTable.$inferSelect,
+  order: Order,
+): Promise<{ status: "paid" | "failed" | "pending"; providerPaymentId?: string }> {
+  if (!intent.evidenceReference) return { status: "pending" };
+  const checkout = await whopRequest<WhopCheckoutConfiguration>(
+    `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
+  );
+  const metadata = checkout.metadata ?? {};
+  if (
+    metadata.order_id !== undefined &&
+    String(metadata.order_id) !== String(order.id)
+  ) {
+    throw new Error("Whop checkout metadata does not match this order");
+  }
+  const paymentsPayload = await whopRequest<{ data?: WhopPayment[] }>(
+    `/api/v1/payments?account_id=${encodeURIComponent(whopCompanyId())}&checkout_configuration_ids%5B%5D=${encodeURIComponent(intent.evidenceReference)}&first=100`,
+  );
+  const candidates = Array.isArray(paymentsPayload.data) ? paymentsPayload.data : [];
+  const exact = candidates.filter((candidate) => {
+    const candidateCheckoutId =
+      candidate.checkout_configuration_id ??
+      candidate.checkout_id ??
+      (typeof candidate.metadata?.checkout_id === "string"
+        ? candidate.metadata.checkout_id
+        : null);
+    const amount = Number(candidate.amount ?? NaN);
+    const currency = String(candidate.currency ?? "").toUpperCase();
+    return (
+      candidateCheckoutId === intent.evidenceReference &&
+      Number.isFinite(amount) &&
+      Math.abs(amount - toNumber(order.total)) < 0.01 &&
+      (!currency || currency === order.currency)
+    );
+  });
+  const paid = exact.find((candidate) =>
+    ["succeeded", "paid", "completed", "captured"].includes(
+      String(candidate.status ?? "").toLowerCase(),
+    ),
+  );
+  if (paid?.id) return { status: "paid", providerPaymentId: paid.id };
+  const failed = exact.find((candidate) =>
+    ["failed", "declined", "canceled", "cancelled"].includes(
+      String(candidate.status ?? "").toLowerCase(),
+    ),
+  );
+  if (failed) return { status: "failed", providerPaymentId: failed.id };
+  return { status: "pending" };
+}
+
+async function verifyPublicWhopOrder(
+  paymentToken: string,
+  checkoutId: string | null,
+) {
+  const order = (
+    await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.publicPaymentToken, paymentToken))
+      .limit(1)
+  )[0];
+  if (!order) throw new Error("Payment session not found");
+  if (order.status === "cancelled") throw new Error("This order has been cancelled");
+  const intent = (
+    await db
+      .select()
+      .from(paymentIntentsTable)
+      .where(eq(paymentIntentsTable.orderId, order.id))
+      .limit(1)
+  )[0];
+  if (!intent) throw new Error("Payment session is not ready");
+  if (checkoutId && checkoutId !== intent.evidenceReference) {
+    throw new Error("That checkout does not belong to this order");
+  }
+  if (intent.status === "verified") {
+    return { order, status: "paid" as const, providerPaymentId: null };
+  }
+  const provider = await findWhopCustomerPayment(intent, order);
+  if (provider.status === "failed") {
+    await db
+      .update(paymentIntentsTable)
+      .set({ status: "failed" })
+      .where(
+        and(
+          eq(paymentIntentsTable.id, intent.id),
+          eq(paymentIntentsTable.status, "submitted"),
+        ),
+      );
+    return { order, status: "failed" as const, providerPaymentId: provider.providerPaymentId ?? null };
+  }
+  if (provider.status === "pending") {
+    return { order, status: "pending" as const, providerPaymentId: null };
+  }
+  const settled = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from ${paymentIntentsTable} where id=${intent.id} and merchant_id=${order.merchantId} for update`,
+    );
+    await tx.execute(
+      sql`select id from ${ordersTable} where id=${order.id} and merchant_id=${order.merchantId} for update`,
+    );
+    const currentIntent = (
+      await tx
+        .select()
+        .from(paymentIntentsTable)
+        .where(eq(paymentIntentsTable.id, intent.id))
+        .limit(1)
+    )[0];
+    const currentOrder = (
+      await tx
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.id, order.id))
+        .limit(1)
+    )[0];
+    if (!currentIntent || !currentOrder) throw new Error("Payment session is no longer available");
+    if (currentIntent.status === "verified") return currentOrder;
+    if (currentOrder.status === "cancelled") throw new Error("This order has been cancelled");
+
+    if (currentOrder.supplierProductId) {
+      await tx.execute(
+        sql`select id from ${supplierProductsTable} where id=${currentOrder.supplierProductId} and merchant_id=${order.merchantId} for update`,
+      );
+      const reservation = (
+        await tx
+          .select()
+          .from(inventoryReservationsTable)
+          .where(
+            and(
+              eq(inventoryReservationsTable.orderId, currentOrder.id),
+              eq(inventoryReservationsTable.merchantId, order.merchantId),
+              eq(inventoryReservationsTable.supplierProductId, currentOrder.supplierProductId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      const product = (
+        await tx
+          .select()
+          .from(supplierProductsTable)
+          .where(
+            and(
+              eq(supplierProductsTable.id, currentOrder.supplierProductId),
+              eq(supplierProductsTable.merchantId, order.merchantId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (reservation?.status === "reserved" && reservation.expiresAt > new Date()) {
+        await tx
+          .update(inventoryReservationsTable)
+          .set({ status: "consumed", updatedAt: new Date() })
+          .where(
+            and(
+              eq(inventoryReservationsTable.id, reservation.id),
+              eq(inventoryReservationsTable.status, "reserved"),
+            ),
+          );
+        if (product?.inventoryStrategy !== "source_based" && product?.availabilityQuantity !== null) {
+          const [updatedProduct] = await tx
+            .update(supplierProductsTable)
+            .set({
+              availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} - ${reservation.quantity}`,
+            })
+            .where(
+              and(
+                eq(supplierProductsTable.id, product.id),
+                eq(supplierProductsTable.merchantId, order.merchantId),
+                sql`${supplierProductsTable.availabilityQuantity} >= ${reservation.quantity}`,
+              ),
+            )
+            .returning();
+          if (!updatedProduct) throw new Error("Inventory changed before payment verification");
+        }
+        await tx
+          .insert(inventoryMovementsTable)
+          .values({
+            merchantId: order.merchantId,
+            locationId: currentOrder.locationId,
+            supplierProductId: reservation.supplierProductId,
+            orderId: currentOrder.id,
+            quantityDelta: -reservation.quantity,
+            reason: "sale",
+            referenceKey: `sale:${currentIntent.id}`,
+          })
+          .onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
+      } else if (reservation?.status === "reserved") {
+        await tx
+          .update(inventoryReservationsTable)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(eq(inventoryReservationsTable.id, reservation.id));
+      }
+    }
+
+    const [record] = await tx
+      .insert(paymentRecordsTable)
+      .values({
+        intentId: currentIntent.id,
+        merchantId: order.merchantId,
+        orderId: currentOrder.id,
+        amountMinor: currentIntent.amountMinor,
+        currency: currentIntent.currency,
+        method: currentIntent.method,
+        evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
+        status: "verified",
+        verifiedBy: "whop",
+        verifiedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+    const paymentRecord =
+      record ??
+      (
+        await tx
+          .select()
+          .from(paymentRecordsTable)
+          .where(eq(paymentRecordsTable.intentId, currentIntent.id))
+          .limit(1)
+      )[0];
+    if (!paymentRecord) throw new Error("Payment record could not be created");
+    await tx
+      .update(paymentIntentsTable)
+      .set({ status: "verified" })
+      .where(
+        and(
+          eq(paymentIntentsTable.id, currentIntent.id),
+          eq(paymentIntentsTable.status, currentIntent.status),
+        ),
+      );
+    await tx
+      .update(paymentRecordsTable)
+      .set({
+        status: "verified",
+        evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
+        verifiedBy: "whop",
+        verifiedAt: new Date(),
+      })
+      .where(eq(paymentRecordsTable.id, paymentRecord.id));
+    await tx
+      .insert(ledgerEntriesTable)
+      .values({
+        merchantId: order.merchantId,
+        orderId: currentOrder.id,
+        paymentRecordId: paymentRecord.id,
+        amountMinor: currentIntent.amountMinor,
+        currency: currentIntent.currency,
+        entryType: "sale",
+        referenceKey: `payment:${currentIntent.id}`,
+      })
+      .onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    const [subscription] = await tx
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.merchantId, order.merchantId))
+      .limit(1);
+    if (subscription) {
+      const outstanding = Math.max(
+        0,
+        toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+      );
+      const availableToHold = Math.max(
+        0,
+        outstanding - toNumber(subscription.earningsHeld),
+      );
+      const holdAmount = Math.min(
+        Number(currentIntent.amountMinor) / 100,
+        availableToHold,
+      );
+      if (holdAmount > 0) {
+        await tx
+          .update(subscriptionsTable)
+          .set({
+            earningsHeld: (
+              toNumber(subscription.earningsHeld) + holdAmount
+            ).toFixed(2),
+          })
+          .where(eq(subscriptionsTable.id, subscription.id));
+      }
+    }
+    const [updatedOrder] = await tx
+      .update(ordersTable)
+      .set({ status: "paid" })
+      .where(
+        and(
+          eq(ordersTable.id, currentOrder.id),
+          eq(ordersTable.status, currentOrder.status),
+        ),
+      )
+      .returning();
+    if (!updatedOrder) throw new Error("Order changed while payment was processing");
+    await tx.insert(activityTable).values({
+      merchantId: order.merchantId,
+      type: "order_payment_confirmed",
+      title: `Payment confirmed for ${updatedOrder.orderNumber}`,
+      description: "Whop confirmed the customer payment and the sale entered the ledger.",
+      amount: updatedOrder.total,
+      currency: updatedOrder.currency,
+      tone: "positive",
+    });
+    await emitDomainEvent(tx, {
+      merchantId: order.merchantId,
+      eventType: "payment.verified",
+      aggregateType: "payment_intent",
+      aggregateId: String(currentIntent.id),
+      actorType: "system",
+      actorId: "whop",
+      source: "public_checkout",
+      idempotencyKey: `payment-intent:${currentIntent.id}:verified`,
+      payload: {
+        orderId: updatedOrder.id,
+        amountMinor: currentIntent.amountMinor,
+        currency: currentIntent.currency,
+        providerPaymentId: provider.providerPaymentId,
+      },
+      before: { status: currentIntent.status },
+      after: { status: "verified" },
+    });
+    return updatedOrder;
+  });
+  return {
+    order: settled,
+    status: "paid" as const,
+    providerPaymentId: provider.providerPaymentId ?? null,
+  };
+}
+
+async function ensurePublicWhopInvoiceCheckout(
+  invoice: typeof invoicesTable.$inferSelect,
+  origin: string,
+): Promise<PublicWhopCheckout> {
+  if (!isCustomerWhopConfigured()) {
+    throw new Error("Online customer checkout is not configured");
+  }
+  const outstanding = Number(
+    (toNumber(invoice.total) - toNumber(invoice.amountPaid)).toFixed(2),
+  );
+  if (outstanding <= 0) throw new Error("This invoice has already been paid");
+  const idempotencyKey = `public-invoice:${invoice.id}:${outstanding.toFixed(2)}`;
+  let intent = (
+    await db
+      .select()
+      .from(paymentIntentsTable)
+      .where(
+        and(
+          eq(paymentIntentsTable.merchantId, invoice.merchantId),
+          eq(paymentIntentsTable.idempotencyKey, idempotencyKey),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!intent) {
+    [intent] = await db
+      .insert(paymentIntentsTable)
+      .values({
+        merchantId: invoice.merchantId,
+        amountMinor: Math.round(outstanding * 100),
+        currency: invoice.currency,
+        method: "whop_hosted",
+        idempotencyKey,
+        status: "created",
+      })
+      .onConflictDoNothing({
+        target: [
+          paymentIntentsTable.merchantId,
+          paymentIntentsTable.idempotencyKey,
+        ],
+      })
+      .returning();
+    if (!intent) {
+      intent = (
+        await db
+          .select()
+          .from(paymentIntentsTable)
+          .where(
+            and(
+              eq(paymentIntentsTable.merchantId, invoice.merchantId),
+              eq(paymentIntentsTable.idempotencyKey, idempotencyKey),
+            ),
+          )
+          .limit(1)
+      )[0];
+    }
+  }
+  if (!intent) throw new Error("Invoice payment attempt could not be prepared");
+  if (intent.status === "verified") throw new Error("This invoice has already been paid");
+  if (intent.evidenceReference && intent.status === "submitted") {
+    try {
+      const existing = await whopRequest<WhopCheckoutConfiguration>(
+        `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
+      );
+      if (existing.purchase_url) {
+        return {
+          paymentToken: invoice.publicToken,
+          paymentIntentId: intent.id,
+          checkoutId: existing.id,
+          purchaseUrl: existing.purchase_url,
+          status: "submitted",
+        };
+      }
+    } catch {
+      // Recreate an expired provider session without changing the invoice.
+    }
+  }
+  const plan = await whopRequest<WhopPlan>("/api/v1/plans", {
+    method: "POST",
+    body: {
+      company_id: whopCompanyId(),
+      product_id: whopCustomerProductId(),
+      plan_type: "one_time",
+      initial_price: outstanding,
+      currency: invoice.currency.toLowerCase(),
+      visibility: "hidden",
+      internal_notes: `TS Commerce invoice ${invoice.invoiceNumber}; payment intent ${intent.id}`,
+    },
+  });
+  const checkout = await whopRequest<WhopCheckoutConfiguration>(
+    "/api/v1/checkout_configurations",
+    {
+      method: "POST",
+      body: {
+        company_id: whopCompanyId(),
+        plan_id: plan.id,
+        redirect_url: `${origin}/invoice/${encodeURIComponent(invoice.publicToken)}?whop=return`,
+        metadata: {
+          provider: "ts-commerce",
+          merchant_id: String(invoice.merchantId),
+          invoice_id: String(invoice.id),
+          invoice_number: invoice.invoiceNumber,
+          payment_intent_id: String(intent.id),
+          payment_token: invoice.publicToken,
+        },
+      },
+    },
+  );
+  if (!checkout.id || !checkout.purchase_url) {
+    throw new Error("Whop returned an incomplete invoice checkout");
+  }
+  const [updated] = await db
+    .update(paymentIntentsTable)
+    .set({ status: "submitted", evidenceReference: checkout.id })
+    .where(eq(paymentIntentsTable.id, intent.id))
+    .returning();
+  if (!updated) throw new Error("Could not save the invoice checkout reference");
+  return {
+    paymentToken: invoice.publicToken,
+    paymentIntentId: intent.id,
+    checkoutId: checkout.id,
+    purchaseUrl: checkout.purchase_url,
+    status: "submitted",
+  };
+}
+
+async function verifyPublicWhopInvoice(token: string, checkoutId: string | null) {
+  let invoice = (
+    await db
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.publicToken, token))
+      .limit(1)
+  )[0];
+  if (invoice) invoice = await refreshInvoiceOverdue(invoice);
+  if (!invoice || invoice.status === "draft" || invoice.status === "void") {
+    throw new Error("Invoice is not available for online payment");
+  }
+  if (invoice.status === "paid") return { invoice, status: "paid" as const, providerPaymentId: null };
+  const outstanding = Number(
+    (toNumber(invoice.total) - toNumber(invoice.amountPaid)).toFixed(2),
+  );
+  const key = `public-invoice:${invoice.id}:${outstanding.toFixed(2)}`;
+  const intent = (
+    await db
+      .select()
+      .from(paymentIntentsTable)
+      .where(
+        and(
+          eq(paymentIntentsTable.merchantId, invoice.merchantId),
+          eq(paymentIntentsTable.idempotencyKey, key),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!intent) throw new Error("Invoice payment session is not ready");
+  if (checkoutId && checkoutId !== intent.evidenceReference) {
+    throw new Error("That checkout does not belong to this invoice");
+  }
+  if (!intent.evidenceReference) return { invoice, status: "pending" as const, providerPaymentId: null };
+  const checkout = await whopRequest<WhopCheckoutConfiguration>(
+    `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
+  );
+  const metadata = checkout.metadata ?? {};
+  if (metadata.invoice_id !== undefined && String(metadata.invoice_id) !== String(invoice.id)) {
+    throw new Error("Whop checkout metadata does not match this invoice");
+  }
+  const payload = await whopRequest<{ data?: WhopPayment[] }>(
+    `/api/v1/payments?account_id=${encodeURIComponent(whopCompanyId())}&checkout_configuration_ids%5B%5D=${encodeURIComponent(intent.evidenceReference)}&first=100`,
+  );
+  const candidates = (Array.isArray(payload.data) ? payload.data : []).filter((candidate) => {
+    const candidateCheckoutId =
+      candidate.checkout_configuration_id ??
+      candidate.checkout_id ??
+      (typeof candidate.metadata?.checkout_id === "string" ? candidate.metadata.checkout_id : null);
+    const amount = Number(candidate.amount ?? NaN);
+    const currency = String(candidate.currency ?? "").toUpperCase();
+    return candidateCheckoutId === intent.evidenceReference &&
+      Number.isFinite(amount) &&
+      Math.abs(amount - outstanding) < 0.01 &&
+      (!currency || currency === invoice.currency);
+  });
+  const paid = candidates.find((candidate) =>
+    ["succeeded", "paid", "completed", "captured"].includes(String(candidate.status ?? "").toLowerCase()),
+  );
+  const failed = candidates.find((candidate) =>
+    ["failed", "declined", "canceled", "cancelled"].includes(String(candidate.status ?? "").toLowerCase()),
+  );
+  if (failed) {
+    await db.update(paymentIntentsTable).set({ status: "failed" }).where(and(eq(paymentIntentsTable.id, intent.id), eq(paymentIntentsTable.status, "submitted")));
+    return { invoice, status: "failed" as const, providerPaymentId: failed.id ?? null };
+  }
+  if (!paid) return { invoice, status: "pending" as const, providerPaymentId: null };
+
+  const settledInvoice = await db.transaction(async (tx) => {
+    await tx.execute(sql`select id from ${invoicesTable} where id=${invoice.id} and merchant_id=${invoice.merchantId} for update`);
+    await tx.execute(sql`select id from ${paymentIntentsTable} where id=${intent.id} and merchant_id=${invoice.merchantId} for update`);
+    const current = (await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoice.id)).limit(1))[0];
+    const currentIntent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1))[0];
+    if (!current || !currentIntent) throw new Error("Invoice payment session is no longer available");
+    if (current.status === "paid" || currentIntent.status === "verified") return current;
+    const [record] = await tx.insert(paymentRecordsTable).values({
+      intentId: currentIntent.id,
+      merchantId: current.merchantId,
+      orderId: current.orderId,
+      invoicePaymentSubmissionId: null,
+      amountMinor: currentIntent.amountMinor,
+      currency: currentIntent.currency,
+      method: currentIntent.method,
+      status: "verified",
+      evidenceReference: paid.id ?? currentIntent.evidenceReference,
+      verifiedBy: "whop",
+      verifiedAt: new Date(),
+    }).onConflictDoNothing().returning();
+    const paymentRecord = record ?? (await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, currentIntent.id)).limit(1))[0];
+    if (!paymentRecord) throw new Error("Invoice payment record could not be created");
+    await tx.update(paymentIntentsTable).set({ status: "verified" }).where(eq(paymentIntentsTable.id, currentIntent.id));
+    await tx.insert(ledgerEntriesTable).values({
+      merchantId: current.merchantId,
+      invoiceId: current.id,
+      orderId: current.orderId,
+      paymentRecordId: paymentRecord.id,
+      amountMinor: currentIntent.amountMinor,
+      currency: currentIntent.currency,
+      entryType: "sale",
+      referenceKey: `invoice-whop:${currentIntent.id}`,
+    }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    const nextPaid = Number((toNumber(current.amountPaid) + outstanding).toFixed(2));
+    const [updated] = await tx.update(invoicesTable).set({
+      amountPaid: nextPaid.toFixed(2),
+      status: nextPaid >= toNumber(current.total) ? "paid" : "partially_paid",
+      paymentReference: paid.id ?? currentIntent.evidenceReference,
+    }).where(eq(invoicesTable.id, current.id)).returning();
+    if (!updated) throw new Error("Invoice changed while payment was processing");
+    await tx.insert(activityTable).values({
+      merchantId: current.merchantId,
+      type: "invoice_payment_confirmed",
+      title: `Online payment confirmed for ${current.invoiceNumber}`,
+      description: "Whop confirmed the invoice payment and it entered the sales ledger.",
+      amount: outstanding.toFixed(2),
+      currency: current.currency,
+      tone: "positive",
+    });
+    await emitDomainEvent(tx, {
+      merchantId: current.merchantId,
+      eventType: "invoice.payment_verified",
+      aggregateType: "invoice",
+      aggregateId: String(current.id),
+      actorType: "system",
+      actorId: "whop",
+      source: "public_checkout",
+      idempotencyKey: `invoice-payment:${current.id}:${currentIntent.id}:verified`,
+      payload: { invoiceId: current.id, paymentIntentId: currentIntent.id, amount: outstanding, currency: current.currency },
+      before: { status: current.status, amountPaid: current.amountPaid },
+      after: { status: updated.status, amountPaid: updated.amountPaid },
+    });
+    return updated;
+  });
+  return { invoice: settledInvoice, status: "paid" as const, providerPaymentId: paid.id ?? null };
 }
 
 function serializeMarketplaceListing(
@@ -6232,6 +6973,10 @@ router.post(
       res.status(404).json({ error: "Store not found" });
       return;
     }
+    if (!isCustomerWhopConfigured()) {
+      res.status(503).json({ error: "Online customer checkout is temporarily unavailable" });
+      return;
+    }
     try {
       const location = await resolveOrderLocation(merchant.id, null, null, true);
       const result = await db.transaction(async (tx) => {
@@ -6377,6 +7122,7 @@ router.post(
             supplierProductId: product.id,
             shippingAddress: parsed.data.shippingAddress.trim(),
             fulfillmentStatus: "awaiting_supplier",
+            publicPaymentToken: randomUUID(),
             idempotencyKey: parsed.data.idempotencyKey,
           })
           .onConflictDoNothing({
@@ -6435,13 +7181,25 @@ router.post(
         });
         return { order, product };
       });
-      res
-        .status(201)
-        .json(
-          CreatePublicCheckoutResponse.parse(
-            serializePublicCheckoutOrder(result.order, result.product),
-          ),
+      let payment: PublicWhopCheckout;
+      try {
+        payment = await ensurePublicWhopCheckout(
+          result.order,
+          result.product.title,
+          requestOrigin(req),
         );
+      } catch (error) {
+        req.log.error({ err: error, orderId: result.order.id }, "customer checkout creation failed");
+        res.status(502).json({
+          error: error instanceof Error ? error.message : "Hosted checkout could not be created",
+        });
+        return;
+      }
+      res.status(201).json(
+        CreatePublicCheckoutResponse.parse(
+          serializePublicCheckoutOrder(result.order, result.product, payment),
+        ),
+      );
     } catch (error) {
       req.log.error({ err: error }, "public checkout failed");
       res.status(409).json({
@@ -6478,6 +7236,10 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
   const link = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
   if (!link || link.status !== "active" || (link.expiresAt !== null && link.expiresAt <= new Date())) {
     res.status(404).json({ error: "Payment link is unavailable" });
+    return;
+  }
+  if (!isCustomerWhopConfigured()) {
+    res.status(503).json({ error: "Online customer checkout is temporarily unavailable" });
     return;
   }
   const location = await resolveOrderLocation(link.merchantId, null, null, true);
@@ -6523,6 +7285,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
         supplierProductId: null,
         shippingAddress: parsed.data.shippingAddress.trim(),
         fulfillmentStatus: "not_required",
+        publicPaymentToken: randomUUID(),
         idempotencyKey: parsed.data.idempotencyKey,
       }).onConflictDoNothing({ target: [ordersTable.merchantId, ordersTable.idempotencyKey] }).returning();
       if (!order) {
@@ -6546,6 +7309,20 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       });
       return order;
     });
+    let payment: PublicWhopCheckout;
+    try {
+      payment = await ensurePublicWhopCheckout(
+        result,
+        link.title,
+        requestOrigin(req),
+      );
+    } catch (error) {
+      req.log.error({ err: error, orderId: result.id }, "payment-link checkout creation failed");
+      res.status(502).json({
+        error: error instanceof Error ? error.message : "Hosted checkout could not be created",
+      });
+      return;
+    }
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
       title: link.title,
@@ -6555,11 +7332,120 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       total: toNumber(result.total),
       currency: result.currency,
       status: "pending",
-      paymentMessage: "Order received. Payment is not captured online; the merchant will confirm payment before fulfillment.",
+      paymentMessage: payment.purchaseUrl
+        ? "Your order is reserved. Continue to Whop to complete payment; the order enters the sales ledger only after server-side payment verification."
+        : "Your order is reserved. Retry payment from this page if the hosted checkout does not open.",
+      paymentToken: result.publicPaymentToken,
+      paymentIntentId: payment.paymentIntentId,
+      paymentProvider: "whop",
+      paymentUrl: payment.purchaseUrl,
+      paymentStatus: payment.status,
     }));
   } catch (error) {
     req.log.error({ err: error }, "payment link checkout failed");
     res.status(409).json({ error: error instanceof Error ? error.message : "Payment link checkout could not be created" });
+  }
+});
+
+router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<void> => {
+  const paymentToken = String(req.params.paymentToken ?? "").trim();
+  if (paymentToken.length < 20 || paymentToken.length > 120) {
+    res.status(400).json({ error: "Invalid payment session" });
+    return;
+  }
+  const order = (
+    await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.publicPaymentToken, paymentToken))
+      .limit(1)
+  )[0];
+  if (!order || order.status === "cancelled") {
+    res.status(404).json({ error: "Payment session is unavailable" });
+    return;
+  }
+  const product = order.supplierProductId
+    ? (
+        await db
+          .select()
+          .from(supplierProductsTable)
+          .where(eq(supplierProductsTable.id, order.supplierProductId))
+          .limit(1)
+      )[0]
+    : null;
+  try {
+    const payment = await ensurePublicWhopCheckout(
+      order,
+      product?.title ?? "TS Commerce payment",
+      requestOrigin(req),
+    );
+    res.status(201).json({
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentToken,
+      paymentIntentId: payment.paymentIntentId,
+      paymentProvider: "whop",
+      paymentUrl: payment.purchaseUrl,
+      paymentStatus: payment.status,
+    });
+  } catch (error) {
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Hosted checkout could not be created",
+    });
+  }
+});
+
+router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<void> => {
+  const paymentToken = String(req.params.paymentToken ?? "").trim();
+  const checkoutId =
+    typeof req.body?.checkoutId === "string" ? req.body.checkoutId.trim() : null;
+  if (paymentToken.length < 20 || paymentToken.length > 120) {
+    res.status(400).json({ error: "Invalid payment session" });
+    return;
+  }
+  try {
+    const result = await verifyPublicWhopOrder(paymentToken, checkoutId);
+    const product = result.order.supplierProductId
+      ? (
+          await db
+            .select()
+            .from(supplierProductsTable)
+            .where(eq(supplierProductsTable.id, result.order.supplierProductId))
+            .limit(1)
+        )[0]
+      : null;
+    res.json({
+      orderNumber: result.order.orderNumber,
+      title: product?.title ?? "TS Commerce payment",
+      subtotal: toNumber(result.order.subtotal),
+      tax: toNumber(result.order.taxAmount),
+      shipping: toNumber(result.order.shippingAmount),
+      total: toNumber(result.order.total),
+      currency: result.order.currency,
+      status: result.status,
+      paymentMessage:
+        result.status === "paid"
+          ? "Payment verified by Whop. The order is now in the merchant sales ledger."
+          : result.status === "failed"
+            ? "Whop reported a failed payment. No balance or sale was created; you can retry."
+            : "Whop has not reported a completed payment yet. Check again shortly.",
+      paymentToken,
+      paymentIntentId: (
+        await db
+          .select({ id: paymentIntentsTable.id })
+          .from(paymentIntentsTable)
+          .where(eq(paymentIntentsTable.orderId, result.order.id))
+          .limit(1)
+      )[0]?.id ?? null,
+      paymentProvider: "whop",
+      paymentUrl: null,
+      paymentStatus: result.status === "paid" ? "verified" : result.status,
+      providerPaymentId: result.providerPaymentId,
+    });
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Payment could not be verified",
+    });
   }
 });
 
@@ -6583,6 +7469,65 @@ router.get("/public/invoices/:token", async (req, res): Promise<void> => {
     shippingAmount: detail.shippingAmount, total: detail.total, amountPaid: detail.amountPaid,
     dueDate: detail.dueDate, status: detail.status, notes: detail.notes, terms: detail.terms, lines: detail.lines,
   }));
+});
+
+router.post("/public/invoices/:token/whop-checkout", async (req, res): Promise<void> => {
+  const token = String(req.params.token ?? "").trim();
+  if (token.length < 20 || token.length > 120) {
+    res.status(400).json({ error: "Invalid invoice link" });
+    return;
+  }
+  const invoice = (await db.select().from(invoicesTable).where(eq(invoicesTable.publicToken, token)).limit(1))[0];
+  if (!invoice || invoice.status === "draft" || invoice.status === "void") {
+    res.status(404).json({ error: "Invoice is unavailable" });
+    return;
+  }
+  try {
+    const payment = await ensurePublicWhopInvoiceCheckout(invoice, requestOrigin(req));
+    res.status(201).json({
+      provider: "whop",
+      checkoutId: payment.checkoutId,
+      purchaseUrl: payment.purchaseUrl,
+      paymentToken: payment.paymentToken,
+      paymentIntentId: payment.paymentIntentId,
+      paymentStatus: payment.status,
+    });
+  } catch (error) {
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Hosted invoice checkout could not be created",
+    });
+  }
+});
+
+router.post("/public/invoices/:token/whop-verify", async (req, res): Promise<void> => {
+  const token = String(req.params.token ?? "").trim();
+  const checkoutId = typeof req.body?.checkoutId === "string" ? req.body.checkoutId.trim() : null;
+  if (token.length < 20 || token.length > 120) {
+    res.status(400).json({ error: "Invalid invoice link" });
+    return;
+  }
+  try {
+    const result = await verifyPublicWhopInvoice(token, checkoutId);
+    const detail = await serializeInvoice(result.invoice);
+    res.json({
+      invoiceNumber: detail.invoiceNumber,
+      amountPaid: detail.amountPaid,
+      total: detail.total,
+      currency: detail.currency,
+      status: result.status,
+      paymentMessage:
+        result.status === "paid"
+          ? "Payment verified by Whop and recorded in the invoice ledger."
+          : result.status === "failed"
+            ? "Whop reported a failed payment. No invoice balance was changed; you can retry."
+            : "Whop has not reported a completed payment yet. Check again shortly.",
+      providerPaymentId: result.providerPaymentId,
+    });
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Invoice payment could not be verified",
+    });
+  }
 });
 
 router.post("/public/invoices/:token/payment-reference", async (req, res): Promise<void> => {

@@ -1015,7 +1015,7 @@ paths:
     post:
       operationId: createPublicCheckout
       tags: [checkout]
-      summary: Create a pending customer order from a public catalog
+      summary: Create a customer order and hosted Whop payment session from a public catalog
       parameters:
         - name: merchantKey
           in: path
@@ -1032,7 +1032,7 @@ paths:
               $ref: "#/components/schemas/PublicCheckoutInput"
       responses:
         "201":
-          description: Pending order awaiting merchant payment confirmation
+          description: Order with a hosted Whop payment session
           content:
             application/json:
               schema:
@@ -1057,7 +1057,7 @@ paths:
     post:
       operationId: createPaymentLinkCheckout
       tags: [checkout]
-      summary: Create a pending order from a public payment link
+      summary: Create an order and hosted Whop payment session from a public payment link
       parameters:
         - name: token
           in: path
@@ -1070,10 +1070,33 @@ paths:
             schema: { $ref: "#/components/schemas/PaymentLinkCheckoutInput" }
       responses:
         "201":
-          description: Pending order awaiting merchant payment confirmation
+          description: Order with a hosted Whop payment session
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PublicCheckoutOrder" }
+  /public/checkout/{paymentToken}/retry:
+    post:
+      operationId: retryPublicWhopCheckout
+      tags: [checkout]
+      summary: Recreate or reuse a hosted Whop checkout for a public order
+      parameters: [ { name: paymentToken, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      responses:
+        "201":
+          description: Hosted checkout retry
+          content: { application/json: { schema: { $ref: "#/components/schemas/PublicCheckoutPaymentSession" } } }
+  /public/checkout/{paymentToken}/verify:
+    post:
+      operationId: verifyPublicWhopCheckout
+      tags: [checkout]
+      summary: Verify a public order's hosted Whop payment server-side
+      parameters: [ { name: paymentToken, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { $ref: "#/components/schemas/PublicWhopCheckoutVerificationInput" } } }
+      responses:
+        "200":
+          description: Public order payment verification result
+          content: { application/json: { schema: { $ref: "#/components/schemas/PublicCheckoutVerificationResponse" } } }
   /invoices:
     get:
       operationId: listInvoices
@@ -1172,6 +1195,54 @@ paths:
         "201":
           description: Payment reference pending merchant review
           content: { application/json: { schema: { $ref: "#/components/schemas/InvoicePaymentSubmission" } } }
+  /public/invoices/{token}/whop-checkout:
+    post:
+      operationId: createPublicInvoiceWhopCheckout
+      tags: [checkout]
+      summary: Create a hosted Whop checkout for an invoice balance
+      parameters: [ { name: token, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      responses:
+        "201":
+          description: Hosted invoice checkout
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider: { type: string, enum: [whop] }
+                  checkoutId: { type: string }
+                  purchaseUrl: { type: string, format: uri }
+                  paymentToken: { type: string }
+                  paymentIntentId: { type: integer }
+                  paymentStatus: { type: string, enum: [submitted] }
+                required: [provider, checkoutId, purchaseUrl, paymentToken, paymentIntentId, paymentStatus]
+  /public/invoices/{token}/whop-verify:
+    post:
+      operationId: verifyPublicInvoiceWhopPayment
+      tags: [checkout]
+      summary: Verify a hosted Whop invoice payment server-side
+      parameters: [ { name: token, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublicWhopCheckoutVerificationInput" }
+      responses:
+        "200":
+          description: Invoice payment verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoiceNumber: { type: string }
+                  amountPaid: { type: number }
+                  total: { type: number }
+                  currency: { type: string }
+                  status: { type: string, enum: [paid, pending, failed] }
+                  paymentMessage: { type: string }
+                  providerPaymentId: { type: ["string", "null"] }
+                required: [invoiceNumber, amountPaid, total, currency, status, paymentMessage, providerPaymentId]
   /marketplace/products:
     get:
       operationId: listMarketplaceProducts
@@ -3502,7 +3573,12 @@ components:
         currency: { type: string }
         status: { type: string, enum: [pending] }
         paymentMessage: { type: string }
-      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage]
+        paymentToken: { type: ["string", "null"] }
+        paymentIntentId: { type: ["integer", "null"] }
+        paymentProvider: { type: string, enum: [whop] }
+        paymentUrl: { type: ["string", "null"], format: uri }
+        paymentStatus: { type: string, enum: [created, submitted, verified, failed] }
+      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
     PaymentLinkInput:
       type: object
       properties:
@@ -3769,3 +3845,37 @@ components:
         marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [customerName, customerEmail, shippingAddress, idempotencyKey]
+    PublicWhopCheckoutVerificationInput:
+      type: object
+      properties:
+        checkoutId: { type: string }
+    PublicCheckoutPaymentSession:
+      type: object
+      properties:
+        orderNumber: { type: string }
+        status: { type: string, enum: [pending, paid] }
+        paymentToken: { type: string }
+        paymentIntentId: { type: integer }
+        paymentProvider: { type: string, enum: [whop] }
+        paymentUrl: { type: string, format: uri }
+        paymentStatus: { type: string, enum: [submitted] }
+      required: [orderNumber, status, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
+    PublicCheckoutVerificationResponse:
+      type: object
+      properties:
+        orderNumber: { type: string }
+        title: { type: string }
+        subtotal: { type: number }
+        tax: { type: number }
+        shipping: { type: number }
+        total: { type: number }
+        currency: { type: string }
+        status: { type: string, enum: [paid, pending, failed] }
+        paymentMessage: { type: string }
+        paymentToken: { type: string }
+        paymentIntentId: { type: integer }
+        paymentProvider: { type: string, enum: [whop] }
+        paymentUrl: { type: ["string", "null"], format: uri }
+        paymentStatus: { type: string, enum: [verified, pending, failed] }
+        providerPaymentId: { type: ["string", "null"] }
+      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus, providerPaymentId]

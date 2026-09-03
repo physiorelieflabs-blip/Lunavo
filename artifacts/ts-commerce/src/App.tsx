@@ -34,6 +34,7 @@ import Auctions from '@/pages/auctions';
 import AuctionManagement from '@/pages/auction-management';
 import Invoices from '@/pages/invoices';
 import PublicInvoice from '@/pages/invoice-public';
+import PublicPaymentReturn from '@/pages/public-payment-return';
 import Activity from '@/pages/activity';
 import Team from '@/pages/team';
 import Analytics from '@/pages/analytics';
@@ -118,6 +119,7 @@ function AuthRoutes() {
     <Route path="/checkout/:merchantKey" component={Checkout} />
      <Route path="/pay/:token" component={PaymentLinkCheckout} />
      <Route path="/invoice/:token" component={PublicInvoice} />
+    <Route path="/checkout/payment-return" component={PublicPaymentReturn} />
      <Route path="/invite/:token" component={Invite} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
      <Route path="/analytics" component={() => <Protected><Analytics /></Protected>} />

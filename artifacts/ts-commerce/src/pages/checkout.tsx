@@ -52,12 +52,11 @@ export default function Checkout() {
       },
     }, {
       onSuccess: (order) => {
+        if (order.paymentUrl) {
+          window.location.assign(order.paymentUrl);
+          return;
+        }
         setReceipt(order);
-        setCustomerName('');
-        setCustomerEmail('');
-        setCustomerPhone('');
-        setShippingAddress('');
-        setMarketingConsent(false);
       },
       onError: () => setMessage('We could not submit this order. Check your details and try again.'),
     });

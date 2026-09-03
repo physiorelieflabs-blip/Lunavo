@@ -33,6 +33,15 @@ export type WhopPayment = {
   plan?: { id?: string | null } | null;
 };
 
+export type WhopPlan = {
+  id: string;
+  plan_type?: string | null;
+  currency?: string | null;
+  initial_price?: number | null;
+  renewal_price?: number | null;
+  product?: { id?: string | null } | null;
+};
+
 function providerError(payload: unknown): string {
   if (payload && typeof payload === "object") {
     const message = (payload as { error?: { message?: unknown } | unknown }).error;
@@ -82,6 +91,19 @@ export function whopCompanyId(): string {
   return value;
 }
 
+export function whopCustomerProductId(): string {
+  const value = process.env.WHOP_CUSTOMER_PRODUCT_ID?.trim();
+  if (!value) throw new Error("Whop customer payment product is not configured");
+  return value;
+}
+
 export function isWhopConfigured(): boolean {
   return Boolean(process.env.WHOP_COMPANY_ID?.trim() && process.env.WHOP_PLAN_ID?.trim());
+}
+
+export function isCustomerWhopConfigured(): boolean {
+  return Boolean(
+    process.env.WHOP_COMPANY_ID?.trim() &&
+      process.env.WHOP_CUSTOMER_PRODUCT_ID?.trim(),
+  );
 }
