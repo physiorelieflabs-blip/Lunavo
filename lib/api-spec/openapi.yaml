@@ -956,6 +956,94 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PublicCheckoutOrder" }
+  /invoices:
+    get:
+      operationId: listInvoices
+      tags: [payments]
+      summary: List tenant-owned invoices
+      responses:
+        "200":
+          description: Invoice summaries
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Invoice" } } } }
+    post:
+      operationId: createInvoice
+      tags: [payments]
+      summary: Create a draft invoice with immutable pricing snapshots
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/InvoiceInput" } } }
+      responses:
+        "201":
+          description: Draft invoice
+          content: { application/json: { schema: { $ref: "#/components/schemas/Invoice" } } }
+  /invoices/{id}:
+    get:
+      operationId: getInvoice
+      tags: [payments]
+      summary: Get a tenant-owned invoice
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer } } ]
+      responses:
+        "200":
+          description: Invoice detail
+          content: { application/json: { schema: { $ref: "#/components/schemas/Invoice" } } }
+  /invoices/{id}/send:
+    post:
+      operationId: sendInvoice
+      tags: [payments]
+      summary: Mark a draft invoice as sent
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer } } ]
+      responses:
+        "200":
+          description: Sent invoice
+          content: { application/json: { schema: { $ref: "#/components/schemas/Invoice" } } }
+  /invoices/{id}/void:
+    post:
+      operationId: voidInvoice
+      tags: [payments]
+      summary: Void an unpaid tenant-owned invoice
+      parameters: [ { name: id, in: path, required: true, schema: { type: integer } } ]
+      responses:
+        "200":
+          description: Voided invoice
+          content: { application/json: { schema: { $ref: "#/components/schemas/Invoice" } } }
+  /invoices/{id}/payments/{paymentId}/verify:
+    post:
+      operationId: verifyInvoicePayment
+      tags: [payments]
+      summary: Verify submitted invoice payment evidence
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: paymentId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/InvoicePaymentReview" } } }
+      responses:
+        "200":
+          description: Invoice after authoritative payment verification
+          content: { application/json: { schema: { $ref: "#/components/schemas/Invoice" } } }
+  /public/invoices/{token}:
+    get:
+      operationId: getPublicInvoice
+      tags: [checkout]
+      summary: View customer-safe public invoice details
+      parameters: [ { name: token, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      responses:
+        "200":
+          description: Public invoice
+          content: { application/json: { schema: { $ref: "#/components/schemas/PublicInvoice" } } }
+  /public/invoices/{token}/payment-reference:
+    post:
+      operationId: submitInvoicePaymentReference
+      tags: [checkout]
+      summary: Submit payment evidence for merchant review without capture claims
+      parameters: [ { name: token, in: path, required: true, schema: { type: string, minLength: 20, maxLength: 120 } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/InvoicePaymentReferenceInput" } } }
+      responses:
+        "201":
+          description: Payment reference pending merchant review
+          content: { application/json: { schema: { $ref: "#/components/schemas/InvoicePaymentSubmission" } } }
   /marketplace/products:
     get:
       operationId: listMarketplaceProducts
@@ -2854,6 +2942,112 @@ components:
         publicPath: { type: string }
         createdAt: { type: string, format: date-time }
       required: [id, token, title, description, amount, currency, status, expiresAt, publicPath, createdAt]
+    InvoiceLineInput:
+      type: object
+      required: [description, quantity, unitPrice]
+      properties:
+        description: { type: string, minLength: 1, maxLength: 500 }
+        quantity: { type: number, exclusiveMinimum: 0, maximum: 1000000 }
+        unitPrice: { type: number, minimum: 0, maximum: 999999999 }
+    InvoiceInput:
+      type: object
+      required: [customerName, customerEmail, currency, lines]
+      properties:
+        customerId: { type: ["integer", "null"] }
+        orderId: { type: ["integer", "null"] }
+        paymentLinkId: { type: ["integer", "null"] }
+        customerName: { type: string, minLength: 2, maxLength: 160 }
+        customerEmail: { type: string, format: email, maxLength: 254 }
+        customerPhone: { type: ["string", "null"], maxLength: 40 }
+        billingAddress: { type: ["string", "null"], maxLength: 1000 }
+        shippingAddress: { type: ["string", "null"], maxLength: 1000 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        lines: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/InvoiceLineInput" } }
+        discountAmount: { type: number, minimum: 0, default: 0 }
+        taxAmount: { type: number, minimum: 0, default: 0 }
+        shippingAmount: { type: number, minimum: 0, default: 0 }
+        dueDate: { type: ["string", "null"] }
+        notes: { type: ["string", "null"], maxLength: 5000 }
+        terms: { type: ["string", "null"], maxLength: 5000 }
+    InvoiceLine:
+      type: object
+      required: [id, description, quantity, unitPrice, lineTotal]
+      properties:
+        id: { type: integer }
+        description: { type: string }
+        quantity: { type: number }
+        unitPrice: { type: number }
+        lineTotal: { type: number }
+    InvoicePaymentSubmission:
+      type: object
+      required: [id, amount, currency, paymentReference, status, createdAt]
+      properties:
+        id: { type: integer }
+        amount: { type: number }
+        currency: { type: string }
+        paymentReference: { type: string }
+        senderName: { type: ["string", "null"] }
+        status: { type: string, enum: [pending_review, verified, rejected] }
+        reviewNote: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+    Invoice:
+      type: object
+      required: [id, invoiceNumber, publicPath, customerName, customerEmail, currency, subtotal, discountAmount, taxAmount, shippingAmount, total, amountPaid, status, lines, payments, createdAt]
+      properties:
+        id: { type: integer }
+        invoiceNumber: { type: string }
+        publicPath: { type: string }
+        customerName: { type: string }
+        customerEmail: { type: string }
+        customerPhone: { type: ["string", "null"] }
+        billingAddress: { type: ["string", "null"] }
+        shippingAddress: { type: ["string", "null"] }
+        currency: { type: string }
+        subtotal: { type: number }
+        discountAmount: { type: number }
+        taxAmount: { type: number }
+        shippingAmount: { type: number }
+        total: { type: number }
+        amountPaid: { type: number }
+        dueDate: { type: ["string", "null"] }
+        status: { type: string, enum: [draft, sent, viewed, partially_paid, paid, overdue, void] }
+        notes: { type: ["string", "null"] }
+        terms: { type: ["string", "null"] }
+        lines: { type: array, items: { $ref: "#/components/schemas/InvoiceLine" } }
+        payments: { type: array, items: { $ref: "#/components/schemas/InvoicePaymentSubmission" } }
+        createdAt: { type: string, format: date-time }
+        sentAt: { type: ["string", "null"], format: date-time }
+    PublicInvoice:
+      type: object
+      required: [invoiceNumber, customerName, currency, subtotal, discountAmount, taxAmount, shippingAmount, total, amountPaid, status, lines]
+      properties:
+        invoiceNumber: { type: string }
+        customerName: { type: string }
+        currency: { type: string }
+        subtotal: { type: number }
+        discountAmount: { type: number }
+        taxAmount: { type: number }
+        shippingAmount: { type: number }
+        total: { type: number }
+        amountPaid: { type: number }
+        dueDate: { type: ["string", "null"], format: date }
+        status: { type: string, enum: [sent, viewed, partially_paid, paid, overdue, void] }
+        notes: { type: ["string", "null"] }
+        terms: { type: ["string", "null"] }
+        lines: { type: array, items: { $ref: "#/components/schemas/InvoiceLine" } }
+    InvoicePaymentReferenceInput:
+      type: object
+      required: [amount, paymentReference]
+      properties:
+        amount: { type: number, exclusiveMinimum: 0 }
+        paymentReference: { type: string, minLength: 2, maxLength: 240 }
+        senderName: { type: ["string", "null"], maxLength: 160 }
+    InvoicePaymentReview:
+      type: object
+      properties:
+        approved: { type: boolean, default: true }
+        reviewNote: { type: ["string", "null"], maxLength: 2000 }
+      required: [approved]
     PublicPaymentLink:
       type: object
       properties:

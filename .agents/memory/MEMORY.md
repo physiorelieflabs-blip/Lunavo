@@ -8,3 +8,4 @@
 - [POS accounting boundary](pos-accounting-boundary.md) — orders start pending; only verified payment creates sale revenue, and reservation holds stay separate from stock movements.
 - [Withdrawal PIN boundary](withdrawal-pin-security.md) — merchant payouts require two hashed PINs; admin review and payouts require five, in addition to authenticator step-up.
 - [Checkout pricing snapshots](checkout-pricing.md) — server-calculated tax and shipping are stored with each order and never recomputed for history.
+- [Invoice payment accounting](invoice-payment-accounting.md) — invoice payment evidence becomes authoritative only through locked, idempotent verification and ledger posting.

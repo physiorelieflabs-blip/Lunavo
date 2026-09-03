@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { CheckCircle2, Link2, ShieldCheck } from 'lucide-react';
 import { useParams } from 'wouter';
-import { useCreatePaymentLinkCheckout, useGetPublicPaymentLink } from '@workspace/api-client-react';
+import { getGetPublicPaymentLinkQueryKey, useCreatePaymentLinkCheckout, useGetPublicPaymentLink } from '@workspace/api-client-react';
 import { Button, ErrorState, LoadingState, Notice, SubmitButton } from '@/components/primitives';
 import { money } from '@/lib/format';
 
@@ -9,7 +9,7 @@ const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f
 
 export default function PaymentLinkCheckout() {
   const { token = '' } = useParams<{ token: string }>();
-  const link = useGetPublicPaymentLink(token);
+  const link = useGetPublicPaymentLink(token, { query: { queryKey: getGetPublicPaymentLinkQueryKey(token), retry: false } });
   const checkout = useCreatePaymentLinkCheckout();
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
@@ -19,7 +19,7 @@ export default function PaymentLinkCheckout() {
   const [message, setMessage] = useState('');
   const [completed, setCompleted] = useState<{ orderNumber: string; total: number; currency: string } | null>(null);
 
-  if (link.isLoading) return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><LoadingState label="Loading secure payment link" /></main>;
+  if (link.isLoading) return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><div className="w-full max-w-md"><LoadingState label="Loading secure payment link" /></div></main>;
   if (link.isError || !link.data) return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><ErrorState onRetry={() => void link.refetch()} /></main>;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {

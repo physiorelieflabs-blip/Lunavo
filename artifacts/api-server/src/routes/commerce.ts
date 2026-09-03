@@ -46,6 +46,9 @@ import {
   withdrawalsTable,
   inventoryReservationsTable,
   inventoryMovementsTable,
+  invoicesTable,
+  invoiceLinesTable,
+  invoicePaymentSubmissionsTable,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -202,6 +205,23 @@ import {
   ListInventoryMovementsResponse,
   CreateInventoryAdjustmentBody,
   CreateInventoryAdjustmentResponse,
+  ListInvoicesResponse,
+  CreateInvoiceBody,
+  CreateInvoiceResponse,
+  GetInvoiceParams,
+  GetInvoiceResponse,
+  SendInvoiceParams,
+  SendInvoiceResponse,
+  VoidInvoiceParams,
+  VoidInvoiceResponse,
+  VerifyInvoicePaymentParams,
+  VerifyInvoicePaymentBody,
+  VerifyInvoicePaymentResponse,
+  GetPublicInvoiceParams,
+  GetPublicInvoiceResponse,
+  SubmitInvoicePaymentReferenceParams,
+  SubmitInvoicePaymentReferenceBody,
+  SubmitInvoicePaymentReferenceResponse,
 } from "@workspace/api-zod";
 import {
   createTotpUri,
@@ -214,6 +234,7 @@ import {
   importPublicSupplierProduct,
   type ImportedSupplierProduct,
 } from "../lib/public-supplier";
+import { canonicalInvoiceLine, canonicalMoneyMinor, invoiceStatusForDueDate } from "../lib/invoice-logic";
 import {
   allowedActionType,
   getAiActionForMerchant,
@@ -284,6 +305,16 @@ type Supplier = typeof suppliersTable.$inferSelect;
 
 function toNumber(value: string | number | null | undefined): number {
   return Number(value ?? 0);
+}
+
+async function refreshInvoiceOverdue(invoice: typeof invoicesTable.$inferSelect) {
+  const nextStatus = invoiceStatusForDueDate(invoice.status, invoice.dueDate);
+  if (nextStatus === invoice.status) return invoice;
+  const [updated] = await db.update(invoicesTable).set({ status: nextStatus })
+    .where(and(eq(invoicesTable.id, invoice.id), eq(invoicesTable.status, invoice.status)))
+    .returning();
+  if (updated) return updated;
+  return (await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoice.id)).limit(1))[0] ?? invoice;
 }
 
 function normalizeCustomerTags(tags: string[]): string[] {
@@ -741,6 +772,37 @@ function serializePayment(payment: Payment, merchantName: string) {
     reviewNote: payment.reviewNote,
     reviewedAt: payment.reviewedAt,
     createdAt: payment.createdAt,
+  };
+}
+
+function invoiceAddress(value: unknown): string | null {
+  const record = jsonRecord(value);
+  return typeof record.formatted === "string" ? record.formatted : null;
+}
+
+function serializeInvoicePayment(payment: typeof invoicePaymentSubmissionsTable.$inferSelect) {
+  return {
+    id: payment.id, amount: toNumber(payment.amount), currency: payment.currency,
+    paymentReference: payment.paymentReference, senderName: payment.senderName,
+    status: payment.status, reviewNote: payment.reviewNote, createdAt: payment.createdAt,
+  };
+}
+
+async function serializeInvoice(invoice: typeof invoicesTable.$inferSelect) {
+  const [lines, payments] = await Promise.all([
+    db.select().from(invoiceLinesTable).where(eq(invoiceLinesTable.invoiceId, invoice.id)).orderBy(asc(invoiceLinesTable.position)),
+    db.select().from(invoicePaymentSubmissionsTable).where(eq(invoicePaymentSubmissionsTable.invoiceId, invoice.id)).orderBy(desc(invoicePaymentSubmissionsTable.createdAt)),
+  ]);
+  return {
+    id: invoice.id, invoiceNumber: invoice.invoiceNumber, publicPath: `/invoice/${invoice.publicToken}`,
+    customerName: invoice.customerName, customerEmail: invoice.customerEmail, customerPhone: invoice.customerPhone,
+    billingAddress: invoiceAddress(invoice.billingAddress), shippingAddress: invoiceAddress(invoice.shippingAddress),
+    currency: invoice.currency, subtotal: toNumber(invoice.subtotal), discountAmount: toNumber(invoice.discountAmount),
+    taxAmount: toNumber(invoice.taxAmount), shippingAmount: toNumber(invoice.shippingAmount), total: toNumber(invoice.total),
+    amountPaid: toNumber(invoice.amountPaid), dueDate: invoice.dueDate, status: invoice.status,
+    notes: invoice.notes, terms: invoice.terms,
+    lines: lines.map((line) => ({ id: line.id, description: line.description, quantity: toNumber(line.quantity), unitPrice: toNumber(line.unitPrice), lineTotal: toNumber(line.lineTotal) })),
+    payments: payments.map(serializeInvoicePayment), createdAt: invoice.createdAt, sentAt: invoice.sentAt,
   };
 }
 
@@ -4082,6 +4144,97 @@ router.get("/payment-links", async (req, res): Promise<void> => {
   res.json(ListPaymentLinksResponse.parse(links.map(serializePaymentLink)));
 });
 
+router.get("/invoices", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const invoices = await db.select().from(invoicesTable).where(eq(invoicesTable.merchantId, merchant.id)).orderBy(desc(invoicesTable.createdAt));
+  res.json(ListInvoicesResponse.parse(await Promise.all((await Promise.all(invoices.map(refreshInvoiceOverdue))).map(serializeInvoice))));
+});
+
+router.post("/invoices", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const parsed = CreateInvoiceBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Enter a customer, currency, and at least one valid line item" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const input = parsed.data; const currency = input.currency.trim().toUpperCase();
+  if (currency !== merchant.currency) { res.status(400).json({ error: `Invoices must use your merchant currency (${merchant.currency})` }); return; }
+  try {
+    const invoice = await db.transaction(async (tx) => {
+      if (input.customerId) {
+        const customer = (await tx.select({ id: customersTable.id }).from(customersTable).where(and(eq(customersTable.id, input.customerId), eq(customersTable.merchantId, merchant.id))).limit(1))[0];
+        if (!customer) throw new Error("Customer does not belong to this merchant");
+      }
+      if (input.orderId) {
+        const order = (await tx.select({ id: ordersTable.id, currency: ordersTable.currency }).from(ordersTable).where(and(eq(ordersTable.id, input.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
+        if (!order || order.currency !== currency) throw new Error("Linked order must belong to you and use the invoice currency");
+      }
+      if (input.paymentLinkId) {
+        const link = (await tx.select({ id: paymentLinksTable.id, currency: paymentLinksTable.currency }).from(paymentLinksTable).where(and(eq(paymentLinksTable.id, input.paymentLinkId), eq(paymentLinksTable.merchantId, merchant.id))).limit(1))[0];
+        if (!link || link.currency !== currency) throw new Error("Linked payment link must belong to you and use the invoice currency");
+      }
+      const lineValues = input.lines.map((line, position) => {
+        const canonical = canonicalInvoiceLine(Number(line.quantity), Number(line.unitPrice));
+        return { position, description: line.description.trim(), ...canonical };
+      });
+      const subtotalMinor = lineValues.reduce((sum, line) => sum + line.lineTotalMinor, 0);
+      const discountMinor = canonicalMoneyMinor(input.discountAmount ?? 0, "Discount");
+      const taxMinor = canonicalMoneyMinor(input.taxAmount ?? 0, "Tax"); const shippingMinor = canonicalMoneyMinor(input.shippingAmount ?? 0, "Shipping");
+      if (discountMinor > subtotalMinor) throw new Error("Discount cannot exceed the invoice subtotal");
+      const totalMinor = subtotalMinor - discountMinor + taxMinor + shippingMinor;
+      const [created] = await tx.insert(invoicesTable).values({
+        merchantId: merchant.id, customerId: input.customerId ?? null, orderId: input.orderId ?? null, paymentLinkId: input.paymentLinkId ?? null,
+        invoiceNumber: `INV-${randomUUID().slice(0, 8).toUpperCase()}`, publicToken: randomUUID().replaceAll("-", ""),
+        customerName: input.customerName.trim(), customerEmail: input.customerEmail.trim().toLowerCase(), customerPhone: input.customerPhone?.trim() || null,
+        billingAddress: input.billingAddress?.trim() ? { formatted: input.billingAddress.trim() } : null, shippingAddress: input.shippingAddress?.trim() ? { formatted: input.shippingAddress.trim() } : null,
+        currency, subtotal: (subtotalMinor / 100).toFixed(2), discountAmount: (discountMinor / 100).toFixed(2), taxAmount: (taxMinor / 100).toFixed(2), shippingAmount: (shippingMinor / 100).toFixed(2), total: (totalMinor / 100).toFixed(2),
+        dueDate: input.dueDate ? new Date(input.dueDate).toISOString().slice(0, 10) : null, notes: input.notes?.trim() || null, terms: input.terms?.trim() || null,
+      }).returning();
+      if (!created) throw new Error("Invoice could not be created");
+      await tx.insert(invoiceLinesTable).values(lineValues.map((line) => ({ invoiceId: created.id, position: line.position, description: line.description, quantity: (line.quantityMilli / 1000).toFixed(3), unitPrice: (line.unitPriceMinor / 100).toFixed(2), lineTotal: (line.lineTotalMinor / 100).toFixed(2) })));
+      return created;
+    });
+    res.status(201).json(CreateInvoiceResponse.parse(await serializeInvoice(invoice)));
+  } catch (error) { req.log.error({ err: error }, "invoice creation failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Invoice could not be created" }); }
+});
+
+router.get("/invoices/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = GetInvoiceParams.safeParse(req.params); if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const invoice = (await db.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
+  if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+  res.json(GetInvoiceResponse.parse(await serializeInvoice(invoice)));
+});
+
+router.post("/invoices/:id/send", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const params = SendInvoiceParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; } const merchant = await getOrCreateMerchant(identity);
+  const current = (await db.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
+  if (!current) { res.status(404).json({ error: "Invoice not found" }); return; }
+  if (current.status !== "draft") { res.status(409).json({ error: "Only draft invoices can be sent" }); return; }
+  const [invoice] = await db.update(invoicesTable).set({ status: "sent", sentAt: new Date() }).where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, "draft"))).returning();
+  res.json(SendInvoiceResponse.parse(await serializeInvoice(invoice!)));
+});
+
+router.post("/invoices/:id/void", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return; const params = VoidInvoiceParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid invoice" }); return; } const merchant = await getOrCreateMerchant(identity);
+  try {
+    const invoice = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${invoicesTable} where id=${params.data.id} and merchant_id=${merchant.id} for update`);
+      const current = (await tx.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
+      if (!current) throw new Error("Invoice not found");
+      if (current.status === "void") return current;
+      if (toNumber(current.amountPaid) > 0 || current.status === "paid") throw new Error("Invoices with verified payments cannot be voided");
+      const [updated] = await tx.update(invoicesTable).set({ status: "void", voidedAt: new Date() })
+        .where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, current.status), eq(invoicesTable.amountPaid, current.amountPaid))).returning();
+      if (!updated) throw new Error("Invoice changed while it was being voided");
+      return updated;
+    });
+    res.json(VoidInvoiceResponse.parse(await serializeInvoice(invoice)));
+  } catch (error) { res.status(error instanceof Error && error.message === "Invoice not found" ? 404 : 409).json({ error: error instanceof Error ? error.message : "Invoice could not be voided" }); }
+});
+
 router.post("/payment-links", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -4817,6 +4970,94 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
     req.log.error({ err: error }, "payment link checkout failed");
     res.status(409).json({ error: error instanceof Error ? error.message : "Payment link checkout could not be created" });
   }
+});
+
+router.get("/public/invoices/:token", async (req, res): Promise<void> => {
+  const params = GetPublicInvoiceParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid invoice link" }); return; }
+  let invoice = (await db.select().from(invoicesTable).where(eq(invoicesTable.publicToken, params.data.token)).limit(1))[0];
+  if (!invoice || invoice.status === "draft") { res.status(404).json({ error: "Invoice is unavailable" }); return; }
+  invoice = await refreshInvoiceOverdue(invoice);
+  if (invoice.status === "sent") {
+    const [viewed] = await db.update(invoicesTable).set({ status: "viewed", viewedAt: new Date() })
+      .where(and(eq(invoicesTable.id, invoice.id), eq(invoicesTable.status, "sent"))).returning();
+    // A concurrent void/overdue transition wins; never manufacture "viewed".
+    invoice = viewed ?? (await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoice!.id)).limit(1))[0]!;
+  }
+  const detail = await serializeInvoice(invoice);
+  // Deliberately omit merchant identifiers, email, payment submissions, and addresses.
+  res.json(GetPublicInvoiceResponse.parse({
+    invoiceNumber: detail.invoiceNumber, customerName: detail.customerName, currency: detail.currency,
+    subtotal: detail.subtotal, discountAmount: detail.discountAmount, taxAmount: detail.taxAmount,
+    shippingAmount: detail.shippingAmount, total: detail.total, amountPaid: detail.amountPaid,
+    dueDate: detail.dueDate, status: detail.status, notes: detail.notes, terms: detail.terms, lines: detail.lines,
+  }));
+});
+
+router.post("/public/invoices/:token/payment-reference", async (req, res): Promise<void> => {
+  const params = SubmitInvoicePaymentReferenceParams.safeParse(req.params); const body = SubmitInvoicePaymentReferenceBody.safeParse(req.body);
+  if (!params.success || !body.success) { res.status(400).json({ error: "Enter a valid amount and payment reference" }); return; }
+  let invoice = (await db.select().from(invoicesTable).where(eq(invoicesTable.publicToken, params.data.token)).limit(1))[0];
+  if (invoice) invoice = await refreshInvoiceOverdue(invoice);
+  if (!invoice || !["sent", "viewed", "partially_paid", "overdue"].includes(invoice.status)) { res.status(404).json({ error: "Invoice is not accepting payment references" }); return; }
+  const outstanding = toNumber(invoice.total) - toNumber(invoice.amountPaid);
+  if (body.data.amount > outstanding) { res.status(400).json({ error: "Submitted amount exceeds the outstanding balance" }); return; }
+  try {
+    const [submission] = await db.insert(invoicePaymentSubmissionsTable).values({
+      invoiceId: invoice.id, merchantId: invoice.merchantId, amount: body.data.amount.toFixed(2), currency: invoice.currency,
+      paymentReference: body.data.paymentReference.trim(), senderName: body.data.senderName?.trim() || null,
+    }).returning();
+    await db.update(invoicesTable).set({ paymentReference: submission!.paymentReference }).where(eq(invoicesTable.id, invoice.id));
+    res.status(201).json(SubmitInvoicePaymentReferenceResponse.parse(serializeInvoicePayment(submission!)));
+  } catch (error) { res.status(409).json({ error: "This payment reference was already submitted" }); }
+});
+
+router.post("/invoices/:id/payments/:paymentId/verify", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = VerifyInvoicePaymentParams.safeParse(req.params); const body = VerifyInvoicePaymentBody.safeParse(req.body);
+  if (!params.success || !body.success) { res.status(400).json({ error: "Invalid invoice payment review" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const invoice = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${invoicesTable} where id=${params.data.id} and merchant_id=${merchant.id} for update`);
+      await tx.execute(sql`select id from ${invoicePaymentSubmissionsTable} where id=${params.data.paymentId} and invoice_id=${params.data.id} and merchant_id=${merchant.id} for update`);
+      const current = (await tx.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
+      if (!current) throw new Error("Invoice not found");
+      const payment = (await tx.select().from(invoicePaymentSubmissionsTable).where(and(eq(invoicePaymentSubmissionsTable.id, params.data.paymentId), eq(invoicePaymentSubmissionsTable.invoiceId, current.id), eq(invoicePaymentSubmissionsTable.merchantId, merchant.id))).limit(1))[0];
+      if (!payment || payment.status !== "pending_review") throw new Error("Payment submission is not awaiting review");
+      if (!["sent", "viewed", "partially_paid", "overdue"].includes(current.status)) throw new Error("Invoice is not accepting payment verification");
+      if (!body.data.approved) {
+        const [rejected] = await tx.update(invoicePaymentSubmissionsTable).set({ status: "rejected", reviewedBy: identity.clerkUserId, reviewedAt: new Date(), reviewNote: body.data.reviewNote ?? null }).where(and(eq(invoicePaymentSubmissionsTable.id, payment.id), eq(invoicePaymentSubmissionsTable.status, "pending_review"))).returning();
+        if (!rejected) throw new Error("Payment submission changed during review");
+        return current;
+      }
+      const paid = Number((toNumber(current.amountPaid) + toNumber(payment.amount)).toFixed(2));
+      if (paid > toNumber(current.total)) throw new Error("Verified amount exceeds invoice total");
+      const status = paid === toNumber(current.total) ? "paid" : "partially_paid";
+      const [verified] = await tx.update(invoicePaymentSubmissionsTable).set({ status: "verified", reviewedBy: identity.clerkUserId, reviewedAt: new Date(), reviewNote: body.data.reviewNote ?? null }).where(and(eq(invoicePaymentSubmissionsTable.id, payment.id), eq(invoicePaymentSubmissionsTable.status, "pending_review"))).returning();
+      if (!verified) throw new Error("Payment submission changed during review");
+      const [intent] = await tx.insert(paymentIntentsTable).values({ merchantId: merchant.id, orderId: null, invoicePaymentSubmissionId: payment.id, amountMinor: Math.round(toNumber(payment.amount) * 100), currency: current.currency, method: "invoice_payment_reference", status: "verified", evidenceReference: payment.paymentReference, idempotencyKey: `invoice:${payment.id}` }).onConflictDoNothing({ target: paymentIntentsTable.invoicePaymentSubmissionId }).returning();
+      if (!intent) throw new Error("Authoritative invoice payment already exists");
+      const [record] = await tx.insert(paymentRecordsTable).values({ intentId: intent.id, merchantId: merchant.id, orderId: null, invoicePaymentSubmissionId: payment.id, amountMinor: intent.amountMinor, currency: current.currency, method: intent.method, status: "verified", evidenceReference: payment.paymentReference, verifiedBy: identity.clerkUserId, verifiedAt: new Date() }).returning();
+      if (!record) throw new Error("Authoritative invoice payment record could not be created");
+      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, invoiceId: current.id, paymentRecordId: record.id, amountMinor: intent.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `invoice-payment:${payment.id}` });
+      await tx.execute(sql`select id from ${subscriptionsTable} where merchant_id=${merchant.id} for update`);
+      const subscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1))[0];
+      if (subscription) {
+        const outstanding = Math.max(0, toNumber(subscription.amountDue) - toNumber(subscription.amountPaid));
+        const hold = Math.min(toNumber(payment.amount), Math.max(0, outstanding - toNumber(subscription.earningsHeld)));
+        if (hold > 0) {
+          const [held] = await tx.update(subscriptionsTable).set({ earningsHeld: (toNumber(subscription.earningsHeld) + hold).toFixed(2) }).where(and(eq(subscriptionsTable.id, subscription.id), eq(subscriptionsTable.amountPaid, subscription.amountPaid), eq(subscriptionsTable.earningsHeld, subscription.earningsHeld))).returning();
+          if (!held) throw new Error("Subscription changed while invoice payment was being verified");
+        }
+      }
+      const [updated] = await tx.update(invoicesTable).set({ amountPaid: paid.toFixed(2), status }).where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, current.status), eq(invoicesTable.amountPaid, current.amountPaid))).returning();
+      if (!updated) throw new Error("Invoice changed during payment verification");
+      await tx.insert(activityTable).values({ merchantId: merchant.id, type: "invoice_payment_verified", title: `Invoice ${current.invoiceNumber} payment verified`, description: "Verified customer payment evidence was posted to the internal ledger.", amount: payment.amount, currency: current.currency, tone: "positive" });
+      return updated!;
+    });
+    res.json(VerifyInvoicePaymentResponse.parse(await serializeInvoice(invoice)));
+  } catch (error) { req.log.error({ err: error }, "invoice payment review failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Invoice payment review failed" }); }
 });
 
 router.get("/dropship/queue", async (req, res): Promise<void> => {
@@ -5882,6 +6123,7 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
       if (!current) throw new Error("Payment intent not found");
        if (current.status === "verified") return current;
       if (!["created", "submitted"].includes(current.status)) throw new Error("Payment is not awaiting verification");
+       if (current.orderId === null) throw new Error("Invoice payments are verified from their invoice review");
       const evidence = body.data.evidenceReference ?? current.evidenceReference;
       if (!evidence) throw new Error("Evidence/reference is required");
       const payment = (await tx.select({ id: paymentRecordsTable.id }).from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, id)).limit(1))[0];

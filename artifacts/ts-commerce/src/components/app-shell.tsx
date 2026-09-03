@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import { useClerk, useUser } from '@clerk/react';
-import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone } from 'lucide-react';
+import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, LayoutDashboard, LogOut, Menu, PackageCheck, Route, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
@@ -23,6 +23,7 @@ const merchantLinks = [
   { href: '/inventory', label: 'Inventory', icon: Warehouse },
   { href: '/billing', label: 'Billing', icon: CreditCard },
   { href: '/finance', label: 'Finance', icon: WalletCards },
+   { href: '/invoices', label: 'Invoices', icon: FileText },
 ];
 
 const adminLinks = [

@@ -2027,6 +2027,441 @@ export const CreatePaymentLinkCheckoutResponse = zod.object({
 
 
 /**
+ * @summary List tenant-owned invoices
+ */
+export const ListInvoicesResponseItem = zod.object({
+  "id": zod.int(),
+  "invoiceNumber": zod.string(),
+  "publicPath": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.string(),
+  "customerPhone": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "createdAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullish()
+})
+export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
+
+
+/**
+ * @summary Create a draft invoice with immutable pricing snapshots
+ */
+export const createInvoiceBodyCustomerNameMin = 2;
+export const createInvoiceBodyCustomerNameMax = 160;
+
+export const createInvoiceBodyCustomerEmailMax = 254;
+
+export const createInvoiceBodyCustomerPhoneMax = 40;
+
+export const createInvoiceBodyBillingAddressMax = 1000;
+
+export const createInvoiceBodyShippingAddressMax = 1000;
+
+export const createInvoiceBodyCurrencyMin = 3;
+export const createInvoiceBodyCurrencyMax = 3;
+
+export const createInvoiceBodyLinesItemDescriptionMax = 500;
+
+export const createInvoiceBodyLinesItemQuantityExclusiveMin = 0;
+export const createInvoiceBodyLinesItemQuantityMax = 1000000;
+
+export const createInvoiceBodyLinesItemUnitPriceMin = 0;
+export const createInvoiceBodyLinesItemUnitPriceMax = 999999999;
+
+export const createInvoiceBodyLinesMax = 100;
+
+export const createInvoiceBodyDiscountAmountDefault = 0;
+export const createInvoiceBodyDiscountAmountMin = 0;
+
+export const createInvoiceBodyTaxAmountDefault = 0;
+export const createInvoiceBodyTaxAmountMin = 0;
+
+export const createInvoiceBodyShippingAmountDefault = 0;
+export const createInvoiceBodyShippingAmountMin = 0;
+
+export const createInvoiceBodyNotesMax = 5000;
+
+export const createInvoiceBodyTermsMax = 5000;
+
+
+
+export const CreateInvoiceBody = zod.object({
+  "customerId": zod.int().nullish(),
+  "orderId": zod.int().nullish(),
+  "paymentLinkId": zod.int().nullish(),
+  "customerName": zod.string().min(createInvoiceBodyCustomerNameMin).max(createInvoiceBodyCustomerNameMax),
+  "customerEmail": zod.email().max(createInvoiceBodyCustomerEmailMax),
+  "customerPhone": zod.string().max(createInvoiceBodyCustomerPhoneMax).nullish(),
+  "billingAddress": zod.string().max(createInvoiceBodyBillingAddressMax).nullish(),
+  "shippingAddress": zod.string().max(createInvoiceBodyShippingAddressMax).nullish(),
+  "currency": zod.string().min(createInvoiceBodyCurrencyMin).max(createInvoiceBodyCurrencyMax),
+  "lines": zod.array(zod.object({
+  "description": zod.string().min(1).max(createInvoiceBodyLinesItemDescriptionMax),
+  "quantity": zod.number().gt(createInvoiceBodyLinesItemQuantityExclusiveMin).max(createInvoiceBodyLinesItemQuantityMax),
+  "unitPrice": zod.number().min(createInvoiceBodyLinesItemUnitPriceMin).max(createInvoiceBodyLinesItemUnitPriceMax)
+})).min(1).max(createInvoiceBodyLinesMax),
+  "discountAmount": zod.number().min(createInvoiceBodyDiscountAmountMin).default(createInvoiceBodyDiscountAmountDefault),
+  "taxAmount": zod.number().min(createInvoiceBodyTaxAmountMin).default(createInvoiceBodyTaxAmountDefault),
+  "shippingAmount": zod.number().min(createInvoiceBodyShippingAmountMin).default(createInvoiceBodyShippingAmountDefault),
+  "dueDate": zod.string().nullish(),
+  "notes": zod.string().max(createInvoiceBodyNotesMax).nullish(),
+  "terms": zod.string().max(createInvoiceBodyTermsMax).nullish()
+})
+
+export const CreateInvoiceResponse = zod.object({
+  "id": zod.int(),
+  "invoiceNumber": zod.string(),
+  "publicPath": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.string(),
+  "customerPhone": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "createdAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Get a tenant-owned invoice
+ */
+export const GetInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetInvoiceResponse = zod.object({
+  "id": zod.int(),
+  "invoiceNumber": zod.string(),
+  "publicPath": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.string(),
+  "customerPhone": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "createdAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Mark a draft invoice as sent
+ */
+export const SendInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const SendInvoiceResponse = zod.object({
+  "id": zod.int(),
+  "invoiceNumber": zod.string(),
+  "publicPath": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.string(),
+  "customerPhone": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "createdAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Void an unpaid tenant-owned invoice
+ */
+export const VoidInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const VoidInvoiceResponse = zod.object({
+  "id": zod.int(),
+  "invoiceNumber": zod.string(),
+  "publicPath": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.string(),
+  "customerPhone": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "createdAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Verify submitted invoice payment evidence
+ */
+export const VerifyInvoicePaymentParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "paymentId": zod.coerce.number().int()
+})
+
+export const verifyInvoicePaymentBodyApprovedDefault = true;
+export const verifyInvoicePaymentBodyReviewNoteMax = 2000;
+
+
+
+export const VerifyInvoicePaymentBody = zod.object({
+  "approved": zod.boolean().default(verifyInvoicePaymentBodyApprovedDefault),
+  "reviewNote": zod.string().max(verifyInvoicePaymentBodyReviewNoteMax).nullish()
+})
+
+export const VerifyInvoicePaymentResponse = zod.object({
+  "id": zod.int(),
+  "invoiceNumber": zod.string(),
+  "publicPath": zod.string(),
+  "customerName": zod.string(),
+  "customerEmail": zod.string(),
+  "customerPhone": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "createdAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary View customer-safe public invoice details
+ */
+export const getPublicInvoicePathTokenMin = 20;
+export const getPublicInvoicePathTokenMax = 120;
+
+
+
+export const GetPublicInvoiceParams = zod.object({
+  "token": zod.coerce.string().min(getPublicInvoicePathTokenMin).max(getPublicInvoicePathTokenMax)
+})
+
+export const GetPublicInvoiceResponse = zod.object({
+  "invoiceNumber": zod.string(),
+  "customerName": zod.string(),
+  "currency": zod.string(),
+  "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "taxAmount": zod.number(),
+  "shippingAmount": zod.number(),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "dueDate": zod.coerce.date().nullish(),
+  "status": zod.enum(['sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'void']),
+  "notes": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "lineTotal": zod.number()
+}))
+})
+
+
+/**
+ * @summary Submit payment evidence for merchant review without capture claims
+ */
+export const submitInvoicePaymentReferencePathTokenMin = 20;
+export const submitInvoicePaymentReferencePathTokenMax = 120;
+
+
+
+export const SubmitInvoicePaymentReferenceParams = zod.object({
+  "token": zod.coerce.string().min(submitInvoicePaymentReferencePathTokenMin).max(submitInvoicePaymentReferencePathTokenMax)
+})
+
+export const submitInvoicePaymentReferenceBodyAmountExclusiveMin = 0;
+
+export const submitInvoicePaymentReferenceBodyPaymentReferenceMin = 2;
+export const submitInvoicePaymentReferenceBodyPaymentReferenceMax = 240;
+
+export const submitInvoicePaymentReferenceBodySenderNameMax = 160;
+
+
+
+export const SubmitInvoicePaymentReferenceBody = zod.object({
+  "amount": zod.number().gt(submitInvoicePaymentReferenceBodyAmountExclusiveMin),
+  "paymentReference": zod.string().min(submitInvoicePaymentReferenceBodyPaymentReferenceMin).max(submitInvoicePaymentReferenceBodyPaymentReferenceMax),
+  "senderName": zod.string().max(submitInvoicePaymentReferenceBodySenderNameMax).nullish()
+})
+
+export const SubmitInvoicePaymentReferenceResponse = zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "paymentReference": zod.string(),
+  "senderName": zod.string().nullish(),
+  "status": zod.enum(['pending_review', 'verified', 'rejected']),
+  "reviewNote": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Discover published merchant products opted into the central marketplace
  */
 export const listMarketplaceProductsQuerySearchMax = 120;

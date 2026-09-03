@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -387,6 +388,98 @@ export const paymentLinksTable = pgTable(
   ],
 );
 
+/**
+ * Invoices are tenant-owned commercial documents. Monetary fields are stored
+ * as document snapshots: a later merchant currency or tax-rule change must
+ * never alter a previously issued invoice.
+ */
+export const invoicesTable = pgTable(
+  "invoices",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    customerId: integer("customer_id").references(() => customersTable.id),
+    orderId: integer("order_id").references(() => ordersTable.id),
+    paymentLinkId: integer("payment_link_id").references(() => paymentLinksTable.id),
+    invoiceNumber: text("invoice_number").notNull(),
+    publicToken: text("public_token").notNull().unique(),
+    customerName: text("customer_name").notNull(),
+    customerEmail: text("customer_email").notNull(),
+    customerPhone: text("customer_phone"),
+    billingAddress: jsonb("billing_address"),
+    shippingAddress: jsonb("shipping_address"),
+    currency: text("currency").notNull(),
+    subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
+    discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    shippingAmount: numeric("shipping_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    total: numeric("total", { precision: 12, scale: 2 }).notNull(),
+    amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).notNull().default("0"),
+    dueDate: date("due_date", { mode: "string" }),
+    status: text("status").notNull().default("draft"),
+    notes: text("notes"),
+    terms: text("terms"),
+    paymentReference: text("payment_reference"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("invoices_merchant_number_unique").on(table.merchantId, table.invoiceNumber),
+    index("invoices_merchant_status_created_idx").on(table.merchantId, table.status, table.createdAt),
+    index("invoices_public_token_idx").on(table.publicToken),
+  ],
+);
+
+export const invoiceLinesTable = pgTable(
+  "invoice_lines",
+  {
+    id: serial("id").primaryKey(),
+    invoiceId: integer("invoice_id").notNull().references(() => invoicesTable.id),
+    position: integer("position").notNull(),
+    description: text("description").notNull(),
+    quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull(),
+    unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+    lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("invoice_lines_invoice_position_unique").on(table.invoiceId, table.position),
+    index("invoice_lines_invoice_idx").on(table.invoiceId),
+  ],
+);
+
+/**
+ * A customer-provided reference is evidence awaiting review, never evidence
+ * of card capture or settled funds. Only a merchant verification flow may
+ * mark an entry verified and affect invoice payment state.
+ */
+export const invoicePaymentSubmissionsTable = pgTable(
+  "invoice_payment_submissions",
+  {
+    id: serial("id").primaryKey(),
+    invoiceId: integer("invoice_id").notNull().references(() => invoicesTable.id),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    paymentReference: text("payment_reference").notNull(),
+    senderName: text("sender_name"),
+    status: text("status").notNull().default("pending_review"),
+    reviewNote: text("review_note"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("invoice_payment_submissions_reference_unique").on(
+      sql`upper(btrim(${table.paymentReference}))`,
+    ),
+    index("invoice_payment_submissions_invoice_status_idx").on(table.invoiceId, table.status),
+  ],
+);
+
 export const marketplaceListingsTable = pgTable(
   "marketplace_listings",
   {
@@ -602,7 +695,8 @@ export const paymentIntentsTable = pgTable(
   {
     id: serial("id").primaryKey(),
     merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
-    orderId: integer("order_id").notNull().references(() => ordersTable.id),
+    orderId: integer("order_id").references(() => ordersTable.id),
+    invoicePaymentSubmissionId: integer("invoice_payment_submission_id").references(() => invoicePaymentSubmissionsTable.id),
     amountMinor: integer("amount_minor").notNull(),
     currency: text("currency").notNull(),
     method: text("method").notNull(),
@@ -615,6 +709,7 @@ export const paymentIntentsTable = pgTable(
   (table) => [
     uniqueIndex("payment_intents_merchant_idempotency_unique").on(table.merchantId, table.idempotencyKey),
     uniqueIndex("payment_intents_order_unique").on(table.orderId),
+    uniqueIndex("payment_intents_invoice_submission_unique").on(table.invoicePaymentSubmissionId),
   ],
 );
 
@@ -622,7 +717,8 @@ export const paymentRecordsTable = pgTable("payment_records", {
   id: serial("id").primaryKey(),
   intentId: integer("intent_id").notNull().references(() => paymentIntentsTable.id),
   merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
-  orderId: integer("order_id").notNull().references(() => ordersTable.id),
+  orderId: integer("order_id").references(() => ordersTable.id),
+  invoicePaymentSubmissionId: integer("invoice_payment_submission_id").references(() => invoicePaymentSubmissionsTable.id),
   amountMinor: integer("amount_minor").notNull(),
   currency: text("currency").notNull(),
   method: text("method").notNull(),
@@ -637,6 +733,7 @@ export const ledgerEntriesTable = pgTable("ledger_entries", {
   id: serial("id").primaryKey(),
   merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
   orderId: integer("order_id").references(() => ordersTable.id),
+  invoiceId: integer("invoice_id").references(() => invoicesTable.id),
   paymentRecordId: integer("payment_record_id").references(() => paymentRecordsTable.id),
   withdrawalId: integer("withdrawal_id").references(() => withdrawalsTable.id),
   refundId: integer("refund_id"),
@@ -730,6 +827,18 @@ export const insertOrderSchema = createInsertSchema(ordersTable).omit({
   createdAt: true,
   updatedAt: true,
 });
+export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertInvoiceLineSchema = createInsertSchema(invoiceLinesTable).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertInvoicePaymentSubmissionSchema = createInsertSchema(
+  invoicePaymentSubmissionsTable,
+).omit({ id: true, createdAt: true });
 export const insertMerchantBankAccountSchema = createInsertSchema(
   merchantBankAccountsTable,
 ).omit({
@@ -788,12 +897,20 @@ export type Payment = typeof paymentsTable.$inferSelect;
 export type Activity = typeof activityTable.$inferSelect;
 export type Customer = typeof customersTable.$inferSelect;
 export type Order = typeof ordersTable.$inferSelect;
+export type Invoice = typeof invoicesTable.$inferSelect;
+export type InvoiceLine = typeof invoiceLinesTable.$inferSelect;
+export type InvoicePaymentSubmission = typeof invoicePaymentSubmissionsTable.$inferSelect;
 export type InsertMerchant = z.infer<typeof insertMerchantSchema>;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type InsertActivity = z.infer<typeof insertActivitySchema>;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type InsertInvoiceLine = z.infer<typeof insertInvoiceLineSchema>;
+export type InsertInvoicePaymentSubmission = z.infer<
+  typeof insertInvoicePaymentSubmissionSchema
+>;
 export type MerchantBankAccount = typeof merchantBankAccountsTable.$inferSelect;
 export type InsertMerchantBankAccount = z.infer<
   typeof insertMerchantBankAccountSchema

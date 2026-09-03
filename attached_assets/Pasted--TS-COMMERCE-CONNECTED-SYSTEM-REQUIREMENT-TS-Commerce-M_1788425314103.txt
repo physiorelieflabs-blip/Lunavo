@@ -1,0 +1,287 @@
+### TS COMMERCE CONNECTED-SYSTEM REQUIREMENT
+
+TS Commerce MUST NOT be designed as a collection of independent features or isolated dashboards.
+
+Every major feature must participate in a shared, event-driven business graph built around authoritative domain entities and services.
+
+Products, variants, inventory, warehouses, carts, checkout, orders, payments, TS Pay, ledger entries, customers, CRM, discounts, taxes, shipping, fulfillment, refunds, returns, subscriptions, courses, memberships, services, appointments, events, tickets, POS, marketplace, marketing, affiliates, loyalty, analytics, accounting, notifications, automations, AI agents, supplier imports, and reporting MUST be interconnected wherever logically applicable.
+
+A change in one authoritative domain MUST propagate to every dependent domain through reliable domain events, workflows, shared business services, or explicitly defined synchronization mechanisms.
+
+Examples:
+
+product price change
+→ checkout validation
+→ cart revalidation
+→ order pricing
+→ analytics
+→ profit calculation
+→ AI recommendations
+
+order paid
+→ payment verification
+→ TS Pay ledger
+→ inventory commitment
+→ fulfillment
+→ invoice
+→ customer notification
+→ merchant notification
+→ analytics
+→ CRM
+→ loyalty
+→ affiliate attribution
+
+refund completed
+→ TS Pay reversal
+→ ledger adjustment
+→ order state update
+→ tax adjustment where applicable
+→ inventory decision
+→ loyalty adjustment
+→ affiliate commission adjustment
+→ analytics correction
+→ customer notification
+
+inventory becomes low
+→ inventory event
+→ demand forecast
+→ merchant alert
+→ AI recommendation
+→ optional purchase order
+→ supplier/source information
+→ expected inventory update
+
+customer purchase
+→ customer lifetime value
+→ segmentation
+→ loyalty
+→ CRM timeline
+→ product recommendations
+→ marketing eligibility
+→ AI business intelligence
+
+No feature may silently maintain a conflicting duplicate version of important business truth.
+
+Use authoritative sources of truth for:
+
+- product identity
+- variant identity
+- inventory
+- order state
+- payment state
+- TS Pay balances
+- financial ledger
+- customer identity
+- fulfillment state
+- subscription state
+- entitlements
+- permissions
+- audit history
+
+Use an internal event bus/domain-event system for cross-module reactions.
+
+Events MUST be:
+
+- idempotent
+- traceable
+- replayable where appropriate
+- tenant-scoped
+- authorized
+- protected against duplicate processing
+- observable through logs and event history
+
+Critical workflows MUST use state machines and valid state transitions rather than arbitrary status changes.
+
+All financially significant operations MUST support idempotency and MUST prevent:
+
+- duplicate orders
+- duplicate payments
+- duplicate refunds
+- duplicate payouts
+- duplicate inventory commitments
+- duplicate ledger entries
+- duplicate event processing
+
+Historical financial, order, tax, invoice, and product-sale information MUST retain appropriate snapshots so that changing current product, customer, pricing, tax, or configuration data does not silently rewrite historical truth.
+
+Every important entity should have:
+
+- stable internal identifier
+- human-readable reference where appropriate
+- created_at
+- updated_at
+- source/channel metadata
+- creator/updater metadata where applicable
+- tenant/store ownership
+- audit information where appropriate
+
+The frontend MUST consume the same authoritative business logic used by:
+
+- web
+- PWA
+- mobile applications
+- public APIs
+- merchant APIs
+- POS
+- marketplace
+- payment links
+- embedded commerce
+- background jobs
+- internal services
+
+Do NOT implement separate conflicting business logic for different interfaces.
+
+Every major dashboard metric MUST be drillable into the underlying records that generated it.
+
+Every important notification MUST link directly to:
+
+- the relevant object
+- the relevant event
+- the action required
+
+Every automation MUST be able to consume relevant domain events.
+
+Every AI agent MUST operate on the same authoritative business data and MUST respect:
+
+- tenant isolation
+- store isolation
+- role permissions
+- platform security rules
+- merchant business rules
+- AI action permissions
+- financial controls
+- approval requirements
+- rate limits
+- action budgets
+- audit requirements
+
+AI recommendations, AI actions, automations, and human actions MUST be traceable back to:
+
+- triggering event
+- actor
+- data/context used
+- action taken
+- previous state
+- resulting state
+- outcome where measurable
+
+The architecture MUST make the entire platform feel like ONE BUSINESS OPERATING SYSTEM rather than hundreds of disconnected modules.
+
+Additional requirement:
+
+Whenever two or more features logically depend on each other, they MUST be implemented as a connected workflow, not as separate standalone pages that merely link to each other.
+
+Examples include:
+
+Product ↔ Variant ↔ Inventory ↔ Warehouse ↔ Order ↔ Fulfillment
+
+Customer ↔ Cart ↔ Checkout ↔ Order ↔ Payment ↔ Refund ↔ CRM
+
+Product Cost ↔ Selling Price ↔ Discount ↔ Fees ↔ Profit ↔ Analytics
+
+Inventory ↔ Demand Forecast ↔ Purchasing ↔ Supplier Source ↔ Receiving
+
+Subscription ↔ Payment ↔ Failed Payment Recovery ↔ Entitlement ↔ Customer Access
+
+Course ↔ Purchase ↔ Enrollment ↔ Progress ↔ Certificate ↔ Membership
+
+Service ↔ Appointment ↔ Staff ↔ Availability ↔ Payment ↔ Customer
+
+Event ↔ Ticket ↔ Order ↔ Customer ↔ Check-in ↔ Attendance
+
+Marketing Campaign ↔ Customer Segment ↔ Order ↔ Revenue ↔ Profit ↔ Attribution
+
+Affiliate ↔ Referral ↔ Click ↔ Customer ↔ Order ↔ Refund ↔ Commission
+
+Loyalty ↔ Customer ↔ Orders ↔ Refunds ↔ Rewards ↔ Segmentation
+
+POS ↔ Inventory ↔ Customer ↔ Order ↔ Payment ↔ Receipt
+
+Marketplace ↔ Merchant Product ↔ Inventory ↔ Order ↔ Commission ↔ Settlement
+
+Supplier URL Import ↔ Product Draft ↔ Cost ↔ Margin ↔ Pricing ↔ Inventory ↔ Publishing
+
+AI Recommendation ↔ Business Data ↔ Approval ↔ Action ↔ Outcome ↔ AI Learning
+
+Support Ticket ↔ Customer ↔ Order ↔ Payment ↔ Shipment ↔ Refund
+
+Tax ↔ Customer Location ↔ Product Type ↔ Checkout ↔ Order ↔ Invoice ↔ Financial Records
+
+Shipping ↔ Customer Address ↔ Warehouse ↔ Inventory ↔ Carrier/Rate ↔ Fulfillment ↔ Tracking
+
+Business Goal ↔ Revenue ↔ Orders ↔ Conversion ↔ Inventory ↔ Marketing ↔ AI Strategy
+
+The system should expose these relationships naturally in the UI so that a user can move from one related object to another without losing context.
+
+For example:
+
+From a product:
+Product → variants → inventory → orders → customers → reviews → profit → campaigns → AI insights
+
+From an order:
+Order → customer → products → variants → payment → TS Pay ledger → fulfillment → shipment → refund → support → analytics
+
+From a customer:
+Customer → activity timeline → orders → payments → support → subscriptions → memberships → courses → appointments → loyalty → referrals → predicted next action
+
+From an AI recommendation:
+Recommendation → evidence → affected products/customers/orders → expected financial impact → approval → execution → result → rollback where supported
+
+The application MUST avoid "feature islands."
+
+A feature is not considered complete merely because:
+
+- a page exists
+- a database table exists
+- a button exists
+- an API endpoint exists
+
+A feature is complete only when its relevant relationships, events, permissions, business rules, financial effects, analytics effects, audit behavior, notifications, automation hooks, and AI integrations have been implemented.
+
+Every major entity should have a contextual relationship panel, timeline, or drill-down mechanism showing the most relevant connected records.
+
+The UI should make it obvious:
+
+"What happened?"
+
+"Why did it happen?"
+
+"What changed?"
+
+"What does it affect?"
+
+"What should I do next?"
+
+"Who or what caused it?"
+
+"Can I undo or reverse it?"
+
+"How does it affect revenue, profit, customers, inventory, or operations?"
+
+The architecture should prioritize:
+
+ONE SOURCE OF TRUTH
++
+CONNECTED DOMAIN SERVICES
++
+DOMAIN EVENTS
++
+STATE MACHINES
++
+IDEMPOTENCY
++
+AUDITABILITY
++
+PERMISSION AWARENESS
++
+REAL-TIME UPDATES WHERE APPROPRIATE
++
+BACKGROUND PROCESSING
++
+DEEP LINKING
++
+CROSS-MODULE ANALYTICS
++
+AI USING THE SAME BUSINESS TRUTH
+
+The final product must feel like one coherent commerce operating system where every important action naturally propagates through the rest of the business.

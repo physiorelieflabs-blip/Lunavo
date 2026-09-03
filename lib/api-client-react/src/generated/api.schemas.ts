@@ -2139,6 +2139,215 @@ export interface PaymentLinkRecord {
   createdAt: string;
 }
 
+export interface InvoiceLineInput {
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  description: string;
+  /**
+     * @maximum 1000000
+     * @exclusiveMinimum 0
+     */
+  quantity: number;
+  /**
+     * @minimum 0
+     * @maximum 999999999
+     */
+  unitPrice: number;
+}
+
+export interface InvoiceInput {
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  orderId?: number | null;
+  /** @nullable */
+  paymentLinkId?: number | null;
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  customerName: string;
+  /** @maxLength 254 */
+  customerEmail: string;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  customerPhone?: string | null;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  billingAddress?: string | null;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  shippingAddress?: string | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+  /**
+     * @minItems 1
+     * @maxItems 100
+     */
+  lines: InvoiceLineInput[];
+  /** @minimum 0 */
+  discountAmount?: number;
+  /** @minimum 0 */
+  taxAmount?: number;
+  /** @minimum 0 */
+  shippingAmount?: number;
+  /** @nullable */
+  dueDate?: string | null;
+  /**
+     * @maxLength 5000
+     * @nullable
+     */
+  notes?: string | null;
+  /**
+     * @maxLength 5000
+     * @nullable
+     */
+  terms?: string | null;
+}
+
+export interface InvoiceLine {
+  id: number;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export type InvoicePaymentSubmissionStatus = typeof InvoicePaymentSubmissionStatus[keyof typeof InvoicePaymentSubmissionStatus];
+
+
+export const InvoicePaymentSubmissionStatus = {
+  pending_review: 'pending_review',
+  verified: 'verified',
+  rejected: 'rejected',
+} as const;
+
+export interface InvoicePaymentSubmission {
+  id: number;
+  amount: number;
+  currency: string;
+  paymentReference: string;
+  /** @nullable */
+  senderName?: string | null;
+  status: InvoicePaymentSubmissionStatus;
+  /** @nullable */
+  reviewNote?: string | null;
+  createdAt: string;
+}
+
+export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
+
+
+export const InvoiceStatus = {
+  draft: 'draft',
+  sent: 'sent',
+  viewed: 'viewed',
+  partially_paid: 'partially_paid',
+  paid: 'paid',
+  overdue: 'overdue',
+  void: 'void',
+} as const;
+
+export interface Invoice {
+  id: number;
+  invoiceNumber: string;
+  publicPath: string;
+  customerName: string;
+  customerEmail: string;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
+  billingAddress?: string | null;
+  /** @nullable */
+  shippingAddress?: string | null;
+  currency: string;
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  shippingAmount: number;
+  total: number;
+  amountPaid: number;
+  /** @nullable */
+  dueDate?: string | null;
+  status: InvoiceStatus;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  terms?: string | null;
+  lines: InvoiceLine[];
+  payments: InvoicePaymentSubmission[];
+  createdAt: string;
+  /** @nullable */
+  sentAt?: string | null;
+}
+
+export type PublicInvoiceStatus = typeof PublicInvoiceStatus[keyof typeof PublicInvoiceStatus];
+
+
+export const PublicInvoiceStatus = {
+  sent: 'sent',
+  viewed: 'viewed',
+  partially_paid: 'partially_paid',
+  paid: 'paid',
+  overdue: 'overdue',
+  void: 'void',
+} as const;
+
+export interface PublicInvoice {
+  invoiceNumber: string;
+  customerName: string;
+  currency: string;
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  shippingAmount: number;
+  total: number;
+  amountPaid: number;
+  /** @nullable */
+  dueDate?: string | null;
+  status: PublicInvoiceStatus;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  terms?: string | null;
+  lines: InvoiceLine[];
+}
+
+export interface InvoicePaymentReferenceInput {
+  /** @exclusiveMinimum 0 */
+  amount: number;
+  /**
+     * @minLength 2
+     * @maxLength 240
+     */
+  paymentReference: string;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  senderName?: string | null;
+}
+
+export interface InvoicePaymentReview {
+  approved: boolean;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  reviewNote?: string | null;
+}
+
 export interface PublicPaymentLink {
   token: string;
   title: string;

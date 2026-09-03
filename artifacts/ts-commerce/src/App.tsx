@@ -29,6 +29,8 @@ import Marketing from '@/pages/marketing';
 import Marketplace from '@/pages/marketplace';
 import PaymentLinkCheckout from '@/pages/payment-link-checkout';
 import MarketplaceManagement from '@/pages/marketplace-management';
+import Invoices from '@/pages/invoices';
+import PublicInvoice from '@/pages/invoice-public';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -88,6 +90,7 @@ function AuthRoutes() {
      <Route path="/sign-up/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-up-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS / COMMERCE</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">Commerce, kept clear</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
     <Route path="/checkout/:merchantKey" component={Checkout} />
      <Route path="/pay/:token" component={PaymentLinkCheckout} />
+     <Route path="/invoice/:token" component={PublicInvoice} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
     <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
@@ -96,6 +99,7 @@ function AuthRoutes() {
     <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
      <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
+     <Route path="/invoices" component={() => <Protected><Invoices /></Protected>} />
       <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
      <Route path="/store" component={() => <Protected><StorePage /></Protected>} />
      <Route path="/pos" component={() => <Protected><Pos /></Protected>} />
@@ -119,7 +123,7 @@ function Router() {
 }
 
 function AuthRoutesWithoutClerk() {
-  return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Landing} /><Route path="/marketplace" component={Marketplace} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
  function AuthUnavailable({ mode }: { mode: string }) {
