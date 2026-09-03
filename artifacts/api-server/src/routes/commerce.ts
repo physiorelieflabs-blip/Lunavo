@@ -935,13 +935,13 @@ function serializeSubscription(
     ? "Master admin account — subscription exempt"
     : remaining === 0
       ? "Subscription settled"
-      : `Apply ${subscription.currency} ${remaining.toFixed(2)} from earnings or submit a bank transfer`;
+      : `Pay ${subscription.currency} ${remaining.toFixed(2)} from dashboard or choose Pay from bank`;
   if (!admin && days >= 10 && days < 15 && remaining > 0) {
     nextAction = `Warning: ${15 - days} days left to settle your subscription`;
   }
   if (!admin && days >= 15 && remaining > 0) {
     nextAction =
-      "Account suspended — submit a bank transfer for admin review to restore access";
+      "Account suspended — choose Pay from bank and submit the payment for admin review to restore access";
   }
   return {
     id: subscription.id,
@@ -972,7 +972,12 @@ function serializeSubscription(
     daysElapsed: days,
     daysRemaining,
     nextAction,
-    paymentMethod: subscription.paymentMethod,
+    paymentMethod:
+      subscription.paymentMethod === "earnings"
+        ? "Pay from dashboard"
+        : subscription.paymentMethod === "bank"
+          ? "Pay from bank"
+          : subscription.paymentMethod,
   };
 }
 

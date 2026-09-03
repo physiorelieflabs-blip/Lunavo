@@ -153,7 +153,7 @@ export default function Marketing() {
       {
         onSuccess: () => {
           setMessage(
-            'Advertising budget paid from available earnings. The campaign still needs approval before execution.',
+            'Advertising budget paid from your dashboard balance. The campaign still needs approval before execution.',
           );
           refresh();
         },
@@ -173,7 +173,7 @@ export default function Marketing() {
         onSuccess: () => {
           setReferences((current) => ({ ...current, [id]: '' }));
           setMessage(
-            'Advertising payment reference submitted for admin review. No settlement was claimed yet.',
+            'Pay from bank payment reference submitted for admin review. No settlement was claimed yet.',
           );
           refresh();
         },
@@ -377,7 +377,7 @@ export default function Marketing() {
                 <p className="mt-4 font-mono text-2xl">
                   {money(billing.data.availableBalance, billing.data.currency)}
                 </p>
-                <p className="mt-1 text-xs text-[#aab6c2]">Available earnings</p>
+                <p className="mt-1 text-xs text-[#aab6c2]">Dashboard balance</p>
               </div>
             </div>
             <div className="mt-7 space-y-3 text-sm text-[#c7d0d9]">
@@ -557,7 +557,7 @@ export default function Marketing() {
                             </Button>
                           </div>
                           <p className="mt-2 text-xs text-[#697687]">
-                            Available earnings:{' '}
+                            Dashboard balance:{' '}
                             {money(
                               billing.data.availableBalance,
                               billing.data.currency,
