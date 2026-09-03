@@ -34,6 +34,7 @@ import PublicInvoice from '@/pages/invoice-public';
 import Activity from '@/pages/activity';
 import Team from '@/pages/team';
 import Invite from '@/pages/invite';
+import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId } from '@workspace/api-client-react';
 
 const queryClient = new QueryClient();
@@ -100,15 +101,18 @@ function AuthRoutes() {
      <Route path="/invoice/:token" component={PublicInvoice} />
      <Route path="/invite/:token" component={Invite} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
+     <Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
      <Route path="/activity" component={() => <Protected><Activity /></Protected>} />
-    <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
+     <Route path="/customers/:id" component={() => <Protected><CustomerContextPage /></Protected>} />
+     <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
     <Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} />
     <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
     <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
      <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
-     <Route path="/invoices" component={() => <Protected><Invoices /></Protected>} />
+      <Route path="/invoices/:id" component={() => <Protected><InvoiceContextPage /></Protected>} />
+      <Route path="/invoices" component={() => <Protected><Invoices /></Protected>} />
       <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
      <Route path="/store" component={() => <Protected><StorePage /></Protected>} />
      <Route path="/pos" component={() => <Protected><Pos /></Protected>} />

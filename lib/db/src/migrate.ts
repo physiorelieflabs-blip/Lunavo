@@ -35,6 +35,7 @@ const migrations = [
   "0024_staff_roles_locations",
   "0025_operational_location_ownership",
   "0026_customer_management_permission",
+  "0027_store_profile_details",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

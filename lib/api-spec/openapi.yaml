@@ -2079,14 +2079,24 @@ components:
         id: { type: integer }
         name: { type: string }
         storeName: { type: string }
+        storeDescription: { type: ["string", "null"], maxLength: 500 }
+        storeContactEmail: { type: ["string", "null"], format: email }
+        storePhone: { type: ["string", "null"], maxLength: 40 }
+        storeWebsite: { type: ["string", "null"], format: uri }
+        storeAddress: { type: ["object", "null"], additionalProperties: true }
         storeSlug: { type: string }
         merchantKey: { type: string }
         createdAt: { type: string, format: date-time }
-      required: [id, name, storeName, storeSlug, merchantKey, createdAt]
+      required: [id, name, storeName, storeDescription, storeContactEmail, storePhone, storeWebsite, storeAddress, storeSlug, merchantKey, createdAt]
     StoreInput:
       type: object
       properties:
         storeName: { type: string, minLength: 2, maxLength: 80 }
+        storeDescription: { type: ["string", "null"], maxLength: 500 }
+        storeContactEmail: { type: ["string", "null"], format: email }
+        storePhone: { type: ["string", "null"], maxLength: 40 }
+        storeWebsite: { type: ["string", "null"], format: uri }
+        storeAddress: { type: ["object", "null"], additionalProperties: true }
       required: [storeName]
     HealthStatus:
       type: object
@@ -2425,6 +2435,11 @@ components:
       properties:
         currency: { type: string }
         storeName: { type: string }
+        storeDescription: { type: ["string", "null"] }
+        storeContactEmail: { type: ["string", "null"] }
+        storePhone: { type: ["string", "null"] }
+        storeWebsite: { type: ["string", "null"] }
+        storeAddress: { type: ["object", "null"], additionalProperties: true }
         storeSlug: { type: string }
         revenue: { type: number }
         revenueChange: { type: number }
@@ -2442,6 +2457,11 @@ components:
       required:
         - currency
         - storeName
+         - storeDescription
+         - storeContactEmail
+         - storePhone
+         - storeWebsite
+         - storeAddress
         - storeSlug
         - revenue
         - revenueChange

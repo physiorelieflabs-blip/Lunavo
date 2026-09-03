@@ -1810,9 +1810,26 @@ router.post("/store", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  const storeDescription = parsed.data.storeDescription?.trim().replace(/\s+/g, " ") || null;
+  const storeContactEmail = parsed.data.storeContactEmail?.trim().toLowerCase() || null;
+  const storePhone = parsed.data.storePhone?.trim() || null;
+  const storeWebsite = parsed.data.storeWebsite?.trim() || null;
+  if (storeContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(storeContactEmail)) {
+    res.status(400).json({ error: "Enter a valid store contact email" });
+    return;
+  }
+  if (storeWebsite) {
+    try {
+      const url = new URL(storeWebsite);
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error("invalid");
+    } catch {
+      res.status(400).json({ error: "Enter a valid http or https store website" });
+      return;
+    }
+  }
   const [updated] = await db
     .update(merchantsTable)
-    .set({ storeName })
+    .set({ storeName, storeDescription, storeContactEmail, storePhone, storeWebsite, storeAddress: parsed.data.storeAddress ?? null })
     .where(eq(merchantsTable.id, merchant.id))
     .returning();
   if (!updated) {
@@ -1822,7 +1839,7 @@ router.post("/store", async (req, res): Promise<void> => {
   await addActivity(updated.id, {
     type: "store_updated",
     title: "Store profile saved",
-    description: `Store name updated to ${updated.storeName}.`,
+     description: `Store profile updated for ${updated.storeName}.`,
     tone: "positive",
   });
   res.status(201).json(
@@ -1830,6 +1847,11 @@ router.post("/store", async (req, res): Promise<void> => {
       id: updated.id,
       name: updated.name,
       storeName: updated.storeName,
+      storeDescription: updated.storeDescription,
+      storeContactEmail: updated.storeContactEmail,
+      storePhone: updated.storePhone,
+      storeWebsite: updated.storeWebsite,
+      storeAddress: updated.storeAddress,
       storeSlug: storeSlug(updated.storeName),
       merchantKey: updated.clerkUserId ?? identity.clerkUserId,
       createdAt: updated.registeredAt,
@@ -1947,6 +1969,11 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
   res.json(
     GetDashboardOverviewResponse.parse({
       storeName: enforced.merchant.storeName,
+      storeDescription: enforced.merchant.storeDescription,
+      storeContactEmail: enforced.merchant.storeContactEmail,
+      storePhone: enforced.merchant.storePhone,
+      storeWebsite: enforced.merchant.storeWebsite,
+      storeAddress: enforced.merchant.storeAddress,
       currency: enforced.merchant.currency,
       storeSlug: storeSlug(enforced.merchant.storeName),
       revenue,
@@ -3925,8 +3952,8 @@ router.get("/customers/:id/context", async (req, res): Promise<void> => {
   res.json(GetCustomerContextResponse.parse({
     customer: contextRecord(customer.id, `/customers/${customer.id}`, customer),
     lifetime,
-    orders: orders.map((order) => contextRecord(order.id, `/orders/${order.id}/context`, order)),
-    invoices: invoices.map((invoice) => contextRecord(invoice.id, `/invoices/${invoice.id}/context`, invoice)),
+    orders: orders.map((order) => contextRecord(order.id, `/orders/${order.id}`, order)),
+    invoices: invoices.map((invoice) => contextRecord(invoice.id, `/invoices/${invoice.id}`, invoice)),
     paymentIntents: intents.map((intent) => contextRecord(intent.id, `/payments/${intent.id}`, intent)),
     paymentRecords: records.map((record) => contextRecord(record.id, `/payments/${record.intentId}`, record)),
     refunds: refunds.map((refund) => contextRecord(refund.id, `/refunds/${refund.id}`, refund)),
@@ -4087,14 +4114,14 @@ router.get("/orders/:id/context", async (req, res): Promise<void> => {
   if (["paid", "fulfilled"].includes(order.status) && ["pending", "ready"].includes(order.fulfillmentStatus) && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "fulfill_order", target: `/dropship/queue/${order.id}` });
   if (order.supplierProductId && order.supplierPaymentStatus === "unpaid" && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "submit_supplier_payment", target: `/dropship/queue/${order.id}` });
   res.json(GetOrderContextResponse.parse({
-    order: contextRecord(order.id, `/orders/${order.id}/context`, order),
-    customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}/context`, customer[0]) : null,
+    order: contextRecord(order.id, `/orders/${order.id}`, order),
+    customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}`, customer[0]) : null,
     product: product[0] ? contextRecord(product[0].id, `/supplier-products/${product[0].id}`, { id: product[0].id, title: product[0].title, sku: product[0].sku, sourceUrl: product[0].sourceUrl, sourceDomain: product[0].sourceDomain, inventoryStatus: product[0].inventoryStatus }) : null,
     paymentIntents: intents.map((item) => contextRecord(item.id, `/payments/${item.id}`, item)),
     paymentRecords: records.map((item) => contextRecord(item.id, `/payments/${item.intentId}`, item)),
     ledgerEntries: ledgerEntries.map((item) => contextRecord(item.id, `/ledger/${item.id}`, item)),
     refunds: refunds.map((item) => contextRecord(item.id, `/refunds/${item.id}`, item)),
-    invoices: invoices.map((item) => contextRecord(item.id, `/invoices/${item.id}/context`, item)),
+    invoices: invoices.map((item) => contextRecord(item.id, `/invoices/${item.id}`, item)),
     inventoryReservations: reservations.map((item) => contextRecord(item.id, `/inventory/reservations/${item.id}`, item)),
     inventoryMovements: movements.map((item) => contextRecord(item.id, `/inventory/movements/${item.id}`, item)),
     transitions: transitions.map((item) => contextRecord(item.id, `/orders/${order.id}/history/${item.id}`, item)),
@@ -4830,10 +4857,10 @@ router.get("/invoices/:id/context", async (req, res): Promise<void> => {
   if (["draft", "sent", "viewed", "overdue"].includes(invoice.status) && toNumber(invoice.amountPaid) === 0 && access.permissions.has("finance.manage")) nextActions.push({ action: "void_invoice", target: `/invoices/${invoice.id}/void` });
   if (submissions.some((submission) => submission.status === "pending_review") && access.permissions.has("payments.verify")) nextActions.push({ action: "review_invoice_payment", target: `/invoices/${invoice.id}/payments/${submissions.find((submission) => submission.status === "pending_review")!.id}/verify` });
   res.json(GetInvoiceContextResponse.parse({
-    invoice: contextRecord(invoice.id, `/invoices/${invoice.id}/context`, invoice),
+    invoice: contextRecord(invoice.id, `/invoices/${invoice.id}`, invoice),
     lines: lines.map((line) => contextRecord(line.id, `/invoices/${invoice.id}/lines/${line.id}`, line)),
-    customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}/context`, customer[0]) : null,
-    order: order[0] ? contextRecord(order[0].id, `/orders/${order[0].id}/context`, order[0]) : null,
+    customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}`, customer[0]) : null,
+    order: order[0] ? contextRecord(order[0].id, `/orders/${order[0].id}`, order[0]) : null,
     submissions: submissions.map((item) => contextRecord(item.id, `/invoices/${invoice.id}/payments/${item.id}`, item)),
     paymentIntents: intents.map((item) => contextRecord(item.id, `/payments/${item.id}`, item)),
     paymentRecords: records.map((item) => contextRecord(item.id, `/payments/${item.intentId}`, item)),
@@ -5280,6 +5307,11 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     GetPublicStoreResponse.parse({
       merchantKey: parsed.data.merchantKey,
       storeName: merchant.storeName,
+      storeDescription: merchant.storeDescription,
+      storeContactEmail: merchant.storeContactEmail,
+      storePhone: merchant.storePhone,
+      storeWebsite: merchant.storeWebsite,
+      storeAddress: merchant.storeAddress,
       products: products.map((product) => ({
         id: product.id,
         title: product.title,

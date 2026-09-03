@@ -1,0 +1,63 @@
+### TS COMMERCE CONNECTED-SYSTEM REQUIREMENT
+
+TS Commerce MUST NOT be designed as a collection of independent features or isolated dashboards.
+
+Every major feature must participate in a shared, event-driven business graph built around authoritative domain entities and services.
+
+Products, variants, inventory, warehouses, carts, checkout, orders, payments, TS Pay, ledger entries, customers, CRM, discounts, taxes, shipping, fulfillment, refunds, returns, subscriptions, courses, memberships, services, appointments, events, tickets, POS, marketplace, marketing, affiliates, loyalty, analytics, accounting, notifications, automations, AI agents, supplier imports, and reporting MUST be interconnected wherever logically applicable.
+
+A change in one authoritative domain MUST propagate to every dependent domain through reliable domain events, workflows, shared business services, or explicitly defined synchronization mechanisms.
+
+Examples:
+
+product price change → checkout validation → cart revalidation → order pricing → analytics → profit calculation → AI recommendations
+
+order paid → payment verification → TS Pay ledger → inventory commitment → fulfillment → invoice → customer notification → merchant notification → analytics → CRM → loyalty → affiliate attribution
+
+refund completed → TS Pay reversal → ledger adjustment → order state update → tax adjustment where applicable → inventory decision → loyalty adjustment → affiliate commission adjustment → analytics correction → customer notification
+
+inventory becomes low → inventory event → demand forecast → merchant alert → AI recommendation → optional purchase order → supplier/source information → expected inventory update
+
+customer purchase → customer lifetime value → segmentation → loyalty → CRM timeline → product recommendations → marketing eligibility → AI business intelligence
+
+No feature may silently maintain a conflicting duplicate version of important business truth.
+
+Use authoritative sources of truth for:
+
+* product identity
+* variant identity
+* inventory
+* order state
+* payment state
+* TS Pay balances
+* financial ledger
+* customer identity
+* fulfillment state
+* subscription state
+* entitlements
+* permissions
+* audit history
+
+Use an internal event bus/domain-event system for cross-module reactions. Events must be idempotent, traceable, replayable where appropriate, and protected against duplicate processing.
+
+Critical workflows must use state machines and valid state transitions rather than arbitrary status changes.
+
+All financially significant operations MUST support idempotency and must prevent duplicate orders, duplicate payments, duplicate refunds, duplicate payouts, duplicate inventory commitments, and duplicate event processing.
+
+Historical financial, order, tax, invoice, and product-sale information must retain appropriate snapshots so that changing current product/customer configuration does not silently rewrite historical truth.
+
+Every important entity should have stable identifiers, timestamps, source/channel metadata, creator/updater metadata where applicable, audit information, and tenant/store ownership.
+
+The frontend MUST consume the same authoritative business logic used by APIs, background jobs, POS, marketplace, payment links, mobile clients, and other channels. Do not implement separate conflicting business logic for different interfaces.
+
+Every major dashboard metric should be drillable into the underlying records that generated it.
+
+Every important notification should link directly to the object and action required.
+
+Every automation should be capable of consuming relevant domain events.
+
+Every AI agent must operate on the same authoritative business data and MUST respect tenant isolation, role permissions, merchant business rules, platform safety rules, AI action permissions, financial controls, rate limits, and approval workflows.
+
+AI recommendations, AI actions, automations, and human actions must be traceable back to their triggering event and measurable outcome wherever practical.
+
+The architecture should make the entire platform feel like ONE BUSINESS OPERATING SYSTEM rather than 100 disconnected modules.

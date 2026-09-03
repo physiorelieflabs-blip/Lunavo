@@ -22,10 +22,26 @@ export default function StorePage() {
   const updateCheckoutSettings = useUpdateCheckoutSettings();
   const queryClient = useQueryClient();
   const [storeName, setStoreName] = useState('');
+  const [storeDescription, setStoreDescription] = useState('');
+  const [storeContactEmail, setStoreContactEmail] = useState('');
+  const [storePhone, setStorePhone] = useState('');
+  const [storeWebsite, setStoreWebsite] = useState('');
+  const [storeAddress, setStoreAddress] = useState('');
   const [taxRate, setTaxRate] = useState('0');
   const [shippingFee, setShippingFee] = useState('0');
   const [freeShippingThreshold, setFreeShippingThreshold] = useState('');
   const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!overview.data) return;
+    setStoreName(overview.data.storeName);
+    setStoreDescription(overview.data.storeDescription ?? '');
+    setStoreContactEmail(overview.data.storeContactEmail ?? '');
+    setStorePhone(overview.data.storePhone ?? '');
+    setStoreWebsite(overview.data.storeWebsite ?? '');
+    const address = overview.data.storeAddress;
+    setStoreAddress(address && typeof address === 'object' && 'formatted' in address ? String(address.formatted ?? '') : '');
+  }, [overview.data]);
 
   useEffect(() => {
     if (!checkoutSettings.data) return;
@@ -38,14 +54,26 @@ export default function StorePage() {
   if (overview.isError || !overview.data) return <AppShell><ErrorState onRetry={() => { void overview.refetch(); }} /></AppShell>;
 
   const store = overview.data;
-  const currentName = store.storeName;
-  const value = storeName || currentName;
+  const value = storeName;
   const save = (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
-    createStore.mutate({ data: { storeName: value } }, {
+    createStore.mutate({ data: {
+      storeName: value,
+      storeDescription: storeDescription.trim() || null,
+      storeContactEmail: storeContactEmail.trim() || null,
+      storePhone: storePhone.trim() || null,
+      storeWebsite: storeWebsite.trim() || null,
+      storeAddress: storeAddress.trim() ? { formatted: storeAddress.trim() } : null,
+    } }, {
       onSuccess: (result) => {
         setStoreName(result.storeName);
+        setStoreDescription(result.storeDescription ?? '');
+        setStoreContactEmail(result.storeContactEmail ?? '');
+        setStorePhone(result.storePhone ?? '');
+        setStoreWebsite(result.storeWebsite ?? '');
+        const address = result.storeAddress;
+        setStoreAddress(address && typeof address === 'object' && 'formatted' in address ? String(address.formatted ?? '') : '');
         setMessage('Your store is live and the new name is saved to your merchant workspace.');
         void queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() });
       },
@@ -78,7 +106,7 @@ export default function StorePage() {
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Merchant storefront</p>
           <h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Create your store.</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Give your customer-facing workspace a name. This is persisted to your tenant and appears across your dashboard and public checkout.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Edit the identity and public contact information customers see. Changes are saved to your tenant and appear across your dashboard and public storefront.</p>
         </div>
         <Badge tone="success"><StoreIcon className="mr-1 h-3.5 w-3.5" /> Live</Badge>
       </div>
@@ -90,6 +118,23 @@ export default function StorePage() {
         <form onSubmit={save} className="space-y-5">
           <label className="block text-sm font-bold">Store name
             <input value={value} onChange={(event) => setStoreName(event.target.value)} minLength={2} maxLength={80} required className="mt-2 h-12 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-base font-bold outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-store-name" />
+          </label>
+          <label className="block text-sm font-bold">Store description <span className="font-normal text-[#697687]">(optional)</span>
+            <textarea value={storeDescription} onChange={(event) => setStoreDescription(event.target.value)} maxLength={500} rows={4} placeholder="What should customers know about your store?" className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-store-description" />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-bold">Public contact email <span className="font-normal text-[#697687]">(optional)</span>
+              <input type="email" value={storeContactEmail} onChange={(event) => setStoreContactEmail(event.target.value)} maxLength={240} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="hello@yourstore.com" data-testid="input-store-contact-email" />
+            </label>
+            <label className="block text-sm font-bold">Public phone <span className="font-normal text-[#697687]">(optional)</span>
+              <input value={storePhone} onChange={(event) => setStorePhone(event.target.value)} maxLength={40} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="+234 800 000 0000" data-testid="input-store-phone" />
+            </label>
+          </div>
+          <label className="block text-sm font-bold">Store website <span className="font-normal text-[#697687]">(optional)</span>
+            <input type="url" value={storeWebsite} onChange={(event) => setStoreWebsite(event.target.value)} maxLength={500} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="https://yourstore.com" data-testid="input-store-website" />
+          </label>
+          <label className="block text-sm font-bold">Public store address <span className="font-normal text-[#697687]">(optional)</span>
+            <textarea value={storeAddress} onChange={(event) => setStoreAddress(event.target.value)} maxLength={500} rows={3} placeholder="Address customers can use to contact or visit you" className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-store-address" />
           </label>
           <div className="grid gap-4 rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4 text-sm sm:grid-cols-2">
             <div><p className="text-xs uppercase tracking-[.12em] text-[#697687]">Store slug</p><p className="mt-2 font-mono font-bold">/{store.storeSlug}</p></div>
