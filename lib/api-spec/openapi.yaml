@@ -1692,6 +1692,11 @@ components:
         email: { type: string, format: email }
         isAdmin: { type: boolean }
         amountDue: { type: number }
+        baseAmountUsd: { type: number }
+        currency: { type: string }
+        fxRate: { type: number }
+        fxSource: { type: string }
+        fxAsOf: { type: ["string", "null"], format: date-time }
         amountPaid: { type: number }
         earningsHeld: { type: number }
         status: { type: string }
@@ -1709,6 +1714,11 @@ components:
         - email
         - isAdmin
         - amountDue
+        - baseAmountUsd
+        - currency
+        - fxRate
+        - fxSource
+        - fxAsOf
         - amountPaid
         - earningsHeld
         - status

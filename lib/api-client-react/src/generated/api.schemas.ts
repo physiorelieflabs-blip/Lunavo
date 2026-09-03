@@ -601,6 +601,12 @@ export interface Subscription {
   email: string;
   isAdmin: boolean;
   amountDue: number;
+  baseAmountUsd: number;
+  currency: string;
+  fxRate: number;
+  fxSource: string;
+  /** @nullable */
+  fxAsOf: string | null;
   amountPaid: number;
   earningsHeld: number;
   status: string;

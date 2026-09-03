@@ -210,7 +210,15 @@ const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
 const SUPPLIER_IMPORT_LIMIT = 60;
 const supplierImportQuota = new Map<string, { startedAt: number; count: number }>();
-const fxCache = new Map<string, { expiresAt: number; payload: { base: string; quote: string; rate: number; source: string; fetchedAt: string; asOf: string | null } }>();
+type FxPayload = {
+  base: string;
+  quote: string;
+  rate: number;
+  source: string;
+  fetchedAt: string;
+  asOf: string | null;
+};
+const fxCache = new Map<string, { expiresAt: number; payload: FxPayload }>();
 
 function consumeSupplierImportQuota(clerkUserId: string, requested: number): boolean {
   const now = Date.now();
@@ -278,6 +286,65 @@ function isSupportedCurrency(value: string): boolean {
   return SUPPORTED_CURRENCIES.includes(
     value as (typeof SUPPORTED_CURRENCIES)[number],
   );
+}
+
+async function getMarketExchangeRate(base: string, quote: string): Promise<FxPayload> {
+  if (base === quote) {
+    const now = new Date().toISOString();
+    return {
+      base,
+      quote,
+      rate: 1,
+      source: "Identity rate",
+      fetchedAt: now,
+      asOf: now,
+    };
+  }
+  const cacheKey = `${base}:${quote}`;
+  const cached = fxCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.payload;
+  const response = await fetch(
+    `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`,
+    { signal: AbortSignal.timeout(8_000) },
+  );
+  if (!response.ok) throw new Error(`FX provider returned ${response.status}`);
+  const body = (await response.json()) as {
+    rates?: Record<string, number>;
+    time_last_update_utc?: string;
+  };
+  const rate = Number(body.rates?.[quote]);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error("The selected currency pair is not available");
+  }
+  const fetchedAt = new Date().toISOString();
+  const asOfDate = body.time_last_update_utc
+    ? new Date(body.time_last_update_utc)
+    : null;
+  const payload = {
+    base,
+    quote,
+    rate,
+    source: "ExchangeRate-API Open Access",
+    fetchedAt,
+    asOf:
+      asOfDate && !Number.isNaN(asOfDate.getTime())
+        ? asOfDate.toISOString()
+        : null,
+  };
+  fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, payload });
+  return payload;
+}
+
+async function getSubscriptionQuote(currency: string) {
+  const fx = await getMarketExchangeRate("USD", currency);
+  return {
+    amountDue: Number((MONTHLY_FEE * fx.rate).toFixed(2)),
+    baseAmountUsd: MONTHLY_FEE,
+    currency,
+    fxRate: fx.rate,
+    fxSource: fx.source,
+    fxAsOf: fx.asOf ? new Date(fx.asOf) : null,
+  };
 }
 
 async function getIdentity(req: Request): Promise<Identity | null> {
@@ -419,11 +486,26 @@ async function getSubscriptionForMerchant(
       .limit(1)
   )[0];
   if (!subscription) {
+    const quote = isAdmin
+      ? {
+          amountDue: 0,
+          baseAmountUsd: 0,
+          currency: merchant.currency,
+          fxRate: 1,
+          fxSource: "Identity rate",
+          fxAsOf: null,
+        }
+      : await getSubscriptionQuote(merchant.currency);
     [subscription] = await db
       .insert(subscriptionsTable)
       .values({
         merchantId: merchant.id,
-        amountDue: isAdmin ? "0" : MONTHLY_FEE.toFixed(2),
+        amountDue: quote.amountDue.toFixed(2),
+        baseAmountUsd: quote.baseAmountUsd.toFixed(2),
+        currency: quote.currency,
+        fxRate: quote.fxRate.toFixed(8),
+        fxSource: quote.fxSource,
+        fxAsOf: quote.fxAsOf,
         status: isAdmin ? "active" : "pending",
       })
       .onConflictDoNothing({ target: subscriptionsTable.merchantId })
@@ -438,18 +520,22 @@ async function getSubscriptionForMerchant(
       )[0];
     }
   }
-  const requiredAmount = isAdmin ? 0 : MONTHLY_FEE;
-  if (toNumber(subscription.amountDue) !== requiredAmount) {
+  const shouldReprice =
+    !isAdmin &&
+    subscription.currency !== merchant.currency &&
+    toNumber(subscription.amountPaid) === 0 &&
+    toNumber(subscription.earningsHeld) === 0;
+  if (shouldReprice) {
+    const quote = await getSubscriptionQuote(merchant.currency);
     [subscription] = await db
       .update(subscriptionsTable)
       .set({
-        amountDue: requiredAmount.toFixed(2),
-        status:
-          isAdmin || toNumber(subscription.amountPaid) >= requiredAmount
-            ? "active"
-            : subscription.status === "expired"
-              ? "expired"
-              : "pending",
+        amountDue: quote.amountDue.toFixed(2),
+        baseAmountUsd: quote.baseAmountUsd.toFixed(2),
+        currency: quote.currency,
+        fxRate: quote.fxRate.toFixed(8),
+        fxSource: quote.fxSource,
+        fxAsOf: quote.fxAsOf,
       })
       .where(eq(subscriptionsTable.id, subscription.id))
       .returning();
@@ -476,7 +562,17 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
     ) {
       [subscription] = await db
         .update(subscriptionsTable)
-        .set({ amountDue: "0", amountPaid: "0", status: "active" })
+      .set({
+        amountDue: "0",
+        baseAmountUsd: "0",
+        amountPaid: "0",
+        earningsHeld: "0",
+        currency: merchant.currency,
+        fxRate: "1",
+        fxSource: "Identity rate",
+        fxAsOf: null,
+        status: "active",
+      })
         .where(eq(subscriptionsTable.id, subscription.id))
         .returning();
     }
@@ -558,7 +654,7 @@ function serializeSubscription(
     ? "Master admin account — subscription exempt"
     : remaining === 0
       ? "Subscription settled"
-      : `Apply $${remaining.toFixed(2)} from earnings or submit a bank transfer`;
+      : `Apply ${subscription.currency} ${remaining.toFixed(2)} from earnings or submit a bank transfer`;
   if (!admin && days >= 10 && days < 15 && remaining > 0) {
     nextAction = `Warning: ${15 - days} days left to settle your subscription`;
   }
@@ -571,6 +667,14 @@ function serializeSubscription(
     email: merchant.email,
     isAdmin: admin,
     amountDue: toNumber(subscription.amountDue),
+    baseAmountUsd: toNumber(subscription.baseAmountUsd),
+    currency: subscription.currency,
+    fxRate: toNumber(subscription.fxRate),
+    fxSource: subscription.fxSource,
+    fxAsOf:
+      subscription.fxAsOf && !Number.isNaN(subscription.fxAsOf.getTime())
+        ? subscription.fxAsOf
+        : null,
     amountPaid: paid,
     earningsHeld: toNumber(subscription.earningsHeld),
     status:
@@ -1102,6 +1206,7 @@ async function requireAdminWithdrawalSecurity(
 }
 
 async function payFromEarnings(merchant: Merchant) {
+  await getSubscriptionForMerchant(merchant);
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${merchant.id} for update`,
@@ -1187,7 +1292,7 @@ async function payFromEarnings(merchant: Merchant) {
       .values({
         merchantId: merchant.id,
         amount: remaining.toFixed(2),
-        currency: merchant.currency,
+        currency: subscription.currency,
         method: "earnings",
         reference,
         status: "confirmed",
@@ -1206,7 +1311,7 @@ async function payFromEarnings(merchant: Merchant) {
       title: "Platform fee paid from earnings",
       description: "Held earnings were applied to your platform fee.",
       amount: remaining.toFixed(2),
-      currency: merchant.currency,
+      currency: subscription.currency,
       tone: "negative",
     });
     return { payment, subscription: updatedSubscription };
@@ -1241,11 +1346,48 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const [updated] = await db
-    .update(merchantsTable)
-    .set({ currency })
-    .where(eq(merchantsTable.id, merchant.id))
-    .returning();
+  const currentSubscription = await getSubscriptionForMerchant(
+    merchant,
+    identity.isAdmin,
+  );
+  const shouldReprice =
+    !identity.isAdmin &&
+    currentSubscription.currency !== currency &&
+    toNumber(currentSubscription.amountPaid) === 0 &&
+    toNumber(currentSubscription.earningsHeld) === 0;
+  let quote:
+    | Awaited<ReturnType<typeof getSubscriptionQuote>>
+    | null = null;
+  try {
+    if (shouldReprice) quote = await getSubscriptionQuote(currency);
+  } catch (error) {
+    req.log.warn({ err: error, currency }, "Could not price subscription in selected currency");
+    res.status(502).json({
+      error: "The selected currency could not be priced right now. Nothing was changed.",
+    });
+    return;
+  }
+  const updated = await db.transaction(async (tx) => {
+    const [nextMerchant] = await tx
+      .update(merchantsTable)
+      .set({ currency })
+      .where(eq(merchantsTable.id, merchant.id))
+      .returning();
+    if (quote) {
+      await tx
+        .update(subscriptionsTable)
+        .set({
+          amountDue: quote.amountDue.toFixed(2),
+          baseAmountUsd: quote.baseAmountUsd.toFixed(2),
+          currency: quote.currency,
+          fxRate: quote.fxRate.toFixed(8),
+          fxSource: quote.fxSource,
+          fxAsOf: quote.fxAsOf,
+        })
+        .where(eq(subscriptionsTable.id, currentSubscription.id));
+    }
+    return nextMerchant;
+  });
   if (!updated) {
     res.status(404).json({ error: "Merchant account not found" });
     return;
@@ -1314,55 +1456,11 @@ router.get("/settings/fx", async (req, res): Promise<void> => {
     return;
   }
   if (base === quote) {
-    res.json(
-      GetMarketExchangeRateResponse.parse({
-        base,
-        quote,
-        rate: 1,
-        source: "Identity rate",
-        fetchedAt: new Date().toISOString(),
-        asOf: new Date().toISOString(),
-      }),
-    );
-    return;
-  }
-  const cacheKey = `${base}:${quote}`;
-  const cached = fxCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    res.json(GetMarketExchangeRateResponse.parse(cached.payload));
+    res.json(GetMarketExchangeRateResponse.parse(await getMarketExchangeRate(base, quote)));
     return;
   }
   try {
-    const response = await fetch(
-      `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`,
-      { signal: AbortSignal.timeout(8_000) },
-    );
-    if (!response.ok) throw new Error(`FX provider returned ${response.status}`);
-    const body = (await response.json()) as {
-      rates?: Record<string, number>;
-      time_last_update_utc?: string;
-    };
-    const rate = Number(body.rates?.[quote]);
-    if (!Number.isFinite(rate) || rate <= 0) {
-      throw new Error("The selected currency pair is not available");
-    }
-    const fetchedAt = new Date().toISOString();
-    const asOfDate = body.time_last_update_utc
-      ? new Date(body.time_last_update_utc)
-      : null;
-    const payload = {
-      base,
-      quote,
-      rate,
-      source: "ExchangeRate-API Open Access",
-      fetchedAt,
-      asOf:
-        asOfDate && !Number.isNaN(asOfDate.getTime())
-          ? asOfDate.toISOString()
-          : null,
-    };
-    fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, payload });
-    res.json(GetMarketExchangeRateResponse.parse(payload));
+    res.json(GetMarketExchangeRateResponse.parse(await getMarketExchangeRate(base, quote)));
   } catch (error) {
     req.log.warn({ err: error, base, quote }, "Could not retrieve market FX rate");
     res.status(502).json({
@@ -4568,7 +4666,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
       .values({
         merchantId: merchant.id,
         amount: amount.toFixed(2),
-        currency: merchant.currency,
+        currency: currentSubscription.currency,
         method: "bank_transfer",
         reference,
         senderName: parsed.data.senderName.trim(),
@@ -4603,7 +4701,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
       title: "Bank transfer submitted",
       description: `Transfer ${reference} is waiting for admin review.`,
       amount: amount.toFixed(2),
-      currency: merchant.currency,
+      currency: currentSubscription.currency,
       tone: "neutral",
     });
     return created;

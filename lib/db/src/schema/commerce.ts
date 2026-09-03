@@ -47,6 +47,15 @@ export const subscriptionsTable = pgTable(
     amountDue: numeric("amount_due", { precision: 12, scale: 2 })
       .notNull()
       .default("30"),
+    baseAmountUsd: numeric("base_amount_usd", { precision: 12, scale: 2 })
+      .notNull()
+      .default("30"),
+    currency: text("currency").notNull().default("USD"),
+    fxRate: numeric("fx_rate", { precision: 18, scale: 8 })
+      .notNull()
+      .default("1"),
+    fxSource: text("fx_source").notNull().default("Identity rate"),
+    fxAsOf: timestamp("fx_as_of", { withTimezone: true }),
     amountPaid: numeric("amount_paid", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),
