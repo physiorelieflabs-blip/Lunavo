@@ -12,6 +12,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   gte,
   inArray,
   isNull,
@@ -313,6 +314,8 @@ const workspaceContext = new AsyncLocalStorage<{
   explicitAuthorization: boolean;
   blocksLocationScoped: boolean;
 }>();
+const MARKETPLACE_MONTHLY_FEE = 5;
+const MARKETPLACE_BILLING_DAYS = 30;
 // Workspace selection is an authenticated, server-validated identifier. Do not
 // accept forwarded hosts or client-supplied tenant IDs in mutation bodies.
 router.use((req, _res, next) => {
@@ -597,6 +600,9 @@ async function resolveOrderLocation(
 }
 
 async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
+  if (identity.isAdmin) {
+    throw new CommerceAuthorizationError("Master admin accounts cannot use merchant workspaces");
+  }
   const context = workspaceContext.getStore();
   const requestedMerchantId = context?.requestedMerchantId ?? null;
   const memberships = await db.select({ merchantId: merchantMembershipsTable.merchantId })
@@ -4979,17 +4985,21 @@ router.get("/marketplace/management", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const [monthlyRecord] = await db.select().from(marketplaceBillingRecordsTable)
+  let [monthlyRecord] = await db.select().from(marketplaceBillingRecordsTable)
     .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.kind, "monthly")))
+    .orderBy(desc(marketplaceBillingRecordsTable.createdAt))
     .limit(1);
-  if (!monthlyRecord) {
-    await db.insert(marketplaceBillingRecordsTable).values({
+  const monthlyActive = monthlyRecord?.status === "paid" &&
+    monthlyRecord.paidAt !== null &&
+    Date.now() - monthlyRecord.paidAt.getTime() < MARKETPLACE_BILLING_DAYS * 86400000;
+  if (!monthlyRecord || (monthlyRecord.status === "paid" && !monthlyActive)) {
+    [monthlyRecord] = await db.insert(marketplaceBillingRecordsTable).values({
       merchantId: merchant.id,
       kind: "monthly",
-      amount: "5",
+      amount: MARKETPLACE_MONTHLY_FEE.toFixed(2),
       currency: merchant.currency,
       status: "due",
-    });
+    }).returning();
   }
   const [listingRows, billing] = await Promise.all([
     db.select({ listing: marketplaceListingsTable, product: supplierProductsTable })
@@ -5004,7 +5014,11 @@ router.get("/marketplace/management", async (req, res): Promise<void> => {
   res.json(GetMarketplaceManagementResponse.parse({
     listings: listingRows.map(({ listing, product }) => serializeMarketplaceListing(listing, product)),
     billing: billing.map(serializeMarketplaceBilling),
-    monthlyFee: { amount: 5, currency: merchant.currency, status: billing.some((record) => record.kind === "monthly" && record.status === "paid") ? "paid" : "due" },
+    monthlyFee: {
+      amount: MARKETPLACE_MONTHLY_FEE,
+      currency: merchant.currency,
+      status: monthlyRecord?.status === "paid" && monthlyRecord.paidAt !== null && Date.now() - monthlyRecord.paidAt.getTime() < MARKETPLACE_BILLING_DAYS * 86400000 ? "paid" : monthlyRecord?.status ?? "due",
+    },
   }));
 });
 
@@ -5043,21 +5057,11 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
       const [existingBilling] = await tx.select().from(marketplaceBillingRecordsTable)
         .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.listingId, listing.id), eq(marketplaceBillingRecordsTable.kind, "listing")))
         .limit(1);
-      if (!existingBilling) {
-        await tx.insert(marketplaceBillingRecordsTable).values({
-          merchantId: merchant.id,
-          listingId: listing.id,
-          kind: "listing",
-          amount: listing.listingFeeAmount,
-          currency: merchant.currency,
-          status: "due",
-        });
-      }
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "marketplace_listing_submitted",
         title: `Marketplace listing submitted: ${product.title}`,
-        description: "The listing is pending review and its fee is due. It is not represented as publicly active yet.",
+        description: "The listing is pending review. It becomes publicly visible only while the merchant's $5 monthly participation subscription is paid.",
         currency: merchant.currency,
         tone: "neutral",
       });
@@ -5232,15 +5236,16 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
   const filters = [
     eq(merchantsTable.status, "active"),
     eq(supplierProductsTable.status, "active"),
-    or(
-      and(
-        eq(marketplaceListingsTable.status, "approved"),
-        eq(marketplaceListingsTable.listingFeeStatus, "paid"),
-      ),
-      and(
-        isNull(marketplaceListingsTable.id),
-        eq(supplierProductsTable.marketplaceVisibility, true),
-      ),
+    eq(marketplaceListingsTable.status, "approved"),
+    exists(
+      db.select({ id: marketplaceBillingRecordsTable.id })
+        .from(marketplaceBillingRecordsTable)
+        .where(and(
+          eq(marketplaceBillingRecordsTable.merchantId, merchantsTable.id),
+          eq(marketplaceBillingRecordsTable.kind, "monthly"),
+          eq(marketplaceBillingRecordsTable.status, "paid"),
+          gte(marketplaceBillingRecordsTable.paidAt, new Date(Date.now() - MARKETPLACE_BILLING_DAYS * 86400000)),
+        )),
     ),
     sql`${supplierProductsTable.sellingPrice} is not null`,
   ];
