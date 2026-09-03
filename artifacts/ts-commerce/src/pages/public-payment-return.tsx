@@ -13,6 +13,7 @@ type Verification = {
 
 export default function PublicPaymentReturn() {
   const token = new URLSearchParams(window.location.search).get('token') ?? '';
+  const apiBasePath = import.meta.env.BASE_URL.replace(/\/$/, '');
   const [result, setResult] = useState<Verification | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -26,7 +27,7 @@ export default function PublicPaymentReturn() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/public/checkout/${encodeURIComponent(token)}/verify`, {
+      const response = await fetch(`${apiBasePath}/api/public/checkout/${encodeURIComponent(token)}/verify`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'Content-Type': 'application/json' },
@@ -47,7 +48,7 @@ export default function PublicPaymentReturn() {
   const reopenPaymentSession = async () => {
     setError('');
     try {
-      const response = await fetch(`/api/public/checkout/${encodeURIComponent(token)}/retry`, {
+      const response = await fetch(`${apiBasePath}/api/public/checkout/${encodeURIComponent(token)}/retry`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'Content-Type': 'application/json' },

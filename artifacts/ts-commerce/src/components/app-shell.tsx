@@ -64,7 +64,8 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     if (merchantId === currentWorkspace.data?.id) return;
     setSelectedWorkspaceId(merchantId);
     queryClient.clear();
-    window.location.assign('/dashboard');
+    const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+    window.location.assign(`${basePath}/dashboard`);
   };
   const activeLabel = links.find((link) => location === link.href)?.label ?? (admin ? 'Control room' : 'Overview');
   const goBack = () => {

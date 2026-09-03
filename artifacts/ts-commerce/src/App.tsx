@@ -117,10 +117,10 @@ function AuthRoutes() {
     <Route path="/auctions/manage" component={() => <Protected><AuctionManagement /></Protected>} />
      <Route path="/sign-in/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-in-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p></div><AuthRoleChooser /><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /><p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">Forgot your password? <Link href="/sign-in/forgot-password" className="font-extrabold text-[#b14f36] underline" data-testid="link-forgot-password">Reset it securely</Link>.</p></div>} />
      <Route path="/sign-up/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-up-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">Commerce, kept clear</p></div><AuthRoleChooser /><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
-    <Route path="/checkout/:merchantKey" component={Checkout} />
+     <Route path="/checkout/payment-return" component={PublicPaymentReturn} />
+     <Route path="/checkout/:merchantKey" component={Checkout} />
      <Route path="/pay/:token" component={PaymentLinkCheckout} />
      <Route path="/invoice/:token" component={PublicInvoice} />
-    <Route path="/checkout/payment-return" component={PublicPaymentReturn} />
      <Route path="/invite/:token" component={Invite} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
      <Route path="/analytics" component={() => <Protected><Analytics /></Protected>} />
@@ -161,8 +161,8 @@ function Router() {
   return <ErrorBoundary resetKey={location}>{clerkPubKey ? <BrandedProvider /> : <AuthRoutesWithoutClerk />}</ErrorBoundary>;
 }
 
-function AuthRoutesWithoutClerk() {
-   return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+   function AuthRoutesWithoutClerk() {
+    return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
  function AuthUnavailable({ mode }: { mode: string }) {

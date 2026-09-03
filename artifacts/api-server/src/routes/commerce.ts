@@ -7160,9 +7160,10 @@ router.post(
             throw new Error("Insufficient inventory");
           }
         }
-        const subtotal = Number(
-          (toNumber(product.sellingPrice) * quantity).toFixed(2),
-        );
+        const unitPrice = product.salePrice === null
+          ? toNumber(product.sellingPrice)
+          : toNumber(product.salePrice);
+        const subtotal = Number((unitPrice * quantity).toFixed(2));
         const shippingAmount = merchant.freeShippingThreshold !== null
           && subtotal >= toNumber(merchant.freeShippingThreshold)
           ? 0

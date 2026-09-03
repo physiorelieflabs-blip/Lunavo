@@ -41,9 +41,19 @@ const groups = [
 export default function Settings() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
-  const currencySettings = useGetCurrencySettings();
+  const currencySettings = useGetCurrencySettings({
+    query: {
+      queryKey: getGetCurrencySettingsQueryKey(),
+      enabled: isLoaded && !!user,
+    },
+  });
   const updateCurrency = useUpdateCurrencySettings();
-  const checkoutSettings = useGetCheckoutSettings();
+  const checkoutSettings = useGetCheckoutSettings({
+    query: {
+      queryKey: getGetCheckoutSettingsQueryKey(),
+      enabled: isLoaded && !!user,
+    },
+  });
   const updateCheckout = useUpdateCheckoutSettings();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -120,7 +130,7 @@ export default function Settings() {
     }
   };
 
-  const saveCurrency = () => {
+  const saveCurrency = async () => {
     setCommerceMessage('');
     setCommerceMessageIsError(false);
     if (!currency) {
@@ -128,23 +138,23 @@ export default function Settings() {
       setCommerceMessage('Choose a settlement currency before saving.');
       return;
     }
-    updateCurrency.mutate({ data: { currency } }, {
-      onSuccess: (result) => {
-        setCurrency(result.currency);
-        setCommerceMessage(`Settlement currency saved as ${result.currency}. Historical orders remain unchanged.`);
-        void Promise.all([
-          queryClient.invalidateQueries({ queryKey: getGetCurrencySettingsQueryKey() }),
-          queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() }),
-        ]);
-      },
-      onError: () => {
-        setCommerceMessageIsError(true);
-        setCommerceMessage('Settlement currency could not be saved. Choose one of the supported currencies.');
-      },
-    });
+    try {
+      const result = await updateCurrency.mutateAsync({ data: { currency } });
+      setCurrency(result.currency);
+      setCommerceMessage(`Settlement currency saved as ${result.currency}. Historical orders remain unchanged.`);
+      await Promise.all([
+        currencySettings.refetch(),
+        checkoutSettings.refetch(),
+        queryClient.invalidateQueries({ queryKey: getGetCurrencySettingsQueryKey() }),
+        queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() }),
+      ]);
+    } catch (error) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage(getApiErrorMessage(error, 'Settlement currency could not be saved. Choose one of the supported currencies.'));
+    }
   };
 
-  const saveCheckout = (event: FormEvent) => {
+  const saveCheckout = async (event: FormEvent) => {
     event.preventDefault();
     setCommerceMessage('');
     setCommerceMessageIsError(false);
@@ -160,18 +170,22 @@ export default function Settings() {
       setCommerceMessage('Checkout rules could not be saved. Use a tax rate from 0 to 100 and non-negative amounts.');
       return;
     }
-    updateCheckout.mutate({
-      data: { taxRate: tax, shippingFee: shipping, freeShippingThreshold: threshold },
-    }, {
-      onSuccess: () => {
-        setCommerceMessage('Checkout rules saved. New orders will use these server-calculated values.');
-        void queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() });
-      },
-      onError: () => {
-        setCommerceMessageIsError(true);
-        setCommerceMessage('Checkout rules could not be saved. Check the values and try again.');
-      },
-    });
+    try {
+      const result = await updateCheckout.mutateAsync({
+        data: { taxRate: tax, shippingFee: shipping, freeShippingThreshold: threshold },
+      });
+      setTaxRate(String(result.taxRate));
+      setShippingFee(String(result.shippingFee));
+      setFreeShippingThreshold(result.freeShippingThreshold === null ? '' : String(result.freeShippingThreshold));
+      setCommerceMessage('Checkout rules saved. New orders will use these server-calculated values.');
+      await Promise.all([
+        checkoutSettings.refetch(),
+        queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() }),
+      ]);
+    } catch (error) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage(getApiErrorMessage(error, 'Checkout rules could not be saved. Check the values and try again.'));
+    }
   };
 
   if (!isLoaded) return <AppShell><LoadingState label="Loading account settings" /></AppShell>;
@@ -206,7 +220,7 @@ export default function Settings() {
               <Link href="/sign-in/forgot-password" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline underline-offset-4"><ShieldCheck className="h-4 w-4" />Change password</Link>
             </div>
           </form>
-          {message && <div className="mt-5"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
+           {message && <div className="mt-5" aria-live="polite"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
         </section>
 
         <section className="mt-9 grid gap-6 lg:grid-cols-2">
@@ -273,3 +287,10 @@ export default function Settings() {
 }
 
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20';
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message && !error.message.includes('Failed to fetch')) {
+    return error.message;
+  }
+  return fallback;
+}
