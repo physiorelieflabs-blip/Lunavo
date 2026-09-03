@@ -62,6 +62,7 @@ import {
   GetAdminOverviewResponse,
   GetDashboardOverviewResponse,
   GetCurrencySettingsResponse,
+  GetCheckoutSettingsResponse,
   GetMarketExchangeRateResponse,
   CreateStoreBody,
   CreateStoreResponse,
@@ -123,6 +124,8 @@ import {
   UpdateMerchantStatusResponse,
   UpdateCurrencySettingsBody,
   UpdateCurrencySettingsResponse,
+  UpdateCheckoutSettingsBody,
+  UpdateCheckoutSettingsResponse,
   UpdateOrderStatusBody,
   UpdateOrderStatusParams,
   UpdateOrderStatusResponse,
@@ -959,6 +962,9 @@ function serializePublicCheckoutOrder(
   return {
     orderNumber: order.orderNumber,
     title: product.title,
+    subtotal: toNumber(order.subtotal),
+    tax: toNumber(order.taxAmount),
+    shipping: toNumber(order.shippingAmount),
     total: toNumber(order.total),
     currency: order.currency,
     status: "pending" as const,
@@ -1243,6 +1249,49 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
       availableCurrencies: [...SUPPORTED_CURRENCIES],
     }),
   );
+});
+
+router.get("/settings/checkout", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  res.json(GetCheckoutSettingsResponse.parse({
+    taxRate: toNumber(merchant.taxRate),
+    shippingFee: toNumber(merchant.shippingFee),
+    freeShippingThreshold: merchant.freeShippingThreshold === null ? null : toNumber(merchant.freeShippingThreshold),
+    currency: merchant.currency,
+  }));
+});
+
+router.put("/settings/checkout", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const parsed = UpdateCheckoutSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a tax rate from 0 to 100, a non-negative shipping fee, and a valid free-shipping threshold." });
+    return;
+  }
+  const [updated] = await db.update(merchantsTable).set({
+    taxRate: parsed.data.taxRate.toFixed(2),
+    shippingFee: parsed.data.shippingFee.toFixed(2),
+    freeShippingThreshold: parsed.data.freeShippingThreshold === null ? null : parsed.data.freeShippingThreshold.toFixed(2),
+  }).where(eq(merchantsTable.id, (await getOrCreateMerchant(identity)).id)).returning();
+  if (!updated) {
+    res.status(404).json({ error: "Merchant account not found" });
+    return;
+  }
+  await addActivity(updated.id, {
+    type: "checkout_settings_updated",
+    title: "Checkout pricing rules updated",
+    description: `Tax ${toNumber(updated.taxRate).toFixed(2)}%; shipping ${toNumber(updated.shippingFee).toFixed(2)} ${updated.currency}.`,
+    tone: "neutral",
+  });
+  res.json(UpdateCheckoutSettingsResponse.parse({
+    taxRate: toNumber(updated.taxRate),
+    shippingFee: toNumber(updated.shippingFee),
+    freeShippingThreshold: updated.freeShippingThreshold === null ? null : toNumber(updated.freeShippingThreshold),
+    currency: updated.currency,
+  }));
 });
 
 router.get("/settings/fx", async (req, res): Promise<void> => {
@@ -3492,6 +3541,9 @@ router.post("/orders", async (req, res): Promise<void> => {
           merchantId: merchant.id,
           customerId: customer.id,
           orderNumber,
+           subtotal: total,
+           taxAmount: "0.00",
+           shippingAmount: "0.00",
           total,
           currency: merchant.currency,
           status,
@@ -3871,8 +3923,18 @@ router.post(
             throw new Error("Insufficient inventory");
           }
         }
-        const total = Number(
+        const subtotal = Number(
           (toNumber(product.sellingPrice) * quantity).toFixed(2),
+        );
+        const shippingAmount = merchant.freeShippingThreshold !== null
+          && subtotal >= toNumber(merchant.freeShippingThreshold)
+          ? 0
+          : toNumber(merchant.shippingFee);
+        const taxAmount = Number(
+          (subtotal * toNumber(merchant.taxRate) / 100).toFixed(2),
+        );
+        const total = Number(
+          (subtotal + shippingAmount + taxAmount).toFixed(2),
         );
         const email = parsed.data.customerEmail.trim().toLowerCase();
         let customer = (
@@ -3914,6 +3976,9 @@ router.post(
             merchantId: merchant.id,
             customerId: customer.id,
             orderNumber: `WEB-${randomUUID().slice(0, 8).toUpperCase()}`,
+            subtotal: subtotal.toFixed(2),
+            taxAmount: taxAmount.toFixed(2),
+            shippingAmount: shippingAmount.toFixed(2),
             total: total.toFixed(2),
             quantity,
             currency: product.currency,

@@ -1,12 +1,15 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { ExternalLink, Store as StoreIcon } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
   getGetDashboardOverviewQueryKey,
+  getGetCheckoutSettingsQueryKey,
   useCreateStore,
+  useGetCheckoutSettings,
   useGetDashboardOverview,
+  useUpdateCheckoutSettings,
 } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
@@ -15,9 +18,21 @@ export default function StorePage() {
   const overview = useGetDashboardOverview();
   const { user } = useUser();
   const createStore = useCreateStore();
+  const checkoutSettings = useGetCheckoutSettings();
+  const updateCheckoutSettings = useUpdateCheckoutSettings();
   const queryClient = useQueryClient();
   const [storeName, setStoreName] = useState('');
+  const [taxRate, setTaxRate] = useState('0');
+  const [shippingFee, setShippingFee] = useState('0');
+  const [freeShippingThreshold, setFreeShippingThreshold] = useState('');
   const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!checkoutSettings.data) return;
+    setTaxRate(String(checkoutSettings.data.taxRate));
+    setShippingFee(String(checkoutSettings.data.shippingFee));
+    setFreeShippingThreshold(checkoutSettings.data.freeShippingThreshold === null ? '' : String(checkoutSettings.data.freeShippingThreshold));
+  }, [checkoutSettings.data]);
 
   if (overview.isLoading) return <AppShell><LoadingState label="Loading store workspace" /></AppShell>;
   if (overview.isError || !overview.data) return <AppShell><ErrorState onRetry={() => { void overview.refetch(); }} /></AppShell>;
@@ -35,6 +50,25 @@ export default function StorePage() {
         void queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() });
       },
       onError: () => setMessage('Store name could not be saved. Use 2 to 80 characters and try again.'),
+    });
+  };
+
+  const saveCheckoutSettings = (event: FormEvent) => {
+    event.preventDefault();
+    setMessage('');
+    const tax = Number(taxRate);
+    const shipping = Number(shippingFee);
+    const threshold = freeShippingThreshold.trim() === '' ? null : Number(freeShippingThreshold);
+    if (!Number.isFinite(tax) || tax < 0 || tax > 100 || !Number.isFinite(shipping) || shipping < 0 || (threshold !== null && (!Number.isFinite(threshold) || threshold < 0))) {
+      setMessage('Checkout rules could not be saved. Use non-negative amounts and a tax rate from 0 to 100.');
+      return;
+    }
+    updateCheckoutSettings.mutate({ data: { taxRate: tax, shippingFee: shipping, freeShippingThreshold: threshold } }, {
+      onSuccess: () => {
+        setMessage('Checkout pricing rules saved. New customer orders will receive a server-calculated tax and shipping snapshot.');
+        void queryClient.invalidateQueries({ queryKey: getGetCheckoutSettingsQueryKey() });
+      },
+      onError: () => setMessage('Checkout rules could not be saved. Check the values and try again.'),
     });
   };
 
@@ -64,6 +98,26 @@ export default function StorePage() {
           <div className="flex flex-wrap items-center gap-3">
             <SubmitButton loading={createStore.isPending}>Save store</SubmitButton>
             {user?.id && <Link href={`/checkout/${user.id}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] px-4 text-sm font-extrabold text-[#536174] hover:bg-[#f7f4ed]" data-testid="link-preview-store">Preview checkout <ExternalLink className="h-4 w-4" /></Link>}
+          </div>
+        </form>
+      </section>
+      <section className="mt-6 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+        <SectionHeading eyebrow="Checkout rules" title="Set tax and shipping" description="These rules are calculated on the server and snapshotted on each order. Customers provide their shipping address at checkout; no merchant address is required." />
+        <form onSubmit={saveCheckoutSettings} className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block text-sm font-bold">Tax rate (%)
+              <input value={taxRate} onChange={(event) => setTaxRate(event.target.value)} type="number" min="0" max="100" step="0.01" required className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-tax-rate" />
+            </label>
+            <label className="block text-sm font-bold">Shipping fee ({checkoutSettings.data?.currency ?? store.currency})
+              <input value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} type="number" min="0" step="0.01" required className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-shipping-fee" />
+            </label>
+            <label className="block text-sm font-bold">Free shipping over ({checkoutSettings.data?.currency ?? store.currency})
+              <input value={freeShippingThreshold} onChange={(event) => setFreeShippingThreshold(event.target.value)} type="number" min="0" step="0.01" placeholder="No threshold" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-free-shipping-threshold" />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs leading-5 text-[#697687]">Historical orders keep their original subtotal, tax, shipping, and total values when you change these settings.</p>
+            <SubmitButton loading={updateCheckoutSettings.isPending}>Save checkout rules</SubmitButton>
           </div>
         </form>
       </section>

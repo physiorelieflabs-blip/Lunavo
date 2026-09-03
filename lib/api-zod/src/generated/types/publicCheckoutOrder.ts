@@ -10,6 +10,9 @@ import type { PublicCheckoutOrderStatus } from './publicCheckoutOrderStatus';
 export interface PublicCheckoutOrder {
   orderNumber: string;
   title: string;
+  subtotal: number;
+  tax: number;
+  shipping: number;
   total: number;
   currency: string;
   status: PublicCheckoutOrderStatus;

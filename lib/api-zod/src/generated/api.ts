@@ -95,6 +95,67 @@ export const UpdateCurrencySettingsResponse = zod.object({
 
 
 /**
+ * @summary Get merchant tax and shipping rules
+ */
+export const getCheckoutSettingsResponseTaxRateMin = 0;
+export const getCheckoutSettingsResponseTaxRateMax = 100;
+
+export const getCheckoutSettingsResponseShippingFeeMin = 0;
+
+export const getCheckoutSettingsResponseFreeShippingThresholdMin = 0;
+
+export const getCheckoutSettingsResponseCurrencyMin = 3;
+export const getCheckoutSettingsResponseCurrencyMax = 3;
+
+
+
+export const GetCheckoutSettingsResponse = zod.object({
+  "taxRate": zod.number().min(getCheckoutSettingsResponseTaxRateMin).max(getCheckoutSettingsResponseTaxRateMax),
+  "shippingFee": zod.number().min(getCheckoutSettingsResponseShippingFeeMin),
+  "freeShippingThreshold": zod.number().min(getCheckoutSettingsResponseFreeShippingThresholdMin).nullable(),
+  "currency": zod.string().min(getCheckoutSettingsResponseCurrencyMin).max(getCheckoutSettingsResponseCurrencyMax)
+})
+
+
+/**
+ * @summary Update merchant tax and shipping rules
+ */
+export const updateCheckoutSettingsBodyTaxRateMin = 0;
+export const updateCheckoutSettingsBodyTaxRateMax = 100;
+
+export const updateCheckoutSettingsBodyShippingFeeMin = 0;
+
+export const updateCheckoutSettingsBodyFreeShippingThresholdMin = 0;
+
+
+
+export const UpdateCheckoutSettingsBody = zod.object({
+  "taxRate": zod.number().min(updateCheckoutSettingsBodyTaxRateMin).max(updateCheckoutSettingsBodyTaxRateMax),
+  "shippingFee": zod.number().min(updateCheckoutSettingsBodyShippingFeeMin),
+  "freeShippingThreshold": zod.number().min(updateCheckoutSettingsBodyFreeShippingThresholdMin).nullable()
+})
+
+export const updateCheckoutSettingsResponseTaxRateMin = 0;
+export const updateCheckoutSettingsResponseTaxRateMax = 100;
+
+export const updateCheckoutSettingsResponseShippingFeeMin = 0;
+
+export const updateCheckoutSettingsResponseFreeShippingThresholdMin = 0;
+
+export const updateCheckoutSettingsResponseCurrencyMin = 3;
+export const updateCheckoutSettingsResponseCurrencyMax = 3;
+
+
+
+export const UpdateCheckoutSettingsResponse = zod.object({
+  "taxRate": zod.number().min(updateCheckoutSettingsResponseTaxRateMin).max(updateCheckoutSettingsResponseTaxRateMax),
+  "shippingFee": zod.number().min(updateCheckoutSettingsResponseShippingFeeMin),
+  "freeShippingThreshold": zod.number().min(updateCheckoutSettingsResponseFreeShippingThresholdMin).nullable(),
+  "currency": zod.string().min(updateCheckoutSettingsResponseCurrencyMin).max(updateCheckoutSettingsResponseCurrencyMax)
+})
+
+
+/**
  * @summary Get a market-sourced exchange rate
  */
 export const getMarketExchangeRateQueryBaseMin = 3;
@@ -1674,6 +1735,9 @@ export const CreatePublicCheckoutBody = zod.object({
 export const CreatePublicCheckoutResponse = zod.object({
   "orderNumber": zod.string(),
   "title": zod.string(),
+  "subtotal": zod.number(),
+  "tax": zod.number(),
+  "shipping": zod.number(),
   "total": zod.number(),
   "currency": zod.string(),
   "status": zod.enum(['pending']),

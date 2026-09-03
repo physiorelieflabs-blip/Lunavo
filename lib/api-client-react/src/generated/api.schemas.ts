@@ -246,6 +246,41 @@ export interface CurrencySettingsInput {
   currency: string;
 }
 
+export interface CheckoutSettings {
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  taxRate: number;
+  /** @minimum 0 */
+  shippingFee: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  freeShippingThreshold: number | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+}
+
+export interface CheckoutSettingsInput {
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  taxRate: number;
+  /** @minimum 0 */
+  shippingFee: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  freeShippingThreshold: number | null;
+}
+
 export interface MarketExchangeRate {
   base: string;
   quote: string;
@@ -1803,6 +1838,9 @@ export const PublicCheckoutOrderStatus = {
 export interface PublicCheckoutOrder {
   orderNumber: string;
   title: string;
+  subtotal: number;
+  tax: number;
+  shipping: number;
   total: number;
   currency: string;
   status: PublicCheckoutOrderStatus;

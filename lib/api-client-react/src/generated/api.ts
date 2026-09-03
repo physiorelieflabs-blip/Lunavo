@@ -33,6 +33,8 @@ import type {
   AiSettingsInput,
   BankAccountInput,
   BankTransferInput,
+  CheckoutSettings,
+  CheckoutSettingsInput,
   CreateOrderInput,
   CurrencySettings,
   CurrencySettingsInput,
@@ -425,6 +427,154 @@ export const useUpdateCurrencySettings = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateCurrencySettingsMutationOptions(options));
+    }
+
+export const getGetCheckoutSettingsUrl = () => {
+
+
+
+
+  return `/api/settings/checkout`
+}
+
+/**
+ * @summary Get merchant tax and shipping rules
+ */
+export const getCheckoutSettings = async ( options?: Parameters<typeof customFetch>[1]): Promise<CheckoutSettings> => {
+
+  return customFetch<CheckoutSettings>(getGetCheckoutSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCheckoutSettingsQueryKey = () => {
+    return [
+    `/api/settings/checkout`
+    ] as const;
+    }
+
+
+export const getGetCheckoutSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getCheckoutSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCheckoutSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCheckoutSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCheckoutSettings>>> = ({ signal }) => getCheckoutSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCheckoutSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCheckoutSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getCheckoutSettings>>>
+export type GetCheckoutSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get merchant tax and shipping rules
+ */
+
+export function useGetCheckoutSettings<TData = Awaited<ReturnType<typeof getCheckoutSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCheckoutSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCheckoutSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateCheckoutSettingsUrl = () => {
+
+
+
+
+  return `/api/settings/checkout`
+}
+
+/**
+ * @summary Update merchant tax and shipping rules
+ */
+export const updateCheckoutSettings = async (checkoutSettingsInput: CheckoutSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<CheckoutSettings> => {
+
+  return customFetch<CheckoutSettings>(getUpdateCheckoutSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(checkoutSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateCheckoutSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCheckoutSettings>>, TError,{data: BodyType<CheckoutSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCheckoutSettings>>, TError,{data: BodyType<CheckoutSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateCheckoutSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCheckoutSettings>>, {data: BodyType<CheckoutSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateCheckoutSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCheckoutSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateCheckoutSettings>>>
+    export type UpdateCheckoutSettingsMutationBody = BodyType<CheckoutSettingsInput>
+    export type UpdateCheckoutSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update merchant tax and shipping rules
+ */
+export const useUpdateCheckoutSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCheckoutSettings>>, TError,{data: BodyType<CheckoutSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCheckoutSettings>>,
+        TError,
+        {data: BodyType<CheckoutSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateCheckoutSettingsMutationOptions(options));
     }
 
 export const getGetMarketExchangeRateUrl = (params: GetMarketExchangeRateParams,) => {

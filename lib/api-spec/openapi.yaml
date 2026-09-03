@@ -54,6 +54,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CurrencySettings"
+    put:
+      operationId: updateCurrencySettings
+      tags: [settings]
+      summary: Change the merchant settlement currency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrencySettingsInput"
+      responses:
+        "200":
+          description: Updated currency settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrencySettings"
   /settings/checkout:
     get:
       operationId: getCheckoutSettings
@@ -83,23 +100,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CheckoutSettings"
-    put:
-      operationId: updateCurrencySettings
-      tags: [settings]
-      summary: Change the merchant settlement currency
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CurrencySettingsInput"
-      responses:
-        "200":
-          description: Updated currency settings
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CurrencySettings"
   /settings/fx:
     get:
       operationId: getMarketExchangeRate
@@ -1403,6 +1403,21 @@ components:
       properties:
         currency: { type: string, minLength: 3, maxLength: 3 }
       required: [currency]
+    CheckoutSettings:
+      type: object
+      properties:
+        taxRate: { type: number, minimum: 0, maximum: 100 }
+        shippingFee: { type: number, minimum: 0 }
+        freeShippingThreshold: { type: ["number", "null"], minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+      required: [taxRate, shippingFee, freeShippingThreshold, currency]
+    CheckoutSettingsInput:
+      type: object
+      properties:
+        taxRate: { type: number, minimum: 0, maximum: 100 }
+        shippingFee: { type: number, minimum: 0 }
+        freeShippingThreshold: { type: ["number", "null"], minimum: 0 }
+      required: [taxRate, shippingFee, freeShippingThreshold]
     MarketExchangeRate:
       type: object
       properties:

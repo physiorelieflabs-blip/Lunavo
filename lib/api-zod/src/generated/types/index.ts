@@ -26,6 +26,8 @@ export * from './aiSettingsInput';
 export * from './aiSignal';
 export * from './bankAccountInput';
 export * from './bankTransferInput';
+export * from './checkoutSettings';
+export * from './checkoutSettingsInput';
 export * from './createOrderInput';
 export * from './createOrderInputStatus';
 export * from './currencySettings';
