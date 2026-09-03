@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -117,6 +118,96 @@ export const activityTable = pgTable("activity", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Transactional outbox. Events record facts after their authoritative
+ * mutation has succeeded; they are not a financial or inventory source of
+ * truth. Payloads are deliberately internal and must be redacted by API
+ * serializers before being returned to a merchant.
+ */
+export const domainEventsTable = pgTable(
+  "domain_events",
+  {
+    id: uuid("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    eventType: text("event_type").notNull(),
+    payloadVersion: integer("payload_version").notNull().default(1),
+    aggregateType: text("aggregate_type").notNull(),
+    aggregateId: text("aggregate_id").notNull(),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id"),
+    source: text("source").notNull(),
+    correlationId: uuid("correlation_id"),
+    causationId: uuid("causation_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    payload: jsonb("payload").notNull().default({}),
+    context: jsonb("context").notNull().default({}),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("domain_events_merchant_idempotency_unique").on(table.merchantId, table.idempotencyKey),
+    index("domain_events_dispatch_idx").on(table.status, table.nextAttemptAt),
+    index("domain_events_merchant_occurred_idx").on(table.merchantId, table.occurredAt),
+  ],
+);
+
+export const domainEventConsumptionsTable = pgTable(
+  "domain_event_consumptions",
+  {
+    id: serial("id").primaryKey(),
+    eventId: uuid("event_id").notNull().references(() => domainEventsTable.id),
+    consumer: text("consumer").notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("domain_event_consumptions_event_consumer_unique").on(table.eventId, table.consumer)],
+);
+
+export const notificationsTable = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    recipientType: text("recipient_type").notNull().default("merchant"),
+    recipientId: text("recipient_id"),
+    actorType: text("actor_type"),
+    actorId: text("actor_id"),
+    eventId: uuid("event_id").references(() => domainEventsTable.id),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    deepLink: text("deep_link"),
+    actionLabel: text("action_label"),
+    severity: text("severity").notNull().default("info"),
+    dedupeKey: text("dedupe_key").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("notifications_merchant_dedupe_unique").on(table.merchantId, table.dedupeKey),
+    index("notifications_merchant_created_idx").on(table.merchantId, table.createdAt),
+  ],
+);
+
+/** Records a trigger only; it never implies an automation action was run. */
+export const automationEventHooksTable = pgTable(
+  "automation_event_hooks",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    eventId: uuid("event_id").notNull().references(() => domainEventsTable.id),
+    status: text("status").notNull().default("observed"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("automation_event_hooks_event_unique").on(table.eventId)],
+);
 
 export const customersTable = pgTable(
   "customers",
@@ -947,3 +1038,6 @@ export type AiAction = typeof aiActionsTable.$inferSelect;
 export type InsertAiModel = z.infer<typeof insertAiModelSchema>;
 export type InsertAiSettings = z.infer<typeof insertAiSettingsSchema>;
 export type InsertAiAction = z.infer<typeof insertAiActionSchema>;
+export type DomainEvent = typeof domainEventsTable.$inferSelect;
+export type DomainEventConsumption = typeof domainEventConsumptionsTable.$inferSelect;
+export type Notification = typeof notificationsTable.$inferSelect;

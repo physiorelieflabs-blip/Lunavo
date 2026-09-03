@@ -9,3 +9,4 @@
 - [Withdrawal PIN boundary](withdrawal-pin-security.md) — merchant payouts require two hashed PINs; admin review and payouts require five, in addition to authenticator step-up.
 - [Checkout pricing snapshots](checkout-pricing.md) — server-calculated tax and shipping are stored with each order and never recomputed for history.
 - [Invoice payment accounting](invoice-payment-accounting.md) — invoice payment evidence becomes authoritative only through locked, idempotent verification and ledger posting.
+- [Domain event replay boundary](domain-event-replay.md) — commerce mutations emit transactional facts; replay may rebuild projections but never rerun authoritative money or stock changes.

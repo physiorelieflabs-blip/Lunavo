@@ -2324,6 +2324,45 @@ export interface PublicInvoice {
   lines: InvoiceLine[];
 }
 
+export interface DomainEventRecord {
+  id: string;
+  eventType: string;
+  payloadVersion: number;
+  aggregateType: string;
+  aggregateId: string;
+  actorType: string;
+  source: string;
+  status: string;
+  attempts: number;
+  occurredAt: string;
+  /** @nullable */
+  processedAt: string | null;
+  /** @nullable */
+  lastError: string | null;
+}
+
+export interface NotificationRecord {
+  id: string;
+  /** @nullable */
+  eventId: string | null;
+  entityType: string;
+  entityId: string;
+  title: string;
+  body: string;
+  severity: string;
+  /** @nullable */
+  deepLink: string | null;
+  /** @nullable */
+  actionLabel: string | null;
+  /** @nullable */
+  actorType: string | null;
+  /** @nullable */
+  source: string | null;
+  /** @nullable */
+  readAt: string | null;
+  createdAt: string;
+}
+
 export interface InvoicePaymentReferenceInput {
   /** @exclusiveMinimum 0 */
   amount: number;

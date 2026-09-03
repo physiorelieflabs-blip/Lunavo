@@ -3310,3 +3310,91 @@ export const CreateInventoryAdjustmentResponse = zod.object({
 })
 
 
+/**
+ * @summary List tenant-scoped domain event history
+ */
+export const ListDomainEventsResponseItem = zod.object({
+  "id": zod.uuid(),
+  "eventType": zod.string(),
+  "payloadVersion": zod.int(),
+  "aggregateType": zod.string(),
+  "aggregateId": zod.string(),
+  "actorType": zod.string(),
+  "source": zod.string(),
+  "status": zod.string(),
+  "attempts": zod.int(),
+  "occurredAt": zod.coerce.date(),
+  "processedAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})
+export const ListDomainEventsResponse = zod.array(ListDomainEventsResponseItem)
+
+
+/**
+ * @summary Replay failed event projections only
+ */
+export const ReplayDomainEventParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const ReplayDomainEventResponse = zod.object({
+  "id": zod.uuid(),
+  "eventType": zod.string(),
+  "payloadVersion": zod.int(),
+  "aggregateType": zod.string(),
+  "aggregateId": zod.string(),
+  "actorType": zod.string(),
+  "source": zod.string(),
+  "status": zod.string(),
+  "attempts": zod.int(),
+  "occurredAt": zod.coerce.date(),
+  "processedAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})
+
+
+/**
+ * @summary List merchant notifications
+ */
+export const ListNotificationsResponseItem = zod.object({
+  "id": zod.uuid(),
+  "eventId": zod.uuid().nullable(),
+  "entityType": zod.string(),
+  "entityId": zod.string(),
+  "title": zod.string(),
+  "body": zod.string(),
+  "severity": zod.string(),
+  "deepLink": zod.string().nullable(),
+  "actionLabel": zod.string().nullable(),
+  "actorType": zod.string().nullable(),
+  "source": zod.string().nullable(),
+  "readAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const ListNotificationsResponse = zod.array(ListNotificationsResponseItem)
+
+
+/**
+ * @summary Mark a merchant notification read
+ */
+export const MarkNotificationReadParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const MarkNotificationReadResponse = zod.object({
+  "id": zod.uuid(),
+  "eventId": zod.uuid().nullable(),
+  "entityType": zod.string(),
+  "entityId": zod.string(),
+  "title": zod.string(),
+  "body": zod.string(),
+  "severity": zod.string(),
+  "deepLink": zod.string().nullable(),
+  "actionLabel": zod.string().nullable(),
+  "actorType": zod.string().nullable(),
+  "source": zod.string().nullable(),
+  "readAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+

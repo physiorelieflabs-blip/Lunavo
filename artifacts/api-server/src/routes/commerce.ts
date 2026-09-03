@@ -49,6 +49,9 @@ import {
   invoicesTable,
   invoiceLinesTable,
   invoicePaymentSubmissionsTable,
+  domainEventsTable,
+  domainEventConsumptionsTable,
+  notificationsTable,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -222,6 +225,12 @@ import {
   SubmitInvoicePaymentReferenceParams,
   SubmitInvoicePaymentReferenceBody,
   SubmitInvoicePaymentReferenceResponse,
+  ListDomainEventsResponse,
+  ReplayDomainEventParams,
+  ReplayDomainEventResponse,
+  ListNotificationsResponse,
+  MarkNotificationReadParams,
+  MarkNotificationReadResponse,
 } from "@workspace/api-zod";
 import {
   createTotpUri,
@@ -230,6 +239,7 @@ import {
   generateTotpSecret,
   verifyTotp,
 } from "../lib/withdrawal-security";
+import { emitDomainEvent } from "../lib/domain-events";
 import {
   importPublicSupplierProduct,
   type ImportedSupplierProduct,
@@ -2094,6 +2104,7 @@ router.post("/ai/actions", async (req, res): Promise<void> => {
         description: created.title,
         tone: "neutral",
       });
+      await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "ai.action_proposed", aggregateType: "ai_action", aggregateId: created.id, actorType: "merchant", actorId: identity.clerkUserId, source: "ai", idempotencyKey: `ai-action:${created.id}:proposed`, payload: { actionType: created.actionType, status: created.status, risk: created.risk, reversible: created.reversible } });
       return [created];
     });
     res.status(201).json(CreateAiActionResponse.parse(serializeAiAction(action)));
@@ -2139,6 +2150,7 @@ router.patch("/ai/actions/:id/approve", async (req, res): Promise<void> => {
         description: updated.title,
         tone: "positive",
       });
+      await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "ai.action_approved", aggregateType: "ai_action", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `ai-action:${updated.id}:approved`, payload: { actionType: updated.actionType, status: updated.status }, before: { status: current.status }, after: { status: updated.status } });
       return updated;
     });
     res.json(ApproveAiActionResponse.parse(serializeAiAction(action)));
@@ -2183,6 +2195,7 @@ router.patch("/ai/actions/:id/reject", async (req, res): Promise<void> => {
         description: updated.title,
         tone: "neutral",
       });
+      await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "ai.action_rejected", aggregateType: "ai_action", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `ai-action:${updated.id}:rejected`, payload: { actionType: updated.actionType, status: updated.status }, before: { status: current.status }, after: { status: updated.status } });
       return updated;
     });
     res.json(RejectAiActionResponse.parse(serializeAiAction(action)));
@@ -2319,6 +2332,7 @@ router.post("/ai/actions/:id/execute", async (req, res): Promise<void> => {
         description: updated.title,
         tone: "positive",
       });
+      await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "ai.action_executed", aggregateType: "ai_action", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "ai", idempotencyKey: `ai-action:${updated.id}:executed`, payload: { actionType: updated.actionType, status: updated.status, outcome: "prepared", sideEffect: "none" }, before: { status: current.status }, after: { status: updated.status } });
       return updated;
     });
     res.json(ExecuteAiActionResponse.parse(serializeAiAction(action)));
@@ -2373,6 +2387,7 @@ router.post("/ai/actions/:id/rollback", async (req, res): Promise<void> => {
         description: updated.title,
         tone: "neutral",
       });
+      await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "ai.action_rolled_back", aggregateType: "ai_action", aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `ai-action:${updated.id}:rolled_back`, payload: { actionType: updated.actionType, status: updated.status }, before: { status: current.status }, after: { status: updated.status } });
       return updated;
     });
     res.json(RollbackAiActionResponse.parse(serializeAiAction(action)));
@@ -3800,6 +3815,71 @@ router.get("/orders", async (req, res): Promise<void> => {
   );
 });
 
+function serializeDomainEvent(event: typeof domainEventsTable.$inferSelect) {
+  return {
+    id: event.id, eventType: event.eventType, payloadVersion: event.payloadVersion,
+    aggregateType: event.aggregateType, aggregateId: event.aggregateId, actorType: event.actorType,
+    source: event.source, status: event.status, attempts: event.attempts, occurredAt: event.occurredAt,
+    processedAt: event.processedAt, lastError: event.lastError,
+  };
+}
+
+router.get("/events", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const events = await db.select().from(domainEventsTable)
+    .where(eq(domainEventsTable.merchantId, merchant.id)).orderBy(desc(domainEventsTable.occurredAt)).limit(200);
+  res.json(ListDomainEventsResponse.parse(events.map(serializeDomainEvent)));
+});
+
+router.post("/events/:id/replay", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = ReplayDomainEventParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid event" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const [event] = await db.transaction(async (tx) => {
+    await tx.execute(sql`select id from ${domainEventsTable} where id=${params.data.id} and merchant_id=${merchant.id} for update`);
+    const current = (await tx.select().from(domainEventsTable).where(and(eq(domainEventsTable.id, params.data.id), eq(domainEventsTable.merchantId, merchant.id))).limit(1))[0];
+    if (!current) throw new Error("Event not found");
+    if (!["retry", "dead_letter"].includes(current.status)) throw new Error("Only failed or dead-letter events may be replayed");
+    // This endpoint only clears projection receipts and requeues the outbox;
+    // it never calls an order, payment, ledger, or inventory mutation.
+    await tx.delete(domainEventConsumptionsTable).where(eq(domainEventConsumptionsTable.eventId, current.id));
+    const [queued] = await tx.update(domainEventsTable).set({ status: "pending", attempts: 0, nextAttemptAt: new Date(), lastError: null, processedAt: null })
+      .where(and(eq(domainEventsTable.id, current.id), inArray(domainEventsTable.status, ["retry", "dead_letter"]))).returning();
+    if (!queued) throw new Error("Could not queue event replay");
+    return [queued];
+  });
+  res.json(ReplayDomainEventResponse.parse(serializeDomainEvent(event)));
+});
+
+router.get("/notifications", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const rows = await db.select({ notification: notificationsTable, source: domainEventsTable.source })
+    .from(notificationsTable).leftJoin(domainEventsTable, eq(notificationsTable.eventId, domainEventsTable.id))
+    .where(eq(notificationsTable.merchantId, merchant.id)).orderBy(desc(notificationsTable.createdAt)).limit(200);
+  res.json(ListNotificationsResponse.parse(rows.map(({ notification, source }) => ({
+    id: notification.id, eventId: notification.eventId, entityType: notification.entityType, entityId: notification.entityId,
+    title: notification.title, body: notification.body, severity: notification.severity, deepLink: notification.deepLink,
+    actionLabel: notification.actionLabel, actorType: notification.actorType, source: source ?? null,
+    readAt: notification.readAt, createdAt: notification.createdAt,
+  }))));
+});
+
+router.post("/notifications/:id/read", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const params = MarkNotificationReadParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Invalid notification" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  const [notification] = await db.update(notificationsTable).set({ readAt: new Date() })
+    .where(and(eq(notificationsTable.id, params.data.id), eq(notificationsTable.merchantId, merchant.id))).returning();
+  if (!notification) { res.status(404).json({ error: "Notification not found" }); return; }
+  const [event] = notification.eventId ? await db.select({ source: domainEventsTable.source }).from(domainEventsTable)
+    .where(and(eq(domainEventsTable.id, notification.eventId), eq(domainEventsTable.merchantId, merchant.id))).limit(1) : [];
+  res.json(MarkNotificationReadResponse.parse({ ...notification, source: event?.source ?? null }));
+});
+
 router.post("/orders", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -3992,6 +4072,12 @@ router.post("/orders", async (req, res): Promise<void> => {
         amount: total,
         tone: "positive",
       });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id, eventType: "order.created", aggregateType: "order",
+        aggregateId: order.id, actorType: "merchant", actorId: identity.clerkUserId,
+        source: "merchant_api", idempotencyKey: `order:${order.id}:created`,
+        payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total },
+      });
       return { order, customer, product: supplierProduct ?? null };
     });
 
@@ -4067,6 +4153,21 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
           description: "The customer checkout was cancelled before payment.",
           tone: "warning",
         });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id, eventType: "order.cancelled", aggregateType: "order",
+          aggregateId: order.id, actorType: "merchant", actorId: identity.clerkUserId,
+          source: "merchant_api", idempotencyKey: `order:${order.id}:cancelled`,
+          payload: { orderNumber: order.orderNumber, status: order.status },
+          before: { status: existing.order.status }, after: { status: order.status },
+        });
+        if (reservation) {
+          await emitDomainEvent(tx, {
+            merchantId: merchant.id, eventType: "inventory.released", aggregateType: "inventory_reservation",
+            aggregateId: reservation.id, actorType: "merchant", actorId: identity.clerkUserId,
+            source: "merchant_api", idempotencyKey: `inventory-reservation:${reservation.id}:released`,
+            payload: { orderId: order.id, supplierProductId: reservation.supplierProductId, quantity: reservation.quantity },
+          });
+        }
         return { ...existing, order };
       }
 
@@ -4212,7 +4313,18 @@ router.post("/invoices/:id/send", async (req, res): Promise<void> => {
   const current = (await db.select().from(invoicesTable).where(and(eq(invoicesTable.id, params.data.id), eq(invoicesTable.merchantId, merchant.id))).limit(1))[0];
   if (!current) { res.status(404).json({ error: "Invoice not found" }); return; }
   if (current.status !== "draft") { res.status(409).json({ error: "Only draft invoices can be sent" }); return; }
-  const [invoice] = await db.update(invoicesTable).set({ status: "sent", sentAt: new Date() }).where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, "draft"))).returning();
+  const invoice = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(invoicesTable).set({ status: "sent", sentAt: new Date() }).where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, "draft"))).returning();
+    if (!updated) throw new Error("Invoice status changed while sending");
+    await emitDomainEvent(tx, {
+      merchantId: merchant.id, eventType: "invoice.sent", aggregateType: "invoice",
+      aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId,
+      source: "merchant_api", idempotencyKey: `invoice:${updated.id}:sent`,
+      payload: { invoiceNumber: updated.invoiceNumber, status: updated.status, currency: updated.currency, total: updated.total },
+      before: { status: current.status }, after: { status: updated.status },
+    });
+    return updated;
+  });
   res.json(SendInvoiceResponse.parse(await serializeInvoice(invoice!)));
 });
 
@@ -4452,7 +4564,8 @@ router.patch("/admin/marketplace/listings/:id/review", async (req, res): Promise
     res.status(400).json({ error: "Choose a valid listing review state" });
     return;
   }
-  const [updated] = await db.update(marketplaceListingsTable)
+  const [updated] = await db.transaction(async (tx) => {
+    const [reviewed] = await tx.update(marketplaceListingsTable)
     .set({
       status: parsed.data.status,
       reviewNote: parsed.data.reviewNote ?? null,
@@ -4461,6 +4574,9 @@ router.patch("/admin/marketplace/listings/:id/review", async (req, res): Promise
     })
     .where(eq(marketplaceListingsTable.id, params.data.id))
     .returning();
+    if (reviewed) await emitDomainEvent(tx, { merchantId: reviewed.merchantId, eventType: "marketplace.listing_reviewed", aggregateType: "marketplace_listing", aggregateId: reviewed.id, actorType: "admin", actorId: identity.clerkUserId, source: "admin_api", idempotencyKey: `marketplace-listing:${reviewed.id}:reviewed:${reviewed.updatedAt.toISOString()}`, payload: { status: reviewed.status, listingFeeStatus: reviewed.listingFeeStatus } });
+    return [reviewed];
+  });
   if (!updated) {
     res.status(404).json({ error: "Marketplace listing not found" });
     return;
@@ -4516,22 +4632,27 @@ router.patch("/admin/marketplace/billing/:id/review", async (req, res): Promise<
     res.status(400).json({ error: "Choose paid or rejected" });
     return;
   }
-  const [updated] = await db.update(marketplaceBillingRecordsTable)
+  const [updated] = await db.transaction(async (tx) => {
+    const [reviewed] = await tx.update(marketplaceBillingRecordsTable)
     .set({
       status: parsed.data.status,
       reviewNote: parsed.data.reviewNote ?? null,
       paidAt: parsed.data.status === "paid" ? new Date() : null,
     })
-    .where(eq(marketplaceBillingRecordsTable.id, params.data.id))
+    .where(and(eq(marketplaceBillingRecordsTable.id, params.data.id), eq(marketplaceBillingRecordsTable.status, "submitted")))
     .returning();
+    if (!reviewed) return [reviewed];
+    if (reviewed.listingId) {
+      await tx.update(marketplaceListingsTable)
+        .set({ listingFeeStatus: reviewed.status, updatedAt: new Date() })
+        .where(eq(marketplaceListingsTable.id, reviewed.listingId));
+    }
+    await emitDomainEvent(tx, { merchantId: reviewed.merchantId, eventType: "marketplace.fee_reviewed", aggregateType: "marketplace_billing", aggregateId: reviewed.id, actorType: "admin", actorId: identity.clerkUserId, source: "admin_api", idempotencyKey: `marketplace-billing:${reviewed.id}:reviewed:${reviewed.paidAt?.toISOString() ?? "rejected"}:${reviewed.reviewNote ?? ""}`, payload: { listingId: reviewed.listingId, status: reviewed.status, amount: reviewed.amount, currency: reviewed.currency } });
+    return [reviewed];
+  });
   if (!updated) {
     res.status(404).json({ error: "Marketplace billing record not found" });
     return;
-  }
-  if (updated.listingId) {
-    await db.update(marketplaceListingsTable)
-      .set({ listingFeeStatus: updated.status, updatedAt: new Date() })
-      .where(eq(marketplaceListingsTable.id, updated.listingId));
   }
   res.json(ReviewMarketplaceBillingResponse.parse(serializeMarketplaceBilling(updated)));
 });
@@ -4832,14 +4953,15 @@ router.post(
           throw new Error("Checkout order could not be created");
         }
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-        await tx.insert(inventoryReservationsTable).values({
+        const [reservation] = await tx.insert(inventoryReservationsTable).values({
           merchantId: merchant.id,
           supplierProductId: product.id,
           orderId: order.id,
           quantity,
           status: "reserved",
           expiresAt,
-        });
+        }).returning();
+        if (!reservation) throw new Error("Inventory reservation could not be created");
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
           type: "checkout_submitted",
@@ -4848,6 +4970,16 @@ router.post(
           amount: total.toFixed(2),
           currency: product.currency,
           tone: "neutral",
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id, eventType: "order.created", aggregateType: "order", aggregateId: order.id,
+          actorType: "customer", source: "public_checkout", idempotencyKey: `order:${order.id}:created`,
+          payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total },
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id, eventType: "inventory.reserved", aggregateType: "inventory_reservation", aggregateId: reservation.id,
+          actorType: "customer", source: "public_checkout", idempotencyKey: `inventory-reservation:${reservation.id}:reserved`,
+          payload: { orderId: order.id, supplierProductId: product.id, quantity: reservation.quantity, expiresAt: reservation.expiresAt.toISOString() },
         });
         return { order, product };
       });
@@ -4953,6 +5085,11 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
         currency: link.currency,
         tone: "positive",
       });
+      await emitDomainEvent(tx, {
+        merchantId: link.merchantId, eventType: "order.created", aggregateType: "order", aggregateId: order.id,
+        actorType: "customer", source: "public_checkout", idempotencyKey: `order:${order.id}:created`,
+        payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total, channel: "payment_link" },
+      });
       return order;
     });
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
@@ -5003,12 +5140,22 @@ router.post("/public/invoices/:token/payment-reference", async (req, res): Promi
   const outstanding = toNumber(invoice.total) - toNumber(invoice.amountPaid);
   if (body.data.amount > outstanding) { res.status(400).json({ error: "Submitted amount exceeds the outstanding balance" }); return; }
   try {
-    const [submission] = await db.insert(invoicePaymentSubmissionsTable).values({
-      invoiceId: invoice.id, merchantId: invoice.merchantId, amount: body.data.amount.toFixed(2), currency: invoice.currency,
-      paymentReference: body.data.paymentReference.trim(), senderName: body.data.senderName?.trim() || null,
-    }).returning();
-    await db.update(invoicesTable).set({ paymentReference: submission!.paymentReference }).where(eq(invoicesTable.id, invoice.id));
-    res.status(201).json(SubmitInvoicePaymentReferenceResponse.parse(serializeInvoicePayment(submission!)));
+    const submission = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(invoicePaymentSubmissionsTable).values({
+        invoiceId: invoice.id, merchantId: invoice.merchantId, amount: body.data.amount.toFixed(2), currency: invoice.currency,
+        paymentReference: body.data.paymentReference.trim(), senderName: body.data.senderName?.trim() || null,
+      }).returning();
+      if (!created) throw new Error("Payment reference could not be saved");
+      await tx.update(invoicesTable).set({ paymentReference: created.paymentReference }).where(eq(invoicesTable.id, invoice.id));
+      await emitDomainEvent(tx, {
+        merchantId: invoice.merchantId, eventType: "invoice.payment_submitted", aggregateType: "invoice",
+        aggregateId: invoice.id, actorType: "customer", source: "public_checkout",
+        idempotencyKey: `invoice-payment-submission:${created.id}`,
+        payload: { invoiceId: invoice.id, submissionId: created.id, amount: created.amount, currency: created.currency },
+      });
+      return created;
+    });
+    res.status(201).json(SubmitInvoicePaymentReferenceResponse.parse(serializeInvoicePayment(submission)));
   } catch (error) { res.status(409).json({ error: "This payment reference was already submitted" }); }
 });
 
@@ -5054,6 +5201,13 @@ router.post("/invoices/:id/payments/:paymentId/verify", async (req, res): Promis
       const [updated] = await tx.update(invoicesTable).set({ amountPaid: paid.toFixed(2), status }).where(and(eq(invoicesTable.id, current.id), eq(invoicesTable.status, current.status), eq(invoicesTable.amountPaid, current.amountPaid))).returning();
       if (!updated) throw new Error("Invoice changed during payment verification");
       await tx.insert(activityTable).values({ merchantId: merchant.id, type: "invoice_payment_verified", title: `Invoice ${current.invoiceNumber} payment verified`, description: "Verified customer payment evidence was posted to the internal ledger.", amount: payment.amount, currency: current.currency, tone: "positive" });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id, eventType: "invoice.payment_verified", aggregateType: "invoice",
+        aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api",
+        idempotencyKey: `invoice-payment:${payment.id}:verified`,
+        payload: { invoiceId: updated.id, submissionId: payment.id, amountMinor: intent.amountMinor, currency: intent.currency },
+        before: { status: current.status, amountPaid: current.amountPaid }, after: { status: updated.status, amountPaid: updated.amountPaid },
+      });
       return updated!;
     });
     res.json(VerifyInvoicePaymentResponse.parse(await serializeInvoice(invoice)));
@@ -6150,6 +6304,7 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
               if (!updatedProduct) throw new Error("Inventory changed before payment verification");
            }
            await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: reservation.supplierProductId, orderId: order.id, quantityDelta: -reservation.quantity, reason: "sale", referenceKey: `sale:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
+            await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "inventory.committed", aggregateType: "inventory_reservation", aggregateId: reservation.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `inventory-reservation:${reservation.id}:committed`, payload: { orderId: order.id, supplierProductId: reservation.supplierProductId, quantity: reservation.quantity } });
          }
        }
       const [updated] = await tx.update(paymentIntentsTable).set({ status: "verified", evidenceReference: evidence }).where(eq(paymentIntentsTable.id, id)).returning();
@@ -6174,6 +6329,13 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
       }
       await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, current.orderId), eq(ordersTable.merchantId, merchant.id)));
       await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentIntentId: id, entityType: "payment_intent", fromStatus: current.status, toStatus: "verified", actorId: identity.clerkUserId, note: body.data.note ?? null });
+       await emitDomainEvent(tx, {
+         merchantId: merchant.id, eventType: "payment.verified", aggregateType: "payment_intent",
+         aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId,
+         source: "merchant_api", idempotencyKey: `payment-intent:${updated.id}:verified`,
+         payload: { orderId: current.orderId, amountMinor: current.amountMinor, currency: current.currency, method: current.method },
+         before: { status: current.status }, after: { status: updated.status },
+       });
       return updated;
     });
     res.json(VerifyPaymentResponse.parse(intent));
@@ -6237,6 +6399,13 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
         await tx.update(paymentIntentsTable).set({ status: paymentStatus }).where(eq(paymentIntentsTable.id, payment.intentId));
       }
       await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, refundId: id, entityType: "refund", fromStatus: "requested", toStatus: "processed", actorId: identity.clerkUserId });
+       await emitDomainEvent(tx, {
+         merchantId: merchant.id, eventType: "refund.processed", aggregateType: "refund",
+         aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api",
+         idempotencyKey: `refund:${updated.id}:processed`,
+         payload: { orderId: current.orderId, amountMinor: current.amountMinor, currency: current.currency, inventoryRestock: current.inventoryRestock },
+         before: { status: current.status }, after: { status: updated.status },
+       });
       return updated;
     }); res.json(ApproveRefundResponse.parse(refund));
   } catch (error) { req.log.error({ err: error }, "refund approval failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Refund failed" }); }
@@ -6286,6 +6455,7 @@ router.post("/inventory/adjustments", async (req, res): Promise<void> => {
       const [created] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, supplierProductId: product.id, quantityDelta: body.data.quantityDelta, reason: body.data.reason.trim(), referenceKey: body.data.referenceKey.trim() }).returning();
       if (!created) throw new Error("Adjustment could not be recorded");
       await tx.update(supplierProductsTable).set({ availabilityQuantity: product.availabilityQuantity + body.data.quantityDelta }).where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)));
+       await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "inventory.adjusted", aggregateType: "inventory_movement", aggregateId: created.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `inventory-adjustment:${created.id}`, payload: { supplierProductId: product.id, quantityDelta: created.quantityDelta, reason: created.reason, referenceKey: created.referenceKey } });
       return created;
     });
     res.status(201).json(CreateInventoryAdjustmentResponse.parse(movement));

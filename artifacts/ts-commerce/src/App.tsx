@@ -31,6 +31,7 @@ import PaymentLinkCheckout from '@/pages/payment-link-checkout';
 import MarketplaceManagement from '@/pages/marketplace-management';
 import Invoices from '@/pages/invoices';
 import PublicInvoice from '@/pages/invoice-public';
+import Activity from '@/pages/activity';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -93,6 +94,7 @@ function AuthRoutes() {
      <Route path="/invoice/:token" component={PublicInvoice} />
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
+     <Route path="/activity" component={() => <Protected><Activity /></Protected>} />
     <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
     <Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} />
     <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
