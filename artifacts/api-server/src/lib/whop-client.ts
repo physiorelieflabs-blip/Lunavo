@@ -19,7 +19,13 @@ export type WhopCheckoutConfiguration = {
 export type WhopPayment = {
   id?: string;
   status?: string | null;
+  substatus?: string | null;
   amount?: number | string | null;
+  total?: number | string | null;
+  refunded_amount?: number | string | null;
+  refundable?: boolean | null;
+  dispute_alerted_at?: string | null;
+  failure_message?: string | null;
   currency?: string | null;
   created_at?: string | null;
   checkout_configuration_id?: string | null;
@@ -31,6 +37,15 @@ export type WhopPayment = {
     plan?: { id?: string | null } | null;
   } | null;
   plan?: { id?: string | null } | null;
+};
+
+export type WhopRefund = {
+  id?: string;
+  payment_id?: string | null;
+  amount?: number | string | null;
+  status?: string | null;
+  failure_message?: string | null;
+  failure_reason?: string | null;
 };
 
 export type WhopPlan = {
@@ -59,11 +74,15 @@ export async function whopRequest<T>(
   options: {
     method?: string;
     body?: Record<string, unknown>;
+    idempotencyKey?: string;
   } = {},
 ): Promise<T> {
   const response = await connectors.proxy("whop", path, {
     method: options.method ?? "GET",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      ...(options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),
+    },
     body: options.body,
   });
   const text = await response.text();

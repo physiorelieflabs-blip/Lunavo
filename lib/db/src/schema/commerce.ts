@@ -301,6 +301,25 @@ export const domainEventConsumptionsTable = pgTable(
   (table) => [uniqueIndex("domain_event_consumptions_event_consumer_unique").on(table.eventId, table.consumer)],
 );
 
+export const whopWebhookEventsTable = pgTable(
+  "whop_webhook_events",
+  {
+    id: serial("id").primaryKey(),
+    webhookId: text("webhook_id").notNull(),
+    eventType: text("event_type").notNull(),
+    providerPaymentId: text("provider_payment_id"),
+    payload: jsonb("payload").notNull().default({}),
+    status: text("status").notNull().default("received"),
+    error: text("error"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("whop_webhook_events_webhook_id_unique").on(table.webhookId),
+    index("whop_webhook_events_payment_idx").on(table.providerPaymentId),
+  ],
+);
+
 export const notificationsTable = pgTable(
   "notifications",
   {
@@ -1075,6 +1094,9 @@ export const refundRecordsTable = pgTable("refund_records", {
   requestedBy: text("requested_by").notNull(),
   approvedBy: text("approved_by"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  providerRefundId: text("provider_refund_id"),
+  providerStatus: text("provider_status"),
+  providerFailureReason: text("provider_failure_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

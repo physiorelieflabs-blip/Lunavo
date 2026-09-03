@@ -41,6 +41,8 @@ const migrations = [
   "0030_subscription_billing_timezone",
   "0031_whop_payment_reference",
   "0032_public_checkout_payments",
+  "0033_provider_refund_tracking",
+  "0034_whop_webhook_events",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

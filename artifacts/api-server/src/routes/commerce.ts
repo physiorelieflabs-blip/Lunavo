@@ -2,6 +2,7 @@ import {
   randomBytes,
   randomUUID,
   createHash,
+  createHmac,
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
@@ -65,6 +66,7 @@ import {
   merchantInvitationLocationsTable,
   auctionListingsTable,
   auctionBidsTable,
+  whopWebhookEventsTable,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -336,6 +338,7 @@ import {
   type WhopCheckoutConfiguration,
   type WhopPlan,
   type WhopPayment,
+  type WhopRefund,
 } from "../lib/whop-client";
 
 const router: IRouter = Router();
@@ -2175,6 +2178,186 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
   });
   return { invoice: settledInvoice, status: "paid" as const, providerPaymentId: paid.id ?? null };
 }
+
+async function requestWhopRefund(
+  paymentId: string,
+  amountMinor: number,
+  idempotencyKey: string,
+): Promise<WhopRefund> {
+  if (!isCustomerWhopConfigured()) {
+    throw new Error("Whop refunds are not configured");
+  }
+  await whopRequest<WhopPayment>(
+    `/api/v1/payments/${encodeURIComponent(paymentId)}/refund`,
+    {
+      method: "POST",
+      body: { partial_amount: Number((amountMinor / 100).toFixed(2)) },
+      idempotencyKey,
+    },
+  );
+  const refunds = await whopRequest<{ data?: WhopRefund[] }>(
+    `/api/v1/refunds?account_id=${encodeURIComponent(whopCompanyId())}&payment_id=${encodeURIComponent(paymentId)}&first=100`,
+  );
+  const candidates = Array.isArray(refunds.data)
+    ? refunds.data.filter((refund) => refund.payment_id === paymentId)
+    : [];
+  const exact = candidates
+    .filter((refund) => {
+      const amount = Number(refund.amount ?? NaN);
+      return Number.isFinite(amount) && Math.abs(amount - amountMinor / 100) < 0.01;
+    })
+    .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")));
+  const latest = exact[0];
+  if (!latest) {
+    return {
+      status: "pending",
+      failure_message: "Whop accepted the refund request but the refund record is not visible yet",
+      payment_id: paymentId,
+    };
+  }
+  return latest;
+}
+
+function verifyWhopWebhookSignature(
+  rawBody: Buffer,
+  webhookId: string,
+  timestamp: string,
+  signatureHeader: string,
+): boolean {
+  const secret = process.env.WHOP_WEBHOOK_SECRET;
+  if (!secret || !webhookId || !timestamp || !signatureHeader) return false;
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isFinite(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) {
+    return false;
+  }
+  const encodedSecret = secret.replace(/^whsec_/, "");
+  let secretBytes: Buffer;
+  try {
+    secretBytes = Buffer.from(encodedSecret, "base64");
+  } catch {
+    return false;
+  }
+  const signedPayload = `${webhookId}.${timestamp}.${rawBody.toString("utf8")}`;
+  const expected = createHmac("sha256", secretBytes).update(signedPayload).digest("base64");
+  return signatureHeader.split(/\s+/).some((candidate) => {
+    const [version, signature] = candidate.split(",", 2);
+    if (version !== "v1" || !signature) return false;
+    const expectedBytes = Buffer.from(expected);
+    const receivedBytes = Buffer.from(signature);
+    return expectedBytes.length === receivedBytes.length && timingSafeEqual(expectedBytes, receivedBytes);
+  });
+}
+
+type WhopWebhookBody = {
+  type?: string;
+  event?: string;
+  data?: Record<string, unknown>;
+};
+
+router.post("/webhooks/whop", async (req, res): Promise<void> => {
+  const rawBody = Buffer.isBuffer(req.body)
+    ? req.body
+    : Buffer.from(JSON.stringify(req.body ?? {}));
+  const webhookId = String(req.headers["webhook-id"] ?? "");
+  const timestamp = String(req.headers["webhook-timestamp"] ?? "");
+  const signature = String(req.headers["webhook-signature"] ?? "");
+  if (!process.env.WHOP_WEBHOOK_SECRET) {
+    res.status(503).json({ error: "Whop webhook secret is not configured" });
+    return;
+  }
+  if (!verifyWhopWebhookSignature(rawBody, webhookId, timestamp, signature)) {
+    res.status(400).json({ error: "Invalid Whop webhook signature" });
+    return;
+  }
+  let body: WhopWebhookBody;
+  try {
+    body = JSON.parse(rawBody.toString("utf8")) as WhopWebhookBody;
+  } catch {
+    res.status(400).json({ error: "Invalid Whop webhook payload" });
+    return;
+  }
+  const eventType = String(body.type ?? body.event ?? "");
+  const data = body.data ?? {};
+  const providerPaymentId =
+    typeof data.id === "string" && data.id.startsWith("pay_")
+      ? data.id
+      : typeof data.payment_id === "string"
+        ? data.payment_id
+        : null;
+  try {
+    const [received] = await db
+      .insert(whopWebhookEventsTable)
+      .values({
+        webhookId,
+        eventType,
+        providerPaymentId,
+        payload: body,
+      })
+      .onConflictDoNothing({ target: whopWebhookEventsTable.webhookId })
+      .returning();
+    if (!received) {
+      res.json({ received: true, duplicate: true });
+      return;
+    }
+
+    if (providerPaymentId) {
+      const providerStatus = String(data.status ?? "").toLowerCase();
+      const local = (
+        await db
+          .select({ intent: paymentIntentsTable, record: paymentRecordsTable })
+          .from(paymentRecordsTable)
+          .innerJoin(paymentIntentsTable, eq(paymentRecordsTable.intentId, paymentIntentsTable.id))
+          .where(eq(paymentRecordsTable.evidenceReference, providerPaymentId))
+          .limit(1)
+      )[0];
+      if (local && ["failed", "canceled", "cancelled"].includes(providerStatus)) {
+        await db.transaction(async (tx) => {
+          await tx.update(paymentIntentsTable)
+            .set({ status: "failed" })
+            .where(and(eq(paymentIntentsTable.id, local.intent.id), inArray(paymentIntentsTable.status, ["created", "submitted"])));
+          await tx.update(paymentRecordsTable)
+            .set({ status: "failed" })
+            .where(and(eq(paymentRecordsTable.id, local.record.id), inArray(paymentRecordsTable.status, ["created", "submitted"])));
+        });
+      } else if (local && eventType === "payment.succeeded") {
+        // This is provider evidence only. Authoritative sale posting still happens
+        // through the amount/currency/inventory-checked verification transaction.
+        await db.update(paymentRecordsTable)
+          .set({ evidenceReference: providerPaymentId })
+          .where(eq(paymentRecordsTable.id, local.record.id));
+      }
+    }
+
+    if (eventType === "refund.created" || eventType === "refund.updated") {
+      const providerRefundId =
+        typeof data.id === "string" && data.id.startsWith("rf_") ? data.id : null;
+      if (providerRefundId) {
+        await db.update(refundRecordsTable).set({
+          providerRefundId,
+          providerStatus: typeof data.status === "string" ? data.status : null,
+          providerFailureReason:
+            typeof data.failure_message === "string"
+              ? data.failure_message
+              : typeof data.failure_reason === "string"
+                ? data.failure_reason
+                : null,
+        }).where(eq(refundRecordsTable.providerRefundId, providerRefundId));
+      }
+    }
+    await db.update(whopWebhookEventsTable).set({
+      status: "processed",
+      processedAt: new Date(),
+    }).where(eq(whopWebhookEventsTable.id, received.id));
+    res.json({ received: true });
+  } catch (error) {
+    await db.update(whopWebhookEventsTable).set({
+      status: "failed",
+      error: error instanceof Error ? error.message : "Webhook processing failed",
+    }).where(eq(whopWebhookEventsTable.webhookId, webhookId));
+    req.log.error({ err: error, webhookId, eventType }, "Whop webhook processing failed");
+    res.status(500).json({ error: "Whop webhook processing failed" });
+  }
+});
 
 function serializeMarketplaceListing(
   listing: typeof marketplaceListingsTable.$inferSelect,
@@ -9194,6 +9377,52 @@ router.post("/refunds", async (req, res): Promise<void> => {
 router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const id = Number(req.params.id); const merchant = await getOrCreateMerchant(identity);
   try {
+    let providerRefund: WhopRefund | null = null;
+    const providerTarget = (
+      await db
+        .select({ refund: refundRecordsTable, payment: paymentRecordsTable })
+        .from(refundRecordsTable)
+        .innerJoin(paymentRecordsTable, eq(refundRecordsTable.paymentRecordId, paymentRecordsTable.id))
+        .where(and(eq(refundRecordsTable.id, id), eq(refundRecordsTable.merchantId, merchant.id)))
+        .limit(1)
+    )[0];
+    if (
+      providerTarget?.refund.status === "requested" &&
+      providerTarget.payment.method === "whop_hosted"
+    ) {
+      const providerPaymentId = providerTarget.payment.evidenceReference;
+      if (!providerPaymentId) throw new Error("The Whop payment reference is missing");
+      if (providerTarget.refund.providerRefundId) {
+        providerRefund = await whopRequest<WhopRefund>(
+          `/api/v1/refunds/${encodeURIComponent(providerTarget.refund.providerRefundId)}`,
+        );
+      } else {
+        providerRefund = await requestWhopRefund(
+          providerPaymentId,
+          providerTarget.refund.amountMinor,
+          `ts-commerce-refund:${providerTarget.refund.id}`,
+        );
+      }
+      const providerStatus = String(providerRefund.status ?? "").toLowerCase();
+      await db
+        .update(refundRecordsTable)
+        .set({
+          providerRefundId: providerRefund.id ?? null,
+          providerStatus: providerStatus || "pending",
+          providerFailureReason:
+            providerRefund.failure_reason ?? providerRefund.failure_message ?? null,
+        })
+        .where(eq(refundRecordsTable.id, id));
+      if (["failed", "canceled"].includes(providerStatus)) {
+        throw new Error(
+          providerRefund.failure_message ||
+            `Whop reported that the refund ${providerStatus}`,
+        );
+      }
+      if (providerStatus !== "succeeded") {
+        throw new Error("Whop accepted the refund request; it is still processing");
+      }
+    }
     const refund = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${refundRecordsTable} where id=${id} and merchant_id=${merchant.id} for update`);
       const current = (await tx.select().from(refundRecordsTable).where(and(eq(refundRecordsTable.id, id), eq(refundRecordsTable.merchantId, merchant.id))).limit(1))[0];
@@ -9202,7 +9431,14 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
        if (current.status !== "requested") throw new Error("Refund is not awaiting approval");
       await tx.execute(sql`select id from ${ordersTable} where id=${current.orderId} and merchant_id=${merchant.id} for update`);
       const order = (await tx.select().from(ordersTable).where(eq(ordersTable.id, current.orderId)).limit(1))[0];
-      const [updated] = await tx.update(refundRecordsTable).set({ status: "processed", approvedBy: identity.clerkUserId, approvedAt: new Date() }).where(eq(refundRecordsTable.id, id)).returning();
+       const [updated] = await tx.update(refundRecordsTable).set({
+         status: "processed",
+         approvedBy: identity.clerkUserId,
+         approvedAt: new Date(),
+         providerRefundId: providerRefund?.id ?? current.providerRefundId,
+         providerStatus: providerRefund?.status ?? current.providerStatus,
+         providerFailureReason: providerRefund?.failure_reason ?? current.providerFailureReason,
+       }).where(eq(refundRecordsTable.id, id)).returning();
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: current.paymentRecordId, refundId: id, amountMinor: -current.amountMinor, currency: current.currency, entryType: "refund", referenceKey: `refund:${id}` });
       if (current.inventoryRestock && order?.supplierProductId) {
         await tx.execute(sql`select id from ${supplierProductsTable} where id=${order.supplierProductId} and merchant_id=${merchant.id} for update`);
