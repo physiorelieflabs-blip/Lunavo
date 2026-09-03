@@ -14,4 +14,5 @@ export const PublicCheckoutOrderPaymentStatus = {
   submitted: 'submitted',
   verified: 'verified',
   failed: 'failed',
+  manual: 'manual',
 } as const;

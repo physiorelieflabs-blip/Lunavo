@@ -11,4 +11,5 @@ export type PublicCheckoutPaymentSessionPaymentStatus = typeof PublicCheckoutPay
 
 export const PublicCheckoutPaymentSessionPaymentStatus = {
   submitted: 'submitted',
+  manual: 'manual',
 } as const;

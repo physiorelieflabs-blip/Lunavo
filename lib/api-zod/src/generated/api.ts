@@ -2287,9 +2287,9 @@ export const CreatePublicCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string().nullable(),
   "paymentIntentId": zod.int().nullable(),
-  "paymentProvider": zod.enum(['whop']),
+  "paymentProvider": zod.enum(['whop', 'manual']),
   "paymentUrl": zod.url().nullable(),
-  "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed'])
+  "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
 
@@ -2361,9 +2361,9 @@ export const CreatePaymentLinkCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string().nullable(),
   "paymentIntentId": zod.int().nullable(),
-  "paymentProvider": zod.enum(['whop']),
+  "paymentProvider": zod.enum(['whop', 'manual']),
   "paymentUrl": zod.url().nullable(),
-  "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed'])
+  "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
 
@@ -2384,9 +2384,9 @@ export const RetryPublicWhopCheckoutResponse = zod.object({
   "status": zod.enum(['pending', 'paid']),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['whop']),
-  "paymentUrl": zod.url(),
-  "paymentStatus": zod.enum(['submitted'])
+  "paymentProvider": zod.enum(['whop', 'manual']),
+  "paymentUrl": zod.url().nullable(),
+  "paymentStatus": zod.enum(['submitted', 'manual'])
 })
 
 
@@ -2418,7 +2418,7 @@ export const VerifyPublicWhopCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['whop']),
+  "paymentProvider": zod.enum(['whop', 'manual']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['verified', 'pending', 'failed']),
   "providerPaymentId": zod.string().nullable()

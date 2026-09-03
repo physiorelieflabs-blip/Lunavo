@@ -55,8 +55,11 @@ export default function PublicPaymentReturn() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      const payload = await response.json() as { paymentUrl?: string; error?: string };
-      if (!response.ok || !payload.paymentUrl) throw new Error(payload.error || 'A new checkout could not be created.');
+       const payload = await response.json() as { paymentUrl?: string | null; paymentProvider?: string; error?: string };
+       if (!response.ok) throw new Error(payload.error || 'A new checkout could not be created.');
+       if (!payload.paymentUrl) throw new Error(payload.paymentProvider === 'manual'
+         ? 'Online checkout is unavailable. Your order remains pending; send the payment reference to the merchant for approval.'
+         : 'A new checkout could not be created.');
       window.location.assign(payload.paymentUrl);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'A new checkout could not be created.');

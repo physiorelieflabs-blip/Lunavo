@@ -11,4 +11,5 @@ export type PublicCheckoutPaymentSessionPaymentProvider = typeof PublicCheckoutP
 
 export const PublicCheckoutPaymentSessionPaymentProvider = {
   whop: 'whop',
+  manual: 'manual',
 } as const;

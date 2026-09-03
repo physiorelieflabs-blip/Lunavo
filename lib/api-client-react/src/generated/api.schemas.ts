@@ -2412,6 +2412,7 @@ export type PublicCheckoutOrderPaymentProvider = typeof PublicCheckoutOrderPayme
 
 export const PublicCheckoutOrderPaymentProvider = {
   whop: 'whop',
+  manual: 'manual',
 } as const;
 
 export type PublicCheckoutOrderPaymentStatus = typeof PublicCheckoutOrderPaymentStatus[keyof typeof PublicCheckoutOrderPaymentStatus];
@@ -2422,6 +2423,7 @@ export const PublicCheckoutOrderPaymentStatus = {
   submitted: 'submitted',
   verified: 'verified',
   failed: 'failed',
+  manual: 'manual',
 } as const;
 
 export interface PublicCheckoutOrder {
@@ -2884,6 +2886,7 @@ export type PublicCheckoutPaymentSessionPaymentProvider = typeof PublicCheckoutP
 
 export const PublicCheckoutPaymentSessionPaymentProvider = {
   whop: 'whop',
+  manual: 'manual',
 } as const;
 
 export type PublicCheckoutPaymentSessionPaymentStatus = typeof PublicCheckoutPaymentSessionPaymentStatus[keyof typeof PublicCheckoutPaymentSessionPaymentStatus];
@@ -2891,6 +2894,7 @@ export type PublicCheckoutPaymentSessionPaymentStatus = typeof PublicCheckoutPay
 
 export const PublicCheckoutPaymentSessionPaymentStatus = {
   submitted: 'submitted',
+  manual: 'manual',
 } as const;
 
 export interface PublicCheckoutPaymentSession {
@@ -2899,7 +2903,8 @@ export interface PublicCheckoutPaymentSession {
   paymentToken: string;
   paymentIntentId: number;
   paymentProvider: PublicCheckoutPaymentSessionPaymentProvider;
-  paymentUrl: string;
+  /** @nullable */
+  paymentUrl: string | null;
   paymentStatus: PublicCheckoutPaymentSessionPaymentStatus;
 }
 
@@ -2917,6 +2922,7 @@ export type PublicCheckoutVerificationResponsePaymentProvider = typeof PublicChe
 
 export const PublicCheckoutVerificationResponsePaymentProvider = {
   whop: 'whop',
+  manual: 'manual',
 } as const;
 
 export type PublicCheckoutVerificationResponsePaymentStatus = typeof PublicCheckoutVerificationResponsePaymentStatus[keyof typeof PublicCheckoutVerificationResponsePaymentStatus];

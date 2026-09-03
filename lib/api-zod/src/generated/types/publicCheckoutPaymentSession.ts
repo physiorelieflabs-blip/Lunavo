@@ -15,6 +15,7 @@ export interface PublicCheckoutPaymentSession {
   paymentToken: string;
   paymentIntentId: number;
   paymentProvider: PublicCheckoutPaymentSessionPaymentProvider;
-  paymentUrl: string;
+  /** @nullable */
+  paymentUrl: string | null;
   paymentStatus: PublicCheckoutPaymentSessionPaymentStatus;
 }

@@ -1407,6 +1407,7 @@ function serializePublicCheckoutOrder(
     status: string;
   } | null,
 ) {
+  const manual = !payment;
   return {
     orderNumber: order.orderNumber,
     title: product.title,
@@ -1419,12 +1420,14 @@ function serializePublicCheckoutOrder(
     paymentMessage:
       payment?.purchaseUrl
         ? "Your order is reserved. Continue to Whop to complete payment; the order enters the sales ledger only after server-side payment verification."
-        : "Your order is reserved. The hosted payment attempt is being prepared; retry from this page if the checkout does not open.",
+        : manual
+          ? "Your order is reserved. Online checkout is unavailable, so submit your payment reference to the merchant for approval. The order enters fulfillment only after verification."
+          : "Your order is reserved. The hosted payment attempt is being prepared; retry from this page if the checkout does not open.",
     paymentToken: order.publicPaymentToken,
     paymentIntentId: payment?.paymentIntentId ?? null,
-    paymentProvider: "whop" as const,
+    paymentProvider: manual ? ("manual" as const) : ("whop" as const),
     paymentUrl: payment?.purchaseUrl ?? null,
-    paymentStatus: payment?.status ?? "created",
+    paymentStatus: manual ? ("manual" as const) : payment?.status ?? "created",
   };
 }
 
@@ -1469,6 +1472,61 @@ type PublicWhopCheckout = {
   purchaseUrl: string;
   status: "submitted";
 };
+
+async function ensurePublicManualPaymentIntent(order: Order) {
+  let intent = (
+    await db
+      .select()
+      .from(paymentIntentsTable)
+      .where(eq(paymentIntentsTable.orderId, order.id))
+      .limit(1)
+  )[0];
+  if (!intent) {
+    [intent] = await db
+      .insert(paymentIntentsTable)
+      .values({
+        merchantId: order.merchantId,
+        orderId: order.id,
+        amountMinor: Math.round(toNumber(order.total) * 100),
+        currency: order.currency,
+        method: "manual_bank_transfer",
+        idempotencyKey: `public-order:${order.id}`,
+        status: "created",
+      })
+      .onConflictDoNothing({ target: paymentIntentsTable.orderId })
+      .returning();
+    if (!intent) {
+      intent = (
+        await db
+          .select()
+          .from(paymentIntentsTable)
+          .where(eq(paymentIntentsTable.orderId, order.id))
+          .limit(1)
+      )[0];
+    }
+  }
+  if (!intent) throw new Error("Manual payment attempt could not be prepared");
+  const record = (
+    await db
+      .select({ id: paymentRecordsTable.id })
+      .from(paymentRecordsTable)
+      .where(eq(paymentRecordsTable.intentId, intent.id))
+      .limit(1)
+  )[0];
+  if (!record) {
+    await db.insert(paymentRecordsTable).values({
+      intentId: intent.id,
+      merchantId: order.merchantId,
+      orderId: order.id,
+      amountMinor: intent.amountMinor,
+      currency: intent.currency,
+      method: intent.method,
+      evidenceReference: intent.evidenceReference,
+      status: intent.status,
+    });
+  }
+  return intent;
+}
 
 async function ensurePublicWhopCheckout(
   order: Order,
@@ -7222,7 +7280,7 @@ router.post(
         });
         return { order, product };
       });
-      let payment: PublicWhopCheckout;
+       let payment: PublicWhopCheckout | null;
       try {
         payment = await ensurePublicWhopCheckout(
           result.order,
@@ -7231,10 +7289,8 @@ router.post(
         );
       } catch (error) {
         req.log.error({ err: error, orderId: result.order.id }, "customer checkout creation failed");
-        res.status(502).json({
-          error: error instanceof Error ? error.message : "Hosted checkout could not be created",
-        });
-        return;
+         await ensurePublicManualPaymentIntent(result.order);
+         payment = null;
       }
       res.status(201).json(
         CreatePublicCheckoutResponse.parse(
@@ -7277,10 +7333,6 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
   const link = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
   if (!link || link.status !== "active" || (link.expiresAt !== null && link.expiresAt <= new Date())) {
     res.status(404).json({ error: "Payment link is unavailable" });
-    return;
-  }
-  if (!isCustomerWhopConfigured()) {
-    res.status(503).json({ error: "Online customer checkout is temporarily unavailable" });
     return;
   }
   const location = await resolveOrderLocation(link.merchantId, null, null, true);
@@ -7350,7 +7402,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       });
       return order;
     });
-    let payment: PublicWhopCheckout;
+     let payment: PublicWhopCheckout | null;
     try {
       payment = await ensurePublicWhopCheckout(
         result,
@@ -7359,10 +7411,8 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       );
     } catch (error) {
       req.log.error({ err: error, orderId: result.id }, "payment-link checkout creation failed");
-      res.status(502).json({
-        error: error instanceof Error ? error.message : "Hosted checkout could not be created",
-      });
-      return;
+       await ensurePublicManualPaymentIntent(result);
+       payment = null;
     }
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
@@ -7373,14 +7423,16 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       total: toNumber(result.total),
       currency: result.currency,
       status: "pending",
-      paymentMessage: payment.purchaseUrl
+       paymentMessage: payment?.purchaseUrl
         ? "Your order is reserved. Continue to Whop to complete payment; the order enters the sales ledger only after server-side payment verification."
-        : "Your order is reserved. Retry payment from this page if the hosted checkout does not open.",
+         : payment
+           ? "Your order is reserved. Retry payment from this page if the hosted checkout does not open."
+           : "Your order is reserved. Online checkout is unavailable, so submit your payment reference to the merchant for approval.",
       paymentToken: result.publicPaymentToken,
-      paymentIntentId: payment.paymentIntentId,
-      paymentProvider: "whop",
-      paymentUrl: payment.purchaseUrl,
-      paymentStatus: payment.status,
+       paymentIntentId: payment?.paymentIntentId ?? (await ensurePublicManualPaymentIntent(result)).id,
+       paymentProvider: payment ? "whop" : "manual",
+       paymentUrl: payment?.purchaseUrl ?? null,
+       paymentStatus: payment?.status ?? "manual",
     }));
   } catch (error) {
     req.log.error({ err: error }, "payment link checkout failed");
@@ -7430,8 +7482,19 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
       paymentStatus: payment.status,
     });
   } catch (error) {
-    res.status(502).json({
-      error: error instanceof Error ? error.message : "Hosted checkout could not be created",
+    if (order.status === "paid") {
+      res.status(409).json({ error: "This order has already been paid" });
+      return;
+    }
+    const intent = await ensurePublicManualPaymentIntent(order);
+    res.status(201).json({
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentToken,
+      paymentIntentId: intent.id,
+      paymentProvider: "manual",
+      paymentUrl: null,
+      paymentStatus: "manual",
     });
   }
 });

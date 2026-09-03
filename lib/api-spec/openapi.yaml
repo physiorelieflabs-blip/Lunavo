@@ -3575,9 +3575,9 @@ components:
         paymentMessage: { type: string }
         paymentToken: { type: ["string", "null"] }
         paymentIntentId: { type: ["integer", "null"] }
-        paymentProvider: { type: string, enum: [whop] }
+        paymentProvider: { type: string, enum: [whop, manual] }
         paymentUrl: { type: ["string", "null"], format: uri }
-        paymentStatus: { type: string, enum: [created, submitted, verified, failed] }
+        paymentStatus: { type: string, enum: [created, submitted, verified, failed, manual] }
       required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
     PaymentLinkInput:
       type: object
@@ -3856,9 +3856,9 @@ components:
         status: { type: string, enum: [pending, paid] }
         paymentToken: { type: string }
         paymentIntentId: { type: integer }
-        paymentProvider: { type: string, enum: [whop] }
-        paymentUrl: { type: string, format: uri }
-        paymentStatus: { type: string, enum: [submitted] }
+        paymentProvider: { type: string, enum: [whop, manual] }
+        paymentUrl: { type: ["string", "null"], format: uri }
+        paymentStatus: { type: string, enum: [submitted, manual] }
       required: [orderNumber, status, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
     PublicCheckoutVerificationResponse:
       type: object
@@ -3874,7 +3874,7 @@ components:
         paymentMessage: { type: string }
         paymentToken: { type: string }
         paymentIntentId: { type: integer }
-        paymentProvider: { type: string, enum: [whop] }
+        paymentProvider: { type: string, enum: [whop, manual] }
         paymentUrl: { type: ["string", "null"], format: uri }
         paymentStatus: { type: string, enum: [verified, pending, failed] }
         providerPaymentId: { type: ["string", "null"] }
