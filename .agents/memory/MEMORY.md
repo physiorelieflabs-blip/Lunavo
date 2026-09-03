@@ -2,6 +2,7 @@
 - [Vite artifact build environment](vite-artifact-build-env.md) — static builds need safe PORT/BASE_PATH defaults; workflows still provide mounted preview values at runtime.
 - [Merchant currency settlement](currency-settlement.md) — currency changes must not silently relabel or convert historical money.
 - [TS Pay payout boundary](ts-pay-payouts.md) — internal orchestration must not claim external bank settlement without a real regulated rail.
+- [TS Pay internal bank](ts-pay-internal-bank.md) — internal transfers are locked, same-currency, double-entry ledger movements with merchant-scoped idempotency.
 - [AI migration runner](ai-migration-runner.md) — new SQL migrations also need registration in the explicit ordered runner list.
 - [Inventory reservation semantics](inventory-reservation-semantics.md) — manual numeric stock is held at checkout and decremented only on verified sale; source-based stock stays non-authoritative.
 - [Source-attributed AI research](ai-research-boundaries.md) — web research is read-only evidence with citations and limitations; it must not imply exhaustive or verified truth.

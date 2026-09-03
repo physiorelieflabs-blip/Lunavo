@@ -1773,6 +1773,58 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/MerchantBalance" }
+  /ts-pay/account:
+    get:
+      operationId: getTsPayAccount
+      tags: [payments]
+      summary: Get the merchant's internal TS Pay account
+      responses:
+        "200":
+          description: Internal TS Pay account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TsPayAccount" }
+  /ts-pay/transfers:
+    get:
+      operationId: listTsPayTransfers
+      tags: [payments]
+      summary: List internal TS Pay transfers
+      responses:
+        "200":
+          description: Internal transfer history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TsPayTransfer" }
+    post:
+      operationId: createTsPayTransfer
+      tags: [payments]
+      summary: Transfer available TS Pay funds to another TS Pay account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TsPayTransferInput" }
+      responses:
+        "201":
+          description: Completed internal transfer
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TsPayTransfer" }
+  /ts-pay/transactions:
+    get:
+      operationId: listTsPayTransactions
+      tags: [payments]
+      summary: List the merchant's unified TS Pay transaction history
+      responses:
+        "200":
+          description: Unified ledger, transfer, refund, and payout history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TsPayTransaction" }
   /refunds:
     post:
       operationId: createRefund
@@ -2233,6 +2285,53 @@ components:
         availableBalanceMinor: { type: integer }
         heldBalanceMinor: { type: integer }
       required: [currency, ledgerBalanceMinor, availableBalanceMinor, heldBalanceMinor]
+    TsPayAccount:
+      type: object
+      properties:
+        id: { type: integer }
+        accountNumber: { type: string, pattern: "^TS[0-9]{10}$" }
+        currency: { type: string }
+        status: { type: string, enum: [active, suspended] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, accountNumber, currency, status, createdAt, updatedAt]
+    TsPayTransferInput:
+      type: object
+      properties:
+        toAccountNumber: { type: string, pattern: "^TS[0-9]{10}$" }
+        amount: { type: number, exclusiveMinimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        note: { type: string, maxLength: 240 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      required: [toAccountNumber, amount, idempotencyKey]
+    TsPayTransfer:
+      type: object
+      properties:
+        id: { type: integer }
+        direction: { type: string, enum: [sent, received] }
+        fromAccountNumber: { type: string }
+        toAccountNumber: { type: string }
+        amountMinor: { type: integer, minimum: 1 }
+        currency: { type: string }
+        status: { type: string, enum: [completed, rejected] }
+        referenceKey: { type: string }
+        note: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+      required: [id, direction, fromAccountNumber, toAccountNumber, amountMinor, currency, status, referenceKey, note, createdAt, completedAt]
+    TsPayTransaction:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [ledger, transfer, refund, payout] }
+        direction: { type: string, enum: [credit, debit, hold] }
+        amountMinor: { type: integer, minimum: 1 }
+        currency: { type: string }
+        status: { type: string }
+        description: { type: string }
+        referenceKey: { type: ["string", "null"] }
+        occurredAt: { type: string, format: date-time }
+      required: [id, kind, direction, amountMinor, currency, status, description, referenceKey, occurredAt]
     RefundInput:
       type: object
       properties:

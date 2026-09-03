@@ -1106,6 +1106,56 @@ export const merchantBalanceSnapshotsTable = pgTable("merchant_balance_snapshots
   asOf: timestamp("as_of", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const tsPayAccountsTable = pgTable(
+  "ts_pay_accounts",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    accountNumber: text("account_number").notNull().unique(),
+    currency: text("currency").notNull().default("USD"),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("ts_pay_accounts_merchant_unique").on(table.merchantId),
+  ],
+);
+
+export const tsPayTransfersTable = pgTable(
+  "ts_pay_transfers",
+  {
+    id: serial("id").primaryKey(),
+    fromMerchantId: integer("from_merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    toMerchantId: integer("to_merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    amountMinor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    status: text("status").notNull().default("completed"),
+    referenceKey: text("reference_key").notNull().unique(),
+    note: text("note"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("ts_pay_transfers_from_idx").on(table.fromMerchantId, table.createdAt),
+    index("ts_pay_transfers_to_idx").on(table.toMerchantId, table.createdAt),
+  ],
+);
+
 export const reconciliationRecordsTable = pgTable("reconciliation_records", {
   id: serial("id").primaryKey(),
   merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
@@ -1183,6 +1233,16 @@ export const insertLedgerEntrySchema = createInsertSchema(ledgerEntriesTable).om
 export const insertRefundRecordSchema = createInsertSchema(refundRecordsTable).omit({ id: true, createdAt: true });
 export const insertCommerceTransitionSchema = createInsertSchema(commerceTransitionHistoryTable).omit({ id: true, createdAt: true });
 export const insertBalanceSnapshotSchema = createInsertSchema(merchantBalanceSnapshotsTable).omit({ id: true, asOf: true });
+export const insertTsPayAccountSchema = createInsertSchema(tsPayAccountsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertTsPayTransferSchema = createInsertSchema(tsPayTransfersTable).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
 export const insertReconciliationSchema = createInsertSchema(reconciliationRecordsTable).omit({ id: true, createdAt: true });
 export const insertSupplierProductSchema = createInsertSchema(
   supplierProductsTable,
@@ -1247,6 +1307,8 @@ export type LedgerEntry = typeof ledgerEntriesTable.$inferSelect;
 export type RefundRecord = typeof refundRecordsTable.$inferSelect;
 export type CommerceTransition = typeof commerceTransitionHistoryTable.$inferSelect;
 export type MerchantBalanceSnapshot = typeof merchantBalanceSnapshotsTable.$inferSelect;
+export type TsPayAccount = typeof tsPayAccountsTable.$inferSelect;
+export type TsPayTransfer = typeof tsPayTransfersTable.$inferSelect;
 export type ReconciliationRecord = typeof reconciliationRecordsTable.$inferSelect;
 export type InsertPaymentIntent = z.infer<typeof insertPaymentIntentSchema>;
 export type InsertPaymentRecord = z.infer<typeof insertPaymentRecordSchema>;
@@ -1254,6 +1316,8 @@ export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
 export type InsertRefundRecord = z.infer<typeof insertRefundRecordSchema>;
 export type InsertCommerceTransition = z.infer<typeof insertCommerceTransitionSchema>;
 export type InsertBalanceSnapshot = z.infer<typeof insertBalanceSnapshotSchema>;
+export type InsertTsPayAccount = z.infer<typeof insertTsPayAccountSchema>;
+export type InsertTsPayTransfer = z.infer<typeof insertTsPayTransferSchema>;
 export type InsertReconciliation = z.infer<typeof insertReconciliationSchema>;
 export type InsertSupplierProduct = z.infer<typeof insertSupplierProductSchema>;
 export type InventoryReservation = typeof inventoryReservationsTable.$inferSelect;

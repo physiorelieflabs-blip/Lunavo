@@ -23,6 +23,7 @@ export const domainEventTypes = [
   "ai.action_proposed", "ai.action_approved", "ai.action_executed",
   "ai.action_rejected", "ai.action_rolled_back",
   "location.created", "location.updated", "location.disabled",
+  "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted",
   "membership.role_changed", "membership.scope_changed", "membership.status_changed",
 ] as const;
@@ -113,6 +114,8 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "membership.role_changed": ["Staff role updated", "A staff member's role changed.", "info"],
     "membership.scope_changed": ["Staff location access updated", "A staff member's location access changed.", "info"],
     "membership.status_changed": ["Staff access updated", "A staff member's access status changed.", "warning"],
+    "ts_pay.transfer_completed": ["TS Pay transfer sent", "An internal TS Pay transfer was completed.", "info"],
+    "ts_pay.transfer_received": ["TS Pay transfer received", "An internal TS Pay transfer was received.", "success"],
   };
   const label = labels[event.eventType as DomainEventType];
   if (!label) return null;

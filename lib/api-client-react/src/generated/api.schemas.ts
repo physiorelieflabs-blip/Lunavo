@@ -277,6 +277,109 @@ export interface MerchantBalance {
   heldBalanceMinor: number;
 }
 
+export type TsPayAccountStatus = typeof TsPayAccountStatus[keyof typeof TsPayAccountStatus];
+
+
+export const TsPayAccountStatus = {
+  active: 'active',
+  suspended: 'suspended',
+} as const;
+
+export interface TsPayAccount {
+  id: number;
+  /** @pattern ^TS[0-9]{10}$ */
+  accountNumber: string;
+  currency: string;
+  status: TsPayAccountStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TsPayTransferInput {
+  /** @pattern ^TS[0-9]{10}$ */
+  toAccountNumber: string;
+  /** @exclusiveMinimum 0 */
+  amount: number;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency?: string;
+  /** @maxLength 240 */
+  note?: string;
+  /**
+     * @minLength 8
+     * @maxLength 120
+     */
+  idempotencyKey: string;
+}
+
+export type TsPayTransferDirection = typeof TsPayTransferDirection[keyof typeof TsPayTransferDirection];
+
+
+export const TsPayTransferDirection = {
+  sent: 'sent',
+  received: 'received',
+} as const;
+
+export type TsPayTransferStatus = typeof TsPayTransferStatus[keyof typeof TsPayTransferStatus];
+
+
+export const TsPayTransferStatus = {
+  completed: 'completed',
+  rejected: 'rejected',
+} as const;
+
+export interface TsPayTransfer {
+  id: number;
+  direction: TsPayTransferDirection;
+  fromAccountNumber: string;
+  toAccountNumber: string;
+  /** @minimum 1 */
+  amountMinor: number;
+  currency: string;
+  status: TsPayTransferStatus;
+  referenceKey: string;
+  /** @nullable */
+  note: string | null;
+  createdAt: string;
+  /** @nullable */
+  completedAt: string | null;
+}
+
+export type TsPayTransactionKind = typeof TsPayTransactionKind[keyof typeof TsPayTransactionKind];
+
+
+export const TsPayTransactionKind = {
+  ledger: 'ledger',
+  transfer: 'transfer',
+  refund: 'refund',
+  payout: 'payout',
+} as const;
+
+export type TsPayTransactionDirection = typeof TsPayTransactionDirection[keyof typeof TsPayTransactionDirection];
+
+
+export const TsPayTransactionDirection = {
+  credit: 'credit',
+  debit: 'debit',
+  hold: 'hold',
+} as const;
+
+export interface TsPayTransaction {
+  id: string;
+  kind: TsPayTransactionKind;
+  direction: TsPayTransactionDirection;
+  /** @minimum 1 */
+  amountMinor: number;
+  currency: string;
+  status: string;
+  description: string;
+  /** @nullable */
+  referenceKey: string | null;
+  occurredAt: string;
+}
+
 export interface RefundInput {
   /** @minimum 1 */
   orderId: number;

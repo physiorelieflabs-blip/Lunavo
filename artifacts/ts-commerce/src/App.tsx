@@ -39,6 +39,7 @@ import Activity from '@/pages/activity';
 import Team from '@/pages/team';
 import Analytics from '@/pages/analytics';
 import Settings from '@/pages/settings';
+import TsPay from '@/pages/ts-pay';
 import Invite from '@/pages/invite';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId } from '@workspace/api-client-react';
@@ -134,6 +135,7 @@ function AuthRoutes() {
     <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
      <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
+      <Route path="/ts-pay" component={() => <Protected><TsPay /></Protected>} />
       <Route path="/invoices/:id" component={() => <Protected><InvoiceContextPage /></Protected>} />
       <Route path="/invoices" component={() => <Protected><Invoices /></Protected>} />
       <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />

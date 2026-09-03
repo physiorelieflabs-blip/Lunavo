@@ -43,6 +43,7 @@ const migrations = [
   "0032_public_checkout_payments",
   "0033_provider_refund_tracking",
   "0034_whop_webhook_events",
+  "0035_ts_pay_internal_bank",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

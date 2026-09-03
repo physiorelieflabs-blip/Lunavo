@@ -3795,6 +3795,106 @@ export const GetMerchantBalancesResponse = zod.array(GetMerchantBalancesResponse
 
 
 /**
+ * @summary Get the merchant's internal TS Pay account
+ */
+export const getTsPayAccountResponseAccountNumberRegExp = new RegExp('^TS[0-9]{10}$');
+
+
+export const GetTsPayAccountResponse = zod.object({
+  "id": zod.int(),
+  "accountNumber": zod.string().regex(getTsPayAccountResponseAccountNumberRegExp),
+  "currency": zod.string(),
+  "status": zod.enum(['active', 'suspended']),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List internal TS Pay transfers
+ */
+
+
+
+export const ListTsPayTransfersResponseItem = zod.object({
+  "id": zod.int(),
+  "direction": zod.enum(['sent', 'received']),
+  "fromAccountNumber": zod.string(),
+  "toAccountNumber": zod.string(),
+  "amountMinor": zod.int().min(1),
+  "currency": zod.string(),
+  "status": zod.enum(['completed', 'rejected']),
+  "referenceKey": zod.string(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullable()
+})
+export const ListTsPayTransfersResponse = zod.array(ListTsPayTransfersResponseItem)
+
+
+/**
+ * @summary Transfer available TS Pay funds to another TS Pay account
+ */
+export const createTsPayTransferBodyToAccountNumberRegExp = new RegExp('^TS[0-9]{10}$');
+export const createTsPayTransferBodyAmountExclusiveMin = 0;
+
+export const createTsPayTransferBodyCurrencyMin = 3;
+export const createTsPayTransferBodyCurrencyMax = 3;
+
+export const createTsPayTransferBodyNoteMax = 240;
+
+export const createTsPayTransferBodyIdempotencyKeyMin = 8;
+export const createTsPayTransferBodyIdempotencyKeyMax = 120;
+
+
+
+export const CreateTsPayTransferBody = zod.object({
+  "toAccountNumber": zod.string().regex(createTsPayTransferBodyToAccountNumberRegExp),
+  "amount": zod.number().gt(createTsPayTransferBodyAmountExclusiveMin),
+  "currency": zod.string().min(createTsPayTransferBodyCurrencyMin).max(createTsPayTransferBodyCurrencyMax).optional(),
+  "note": zod.string().max(createTsPayTransferBodyNoteMax).optional(),
+  "idempotencyKey": zod.string().min(createTsPayTransferBodyIdempotencyKeyMin).max(createTsPayTransferBodyIdempotencyKeyMax)
+})
+
+
+
+
+export const CreateTsPayTransferResponse = zod.object({
+  "id": zod.int(),
+  "direction": zod.enum(['sent', 'received']),
+  "fromAccountNumber": zod.string(),
+  "toAccountNumber": zod.string(),
+  "amountMinor": zod.int().min(1),
+  "currency": zod.string(),
+  "status": zod.enum(['completed', 'rejected']),
+  "referenceKey": zod.string(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary List the merchant's unified TS Pay transaction history
+ */
+
+
+
+export const ListTsPayTransactionsResponseItem = zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['ledger', 'transfer', 'refund', 'payout']),
+  "direction": zod.enum(['credit', 'debit', 'hold']),
+  "amountMinor": zod.int().min(1),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "description": zod.string(),
+  "referenceKey": zod.string().nullable(),
+  "occurredAt": zod.coerce.date()
+})
+export const ListTsPayTransactionsResponse = zod.array(ListTsPayTransactionsResponseItem)
+
+
+/**
  * @summary Request a full or partial refund
  */
 

@@ -65,6 +65,9 @@ import {
   merchantInvitationLocationsTable,
   auctionListingsTable,
   auctionBidsTable,
+  tsPayAccountsTable,
+  tsPayTransfersTable,
+  type Merchant as MerchantRecord,
 } from "@workspace/db";
 import {
   BeginWithdrawalSecuritySetupResponse,
@@ -228,6 +231,11 @@ import {
   VerifyPaymentBody,
   VerifyPaymentResponse,
   GetMerchantBalancesResponse,
+  GetTsPayAccountResponse,
+  ListTsPayTransfersResponse,
+  CreateTsPayTransferBody,
+  CreateTsPayTransferResponse,
+  ListTsPayTransactionsResponse,
   CreateRefundBody,
   CreateRefundResponse,
   ApproveRefundResponse,
@@ -309,6 +317,13 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import {
+  buildTsPayLedgerPostings,
+  tsPayAmountMinor,
+  tsPayAvailableMinor,
+  tsPayReferenceKey,
+  validateTsPayTransfer,
+} from "../lib/ts-pay-ledger";
 import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
 import {
   importPublicSupplierProduct,
@@ -9246,6 +9261,354 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
     });
     res.json(VerifyPaymentResponse.parse(intent));
   } catch (error) { req.log.error({ err: error }, "payment verification failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Payment verification failed" }); }
+});
+
+async function getOrCreateTsPayAccount(merchant: MerchantRecord) {
+  let account = (
+    await db
+      .select()
+      .from(tsPayAccountsTable)
+      .where(eq(tsPayAccountsTable.merchantId, merchant.id))
+      .limit(1)
+  )[0];
+  if (!account) {
+    [account] = await db
+      .insert(tsPayAccountsTable)
+      .values({
+        merchantId: merchant.id,
+        accountNumber: `TS${String(merchant.id).padStart(10, "0")}`,
+        currency: merchant.currency,
+      })
+      .onConflictDoNothing({ target: tsPayAccountsTable.merchantId })
+      .returning();
+    if (!account) {
+      account = (
+        await db
+          .select()
+          .from(tsPayAccountsTable)
+          .where(eq(tsPayAccountsTable.merchantId, merchant.id))
+          .limit(1)
+      )[0];
+    }
+  }
+  if (!account) throw new Error("TS Pay account could not be opened");
+  return account;
+}
+
+async function serializeTsPayTransfers(
+  rows: Array<typeof tsPayTransfersTable.$inferSelect>,
+  merchantId: number,
+) {
+  const ids = [...new Set(rows.flatMap((row) => [row.fromMerchantId, row.toMerchantId]))];
+  const accounts = ids.length
+    ? await db.select().from(tsPayAccountsTable).where(inArray(tsPayAccountsTable.merchantId, ids))
+    : [];
+  const accountByMerchant = new Map(accounts.map((account) => [account.merchantId, account.accountNumber]));
+  return rows.map((row) => ({
+    id: row.id,
+    direction: row.fromMerchantId === merchantId ? "sent" : "received",
+    fromAccountNumber: accountByMerchant.get(row.fromMerchantId) ?? "unavailable",
+    toAccountNumber: accountByMerchant.get(row.toMerchantId) ?? "unavailable",
+    amountMinor: row.amountMinor,
+    currency: row.currency,
+    status: row.status,
+    referenceKey: row.referenceKey,
+    note: row.note,
+    createdAt: row.createdAt,
+    completedAt: row.completedAt,
+  }));
+}
+
+async function listTsPayTransactions(merchantId: number) {
+  const [ledgerRows, transferRows, refundRows, withdrawalRows] = await Promise.all([
+    db
+      .select()
+      .from(ledgerEntriesTable)
+      .where(eq(ledgerEntriesTable.merchantId, merchantId))
+      .orderBy(desc(ledgerEntriesTable.createdAt))
+      .limit(250),
+    db
+      .select()
+      .from(tsPayTransfersTable)
+      .where(
+        or(
+          eq(tsPayTransfersTable.fromMerchantId, merchantId),
+          eq(tsPayTransfersTable.toMerchantId, merchantId),
+        ),
+      )
+      .orderBy(desc(tsPayTransfersTable.createdAt))
+      .limit(100),
+    db
+      .select()
+      .from(refundRecordsTable)
+      .where(eq(refundRecordsTable.merchantId, merchantId))
+      .orderBy(desc(refundRecordsTable.createdAt))
+      .limit(100),
+    db
+      .select()
+      .from(withdrawalsTable)
+      .where(
+        and(
+          eq(withdrawalsTable.merchantId, merchantId),
+          inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
+        ),
+      )
+      .orderBy(desc(withdrawalsTable.createdAt))
+      .limit(100),
+  ]);
+  const transferViews = await serializeTsPayTransfers(transferRows, merchantId);
+  const transactions = [
+    ...ledgerRows
+      .filter((row) => !row.entryType.startsWith("internal_transfer") && row.refundId === null && row.withdrawalId === null)
+      .map((row) => ({
+        id: `ledger-${row.id}`,
+        kind: "ledger" as const,
+        direction: row.amountMinor >= 0 ? "credit" as const : "debit" as const,
+        amountMinor: Math.abs(row.amountMinor),
+        currency: row.currency,
+        status: "posted",
+        description: row.entryType.replaceAll("_", " "),
+        referenceKey: row.referenceKey,
+        occurredAt: row.createdAt,
+      })),
+    ...transferViews.map((transfer) => ({
+      id: `transfer-${transfer.id}`,
+      kind: "transfer" as const,
+      direction: transfer.direction === "received" ? "credit" as const : "debit" as const,
+      amountMinor: transfer.amountMinor,
+      currency: transfer.currency,
+      status: transfer.status,
+      description: transfer.direction === "received" ? `Internal transfer from ${transfer.fromAccountNumber}` : `Internal transfer to ${transfer.toAccountNumber}`,
+      referenceKey: transfer.referenceKey,
+      occurredAt: transfer.createdAt,
+    })),
+    ...refundRows.map((refund) => ({
+      id: `refund-${refund.id}`,
+      kind: "refund" as const,
+      direction: ["approved", "processed", "completed"].includes(refund.status) ? "debit" as const : "hold" as const,
+      amountMinor: refund.amountMinor,
+      currency: refund.currency,
+      status: refund.status,
+      description: `Refund request · ${refund.reason}`,
+      referenceKey: refund.providerRefundId ?? `refund-${refund.id}`,
+      occurredAt: refund.createdAt,
+    })),
+    ...withdrawalRows.map((withdrawal) => ({
+      id: `payout-${withdrawal.id}`,
+      kind: "payout" as const,
+      direction: withdrawal.status === "paid" ? "debit" as const : "hold" as const,
+      amountMinor: Math.round(toNumber(withdrawal.amount) * 100),
+      currency: withdrawal.currency,
+      status: withdrawal.status,
+      description: "External payout reservation",
+      referenceKey: withdrawal.idempotencyKey ?? `withdrawal-${withdrawal.id}`,
+      occurredAt: withdrawal.createdAt,
+    })),
+  ];
+  return transactions
+    .sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime())
+    .slice(0, 100);
+}
+
+router.get("/ts-pay/account", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const account = await getOrCreateTsPayAccount(merchant);
+    res.json(GetTsPayAccountResponse.parse(account));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "TS Pay account could not be opened" });
+  }
+});
+
+router.get("/ts-pay/transfers", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    await getOrCreateTsPayAccount(merchant);
+    const rows = await db
+      .select()
+      .from(tsPayTransfersTable)
+      .where(
+        or(
+          eq(tsPayTransfersTable.fromMerchantId, merchant.id),
+          eq(tsPayTransfersTable.toMerchantId, merchant.id),
+        ),
+      )
+      .orderBy(desc(tsPayTransfersTable.createdAt))
+      .limit(100);
+    res.json(ListTsPayTransfersResponse.parse(await serializeTsPayTransfers(rows, merchant.id)));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "TS Pay transfers could not be loaded" });
+  }
+});
+
+router.get("/ts-pay/transactions", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    await getOrCreateTsPayAccount(merchant);
+    res.json(ListTsPayTransactionsResponse.parse(await listTsPayTransactions(merchant.id)));
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "TS Pay transactions could not be loaded" });
+  }
+});
+
+router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const body = CreateTsPayTransferBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter a valid destination and transfer amount" }); return; }
+  const merchant = await getOrCreateMerchant(identity);
+  await getOrCreateTsPayAccount(merchant);
+  try {
+    const result = await db.transaction(async (tx) => {
+      const destinationAccountNumber = body.data.toAccountNumber.trim().toUpperCase();
+      await tx.execute(sql`select id from ${tsPayAccountsTable}
+        where merchant_id=${merchant.id} or account_number=${destinationAccountNumber}
+        order by id for update`);
+      const sender = (
+        await tx
+          .select()
+          .from(tsPayAccountsTable)
+          .where(eq(tsPayAccountsTable.merchantId, merchant.id))
+          .limit(1)
+      )[0];
+      const recipient = (
+        await tx
+          .select()
+          .from(tsPayAccountsTable)
+          .where(eq(tsPayAccountsTable.accountNumber, destinationAccountNumber))
+          .limit(1)
+      )[0];
+      if (!sender || !recipient) throw new Error("The destination TS Pay account was not found");
+      if (sender.status !== "active" || recipient.status !== "active") throw new Error("One of the TS Pay accounts is not active");
+      if (sender.merchantId === recipient.merchantId) throw new Error("You cannot transfer to your own TS Pay account");
+      const currency = (body.data.currency ?? sender.currency).toUpperCase();
+      const amountMinor = tsPayAmountMinor(body.data.amount);
+      const referenceKey = tsPayReferenceKey(merchant.id, body.data.idempotencyKey);
+      const replay = (
+        await tx
+          .select()
+          .from(tsPayTransfersTable)
+          .where(eq(tsPayTransfersTable.referenceKey, referenceKey))
+          .limit(1)
+      )[0];
+      if (replay) return replay;
+
+      const [ledger] = await tx
+        .select({ total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)` })
+        .from(ledgerEntriesTable)
+        .where(and(eq(ledgerEntriesTable.merchantId, merchant.id), eq(ledgerEntriesTable.currency, currency)));
+      const [withdrawalHold] = await tx
+        .select({ total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)` })
+        .from(withdrawalsTable)
+        .where(
+          and(
+            eq(withdrawalsTable.merchantId, merchant.id),
+            eq(withdrawalsTable.currency, currency),
+            inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
+          ),
+        );
+      const [subscription] = await tx
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.merchantId, merchant.id))
+        .limit(1);
+      const availableMinor =
+        tsPayAvailableMinor({
+          ledgerBalanceMinor: Number(ledger?.total ?? 0),
+          withdrawalHoldMinor: Math.round(toNumber(withdrawalHold?.total) * 100),
+          earningsHeldMinor: subscription?.currency === currency ? Math.round(toNumber(subscription.earningsHeld) * 100) : 0,
+        });
+      validateTsPayTransfer({
+        fromCurrency: sender.currency,
+        toCurrency: recipient.currency,
+        requestedCurrency: currency,
+        amountMinor,
+        availableMinor,
+      });
+      const [transfer] = await tx
+        .insert(tsPayTransfersTable)
+        .values({
+          fromMerchantId: merchant.id,
+          toMerchantId: recipient.merchantId,
+          amountMinor,
+          currency,
+          status: "completed",
+          referenceKey,
+          note: body.data.note?.trim() || null,
+          createdBy: identity.clerkUserId,
+          completedAt: new Date(),
+        })
+        .onConflictDoNothing({ target: tsPayTransfersTable.referenceKey })
+        .returning();
+      if (!transfer) {
+        const [existing] = await tx
+          .select()
+          .from(tsPayTransfersTable)
+          .where(eq(tsPayTransfersTable.referenceKey, referenceKey))
+          .limit(1);
+        if (!existing) throw new Error("TS Pay transfer idempotency conflict could not be resolved");
+        return existing;
+      }
+      if (!transfer) throw new Error("TS Pay transfer could not be created");
+      await tx.insert(ledgerEntriesTable).values(buildTsPayLedgerPostings({
+        fromMerchantId: merchant.id,
+        toMerchantId: recipient.merchantId,
+        amountMinor,
+        currency,
+        referenceKey,
+      }));
+      await tx.insert(activityTable).values([
+        {
+          merchantId: merchant.id,
+          type: "ts_pay_transfer_sent",
+          title: `Sent ${currency} ${ (amountMinor / 100).toFixed(2) } through TS Pay`,
+          description: `Internal transfer to ${recipient.accountNumber}.`,
+          amount: (amountMinor / 100).toFixed(2),
+          currency,
+          tone: "neutral",
+        },
+        {
+          merchantId: recipient.merchantId,
+          type: "ts_pay_transfer_received",
+          title: `Received ${currency} ${ (amountMinor / 100).toFixed(2) } through TS Pay`,
+          description: `Internal transfer from ${sender.accountNumber}.`,
+          amount: (amountMinor / 100).toFixed(2),
+          currency,
+          tone: "positive",
+        },
+      ]);
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "ts_pay.transfer_completed",
+        aggregateType: "ts_pay_transfer",
+        aggregateId: transfer.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `${referenceKey}:sent`,
+        payload: { fromAccountNumber: sender.accountNumber, toAccountNumber: recipient.accountNumber, amountMinor, currency },
+      });
+      await emitDomainEvent(tx, {
+        merchantId: recipient.merchantId,
+        eventType: "ts_pay.transfer_received",
+        aggregateType: "ts_pay_transfer",
+        aggregateId: transfer.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `${referenceKey}:received`,
+        payload: { fromAccountNumber: sender.accountNumber, toAccountNumber: recipient.accountNumber, amountMinor, currency },
+      });
+      return transfer;
+    });
+    res.status(201).json(
+      CreateTsPayTransferResponse.parse((await serializeTsPayTransfers([result], merchant.id))[0]),
+    );
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "TS Pay transfer could not be completed" });
+  }
 });
 
 router.get("/balances", async (req, res): Promise<void> => {

@@ -145,6 +145,10 @@ import type {
   TeamMembershipUpdate,
   TeamRole,
   TotpCodeInput,
+  TsPayAccount,
+  TsPayTransaction,
+  TsPayTransfer,
+  TsPayTransferInput,
   VerifyPublicInvoiceWhopPayment200,
   WebResearchInput,
   WebResearchResponse,
@@ -7852,6 +7856,308 @@ export function useGetMerchantBalances<TData = Awaited<ReturnType<typeof getMerc
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetMerchantBalancesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTsPayAccountUrl = () => {
+
+
+
+
+  return `/api/ts-pay/account`
+}
+
+/**
+ * @summary Get the merchant's internal TS Pay account
+ */
+export const getTsPayAccount = async ( options?: Parameters<typeof customFetch>[1]): Promise<TsPayAccount> => {
+
+  return customFetch<TsPayAccount>(getGetTsPayAccountUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTsPayAccountQueryKey = () => {
+    return [
+    `/api/ts-pay/account`
+    ] as const;
+    }
+
+
+export const getGetTsPayAccountQueryOptions = <TData = Awaited<ReturnType<typeof getTsPayAccount>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTsPayAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTsPayAccountQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTsPayAccount>>> = ({ signal }) => getTsPayAccount({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTsPayAccount>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTsPayAccountQueryResult = NonNullable<Awaited<ReturnType<typeof getTsPayAccount>>>
+export type GetTsPayAccountQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the merchant's internal TS Pay account
+ */
+
+export function useGetTsPayAccount<TData = Awaited<ReturnType<typeof getTsPayAccount>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTsPayAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTsPayAccountQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListTsPayTransfersUrl = () => {
+
+
+
+
+  return `/api/ts-pay/transfers`
+}
+
+/**
+ * @summary List internal TS Pay transfers
+ */
+export const listTsPayTransfers = async ( options?: Parameters<typeof customFetch>[1]): Promise<TsPayTransfer[]> => {
+
+  return customFetch<TsPayTransfer[]>(getListTsPayTransfersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTsPayTransfersQueryKey = () => {
+    return [
+    `/api/ts-pay/transfers`
+    ] as const;
+    }
+
+
+export const getListTsPayTransfersQueryOptions = <TData = Awaited<ReturnType<typeof listTsPayTransfers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTsPayTransfers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTsPayTransfersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTsPayTransfers>>> = ({ signal }) => listTsPayTransfers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTsPayTransfers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListTsPayTransfersQueryResult = NonNullable<Awaited<ReturnType<typeof listTsPayTransfers>>>
+export type ListTsPayTransfersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List internal TS Pay transfers
+ */
+
+export function useListTsPayTransfers<TData = Awaited<ReturnType<typeof listTsPayTransfers>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTsPayTransfers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListTsPayTransfersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateTsPayTransferUrl = () => {
+
+
+
+
+  return `/api/ts-pay/transfers`
+}
+
+/**
+ * @summary Transfer available TS Pay funds to another TS Pay account
+ */
+export const createTsPayTransfer = async (tsPayTransferInput: TsPayTransferInput, options?: Parameters<typeof customFetch>[1]): Promise<TsPayTransfer> => {
+
+  return customFetch<TsPayTransfer>(getCreateTsPayTransferUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(tsPayTransferInput)
+  }
+);}
+
+
+
+
+
+export const getCreateTsPayTransferMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTsPayTransfer>>, TError,{data: BodyType<TsPayTransferInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createTsPayTransfer>>, TError,{data: BodyType<TsPayTransferInput>}, TContext> => {
+
+const mutationKey = ['createTsPayTransfer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createTsPayTransfer>>, {data: BodyType<TsPayTransferInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createTsPayTransfer(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateTsPayTransferMutationResult = NonNullable<Awaited<ReturnType<typeof createTsPayTransfer>>>
+    export type CreateTsPayTransferMutationBody = BodyType<TsPayTransferInput>
+    export type CreateTsPayTransferMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Transfer available TS Pay funds to another TS Pay account
+ */
+export const useCreateTsPayTransfer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTsPayTransfer>>, TError,{data: BodyType<TsPayTransferInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createTsPayTransfer>>,
+        TError,
+        {data: BodyType<TsPayTransferInput>},
+        TContext
+      > => {
+      return useMutation(getCreateTsPayTransferMutationOptions(options));
+    }
+
+export const getListTsPayTransactionsUrl = () => {
+
+
+
+
+  return `/api/ts-pay/transactions`
+}
+
+/**
+ * @summary List the merchant's unified TS Pay transaction history
+ */
+export const listTsPayTransactions = async ( options?: Parameters<typeof customFetch>[1]): Promise<TsPayTransaction[]> => {
+
+  return customFetch<TsPayTransaction[]>(getListTsPayTransactionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTsPayTransactionsQueryKey = () => {
+    return [
+    `/api/ts-pay/transactions`
+    ] as const;
+    }
+
+
+export const getListTsPayTransactionsQueryOptions = <TData = Awaited<ReturnType<typeof listTsPayTransactions>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTsPayTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTsPayTransactionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTsPayTransactions>>> = ({ signal }) => listTsPayTransactions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTsPayTransactions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListTsPayTransactionsQueryResult = NonNullable<Awaited<ReturnType<typeof listTsPayTransactions>>>
+export type ListTsPayTransactionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the merchant's unified TS Pay transaction history
+ */
+
+export function useListTsPayTransactions<TData = Awaited<ReturnType<typeof listTsPayTransactions>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTsPayTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListTsPayTransactionsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

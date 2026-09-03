@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces } from '@workspace/api-client-react';
 import { useClerk, useUser } from '@clerk/react';
-import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
+import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, Landmark, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
@@ -28,6 +28,7 @@ const merchantLinks = [
   { href: '/inventory', label: 'Inventory', icon: Warehouse },
   { href: '/billing', label: 'Billing', icon: CreditCard },
   { href: '/finance', label: 'Finance', icon: WalletCards },
+  { href: '/ts-pay', label: 'TS Pay', icon: Landmark },
    { href: '/invoices', label: 'Invoices', icon: FileText },
    { href: '/activity', label: 'Notifications & activity', icon: Bell },
    { href: '/team', label: 'Team & locations', icon: Users },
