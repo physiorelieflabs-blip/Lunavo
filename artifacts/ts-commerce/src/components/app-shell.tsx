@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces } from '@workspace/api-client-react';
 import { useClerk, useUser } from '@clerk/react';
-import { BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
+import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
@@ -41,7 +41,7 @@ const adminLinks = [
 ];
 
 export function AppShell({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -66,6 +66,13 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     window.location.assign('/dashboard');
   };
   const activeLabel = links.find((link) => location === link.href)?.label ?? (admin ? 'Control room' : 'Overview');
+  const goBack = () => {
+    if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
+      window.history.back();
+    } else {
+      setLocation(admin ? '/admin' : '/dashboard');
+    }
+  };
 
   return (
     <div className="noise min-h-[100dvh] bg-[#f1eee7] text-[#182333]">
@@ -97,7 +104,11 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
         <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-[#ddd7cb] bg-[#f1eee7]/95 px-5 backdrop-blur-xl md:px-10">
           <div className="flex items-center gap-3">
             <button className="grid h-10 w-10 place-items-center rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] hover:bg-[#e7e2d8] md:hidden" onClick={() => setOpen(true)} aria-label="Open navigation" data-testid="button-open-menu"><Menu className="h-5 w-5" /></button>
-            <div className="hidden items-center gap-2 text-xs text-[#697687] md:flex"><span className="h-2 w-2 rounded-full bg-[#c85d3f] shadow-[0_0_0_4px_rgba(200,93,63,.12)]" />Authenticated workspace <span className="mx-1 text-[#b7ad9d]">/</span> {activeLabel}</div>
+            <div className="hidden items-center gap-3 md:flex">
+              <button type="button" onClick={goBack} className="inline-flex items-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-3 py-2 text-xs font-extrabold text-[#536174] transition hover:border-[#bca26a] hover:text-[#182333]" data-testid="button-back"><ArrowLeft className="h-4 w-4" />Back</button>
+              <div className="flex items-center gap-2 text-xs text-[#697687]"><span className="h-2 w-2 rounded-full bg-[#c85d3f] shadow-[0_0_0_4px_rgba(200,93,63,.12)]" />Authenticated workspace <span className="mx-1 text-[#b7ad9d]">/</span> {activeLabel}</div>
+            </div>
+            <button type="button" onClick={goBack} className="grid h-10 w-10 place-items-center rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] hover:bg-[#e7e2d8] md:hidden" aria-label="Back" data-testid="button-back-mobile"><ArrowLeft className="h-5 w-5" /></button>
             <p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#697687] md:hidden">{activeLabel}</p>
           </div>
           <div className="flex items-center gap-3">

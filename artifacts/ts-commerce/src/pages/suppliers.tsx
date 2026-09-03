@@ -1,7 +1,6 @@
 import { type FormEvent, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  ArrowLeft,
   Check,
   CheckCircle2,
   ExternalLink,
@@ -33,7 +32,6 @@ import {
 } from '@workspace/api-client-react';
 import type { DuplicateCandidate, SupplierProductInput, SupplierProductPreview, SupplierRefreshAcceptInputFieldsItem, SupplierRefreshResponse } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
-import { Link } from 'wouter';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 import { money, timeAgo } from '@/lib/format';
 
@@ -342,10 +340,7 @@ export default function Suppliers() {
     <div className="mx-auto max-w-[1180px]">
       <div className="flex flex-wrap items-end justify-between gap-5">
         <div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Supplier workspace</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Bring in the source. Keep the decision.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Analyze a public product page before it enters your catalog. You decide what customers see, what it costs, and how inventory is represented.</p></div>
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-3 py-2 text-sm font-extrabold text-[#536174] transition hover:border-[#bca26a] hover:text-[#182333]"><ArrowLeft className="h-4 w-4" />Back</Link>
-          <Badge tone="info">{products.data.length} catalog {products.data.length === 1 ? 'item' : 'items'}</Badge>
-        </div>
+        <Badge tone="info">{products.data.length} catalog {products.data.length === 1 ? 'item' : 'items'}</Badge>
       </div>
       {message && <div className="mt-7"><Notice tone={message.includes('could not') || message.includes('couldn’t') ? 'danger' : 'success'} title={message.includes('could not') || message.includes('couldn’t') ? 'Action not completed' : 'Workspace updated'}>{message}</Notice></div>}
 
