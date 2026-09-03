@@ -218,6 +218,7 @@ export const paymentsTable = pgTable(
     currency: text("currency").notNull().default("USD"),
     method: text("method").notNull(),
     reference: text("reference").notNull(),
+    evidenceReference: text("evidence_reference"),
     senderName: text("sender_name"),
     status: text("status").notNull().default("pending"),
     reviewedBy: text("reviewed_by"),

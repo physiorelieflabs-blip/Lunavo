@@ -21,3 +21,10 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+WHOP_COMPANY_ID = "biz_m86mV7hZtDYXp6"
+WHOP_PLAN_ID = "plan_d1AsucJpgR7M1"
+WHOP_PRODUCT_ID = "prod_apQzCF0Or2rVx"

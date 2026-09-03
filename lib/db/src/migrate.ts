@@ -39,6 +39,7 @@ const migrations = [
   "0028_advertising_payments",
   "0029_auctions",
   "0030_subscription_billing_timezone",
+  "0031_whop_payment_reference",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

@@ -12,3 +12,4 @@
 - [Domain event replay boundary](domain-event-replay.md) — commerce mutations emit transactional facts; replay may rebuild projections but never rerun authoritative money or stock changes.
 - [Staff workspace authorization](staff-workspace-authorization.md) — resolve tenants from active membership and validate workspace/location scope server-side; unmapped staff routes fail closed.
 - [Subscription regional time](subscription-regional-time.md) — subscription thresholds use the saved IANA billing timezone and local calendar dates, not elapsed UTC hours.
+- [Whop connector boundary](whop-connector-boundary.md) — use the authenticated proxy for connected-account checkout and verify provider payments before local accounting.

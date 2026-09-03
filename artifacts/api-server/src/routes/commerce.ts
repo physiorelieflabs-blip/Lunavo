@@ -326,6 +326,14 @@ import {
   simulateMerchantScenario,
 } from "../lib/ai";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
+import {
+  isWhopConfigured,
+  whopCompanyId,
+  whopPlanId,
+  whopRequest,
+  type WhopCheckoutConfiguration,
+  type WhopPayment,
+} from "../lib/whop-client";
 
 const router: IRouter = Router();
 class CommerceAuthorizationError extends Error {
@@ -7126,6 +7134,400 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
         error instanceof Error
           ? error.message
           : "Transfer reference could not be submitted",
+    });
+  }
+});
+
+router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (identity.isAdmin) {
+    res.status(409).json({ error: "Master admin account is subscription exempt" });
+    return;
+  }
+  if (!isWhopConfigured()) {
+    res.status(503).json({ error: "Whop hosted checkout is not configured yet" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  if (merchant.status === "banned") {
+    res.status(403).json({ error: "Banned accounts cannot submit subscription payments" });
+    return;
+  }
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const outstanding = Math.max(
+    0,
+    toNumber(enforced.subscription.amountDue) -
+      toNumber(enforced.subscription.amountPaid),
+  );
+  if (outstanding === 0) {
+    res.status(409).json({ error: "Subscription is already settled" });
+    return;
+  }
+  if (enforced.subscription.currency !== "USD") {
+    res.status(409).json({
+      error: "Whop checkout is currently available for USD billing only. Use Pay from bank or Pay from dashboard for another currency.",
+    });
+    return;
+  }
+  const reference = `WHOP-SUB-${enforced.subscription.id}`;
+  let payment = (
+    await db
+      .select()
+      .from(paymentsTable)
+      .where(
+        and(
+          eq(paymentsTable.merchantId, merchant.id),
+          eq(paymentsTable.reference, reference),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (payment?.status === "confirmed") {
+    res.status(409).json({ error: "This subscription is already settled through Whop" });
+    return;
+  }
+  if (payment?.evidenceReference && payment.status !== "failed") {
+    try {
+      const checkout = await whopRequest<WhopCheckoutConfiguration>(
+        `/api/v1/checkout_configurations/${encodeURIComponent(payment.evidenceReference)}`,
+      );
+      if (checkout.purchase_url) {
+        res.json({
+          provider: "whop",
+          checkoutId: checkout.id,
+          purchaseUrl: checkout.purchase_url,
+          status: payment.status,
+          amount: toNumber(payment.amount),
+          currency: payment.currency,
+        });
+        return;
+      }
+    } catch (error) {
+      req.log.warn({ err: error }, "Could not reuse the existing Whop checkout");
+    }
+  }
+
+  if (!payment) {
+    [payment] = await db
+      .insert(paymentsTable)
+      .values({
+        merchantId: merchant.id,
+        amount: outstanding.toFixed(2),
+        currency: "USD",
+        method: "whop",
+        reference,
+        status: "pending",
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!payment) {
+      payment = (
+        await db
+          .select()
+          .from(paymentsTable)
+          .where(eq(paymentsTable.reference, reference))
+          .limit(1)
+      )[0];
+    }
+  } else {
+    [payment] = await db
+      .update(paymentsTable)
+      .set({
+        amount: outstanding.toFixed(2),
+        currency: "USD",
+        status: "pending",
+        reviewNote: null,
+        reviewedAt: null,
+      })
+      .where(
+        and(
+          eq(paymentsTable.id, payment.id),
+          eq(paymentsTable.status, "failed"),
+        ),
+      )
+      .returning();
+  }
+  if (!payment) {
+    res.status(409).json({ error: "Could not reserve the Whop payment attempt" });
+    return;
+  }
+
+  const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim();
+  const protocol = forwardedProto === "https" ? "https" : req.protocol;
+  const host = req.get("host");
+  if (!host) {
+    res.status(500).json({ error: "The checkout return address could not be determined" });
+    return;
+  }
+  const redirectUrl = new URL(
+    `/billing?whop=return&checkout_id=${encodeURIComponent(reference)}`,
+    `${protocol}://${host}`,
+  ).toString();
+  try {
+    const checkout = await whopRequest<WhopCheckoutConfiguration>(
+      "/api/v1/checkout_configurations",
+      {
+        method: "POST",
+        body: {
+          plan_id: whopPlanId(),
+          redirect_url: redirectUrl,
+          metadata: {
+            provider: "ts-commerce",
+            merchant_id: String(merchant.id),
+            subscription_id: String(enforced.subscription.id),
+            payment_reference: reference,
+          },
+        },
+      },
+    );
+    if (!checkout.id || !checkout.purchase_url) {
+      throw new Error("Whop returned an incomplete hosted checkout");
+    }
+    const [updatedPayment] = await db
+      .update(paymentsTable)
+      .set({
+        evidenceReference: checkout.id,
+        status: "under_review",
+        reviewNote: "Awaiting server-side Whop payment verification",
+      })
+      .where(eq(paymentsTable.id, payment.id))
+      .returning();
+    if (!updatedPayment) throw new Error("Could not save the Whop checkout reference");
+    await addActivity(merchant.id, {
+      type: "whop_checkout_created",
+      title: "Whop checkout opened",
+      description: "A hosted Whop checkout is waiting for verified payment.",
+      amount: outstanding.toFixed(2),
+      currency: "USD",
+      tone: "neutral",
+    });
+    res.status(201).json({
+      provider: "whop",
+      checkoutId: checkout.id,
+      purchaseUrl: checkout.purchase_url,
+      status: updatedPayment.status,
+      amount: outstanding,
+      currency: "USD",
+    });
+  } catch (error) {
+    await db
+      .update(paymentsTable)
+      .set({
+        status: "failed",
+        reviewNote: error instanceof Error ? error.message : "Whop checkout could not be created",
+      })
+      .where(eq(paymentsTable.id, payment.id));
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Whop checkout could not be created",
+    });
+  }
+});
+
+router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (identity.isAdmin) {
+    res.status(409).json({ error: "Master admin account is subscription exempt" });
+    return;
+  }
+  const checkoutIdentifier = typeof req.body?.checkoutId === "string"
+    ? req.body.checkoutId.trim()
+    : "";
+  if (!checkoutIdentifier) {
+    res.status(400).json({ error: "A Whop checkout ID is required" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const payment = (
+    await db
+      .select()
+      .from(paymentsTable)
+      .where(
+        and(
+          eq(paymentsTable.merchantId, merchant.id),
+          eq(paymentsTable.method, "whop"),
+          or(
+            eq(paymentsTable.evidenceReference, checkoutIdentifier),
+            eq(paymentsTable.reference, checkoutIdentifier),
+          ),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!payment) {
+    res.status(404).json({ error: "Whop checkout is not associated with this account" });
+    return;
+  }
+  if (payment.status === "confirmed") {
+    res.json({
+      status: "confirmed",
+      paymentId: null,
+      message: "Whop payment was already verified.",
+      subscription: serializeSubscription(merchant, enforced.subscription),
+    });
+    return;
+  }
+  const checkoutId = payment.evidenceReference;
+  if (!checkoutId) {
+    res.status(409).json({
+      error: "The Whop checkout is still being prepared. Retry in a moment.",
+    });
+    return;
+  }
+  try {
+    await whopRequest<WhopCheckoutConfiguration>(
+      `/api/v1/checkout_configurations/${encodeURIComponent(checkoutId)}`,
+    );
+    const paymentsPayload = await whopRequest<{ data?: WhopPayment[] }>(
+      `/api/v1/payments?account_id=${encodeURIComponent(whopCompanyId())}&first=100`,
+    );
+    const candidates = Array.isArray(paymentsPayload.data) ? paymentsPayload.data : [];
+    const paymentMatch = candidates.find((candidate) => {
+      const metadata = candidate.metadata ?? {};
+      const candidateCheckoutId =
+        candidate.checkout_configuration_id ??
+        candidate.checkout_id ??
+        (typeof metadata.checkout_id === "string" ? metadata.checkout_id : null);
+      const planId =
+        candidate.membership?.plan?.id ??
+        candidate.plan?.id ??
+        null;
+      const status = String(candidate.status ?? "").toLowerCase();
+      const amount = Number(candidate.amount ?? NaN);
+      const createdAt = candidate.created_at ? new Date(candidate.created_at).getTime() : NaN;
+      return (
+        (candidateCheckoutId === checkoutId ||
+          (planId === whopPlanId() &&
+            Number.isFinite(createdAt) &&
+            createdAt >= payment.createdAt.getTime())) &&
+        ["succeeded", "paid", "completed", "captured", "active"].includes(status) &&
+        Number.isFinite(amount) &&
+        Math.abs(amount - toNumber(payment.amount)) < 0.01
+      );
+    });
+    const failedMatch = candidates.find((candidate) => {
+      const metadata = candidate.metadata ?? {};
+      const candidateCheckoutId =
+        candidate.checkout_configuration_id ??
+        candidate.checkout_id ??
+        (typeof metadata.checkout_id === "string" ? metadata.checkout_id : null);
+      return candidateCheckoutId === checkoutId &&
+        ["failed", "declined", "canceled", "cancelled"].includes(
+          String(candidate.status ?? "").toLowerCase(),
+        );
+    });
+    if (failedMatch) {
+      await db
+        .update(paymentsTable)
+        .set({
+          status: "failed",
+          reviewNote: "Whop reported that the payment failed",
+          reviewedAt: new Date(),
+        })
+        .where(and(eq(paymentsTable.id, payment.id), eq(paymentsTable.status, "under_review")));
+      res.json({
+        status: "failed",
+        paymentId: failedMatch.id ?? null,
+        message: "Whop reported that this payment failed. No balance was credited.",
+        subscription: serializeSubscription(merchant, enforced.subscription),
+      });
+      return;
+    }
+    if (!paymentMatch) {
+      res.json({
+        status: "pending",
+        paymentId: null,
+        message: "Whop has not reported a verified payment yet. You can retry verification shortly.",
+        subscription: serializeSubscription(merchant, enforced.subscription),
+      });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${subscriptionsTable} where ${subscriptionsTable.id} = ${enforced.subscription.id} for update`,
+      );
+      const currentSubscription = (
+        await tx
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.id, enforced.subscription.id))
+          .limit(1)
+      )[0];
+      const currentPayment = (
+        await tx
+          .select()
+          .from(paymentsTable)
+          .where(eq(paymentsTable.id, payment.id))
+          .limit(1)
+      )[0];
+      if (!currentSubscription || !currentPayment) {
+        throw new Error("The Whop payment record is no longer available");
+      }
+      if (currentPayment.status === "confirmed") {
+        return currentSubscription;
+      }
+      const remaining = Math.max(
+        0,
+        toNumber(currentSubscription.amountDue) -
+          toNumber(currentSubscription.amountPaid),
+      );
+      if (remaining === 0) return currentSubscription;
+      if (Math.abs(remaining - toNumber(currentPayment.amount)) >= 0.01) {
+        throw new Error("The verified Whop amount does not match the outstanding subscription");
+      }
+      const [updatedSubscription] = await tx
+        .update(subscriptionsTable)
+        .set({
+          amountPaid: (toNumber(currentSubscription.amountPaid) + remaining).toFixed(2),
+          paymentMethod: "whop",
+          status: "active",
+        })
+        .where(
+          and(
+            eq(subscriptionsTable.id, currentSubscription.id),
+            eq(subscriptionsTable.amountPaid, currentSubscription.amountPaid),
+          ),
+        )
+        .returning();
+      if (!updatedSubscription) throw new Error("Subscription changed while Whop payment was processing");
+      await tx
+        .update(paymentsTable)
+        .set({
+          status: "confirmed",
+          reviewNote: "Verified from Whop payment records",
+          reviewedBy: "whop",
+          reviewedAt: new Date(),
+        })
+        .where(and(eq(paymentsTable.id, currentPayment.id), eq(paymentsTable.status, currentPayment.status)));
+      if (merchant.status !== "banned") {
+        await tx
+          .update(merchantsTable)
+          .set({ status: "active" })
+          .where(eq(merchantsTable.id, merchant.id));
+      }
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "whop_payment_verified",
+        title: "Whop subscription payment verified",
+        description: "Whop payment evidence was verified server-side and applied to the subscription.",
+        amount: remaining.toFixed(2),
+        currency: currentSubscription.currency,
+        tone: "positive",
+      });
+      return updatedSubscription;
+    });
+    res.json({
+      status: "confirmed",
+      paymentId: paymentMatch.id ?? null,
+      message: "Whop payment verified and subscription settled.",
+      subscription: serializeSubscription(merchant, result),
+    });
+  } catch (error) {
+    req.log.warn({ err: error }, "Whop payment verification failed");
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Whop payment could not be verified",
     });
   }
 });
