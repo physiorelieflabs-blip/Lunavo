@@ -5,11 +5,28 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { StoreStoreAddress } from './storeStoreAddress';
 
 export interface Store {
   id: number;
   name: string;
   storeName: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  storeDescription: string | null;
+  /** @nullable */
+  storeContactEmail: string | null;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  storePhone: string | null;
+  /** @nullable */
+  storeWebsite: string | null;
+  /** @nullable */
+  storeAddress: StoreStoreAddress;
   storeSlug: string;
   merchantKey: string;
   createdAt: Date;

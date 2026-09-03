@@ -33,6 +33,7 @@ import {
   paymentLinksTable,
   marketplaceListingsTable,
   marketplaceBillingRecordsTable,
+  advertisingPaymentsTable,
   paymentsTable,
   paymentIntentsTable,
   paymentRecordsTable,
@@ -198,6 +199,15 @@ import {
   ExecuteAiActionResponse,
   RollbackAiActionParams,
   RollbackAiActionResponse,
+  GetMarketingBillingResponse,
+  PayAdvertisingFromEarningsResponse,
+  SubmitAdvertisingPaymentReferenceBody,
+  SubmitAdvertisingPaymentReferenceParams,
+  SubmitAdvertisingPaymentReferenceResponse,
+  ListAdminAdvertisingPaymentsResponse,
+  ReviewAdvertisingPaymentParams,
+  ReviewAdvertisingPaymentBody,
+  ReviewAdvertisingPaymentResponse,
   ResearchWebBody,
   ResearchWebResponse,
   CreatePaymentIntentBody,
@@ -337,6 +347,8 @@ router.use((req, _res, next) => {
     /^\/reconciliations?|^\/balances/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
     /^\/payments(?:\/|$)/.test(path) ? "finance.manage" :
     /^\/subscription(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
+    /^\/marketing\/billing(?:\/|$)/.test(path) ? "finance.read" :
+    /^\/marketing(?:\/|$)/.test(path) ? "finance.manage" :
     /^\/inventory\/adjustments/.test(path) ? "inventory.adjust" :
     /^\/inventory(?:\/|$)/.test(path) ? "inventory.read" :
     /^\/orders(?:\/|$)/.test(path) ? (req.method === "GET" ? "orders.read" : "orders.manage") :
@@ -349,7 +361,7 @@ router.use((req, _res, next) => {
     /^\/marketplace\/(management|listings|billing)/.test(path) ? "marketplace.manage" :
     /^\/marketplace\/products/.test(path) ? "marketplace.manage" :
     /^\/events(?:\/|$)|^\/notifications(?:\/|$)/.test(path) ? "orders.read" : null;
-  const blocksLocationScoped = /^(\/settings|\/store|\/dashboard|\/ai|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/marketplace|\/events|\/notifications)/.test(path);
+  const blocksLocationScoped = /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/marketplace|\/events|\/notifications)/.test(path);
   workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
 });
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
@@ -1417,6 +1429,39 @@ function serializeMarketplaceBilling(record: typeof marketplaceBillingRecordsTab
   };
 }
 
+function serializeAdvertisingPayment(
+  record: typeof advertisingPaymentsTable.$inferSelect,
+) {
+  return {
+    id: record.id,
+    aiActionId: record.aiActionId,
+    amount: toNumber(record.amount),
+    currency: record.currency,
+    method: record.method,
+    status: record.status,
+    paymentReference: record.paymentReference,
+    reviewNote: record.reviewNote,
+    createdAt: record.createdAt.toISOString(),
+    paidAt: record.paidAt?.toISOString() ?? null,
+  };
+}
+
+function getAdvertisingBudget(
+  action: typeof aiActionsTable.$inferSelect,
+): { amount: number; currency: string } | null {
+  const dataUsed =
+    action.dataUsed && typeof action.dataUsed === "object"
+      ? (action.dataUsed as Record<string, unknown>)
+      : {};
+  const amount =
+    typeof dataUsed.budgetAmount === "number" ? dataUsed.budgetAmount : 0;
+  const currency =
+    typeof dataUsed.budgetCurrency === "string"
+      ? dataUsed.budgetCurrency
+      : "";
+  return amount > 0 && currency ? { amount, currency } : null;
+}
+
 function serializeWithdrawal(withdrawal: Withdrawal) {
   return {
     id: withdrawal.id,
@@ -2016,6 +2061,357 @@ router.get("/dashboard/activity", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/marketing/billing", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    const [balance, subscription, withdrawalReserve, payments] =
+      await Promise.all([
+        db
+          .select({
+            total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+          })
+          .from(ledgerEntriesTable)
+          .where(
+            and(
+              eq(ledgerEntriesTable.merchantId, merchant.id),
+              eq(ledgerEntriesTable.currency, merchant.currency),
+            ),
+          ),
+        db
+          .select()
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.merchantId, merchant.id))
+          .limit(1)
+          .then(([row]) => row),
+        db
+          .select({
+            total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)`,
+          })
+          .from(withdrawalsTable)
+          .where(
+            and(
+              eq(withdrawalsTable.merchantId, merchant.id),
+              eq(withdrawalsTable.currency, merchant.currency),
+              inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
+            ),
+          )
+          .then(([row]) => row),
+        db
+          .select()
+          .from(advertisingPaymentsTable)
+          .where(eq(advertisingPaymentsTable.merchantId, merchant.id))
+          .orderBy(desc(advertisingPaymentsTable.createdAt)),
+      ]);
+    const ledgerBalance = Number(balance[0]?.total ?? 0) / 100;
+    const heldSubscription =
+      subscription?.currency === merchant.currency
+        ? toNumber(subscription.earningsHeld)
+        : 0;
+    const availableBalance = Math.max(
+      0,
+      ledgerBalance - heldSubscription - toNumber(withdrawalReserve?.total),
+    );
+    res.json(
+      GetMarketingBillingResponse.parse({
+        currency: merchant.currency,
+        availableBalance,
+        payments: payments.map(serializeAdvertisingPayment),
+      }),
+    );
+  } catch (error) {
+    req.log.error({ err: error }, "Could not load marketing billing");
+    res.status(500).json({ error: "Advertising billing could not be loaded" });
+  }
+});
+
+router.post(
+  "/marketing/campaigns/:id/pay-earnings",
+  async (req, res): Promise<void> => {
+    const identity = await requireIdentity(req, res);
+    if (!identity) return;
+    const params = ExecuteAiActionParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: "Campaign id is invalid" });
+      return;
+    }
+    try {
+      const merchant = await getOrCreateMerchant(identity);
+      const payment = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select id from ${merchantsTable} where id = ${merchant.id} for update`,
+        );
+        await tx.execute(
+          sql`select id from ${aiActionsTable} where id = ${params.data.id} and merchant_id = ${merchant.id} for update`,
+        );
+        const action = (
+          await tx
+            .select()
+            .from(aiActionsTable)
+            .where(
+              and(
+                eq(aiActionsTable.id, params.data.id),
+                eq(aiActionsTable.merchantId, merchant.id),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!action || action.actionType !== "ad_draft") {
+          throw new Error("Advertising campaign not found");
+        }
+        const budget = getAdvertisingBudget(action);
+        if (!budget || budget.currency !== merchant.currency) {
+          throw new Error("This campaign has no valid merchant-currency budget");
+        }
+        const existing = (
+          await tx
+            .select()
+            .from(advertisingPaymentsTable)
+            .where(eq(advertisingPaymentsTable.aiActionId, action.id))
+            .orderBy(desc(advertisingPaymentsTable.createdAt))
+            .limit(1)
+        )[0];
+        if (existing?.status === "confirmed") return existing;
+        if (existing?.status === "pending_review") {
+          throw new Error(
+            "A manual advertising payment is awaiting review for this campaign",
+          );
+        }
+        const [balance] = await tx
+          .select({
+            total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+          })
+          .from(ledgerEntriesTable)
+          .where(
+            and(
+              eq(ledgerEntriesTable.merchantId, merchant.id),
+              eq(ledgerEntriesTable.currency, merchant.currency),
+            ),
+          );
+        const subscription = (
+          await tx
+            .select()
+            .from(subscriptionsTable)
+            .where(eq(subscriptionsTable.merchantId, merchant.id))
+            .limit(1)
+        )[0];
+        const [withdrawalReserve] = await tx
+          .select({
+            total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)`,
+          })
+          .from(withdrawalsTable)
+          .where(
+            and(
+              eq(withdrawalsTable.merchantId, merchant.id),
+              eq(withdrawalsTable.currency, merchant.currency),
+              inArray(withdrawalsTable.status, [
+                "pending",
+                "approved",
+                "paid",
+              ]),
+            ),
+          );
+        const available =
+          Number(balance?.total ?? 0) / 100 -
+          (subscription?.currency === merchant.currency
+            ? toNumber(subscription.earningsHeld)
+            : 0) -
+          toNumber(withdrawalReserve?.total);
+        if (available < budget.amount) {
+          throw new Error(
+            `Not enough available ${merchant.currency} earnings for this campaign`,
+          );
+        }
+        const reference = `EARN-AD-${action.id}`;
+        const [created] = await tx
+          .insert(advertisingPaymentsTable)
+          .values({
+            merchantId: merchant.id,
+            aiActionId: action.id,
+            amount: budget.amount.toFixed(2),
+            currency: budget.currency,
+            method: "earnings",
+            status: "confirmed",
+            paymentReference: reference,
+            idempotencyKey: `advertising-earnings:${action.id}`,
+            paidAt: new Date(),
+          })
+          .onConflictDoNothing({
+            target: advertisingPaymentsTable.idempotencyKey,
+          })
+          .returning();
+        if (!created) {
+          const prior = (
+            await tx
+              .select()
+              .from(advertisingPaymentsTable)
+              .where(
+                eq(
+                  advertisingPaymentsTable.idempotencyKey,
+                  `advertising-earnings:${action.id}`,
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (!prior) throw new Error("Advertising payment could not be saved");
+          return prior;
+        }
+        await tx.insert(ledgerEntriesTable).values({
+          merchantId: merchant.id,
+          amountMinor: -Math.round(budget.amount * 100),
+          currency: budget.currency,
+          entryType: "advertising",
+          referenceKey: `advertising-payment:${created.id}`,
+        });
+        await tx.insert(activityTable).values({
+          merchantId: merchant.id,
+          type: "advertising_payment",
+          title: "Advertising campaign paid from earnings",
+          description: action.title,
+          amount: budget.amount.toFixed(2),
+          currency: budget.currency,
+          tone: "negative",
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "advertising.payment_confirmed",
+          aggregateType: "advertising_payment",
+          aggregateId: created.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `advertising-payment:${created.id}:confirmed`,
+          payload: {
+            aiActionId: action.id,
+            amount: created.amount,
+            currency: created.currency,
+            method: created.method,
+          },
+        });
+        return created;
+      });
+      res
+        .status(201)
+        .json(PayAdvertisingFromEarningsResponse.parse(serializeAdvertisingPayment(payment)));
+    } catch (error) {
+      req.log.error({ err: error }, "advertising earnings payment failed");
+      res.status(409).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Advertising earnings payment failed",
+      });
+    }
+  },
+);
+
+router.post(
+  "/marketing/campaigns/:id/payment-reference",
+  async (req, res): Promise<void> => {
+    const identity = await requireIdentity(req, res);
+    if (!identity) return;
+    const params = SubmitAdvertisingPaymentReferenceParams.safeParse(req.params);
+    const body = SubmitAdvertisingPaymentReferenceBody.safeParse(req.body);
+    if (!params.success || !body.success) {
+      res.status(400).json({ error: "Enter a valid advertising payment reference" });
+      return;
+    }
+    try {
+      const merchant = await getOrCreateMerchant(identity);
+      const payment = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select id from ${aiActionsTable} where id = ${params.data.id} and merchant_id = ${merchant.id} for update`,
+        );
+        const action = (
+          await tx
+            .select()
+            .from(aiActionsTable)
+            .where(
+              and(
+                eq(aiActionsTable.id, params.data.id),
+                eq(aiActionsTable.merchantId, merchant.id),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!action || action.actionType !== "ad_draft") {
+          throw new Error("Advertising campaign not found");
+        }
+        const budget = getAdvertisingBudget(action);
+        if (!budget || budget.currency !== merchant.currency) {
+          throw new Error("This campaign has no valid merchant-currency budget");
+        }
+        const existing = (
+          await tx
+            .select()
+            .from(advertisingPaymentsTable)
+            .where(eq(advertisingPaymentsTable.aiActionId, action.id))
+            .orderBy(desc(advertisingPaymentsTable.createdAt))
+            .limit(1)
+        )[0];
+        if (existing?.status === "confirmed") return existing;
+        if (existing?.status === "pending_review") {
+          throw new Error(
+            "A manual advertising payment is already awaiting review",
+          );
+        }
+        const reference = body.data.paymentReference.trim();
+        const [created] = await tx
+          .insert(advertisingPaymentsTable)
+          .values({
+            merchantId: merchant.id,
+            aiActionId: action.id,
+            amount: budget.amount.toFixed(2),
+            currency: budget.currency,
+            method: "bank_transfer",
+            status: "pending_review",
+            paymentReference: reference,
+            idempotencyKey: `advertising-reference:${reference.toUpperCase()}`,
+          })
+          .returning();
+        if (!created) throw new Error("Advertising payment could not be saved");
+        await tx.insert(activityTable).values({
+          merchantId: merchant.id,
+          type: "advertising_payment_submitted",
+          title: "Advertising payment submitted for review",
+          description: action.title,
+          amount: budget.amount.toFixed(2),
+          currency: budget.currency,
+          tone: "neutral",
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "advertising.payment_submitted",
+          aggregateType: "advertising_payment",
+          aggregateId: created.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `advertising-payment:${created.id}:submitted`,
+          payload: {
+            aiActionId: action.id,
+            amount: created.amount,
+            currency: created.currency,
+          },
+        });
+        return created;
+      });
+      res
+        .status(201)
+        .json(SubmitAdvertisingPaymentReferenceResponse.parse(serializeAdvertisingPayment(payment)));
+    } catch (error) {
+      req.log.error({ err: error }, "advertising payment reference failed");
+      res.status(409).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Advertising payment reference could not be submitted",
+      });
+    }
+  },
+);
+
 router.get("/ai/overview", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -2268,6 +2664,15 @@ router.post("/ai/actions", async (req, res): Promise<void> => {
     });
     return;
   }
+  if (
+    parsed.data.actionType === "ad_draft" &&
+    (!parsed.data.budgetAmount || parsed.data.budgetAmount <= 0)
+  ) {
+    res.status(400).json({
+      error: "Advertising drafts require a positive campaign budget",
+    });
+    return;
+  }
   try {
     const merchant = await getOrCreateMerchant(identity);
     const [action] = await db.transaction(async (tx) => {
@@ -2287,6 +2692,14 @@ router.post("/ai/actions", async (req, res): Promise<void> => {
           dataUsed: {
             source: "local_commerce_signals",
             merchantId: merchant.id,
+            budgetAmount:
+              parsed.data.actionType === "ad_draft"
+                ? parsed.data.budgetAmount
+                : null,
+            budgetCurrency:
+              parsed.data.actionType === "ad_draft"
+                ? merchant.currency
+                : null,
             capturedAt: new Date().toISOString(),
           },
         })
@@ -2424,6 +2837,25 @@ router.post("/ai/actions/:id/execute", async (req, res): Promise<void> => {
       }
       if (!current.reversible || !(await allowedActionType(current.actionType))) {
         throw new Error("Only reversible local preparation actions can execute");
+      }
+      if (current.actionType === "ad_draft") {
+        const confirmedPayment = (
+          await tx
+            .select({ id: advertisingPaymentsTable.id })
+            .from(advertisingPaymentsTable)
+            .where(
+              and(
+                eq(advertisingPaymentsTable.aiActionId, current.id),
+                eq(advertisingPaymentsTable.status, "confirmed"),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!confirmedPayment) {
+          throw new Error(
+            "Confirm the advertising payment before executing this campaign",
+          );
+        }
       }
       let result: Record<string, unknown> = {
         outcome: "prepared",
@@ -5054,9 +5486,6 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
         set: { status: "pending", reviewNote: null, listingFeeStatus: "due", updatedAt: new Date() },
       }).returning();
       if (!listing) throw new Error("Marketplace listing could not be created");
-      const [existingBilling] = await tx.select().from(marketplaceBillingRecordsTable)
-        .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.listingId, listing.id), eq(marketplaceBillingRecordsTable.kind, "listing")))
-        .limit(1);
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "marketplace_listing_submitted",
@@ -5226,6 +5655,130 @@ router.patch("/admin/marketplace/billing/:id/review", async (req, res): Promise<
   }
   res.json(ReviewMarketplaceBillingResponse.parse(serializeMarketplaceBilling(updated)));
 });
+
+router.get("/admin/marketing/payments", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const rows = await db
+    .select({
+      payment: advertisingPaymentsTable,
+      merchantName: merchantsTable.name,
+      campaignTitle: aiActionsTable.title,
+    })
+    .from(advertisingPaymentsTable)
+    .innerJoin(
+      merchantsTable,
+      eq(advertisingPaymentsTable.merchantId, merchantsTable.id),
+    )
+    .innerJoin(
+      aiActionsTable,
+      eq(advertisingPaymentsTable.aiActionId, aiActionsTable.id),
+    )
+    .orderBy(desc(advertisingPaymentsTable.createdAt))
+    .limit(100);
+  res.json(
+    ListAdminAdvertisingPaymentsResponse.parse(
+      rows.map(({ payment, merchantName, campaignTitle }) => ({
+        ...serializeAdvertisingPayment(payment),
+        merchantId: payment.merchantId,
+        merchantName,
+        campaignTitle,
+      })),
+    ),
+  );
+});
+
+router.patch(
+  "/admin/marketing/payments/:id/review",
+  async (req, res): Promise<void> => {
+    const identity = await requireAdmin(req, res);
+    if (!identity) return;
+    const params = ReviewAdvertisingPaymentParams.safeParse(req.params);
+    const body = ReviewAdvertisingPaymentBody.safeParse(req.body);
+    if (!params.success || !body.success) {
+      res.status(400).json({ error: "Invalid advertising payment review" });
+      return;
+    }
+    try {
+      const payment = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select id from ${advertisingPaymentsTable} where id = ${params.data.id} for update`,
+        );
+        const current = (
+          await tx
+            .select()
+            .from(advertisingPaymentsTable)
+            .where(eq(advertisingPaymentsTable.id, params.data.id))
+            .limit(1)
+        )[0];
+        if (!current) throw new Error("Advertising payment not found");
+        if (current.status === body.data.status) return current;
+        if (current.status !== "pending_review") {
+          throw new Error("This advertising payment already has a final review");
+        }
+        const [updated] = await tx
+          .update(advertisingPaymentsTable)
+          .set({
+            status: body.data.status,
+            reviewedBy: identity.clerkUserId,
+            reviewNote: body.data.reviewNote?.trim() || null,
+            reviewedAt: new Date(),
+            paidAt: body.data.status === "confirmed" ? new Date() : null,
+          })
+          .where(
+            and(
+              eq(advertisingPaymentsTable.id, current.id),
+              eq(advertisingPaymentsTable.status, "pending_review"),
+            ),
+          )
+          .returning();
+        if (!updated) throw new Error("Advertising payment changed during review");
+        await tx.insert(activityTable).values({
+          merchantId: updated.merchantId,
+          type: "advertising_payment_reviewed",
+          title:
+            updated.status === "confirmed"
+              ? "Advertising payment verified"
+              : "Advertising payment rejected",
+          description: updated.paymentReference ?? `Campaign ${updated.aiActionId}`,
+          amount: updated.amount,
+          currency: updated.currency,
+          tone: updated.status === "confirmed" ? "positive" : "warning",
+        });
+        await emitDomainEvent(tx, {
+          merchantId: updated.merchantId,
+          eventType: "advertising.payment_reviewed",
+          aggregateType: "advertising_payment",
+          aggregateId: updated.id,
+          actorType: "admin",
+          actorId: identity.clerkUserId,
+          source: "admin_api",
+          idempotencyKey: `advertising-payment:${updated.id}:reviewed:${updated.status}`,
+          payload: {
+            aiActionId: updated.aiActionId,
+            status: updated.status,
+            amount: updated.amount,
+            currency: updated.currency,
+          },
+        });
+        return updated;
+      });
+      res.json(
+        ReviewAdvertisingPaymentResponse.parse(
+          serializeAdvertisingPayment(payment),
+        ),
+      );
+    } catch (error) {
+      req.log.error({ err: error }, "advertising payment review failed");
+      res.status(409).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Advertising payment review failed",
+      });
+    }
+  },
+);
 
 router.get("/marketplace/products", async (req, res): Promise<void> => {
   const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 120) : "";
@@ -6293,7 +6846,14 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
 router.get("/admin/overview", async (req, res): Promise<void> => {
   const identity = await requireAdmin(req, res);
   if (!identity) return;
-  const adminMerchant = await getOrCreateMerchant(identity);
+  const adminMerchant = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.clerkUserId, identity.clerkUserId))
+      .limit(1)
+  )[0];
+  const platformCurrency = adminMerchant?.currency ?? "USD";
   const merchants = await db.select().from(merchantsTable);
   const subs = await db.select().from(subscriptionsTable);
   const payments = await db
@@ -6311,7 +6871,7 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
     .where(
       and(
         eq(paymentsTable.status, "confirmed"),
-        eq(paymentsTable.currency, adminMerchant.currency),
+        eq(paymentsTable.currency, platformCurrency),
       ),
     );
   const nonAdminMerchants = merchants.filter(
@@ -6330,14 +6890,16 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
     })
     .from(withdrawalsTable)
     .where(
-      and(
-        eq(withdrawalsTable.merchantId, adminMerchant.id),
-        eq(withdrawalsTable.currency, adminMerchant.currency),
-      ),
+      adminMerchant
+        ? and(
+            eq(withdrawalsTable.merchantId, adminMerchant.id),
+            eq(withdrawalsTable.currency, platformCurrency),
+          )
+        : sql`false`,
     );
   res.json(
     GetAdminOverviewResponse.parse({
-      currency: adminMerchant.currency,
+      currency: platformCurrency,
       platformRevenue: confirmedRevenue,
       subscriptionRevenue: confirmedRevenue,
       availableBalance: Math.max(

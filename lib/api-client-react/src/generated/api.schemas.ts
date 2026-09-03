@@ -430,14 +430,40 @@ export interface MarketExchangeRate {
   asOf: string | null;
 }
 
+/**
+ * @nullable
+ */
+export type StoreStoreAddress = { [key: string]: unknown } | null;
+
 export interface Store {
   id: number;
   name: string;
   storeName: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  storeDescription: string | null;
+  /** @nullable */
+  storeContactEmail: string | null;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  storePhone: string | null;
+  /** @nullable */
+  storeWebsite: string | null;
+  /** @nullable */
+  storeAddress: StoreStoreAddress;
   storeSlug: string;
   merchantKey: string;
   createdAt: string;
 }
+
+/**
+ * @nullable
+ */
+export type StoreInputStoreAddress = { [key: string]: unknown } | null;
 
 export interface StoreInput {
   /**
@@ -445,6 +471,22 @@ export interface StoreInput {
      * @maxLength 80
      */
   storeName: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  storeDescription?: string | null;
+  /** @nullable */
+  storeContactEmail?: string | null;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  storePhone?: string | null;
+  /** @nullable */
+  storeWebsite?: string | null;
+  /** @nullable */
+  storeAddress?: StoreInputStoreAddress;
 }
 
 export interface HealthStatus {
@@ -726,6 +768,10 @@ export interface AiAction {
   actionType: string;
   title: string;
   reason: string;
+  /** @nullable */
+  budgetAmount: number | null;
+  /** @nullable */
+  budgetCurrency: string | null;
   status: string;
   risk: string;
   reversible: boolean;
@@ -772,9 +818,81 @@ export interface AiActionInput {
      * @maxLength 2000
      */
   reason: string;
+  /** @exclusiveMinimum 0 */
+  budgetAmount?: number;
   risk: AiActionInputRisk;
   reversible: boolean;
 }
+
+export type AdvertisingPaymentMethod = typeof AdvertisingPaymentMethod[keyof typeof AdvertisingPaymentMethod];
+
+
+export const AdvertisingPaymentMethod = {
+  earnings: 'earnings',
+  bank_transfer: 'bank_transfer',
+} as const;
+
+export type AdvertisingPaymentStatus = typeof AdvertisingPaymentStatus[keyof typeof AdvertisingPaymentStatus];
+
+
+export const AdvertisingPaymentStatus = {
+  pending_review: 'pending_review',
+  confirmed: 'confirmed',
+  rejected: 'rejected',
+} as const;
+
+export interface AdvertisingPayment {
+  id: number;
+  aiActionId: number;
+  amount: number;
+  currency: string;
+  method: AdvertisingPaymentMethod;
+  status: AdvertisingPaymentStatus;
+  /** @nullable */
+  paymentReference: string | null;
+  /** @nullable */
+  reviewNote: string | null;
+  createdAt: string;
+  /** @nullable */
+  paidAt: string | null;
+}
+
+export interface MarketingBilling {
+  currency: string;
+  availableBalance: number;
+  payments: AdvertisingPayment[];
+}
+
+export interface AdvertisingPaymentReferenceInput {
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  paymentReference: string;
+}
+
+export type AdvertisingPaymentReviewStatus = typeof AdvertisingPaymentReviewStatus[keyof typeof AdvertisingPaymentReviewStatus];
+
+
+export const AdvertisingPaymentReviewStatus = {
+  confirmed: 'confirmed',
+  rejected: 'rejected',
+} as const;
+
+export interface AdvertisingPaymentReview {
+  status: AdvertisingPaymentReviewStatus;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  reviewNote?: string | null;
+}
+
+export type AdminAdvertisingPayment = AdvertisingPayment & {
+  merchantId: number;
+  merchantName: string;
+  campaignTitle: string;
+};
 
 export interface WebResearchInput {
   /**
@@ -843,6 +961,11 @@ export interface Subscription {
   daysRemaining: number;
 }
 
+/**
+ * @nullable
+ */
+export type DashboardOverviewStoreAddress = { [key: string]: unknown } | null;
+
 export interface RevenuePoint {
   label: string;
   amount: number;
@@ -850,7 +973,17 @@ export interface RevenuePoint {
 
 export interface DashboardOverview {
   currency: string;
-  storeName: string;
+  storeName?: string;
+  /** @nullable */
+  storeDescription?: string | null;
+  /** @nullable */
+  storeContactEmail?: string | null;
+  /** @nullable */
+  storePhone?: string | null;
+  /** @nullable */
+  storeWebsite?: string | null;
+  /** @nullable */
+  storeAddress?: DashboardOverviewStoreAddress;
   storeSlug: string;
   revenue: number;
   revenueChange: number;

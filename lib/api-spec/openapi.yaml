@@ -325,6 +325,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiAction"
+  /marketing/billing:
+    get:
+      operationId: getMarketingBilling
+      tags: [marketing]
+      summary: Get advertising payment history and available merchant earnings
+      responses:
+        "200":
+          description: Advertising billing workspace
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketingBilling" }
+  /marketing/campaigns/{id}/pay-earnings:
+    post:
+      operationId: payAdvertisingFromEarnings
+      tags: [marketing, billing]
+      summary: Pay an approved advertising budget from available merchant earnings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "201":
+          description: Advertising payment confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdvertisingPayment" }
+  /marketing/campaigns/{id}/payment-reference:
+    post:
+      operationId: submitAdvertisingPaymentReference
+      tags: [marketing, billing]
+      summary: Submit a manual advertising payment reference for admin review
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdvertisingPaymentReferenceInput" }
+      responses:
+        "201":
+          description: Advertising payment reference awaiting review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdvertisingPayment" }
+  /admin/marketing/payments:
+    get:
+      operationId: listAdminAdvertisingPayments
+      tags: [admin, marketing]
+      summary: List advertising payment references awaiting admin review
+      security:
+        - clerkBearer: []
+      responses:
+        "200":
+          description: Advertising payment review queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdminAdvertisingPayment" }
+  /admin/marketing/payments/{id}/review:
+    patch:
+      operationId: reviewAdvertisingPayment
+      tags: [admin, marketing]
+      summary: Verify or reject a manual advertising payment reference
+      security:
+        - clerkBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdvertisingPaymentReview" }
+      responses:
+        "200":
+          description: Reviewed advertising payment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdvertisingPayment" }
   /ai/research:
     post:
       operationId: researchWeb
@@ -2302,6 +2388,8 @@ components:
         actionType: { type: string }
         title: { type: string }
         reason: { type: string }
+        budgetAmount: { type: ["number", "null"] }
+        budgetCurrency: { type: ["string", "null"] }
         status: { type: string }
         risk: { type: string }
         reversible: { type: boolean }
@@ -2312,7 +2400,7 @@ components:
         executedAt: { type: ["string", "null"], format: date-time }
         rolledBackAt: { type: ["string", "null"], format: date-time }
         result: { type: ["object", "null"], additionalProperties: true }
-      required: [id, agent, actionType, title, reason, status, risk, reversible, approvalRequired, rollbackAvailable, createdAt, approvedAt, executedAt, rolledBackAt, result]
+      required: [id, agent, actionType, title, reason, budgetAmount, budgetCurrency, status, risk, reversible, approvalRequired, rollbackAvailable, createdAt, approvedAt, executedAt, rolledBackAt, result]
     AiActionInput:
       type: object
       properties:
@@ -2320,9 +2408,53 @@ components:
         actionType: { type: string, minLength: 2, maxLength: 80 }
         title: { type: string, minLength: 2, maxLength: 240 }
         reason: { type: string, minLength: 2, maxLength: 2000 }
+        budgetAmount: { type: number, exclusiveMinimum: 0 }
         risk: { type: string, enum: [low, medium, high] }
         reversible: { type: boolean }
       required: [agent, actionType, title, reason, risk, reversible]
+    AdvertisingPayment:
+      type: object
+      properties:
+        id: { type: integer }
+        aiActionId: { type: integer }
+        amount: { type: number }
+        currency: { type: string }
+        method: { type: string, enum: [earnings, bank_transfer] }
+        status: { type: string, enum: [pending_review, confirmed, rejected] }
+        paymentReference: { type: ["string", "null"] }
+        reviewNote: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        paidAt: { type: ["string", "null"], format: date-time }
+      required: [id, aiActionId, amount, currency, method, status, paymentReference, reviewNote, createdAt, paidAt]
+    MarketingBilling:
+      type: object
+      properties:
+        currency: { type: string }
+        availableBalance: { type: number }
+        payments:
+          type: array
+          items: { $ref: "#/components/schemas/AdvertisingPayment" }
+      required: [currency, availableBalance, payments]
+    AdvertisingPaymentReferenceInput:
+      type: object
+      properties:
+        paymentReference: { type: string, minLength: 3, maxLength: 160 }
+      required: [paymentReference]
+    AdvertisingPaymentReview:
+      type: object
+      properties:
+        status: { type: string, enum: [confirmed, rejected] }
+        reviewNote: { type: ["string", "null"], maxLength: 500 }
+      required: [status]
+    AdminAdvertisingPayment:
+      allOf:
+        - $ref: "#/components/schemas/AdvertisingPayment"
+        - type: object
+          properties:
+            merchantId: { type: integer }
+            merchantName: { type: string }
+            campaignTitle: { type: string }
+          required: [merchantId, merchantName, campaignTitle]
     WebResearchInput:
       type: object
       properties:

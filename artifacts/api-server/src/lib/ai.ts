@@ -260,12 +260,24 @@ function serializeSettings(settings: AiSettings) {
 }
 
 export function serializeAiAction(action: AiAction) {
+  const dataUsed =
+    action.dataUsed && typeof action.dataUsed === "object"
+      ? (action.dataUsed as Record<string, unknown>)
+      : {};
+  const budgetAmount =
+    typeof dataUsed.budgetAmount === "number" ? dataUsed.budgetAmount : null;
+  const budgetCurrency =
+    typeof dataUsed.budgetCurrency === "string"
+      ? dataUsed.budgetCurrency
+      : null;
   return {
     id: action.id,
     agent: action.agent,
     actionType: action.actionType,
     title: action.title,
     reason: action.reason,
+    budgetAmount,
+    budgetCurrency,
     status: action.status,
     risk: action.risk,
     reversible: action.reversible,

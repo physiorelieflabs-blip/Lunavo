@@ -10,10 +10,13 @@ import {
 } from 'lucide-react';
 import {
   getGetAdminOverviewQueryKey,
+  getListAdminAdvertisingPaymentsQueryKey,
   getListMarketplaceAdminQueueQueryKey,
   getListMerchantsQueryKey,
   useGetAdminOverview,
   useListMarketplaceAdminQueue,
+  useListAdminAdvertisingPayments,
+  useReviewAdvertisingPayment,
   useReviewBankTransfer,
   useReviewMarketplaceListing,
 } from '@workspace/api-client-react';
@@ -36,6 +39,8 @@ export default function Admin() {
   const review = useReviewBankTransfer();
   const marketplace = useListMarketplaceAdminQueue();
   const marketplaceReview = useReviewMarketplaceListing();
+  const advertisingPayments = useListAdminAdvertisingPayments();
+  const advertisingReview = useReviewAdvertisingPayment();
   const queryClient = useQueryClient();
 
   const reviewPayment = (id: number, status: 'confirmed' | 'rejected') => {
@@ -68,6 +73,26 @@ export default function Admin() {
     marketplaceReview.mutate(
       { id, data: { status, reviewNote: reviewNote || undefined } },
       { onSuccess: () => void queryClient.invalidateQueries({ queryKey: getListMarketplaceAdminQueueQueryKey() }) },
+    );
+  };
+
+  const reviewAdvertisingPayment = (
+    id: number,
+    status: 'confirmed' | 'rejected',
+  ) => {
+    const action = status === 'confirmed' ? 'Verify' : 'Reject';
+    if (!window.confirm(`${action} this advertising payment? This decision is audited.`)) {
+      return;
+    }
+    const reviewNote = window.prompt('Optional review note') ?? undefined;
+    advertisingReview.mutate(
+      { id, data: { status, reviewNote: reviewNote || undefined } },
+      {
+        onSuccess: () =>
+          void queryClient.invalidateQueries({
+            queryKey: getListAdminAdvertisingPaymentsQueryKey(),
+          }),
+      },
     );
   };
 
@@ -278,6 +303,86 @@ export default function Admin() {
         <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
           <SectionHeading eyebrow="Marketplace administration" title="Review merchant listings" description="Approval and fee verification are separate decisions. A listing is not public until both the listing is approved and its fee is verified." />
           {marketplace.isLoading ? <LoadingState label="Loading marketplace review queue" /> : marketplace.isError ? <ErrorState onRetry={() => void marketplace.refetch()} /> : marketplace.data?.length ? <div className="space-y-3">{marketplace.data.map((listing) => <div key={listing.id} className="rounded-xl border border-[#ded8cd] bg-[#f7f4ed] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-extrabold">{listing.productTitle}</p><p className="mt-1 text-xs text-[#697687]">{listing.merchantName} · {dateLabel(listing.createdAt)}</p><p className="mt-1 text-xs text-[#697687]">Fee {money(listing.listingFeeAmount, listing.listingFeeCurrency)} · {listing.listingFeeStatus}{listing.paymentReference ? ` · ref ${listing.paymentReference}` : ''}</p></div><div className="flex flex-wrap gap-2"><Badge tone={listing.status === 'approved' ? 'success' : listing.status === 'rejected' ? 'danger' : 'warning'}>{listing.status}</Badge><Badge tone={listing.listingFeeStatus === 'paid' ? 'success' : 'warning'}>{listing.listingFeeStatus}</Badge></div></div>{listing.reviewNote && <p className="mt-3 text-xs italic text-[#697687]">“{listing.reviewNote}”</p>}{listing.status === 'pending' && <div className="mt-4 flex flex-wrap gap-2"><button onClick={() => reviewMarketplaceListing(listing.id, 'approved')} disabled={marketplaceReview.isPending} className="inline-flex min-h-8 items-center gap-2 rounded-lg bg-[#2f6958] px-3 text-xs font-extrabold text-white disabled:opacity-50"><Check className="h-3.5 w-3.5" />Approve listing</button><button onClick={() => reviewMarketplaceListing(listing.id, 'rejected')} disabled={marketplaceReview.isPending} className="inline-flex min-h-8 items-center gap-2 rounded-lg border border-[#e2b9b3] bg-[#fff8f5] px-3 text-xs font-extrabold text-[#a33e38] disabled:opacity-50"><X className="h-3.5 w-3.5" />Reject</button></div>}</div>)}</div> : <EmptyState title="No marketplace listings" description="Merchant submissions will appear here for platform review." />}
+        </section>
+        <section className="mt-8 rounded-xl border border-[#bfd6dc] bg-[#eef7f8] p-6">
+          <SectionHeading
+            eyebrow="Advertising administration"
+            title="Review campaign payment references"
+            description="Manual transfer references are evidence only. Verify them here before a merchant can prepare the campaign."
+          />
+          {advertisingPayments.isLoading ? (
+            <LoadingState label="Loading advertising payment queue" />
+          ) : advertisingPayments.isError ? (
+            <ErrorState onRetry={() => void advertisingPayments.refetch()} />
+          ) : advertisingPayments.data?.length ? (
+            <div className="space-y-3">
+              {advertisingPayments.data.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="rounded-xl border border-[#bfd6dc] bg-white/70 p-4"
+                  data-testid={`admin-advertising-payment-${payment.id}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-extrabold">
+                        {payment.campaignTitle}
+                      </p>
+                      <p className="mt-1 text-xs text-[#315e6c]">
+                        {payment.merchantName} · {money(payment.amount, payment.currency)} ·{' '}
+                        {payment.method.replaceAll('_', ' ')}
+                      </p>
+                      {payment.paymentReference && (
+                        <p className="mt-2 font-mono text-xs text-[#315e6c]">
+                          Reference: {payment.paymentReference}
+                        </p>
+                      )}
+                      {payment.reviewNote && (
+                        <p className="mt-2 text-xs italic text-[#315e6c]">
+                          “{payment.reviewNote}”
+                        </p>
+                      )}
+                    </div>
+                    <Badge
+                      tone={
+                        payment.status === 'confirmed'
+                          ? 'success'
+                          : payment.status === 'rejected'
+                            ? 'danger'
+                            : 'warning'
+                      }
+                    >
+                      {payment.status.replaceAll('_', ' ')}
+                    </Badge>
+                  </div>
+                  {payment.status === 'pending_review' && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => reviewAdvertisingPayment(payment.id, 'confirmed')}
+                        disabled={advertisingReview.isPending}
+                        className="inline-flex min-h-8 items-center gap-2 rounded-lg bg-[#2f6958] px-3 text-xs font-extrabold text-white disabled:opacity-50"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Verify payment
+                      </button>
+                      <button
+                        onClick={() => reviewAdvertisingPayment(payment.id, 'rejected')}
+                        disabled={advertisingReview.isPending}
+                        className="inline-flex min-h-8 items-center gap-2 rounded-lg border border-[#e2b9b3] bg-[#fff8f5] px-3 text-xs font-extrabold text-[#a33e38] disabled:opacity-50"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No advertising payment references"
+              description="Manual campaign payment references will appear here until they are verified or rejected."
+            />
+          )}
         </section>
       </div>
     </AppShell>

@@ -5,12 +5,23 @@
  * TS Commerce merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { DashboardOverviewStoreAddress } from './dashboardOverviewStoreAddress';
 import type { RevenuePoint } from './revenuePoint';
 import type { Subscription } from './subscription';
 
 export interface DashboardOverview {
   currency: string;
-  storeName: string;
+  storeName?: string;
+  /** @nullable */
+  storeDescription?: string | null;
+  /** @nullable */
+  storeContactEmail?: string | null;
+  /** @nullable */
+  storePhone?: string | null;
+  /** @nullable */
+  storeWebsite?: string | null;
+  /** @nullable */
+  storeAddress?: DashboardOverviewStoreAddress;
   storeSlug: string;
   revenue: number;
   revenueChange: number;

@@ -28,6 +28,8 @@ export interface AiActionInput {
      * @maxLength 2000
      */
   reason: string;
+  /** @exclusiveMinimum 0 */
+  budgetAmount?: number;
   risk: AiActionInputRisk;
   reversible: boolean;
 }

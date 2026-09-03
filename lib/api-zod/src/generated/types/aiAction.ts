@@ -13,6 +13,10 @@ export interface AiAction {
   actionType: string;
   title: string;
   reason: string;
+  /** @nullable */
+  budgetAmount: number | null;
+  /** @nullable */
+  budgetCurrency: string | null;
   status: string;
   risk: string;
   reversible: boolean;

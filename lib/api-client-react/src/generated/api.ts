@@ -22,10 +22,14 @@ import type {
 import type {
   AcceptInvitationInput,
   ActivityItem,
+  AdminAdvertisingPayment,
   AdminOverview,
   AdminWithdrawalDetailsInput,
   AdminWithdrawalRecord,
   AdminWithdrawalReviewInput,
+  AdvertisingPayment,
+  AdvertisingPaymentReferenceInput,
+  AdvertisingPaymentReview,
   AiAction,
   AiActionInput,
   AiModel,
@@ -64,6 +68,7 @@ import type {
   ListMarketplaceProductsParams,
   ManualSupplierProductInput,
   MarketExchangeRate,
+  MarketingBilling,
   MarketplaceAdminListing,
   MarketplaceBillingInput,
   MarketplaceBillingRecord,
@@ -1648,6 +1653,375 @@ export const useRollbackAiAction = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getRollbackAiActionMutationOptions(options));
+    }
+
+export const getGetMarketingBillingUrl = () => {
+
+
+
+
+  return `/api/marketing/billing`
+}
+
+/**
+ * @summary Get advertising payment history and available merchant earnings
+ */
+export const getMarketingBilling = async ( options?: Parameters<typeof customFetch>[1]): Promise<MarketingBilling> => {
+
+  return customFetch<MarketingBilling>(getGetMarketingBillingUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMarketingBillingQueryKey = () => {
+    return [
+    `/api/marketing/billing`
+    ] as const;
+    }
+
+
+export const getGetMarketingBillingQueryOptions = <TData = Awaited<ReturnType<typeof getMarketingBilling>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMarketingBilling>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMarketingBillingQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketingBilling>>> = ({ signal }) => getMarketingBilling({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMarketingBilling>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMarketingBillingQueryResult = NonNullable<Awaited<ReturnType<typeof getMarketingBilling>>>
+export type GetMarketingBillingQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get advertising payment history and available merchant earnings
+ */
+
+export function useGetMarketingBilling<TData = Awaited<ReturnType<typeof getMarketingBilling>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMarketingBilling>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMarketingBillingQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPayAdvertisingFromEarningsUrl = (id: number,) => {
+
+
+
+
+  return `/api/marketing/campaigns/${id}/pay-earnings`
+}
+
+/**
+ * @summary Pay an approved advertising budget from available merchant earnings
+ */
+export const payAdvertisingFromEarnings = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AdvertisingPayment> => {
+
+  return customFetch<AdvertisingPayment>(getPayAdvertisingFromEarningsUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getPayAdvertisingFromEarningsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof payAdvertisingFromEarnings>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof payAdvertisingFromEarnings>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['payAdvertisingFromEarnings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof payAdvertisingFromEarnings>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  payAdvertisingFromEarnings(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PayAdvertisingFromEarningsMutationResult = NonNullable<Awaited<ReturnType<typeof payAdvertisingFromEarnings>>>
+
+    export type PayAdvertisingFromEarningsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Pay an approved advertising budget from available merchant earnings
+ */
+export const usePayAdvertisingFromEarnings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof payAdvertisingFromEarnings>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof payAdvertisingFromEarnings>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPayAdvertisingFromEarningsMutationOptions(options));
+    }
+
+export const getSubmitAdvertisingPaymentReferenceUrl = (id: number,) => {
+
+
+
+
+  return `/api/marketing/campaigns/${id}/payment-reference`
+}
+
+/**
+ * @summary Submit a manual advertising payment reference for admin review
+ */
+export const submitAdvertisingPaymentReference = async (id: number,
+    advertisingPaymentReferenceInput: AdvertisingPaymentReferenceInput, options?: Parameters<typeof customFetch>[1]): Promise<AdvertisingPayment> => {
+
+  return customFetch<AdvertisingPayment>(getSubmitAdvertisingPaymentReferenceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(advertisingPaymentReferenceInput)
+  }
+);}
+
+
+
+
+
+export const getSubmitAdvertisingPaymentReferenceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitAdvertisingPaymentReference>>, TError,{id: number;data: BodyType<AdvertisingPaymentReferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitAdvertisingPaymentReference>>, TError,{id: number;data: BodyType<AdvertisingPaymentReferenceInput>}, TContext> => {
+
+const mutationKey = ['submitAdvertisingPaymentReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitAdvertisingPaymentReference>>, {id: number;data: BodyType<AdvertisingPaymentReferenceInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  submitAdvertisingPaymentReference(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitAdvertisingPaymentReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof submitAdvertisingPaymentReference>>>
+    export type SubmitAdvertisingPaymentReferenceMutationBody = BodyType<AdvertisingPaymentReferenceInput>
+    export type SubmitAdvertisingPaymentReferenceMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Submit a manual advertising payment reference for admin review
+ */
+export const useSubmitAdvertisingPaymentReference = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitAdvertisingPaymentReference>>, TError,{id: number;data: BodyType<AdvertisingPaymentReferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitAdvertisingPaymentReference>>,
+        TError,
+        {id: number;data: BodyType<AdvertisingPaymentReferenceInput>},
+        TContext
+      > => {
+      return useMutation(getSubmitAdvertisingPaymentReferenceMutationOptions(options));
+    }
+
+export const getListAdminAdvertisingPaymentsUrl = () => {
+
+
+
+
+  return `/api/admin/marketing/payments`
+}
+
+/**
+ * @summary List advertising payment references awaiting admin review
+ */
+export const listAdminAdvertisingPayments = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminAdvertisingPayment[]> => {
+
+  return customFetch<AdminAdvertisingPayment[]>(getListAdminAdvertisingPaymentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdminAdvertisingPaymentsQueryKey = () => {
+    return [
+    `/api/admin/marketing/payments`
+    ] as const;
+    }
+
+
+export const getListAdminAdvertisingPaymentsQueryOptions = <TData = Awaited<ReturnType<typeof listAdminAdvertisingPayments>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminAdvertisingPayments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdminAdvertisingPaymentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminAdvertisingPayments>>> = ({ signal }) => listAdminAdvertisingPayments({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdminAdvertisingPayments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdminAdvertisingPaymentsQueryResult = NonNullable<Awaited<ReturnType<typeof listAdminAdvertisingPayments>>>
+export type ListAdminAdvertisingPaymentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List advertising payment references awaiting admin review
+ */
+
+export function useListAdminAdvertisingPayments<TData = Awaited<ReturnType<typeof listAdminAdvertisingPayments>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminAdvertisingPayments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdminAdvertisingPaymentsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReviewAdvertisingPaymentUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/marketing/payments/${id}/review`
+}
+
+/**
+ * @summary Verify or reject a manual advertising payment reference
+ */
+export const reviewAdvertisingPayment = async (id: number,
+    advertisingPaymentReview: AdvertisingPaymentReview, options?: Parameters<typeof customFetch>[1]): Promise<AdvertisingPayment> => {
+
+  return customFetch<AdvertisingPayment>(getReviewAdvertisingPaymentUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(advertisingPaymentReview)
+  }
+);}
+
+
+
+
+
+export const getReviewAdvertisingPaymentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewAdvertisingPayment>>, TError,{id: number;data: BodyType<AdvertisingPaymentReview>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewAdvertisingPayment>>, TError,{id: number;data: BodyType<AdvertisingPaymentReview>}, TContext> => {
+
+const mutationKey = ['reviewAdvertisingPayment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewAdvertisingPayment>>, {id: number;data: BodyType<AdvertisingPaymentReview>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  reviewAdvertisingPayment(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewAdvertisingPaymentMutationResult = NonNullable<Awaited<ReturnType<typeof reviewAdvertisingPayment>>>
+    export type ReviewAdvertisingPaymentMutationBody = BodyType<AdvertisingPaymentReview>
+    export type ReviewAdvertisingPaymentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Verify or reject a manual advertising payment reference
+ */
+export const useReviewAdvertisingPayment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewAdvertisingPayment>>, TError,{id: number;data: BodyType<AdvertisingPaymentReview>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewAdvertisingPayment>>,
+        TError,
+        {id: number;data: BodyType<AdvertisingPaymentReview>},
+        TContext
+      > => {
+      return useMutation(getReviewAdvertisingPaymentMutationOptions(options));
     }
 
 export const getResearchWebUrl = () => {

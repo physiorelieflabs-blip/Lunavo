@@ -826,6 +826,48 @@ export const aiActionsTable = pgTable("ai_actions", {
     .defaultNow(),
 });
 
+export const advertisingPaymentsTable = pgTable(
+  "advertising_payments",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    aiActionId: integer("ai_action_id")
+      .notNull()
+      .references(() => aiActionsTable.id),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    method: text("method").notNull(),
+    status: text("status").notNull().default("pending_review"),
+    paymentReference: text("payment_reference"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    reviewedBy: text("reviewed_by"),
+    reviewNote: text("review_note"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("advertising_payments_idempotency_unique").on(
+      table.idempotencyKey,
+    ),
+    uniqueIndex("advertising_payments_reference_unique").on(
+      sql`upper(btrim(${table.paymentReference}))`,
+    ),
+    index("advertising_payments_merchant_created_idx").on(
+      table.merchantId,
+      table.createdAt,
+    ),
+    index("advertising_payments_action_status_idx").on(
+      table.aiActionId,
+      table.status,
+    ),
+  ],
+);
+
 export const merchantBankAccountsTable = pgTable(
   "merchant_bank_accounts",
   {
@@ -1175,6 +1217,8 @@ export type InsertInventoryMovement = z.infer<typeof insertInventoryMovementSche
 export type AiModel = typeof aiModelsTable.$inferSelect;
 export type AiSettings = typeof aiSettingsTable.$inferSelect;
 export type AiAction = typeof aiActionsTable.$inferSelect;
+export type AdvertisingPayment =
+  typeof advertisingPaymentsTable.$inferSelect;
 export type InsertAiModel = z.infer<typeof insertAiModelSchema>;
 export type InsertAiSettings = z.infer<typeof insertAiSettingsSchema>;
 export type InsertAiAction = z.infer<typeof insertAiActionSchema>;

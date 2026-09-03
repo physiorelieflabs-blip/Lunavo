@@ -22,7 +22,12 @@ export const HealthCheckResponse = zod.object({
  */
 export const GetDashboardOverviewResponse = zod.object({
   "currency": zod.string(),
-  "storeName": zod.string(),
+  "storeName": zod.string().optional(),
+  "storeDescription": zod.string().nullish(),
+  "storeContactEmail": zod.string().nullish(),
+  "storePhone": zod.string().nullish(),
+  "storeWebsite": zod.string().nullish(),
+  "storeAddress": zod.record(zod.string(), zod.unknown()).nullish(),
   "storeSlug": zod.string(),
   "revenue": zod.number(),
   "revenueChange": zod.number(),
@@ -192,16 +197,36 @@ export const GetMarketExchangeRateResponse = zod.object({
 export const createStoreBodyStoreNameMin = 2;
 export const createStoreBodyStoreNameMax = 80;
 
+export const createStoreBodyStoreDescriptionMax = 500;
+
+export const createStoreBodyStorePhoneMax = 40;
+
 
 
 export const CreateStoreBody = zod.object({
-  "storeName": zod.string().min(createStoreBodyStoreNameMin).max(createStoreBodyStoreNameMax)
+  "storeName": zod.string().min(createStoreBodyStoreNameMin).max(createStoreBodyStoreNameMax),
+  "storeDescription": zod.string().max(createStoreBodyStoreDescriptionMax).nullish(),
+  "storeContactEmail": zod.email().nullish(),
+  "storePhone": zod.string().max(createStoreBodyStorePhoneMax).nullish(),
+  "storeWebsite": zod.url().nullish(),
+  "storeAddress": zod.record(zod.string(), zod.unknown()).nullish()
 })
+
+export const createStoreResponseStoreDescriptionMax = 500;
+
+export const createStoreResponseStorePhoneMax = 40;
+
+
 
 export const CreateStoreResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "storeName": zod.string(),
+  "storeDescription": zod.string().max(createStoreResponseStoreDescriptionMax).nullable(),
+  "storeContactEmail": zod.email().nullable(),
+  "storePhone": zod.string().max(createStoreResponseStorePhoneMax).nullable(),
+  "storeWebsite": zod.url().nullable(),
+  "storeAddress": zod.record(zod.string(), zod.unknown()).nullable(),
   "storeSlug": zod.string(),
   "merchantKey": zod.string(),
   "createdAt": zod.coerce.date()
@@ -421,6 +446,8 @@ export const ListAiActionsResponseItem = zod.object({
   "actionType": zod.string(),
   "title": zod.string(),
   "reason": zod.string(),
+  "budgetAmount": zod.number().nullable(),
+  "budgetCurrency": zod.string().nullable(),
   "status": zod.string(),
   "risk": zod.string(),
   "reversible": zod.boolean(),
@@ -450,6 +477,8 @@ export const createAiActionBodyTitleMax = 240;
 export const createAiActionBodyReasonMin = 2;
 export const createAiActionBodyReasonMax = 2000;
 
+export const createAiActionBodyBudgetAmountExclusiveMin = 0;
+
 
 
 export const CreateAiActionBody = zod.object({
@@ -457,6 +486,7 @@ export const CreateAiActionBody = zod.object({
   "actionType": zod.string().min(createAiActionBodyActionTypeMin).max(createAiActionBodyActionTypeMax),
   "title": zod.string().min(createAiActionBodyTitleMin).max(createAiActionBodyTitleMax),
   "reason": zod.string().min(createAiActionBodyReasonMin).max(createAiActionBodyReasonMax),
+  "budgetAmount": zod.number().gt(createAiActionBodyBudgetAmountExclusiveMin).optional(),
   "risk": zod.enum(['low', 'medium', 'high']),
   "reversible": zod.boolean()
 })
@@ -467,6 +497,8 @@ export const CreateAiActionResponse = zod.object({
   "actionType": zod.string(),
   "title": zod.string(),
   "reason": zod.string(),
+  "budgetAmount": zod.number().nullable(),
+  "budgetCurrency": zod.string().nullable(),
   "status": zod.string(),
   "risk": zod.string(),
   "reversible": zod.boolean(),
@@ -493,6 +525,8 @@ export const ApproveAiActionResponse = zod.object({
   "actionType": zod.string(),
   "title": zod.string(),
   "reason": zod.string(),
+  "budgetAmount": zod.number().nullable(),
+  "budgetCurrency": zod.string().nullable(),
   "status": zod.string(),
   "risk": zod.string(),
   "reversible": zod.boolean(),
@@ -519,6 +553,8 @@ export const RejectAiActionResponse = zod.object({
   "actionType": zod.string(),
   "title": zod.string(),
   "reason": zod.string(),
+  "budgetAmount": zod.number().nullable(),
+  "budgetCurrency": zod.string().nullable(),
   "status": zod.string(),
   "risk": zod.string(),
   "reversible": zod.boolean(),
@@ -545,6 +581,8 @@ export const ExecuteAiActionResponse = zod.object({
   "actionType": zod.string(),
   "title": zod.string(),
   "reason": zod.string(),
+  "budgetAmount": zod.number().nullable(),
+  "budgetCurrency": zod.string().nullable(),
   "status": zod.string(),
   "risk": zod.string(),
   "reversible": zod.boolean(),
@@ -571,6 +609,8 @@ export const RollbackAiActionResponse = zod.object({
   "actionType": zod.string(),
   "title": zod.string(),
   "reason": zod.string(),
+  "budgetAmount": zod.number().nullable(),
+  "budgetCurrency": zod.string().nullable(),
   "status": zod.string(),
   "risk": zod.string(),
   "reversible": zod.boolean(),
@@ -581,6 +621,130 @@ export const RollbackAiActionResponse = zod.object({
   "executedAt": zod.coerce.date().nullable(),
   "rolledBackAt": zod.coerce.date().nullable(),
   "result": zod.record(zod.string(), zod.unknown()).nullable()
+})
+
+
+/**
+ * @summary Get advertising payment history and available merchant earnings
+ */
+export const GetMarketingBillingResponse = zod.object({
+  "currency": zod.string(),
+  "availableBalance": zod.number(),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "aiActionId": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "method": zod.enum(['earnings', 'bank_transfer']),
+  "status": zod.enum(['pending_review', 'confirmed', 'rejected']),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
+}))
+})
+
+
+/**
+ * @summary Pay an approved advertising budget from available merchant earnings
+ */
+export const PayAdvertisingFromEarningsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PayAdvertisingFromEarningsResponse = zod.object({
+  "id": zod.int(),
+  "aiActionId": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "method": zod.enum(['earnings', 'bank_transfer']),
+  "status": zod.enum(['pending_review', 'confirmed', 'rejected']),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Submit a manual advertising payment reference for admin review
+ */
+export const SubmitAdvertisingPaymentReferenceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const submitAdvertisingPaymentReferenceBodyPaymentReferenceMin = 3;
+export const submitAdvertisingPaymentReferenceBodyPaymentReferenceMax = 160;
+
+
+
+export const SubmitAdvertisingPaymentReferenceBody = zod.object({
+  "paymentReference": zod.string().min(submitAdvertisingPaymentReferenceBodyPaymentReferenceMin).max(submitAdvertisingPaymentReferenceBodyPaymentReferenceMax)
+})
+
+export const SubmitAdvertisingPaymentReferenceResponse = zod.object({
+  "id": zod.int(),
+  "aiActionId": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "method": zod.enum(['earnings', 'bank_transfer']),
+  "status": zod.enum(['pending_review', 'confirmed', 'rejected']),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary List advertising payment references awaiting admin review
+ */
+export const ListAdminAdvertisingPaymentsResponseItem = zod.object({
+  "id": zod.int(),
+  "aiActionId": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "method": zod.enum(['earnings', 'bank_transfer']),
+  "status": zod.enum(['pending_review', 'confirmed', 'rejected']),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "merchantId": zod.int(),
+  "merchantName": zod.string(),
+  "campaignTitle": zod.string()
+}))
+export const ListAdminAdvertisingPaymentsResponse = zod.array(ListAdminAdvertisingPaymentsResponseItem)
+
+
+/**
+ * @summary Verify or reject a manual advertising payment reference
+ */
+export const ReviewAdvertisingPaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const reviewAdvertisingPaymentBodyReviewNoteMax = 500;
+
+
+
+export const ReviewAdvertisingPaymentBody = zod.object({
+  "status": zod.enum(['confirmed', 'rejected']),
+  "reviewNote": zod.string().max(reviewAdvertisingPaymentBodyReviewNoteMax).nullish()
+})
+
+export const ReviewAdvertisingPaymentResponse = zod.object({
+  "id": zod.int(),
+  "aiActionId": zod.int(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "method": zod.enum(['earnings', 'bank_transfer']),
+  "status": zod.enum(['pending_review', 'confirmed', 'rejected']),
+  "paymentReference": zod.string().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "paidAt": zod.coerce.date().nullable()
 })
 
 

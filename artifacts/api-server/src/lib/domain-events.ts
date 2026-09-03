@@ -18,6 +18,8 @@ export const domainEventTypes = [
   "invoice.sent", "invoice.payment_submitted", "invoice.payment_verified",
   "inventory.adjusted", "inventory.reserved", "inventory.released", "inventory.committed",
   "marketplace.listing_reviewed", "marketplace.fee_reviewed",
+  "advertising.payment_submitted", "advertising.payment_confirmed",
+  "advertising.payment_reviewed",
   "ai.action_proposed", "ai.action_approved", "ai.action_executed",
   "ai.action_rejected", "ai.action_rolled_back",
   "location.created", "location.updated", "location.disabled",

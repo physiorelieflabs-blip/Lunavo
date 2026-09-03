@@ -34,7 +34,7 @@ export default function StorePage() {
 
   useEffect(() => {
     if (!overview.data) return;
-    setStoreName(overview.data.storeName);
+    setStoreName(overview.data.storeName ?? '');
     setStoreDescription(overview.data.storeDescription ?? '');
     setStoreContactEmail(overview.data.storeContactEmail ?? '');
     setStorePhone(overview.data.storePhone ?? '');
