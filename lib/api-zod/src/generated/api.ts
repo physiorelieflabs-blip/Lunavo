@@ -539,11 +539,39 @@ export const ListCustomersResponseItem = zod.object({
   "name": zod.string(),
   "email": zod.email(),
   "phone": zod.string().nullable(),
+  "notes": zod.string().nullable(),
   "orderCount": zod.int(),
   "totalSpent": zod.number(),
   "createdAt": zod.coerce.date()
 })
 export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
+
+
+/**
+ * @summary Update a merchant customer profile note
+ */
+export const UpdateCustomerParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const updateCustomerBodyNotesMax = 4000;
+
+
+
+export const UpdateCustomerBody = zod.object({
+  "notes": zod.string().max(updateCustomerBodyNotesMax).nullable()
+})
+
+export const UpdateCustomerResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "email": zod.email(),
+  "phone": zod.string().nullable(),
+  "notes": zod.string().nullable(),
+  "orderCount": zod.int(),
+  "totalSpent": zod.number(),
+  "createdAt": zod.coerce.date()
+})
 
 
 /**

@@ -12,6 +12,8 @@ export interface CustomerRecord {
   email: string;
   /** @nullable */
   phone: string | null;
+  /** @nullable */
+  notes: string | null;
   orderCount: number;
   totalSpent: number;
   createdAt: Date;

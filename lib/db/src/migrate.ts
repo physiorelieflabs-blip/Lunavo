@@ -23,6 +23,7 @@ const migrations = [
   "0012_withdrawal_pins",
   "0013_supplier_payments",
   "0014_checkout_pricing",
+  "0015_customer_notes",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

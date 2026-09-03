@@ -33,6 +33,7 @@ export * from './createOrderInputStatus';
 export * from './currencySettings';
 export * from './currencySettingsInput';
 export * from './customerRecord';
+export * from './customerUpdate';
 export * from './dashboardOverview';
 export * from './dropshipQueueRecord';
 export * from './dropshipQueueRecordSupplierPaymentStatus';

@@ -95,6 +95,9 @@ import {
   ListAdminWithdrawalsResponse,
   ListMarketplaceProductsResponse,
   ListCustomersResponse,
+  UpdateCustomerBody,
+  UpdateCustomerParams,
+  UpdateCustomerResponse,
   ListDashboardActivityResponse,
   ListDropshipQueueResponse,
   ListOrdersResponse,
@@ -3331,12 +3334,66 @@ router.get("/customers", async (req, res): Promise<void> => {
         name: customer.name,
         email: customer.email,
         phone: customer.phone,
+      notes: customer.notes,
         orderCount: Number(orderCount),
         totalSpent: toNumber(totalSpent),
         createdAt: customer.createdAt,
       })),
     ),
   );
+});
+
+router.patch("/customers/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const params = UpdateCustomerParams.safeParse(req.params);
+  const parsed = UpdateCustomerBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: "Customer notes must be 4,000 characters or fewer" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const existing = (
+    await db.select().from(customersTable).where(and(
+      eq(customersTable.id, params.data.id),
+      eq(customersTable.merchantId, merchant.id),
+    )).limit(1)
+  )[0];
+  if (!existing) {
+    res.status(404).json({ error: "Customer not found" });
+    return;
+  }
+  const [updated] = await db.update(customersTable).set({
+    notes: parsed.data.notes?.trim() || null,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(customersTable.id, existing.id),
+    eq(customersTable.merchantId, merchant.id),
+  )).returning();
+  if (!updated) {
+    res.status(500).json({ error: "Customer notes could not be saved" });
+    return;
+  }
+  await addActivity(merchant.id, {
+    type: "customer_note_updated",
+    title: "Customer profile updated",
+    description: `Notes updated for ${updated.name}.`,
+    tone: "neutral",
+  });
+  const [{ orderCount, totalSpent }] = await db.select({
+    orderCount: sql<string>`count(${ordersTable.id}) filter (where ${ordersTable.status} <> 'cancelled')`,
+    totalSpent: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${inArray(ordersTable.status, ["paid", "fulfilled"])}), 0)`,
+  }).from(ordersTable).where(eq(ordersTable.customerId, updated.id));
+  res.json(UpdateCustomerResponse.parse({
+    id: updated.id,
+    name: updated.name,
+    email: updated.email,
+    phone: updated.phone,
+    notes: updated.notes,
+    orderCount: Number(orderCount),
+    totalSpent: toNumber(totalSpent),
+    createdAt: updated.createdAt,
+  }));
 });
 
 router.get("/exports/:resource", async (req, res): Promise<void> => {
@@ -3350,7 +3407,7 @@ router.get("/exports/:resource", async (req, res): Promise<void> => {
 
   if (resource === "customers") {
     const customers = await db.select().from(customersTable).where(eq(customersTable.merchantId, merchant.id)).orderBy(asc(customersTable.createdAt));
-    document = csvDocument(["id", "name", "email", "phone", "created_at"], customers.map((customer) => [customer.id, customer.name, customer.email, customer.phone, customer.createdAt.toISOString()]));
+    document = csvDocument(["id", "name", "email", "phone", "notes", "created_at"], customers.map((customer) => [customer.id, customer.name, customer.email, customer.phone, customer.notes, customer.createdAt.toISOString()]));
     filename = `ts-commerce-customers-${today}.csv`;
   } else if (resource === "orders") {
     const orders = await db.select({ order: ordersTable, customerName: customersTable.name, customerEmail: customersTable.email }).from(ordersTable).innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id)).where(eq(ordersTable.merchantId, merchant.id)).orderBy(asc(ordersTable.createdAt));

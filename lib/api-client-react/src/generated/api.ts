@@ -39,6 +39,7 @@ import type {
   CurrencySettings,
   CurrencySettingsInput,
   CustomerRecord,
+  CustomerUpdate,
   DashboardOverview,
   DropshipQueueRecord,
   DropshipStatusInput,
@@ -1684,6 +1685,78 @@ export function useListCustomers<TData = Awaited<ReturnType<typeof listCustomers
 
 
 
+
+export const getUpdateCustomerUrl = (id: number,) => {
+
+
+
+
+  return `/api/customers/${id}`
+}
+
+/**
+ * @summary Update a merchant customer profile note
+ */
+export const updateCustomer = async (id: number,
+    customerUpdate: CustomerUpdate, options?: Parameters<typeof customFetch>[1]): Promise<CustomerRecord> => {
+
+  return customFetch<CustomerRecord>(getUpdateCustomerUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(customerUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateCustomerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCustomer>>, TError,{id: number;data: BodyType<CustomerUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCustomer>>, TError,{id: number;data: BodyType<CustomerUpdate>}, TContext> => {
+
+const mutationKey = ['updateCustomer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCustomer>>, {id: number;data: BodyType<CustomerUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateCustomer(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCustomerMutationResult = NonNullable<Awaited<ReturnType<typeof updateCustomer>>>
+    export type UpdateCustomerMutationBody = BodyType<CustomerUpdate>
+    export type UpdateCustomerMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update a merchant customer profile note
+ */
+export const useUpdateCustomer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCustomer>>, TError,{id: number;data: BodyType<CustomerUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCustomer>>,
+        TError,
+        {id: number;data: BodyType<CustomerUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateCustomerMutationOptions(options));
+    }
 
 export const getListOrdersUrl = () => {
 

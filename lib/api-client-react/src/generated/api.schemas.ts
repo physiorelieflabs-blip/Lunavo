@@ -330,9 +330,19 @@ export interface CustomerRecord {
   email: string;
   /** @nullable */
   phone: string | null;
+  /** @nullable */
+  notes: string | null;
   orderCount: number;
   totalSpent: number;
   createdAt: string;
+}
+
+export interface CustomerUpdate {
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  notes: string | null;
 }
 
 export interface OrderRecord {

@@ -341,6 +341,30 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/CustomerRecord"
+  /customers/{id}:
+    patch:
+      operationId: updateCustomer
+      tags: [dashboard]
+      summary: Update a merchant customer profile note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerUpdate"
+      responses:
+        "200":
+          description: Updated customer record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerRecord"
   /orders:
     get:
       operationId: listOrders
@@ -1468,10 +1492,16 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         phone: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
         orderCount: { type: integer }
         totalSpent: { type: number }
         createdAt: { type: string, format: date-time }
-      required: [id, name, email, phone, orderCount, totalSpent, createdAt]
+      required: [id, name, email, phone, notes, orderCount, totalSpent, createdAt]
+    CustomerUpdate:
+      type: object
+      properties:
+        notes: { type: ["string", "null"], maxLength: 4000 }
+      required: [notes]
     OrderRecord:
       type: object
       properties:
