@@ -54,6 +54,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CurrencySettings"
+  /settings/checkout:
+    get:
+      operationId: getCheckoutSettings
+      tags: [settings]
+      summary: Get merchant tax and shipping rules
+      responses:
+        "200":
+          description: Checkout pricing rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSettings"
+    put:
+      operationId: updateCheckoutSettings
+      tags: [settings]
+      summary: Update merchant tax and shipping rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutSettingsInput"
+      responses:
+        "200":
+          description: Updated checkout pricing rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSettings"
     put:
       operationId: updateCurrencySettings
       tags: [settings]
@@ -2333,8 +2362,11 @@ components:
       properties:
         orderNumber: { type: string }
         title: { type: string }
+        subtotal: { type: number }
+        tax: { type: number }
+        shipping: { type: number }
         total: { type: number }
         currency: { type: string }
         status: { type: string, enum: [pending] }
         paymentMessage: { type: string }
-      required: [orderNumber, title, total, currency, status, paymentMessage]
+      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage]
