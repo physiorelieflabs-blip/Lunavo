@@ -1,4 +1,4 @@
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Copy, Landmark, RefreshCw, Send } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -24,9 +24,11 @@ export default function TsPay() {
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [message, setMessage] = useState('');
+  const [messageIsError, setMessageIsError] = useState(false);
+  const pendingTransferRef = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
 
-  const refresh = () => {
-    void Promise.all([
+  const refresh = async () => {
+    await Promise.all([
       queryClient.invalidateQueries({ queryKey: getGetTsPayAccountQueryKey() }),
       queryClient.invalidateQueries({ queryKey: getGetMerchantBalancesQueryKey() }),
       queryClient.invalidateQueries({ queryKey: getListTsPayTransactionsQueryKey() }),
@@ -43,32 +45,66 @@ export default function TsPay() {
     return <AppShell><ErrorState onRetry={() => { void account.refetch(); void balances.refetch(); void transactions.refetch(); }} /></AppShell>;
   }
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
-    createTransfer.mutate({
-      data: {
-        toAccountNumber: destination.trim().toUpperCase(),
-        amount: Number(amount),
-        currency: account.data.currency,
-        note: note.trim() || undefined,
-        idempotencyKey: crypto.randomUUID(),
-      },
-    }, {
-      onSuccess: () => {
-        setMessage('Transfer completed. Both sides of the TS Pay ledger were posted atomically.');
-        setDestination('');
-        setAmount('');
-        setNote('');
-        refresh();
-      },
-      onError: (error) => setMessage(error instanceof Error ? error.message : 'Transfer could not be completed.'),
+    setMessageIsError(false);
+    const toAccountNumber = destination.trim().toUpperCase();
+    const transferAmount = Number(amount);
+    const transferNote = note.trim();
+    if (!/^TS\d{10}$/.test(toAccountNumber)) {
+      setMessageIsError(true);
+      setMessage('Enter a valid TS Pay destination account number.');
+      return;
+    }
+    if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
+      setMessageIsError(true);
+      setMessage('Enter a transfer amount greater than zero.');
+      return;
+    }
+    const fingerprint = JSON.stringify({
+      toAccountNumber,
+      amount: transferAmount,
+      currency: account.data.currency,
+      note: transferNote,
     });
+    const pending = pendingTransferRef.current;
+    const idempotencyKey = pending?.fingerprint === fingerprint
+      ? pending.idempotencyKey
+      : crypto.randomUUID();
+    pendingTransferRef.current = { fingerprint, idempotencyKey };
+    try {
+      await createTransfer.mutateAsync({
+        data: {
+          toAccountNumber,
+          amount: transferAmount,
+          currency: account.data.currency,
+          note: transferNote || undefined,
+          idempotencyKey,
+        },
+      });
+      setMessage('Transfer completed. Both sides of the TS Pay ledger were posted atomically.');
+      setDestination('');
+      setAmount('');
+      setNote('');
+      pendingTransferRef.current = null;
+      await refresh();
+    } catch (error) {
+      setMessageIsError(true);
+      setMessage(error instanceof Error ? error.message : 'Transfer could not be completed.');
+    }
   };
 
   const copyAccount = async () => {
-    await navigator.clipboard?.writeText(account.data.accountNumber);
-    setMessage('TS Pay account number copied.');
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard access is unavailable in this browser.');
+      await navigator.clipboard.writeText(account.data.accountNumber);
+      setMessageIsError(false);
+      setMessage('TS Pay account number copied.');
+    } catch (error) {
+      setMessageIsError(true);
+      setMessage(error instanceof Error ? error.message : 'The TS Pay account number could not be copied.');
+    }
   };
 
   return <AppShell>
@@ -82,7 +118,7 @@ export default function TsPay() {
         <Button variant="secondary" onClick={refresh}><RefreshCw className="h-4 w-4" />Refresh account</Button>
       </div>
 
-      {message && <div className="mt-7"><Notice tone={message.includes('could not') || message.includes('not found') || message.includes('Only') ? 'danger' : 'success'} title="TS Pay update">{message}</Notice></div>}
+       {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'TS Pay action failed' : 'TS Pay update'}>{message}</Notice></div>}
 
       <section className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_.95fr]">
         <div className="rounded-2xl bg-[#1f2b38] p-7 text-[#f8f3e8] shadow-[0_18px_38px_rgba(31,43,56,.16)]">

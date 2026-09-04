@@ -325,6 +325,7 @@ import {
   tsPayAmountMinor,
   tsPayAvailableMinor,
   tsPayReferenceKey,
+  validateTsPayReplay,
   validateTsPayTransfer,
 } from "../lib/ts-pay-ledger";
 import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
@@ -4251,7 +4252,15 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
             )
             .limit(1)
         )[0];
-        if (existing) return existing;
+        if (existing) {
+          if (
+            Number(existing.amount) !== amount
+            || existing.currency !== currency
+          ) {
+            throw new Error("This idempotency key was already used for a different withdrawal");
+          }
+          return existing;
+        }
       }
       // Compatibility boundary: legacy paid orders have no authoritative
       // ledger entry. Refuse withdrawals rather than treating order status as
@@ -9509,7 +9518,19 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
           .where(eq(tsPayTransfersTable.referenceKey, referenceKey))
           .limit(1)
       )[0];
-      if (replay) return replay;
+      if (replay) {
+        validateTsPayReplay({
+          existingToMerchantId: replay.toMerchantId,
+          existingAmountMinor: replay.amountMinor,
+          existingCurrency: replay.currency,
+          existingNote: replay.note,
+          requestedToMerchantId: recipient.merchantId,
+          requestedAmountMinor: amountMinor,
+          requestedCurrency: currency,
+          requestedNote: body.data.note?.trim() || null,
+        });
+        return replay;
+      }
 
       const [ledger] = await tx
         .select({ total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)` })

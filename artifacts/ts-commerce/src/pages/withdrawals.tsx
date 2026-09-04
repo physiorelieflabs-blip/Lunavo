@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useRef, useState } from 'react';
 import { ArrowRight, LockKeyhole, Pencil, ShieldCheck, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -43,13 +43,15 @@ export default function Withdrawals() {
   const [bankForm, setBankForm] = useState<BankForm>(emptyBank);
   const [editingBank, setEditingBank] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageIsError, setMessageIsError] = useState(false);
   const [amount, setAmount] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [pinSetup, setPinSetup] = useState(['', '']);
   const [withdrawalPins, setWithdrawalPinsInput] = useState(['', '']);
+  const pendingWithdrawalRef = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
 
-  const refresh = () => {
-    void Promise.all([
+  const refresh = async () => {
+    await Promise.all([
       queryClient.invalidateQueries({ queryKey: getListWithdrawalsQueryKey() }),
       queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() }),
       queryClient.invalidateQueries({ queryKey: getGetWithdrawalSecurityQueryKey() }),
@@ -64,12 +66,16 @@ export default function Withdrawals() {
 
   const startSetup = () => {
     setMessage('');
+    setMessageIsError(false);
     beginSetup.mutate(undefined, {
       onSuccess: (result) => {
         setSetup({ secret: result.secret, otpAuthUri: result.otpAuthUri });
         setMessage('Setup started. Add the secret to an authenticator app, then enter the current six-digit code.');
       },
-      onError: () => setMessage('Authenticator setup could not start. Verify your email and try again.'),
+      onError: (error) => {
+        setMessageIsError(true);
+        setMessage(error instanceof Error ? error.message : 'Authenticator setup could not start.');
+      },
     });
   };
 
@@ -80,23 +86,30 @@ export default function Withdrawals() {
         setSetup(null);
         setSetupCode('');
         setMessage('Withdrawal security is enabled.');
-        refresh();
+        void refresh();
       },
-      onError: () => setMessage('That authenticator code was not accepted. Try the current code again.'),
+      onError: (error) => {
+        setMessageIsError(true);
+        setMessage(error instanceof Error ? error.message : 'That authenticator code was not accepted.');
+      },
     });
   };
 
   const saveBankAccount = (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
+    setMessageIsError(false);
     saveBank.mutate({ data: bankForm }, {
       onSuccess: () => {
         setEditingBank(false);
         setBankForm(emptyBank);
         setMessage('Linked bank account saved. New withdrawals will use this destination.');
-        refresh();
+        void refresh();
       },
-      onError: () => setMessage('Bank account could not be saved. Check the details and try again.'),
+      onError: (error) => {
+        setMessageIsError(true);
+        setMessage(error instanceof Error ? error.message : 'Bank account could not be saved.');
+      },
     });
   };
 
@@ -116,51 +129,72 @@ export default function Withdrawals() {
     deleteBank.mutate(undefined, {
       onSuccess: () => {
         setMessage('Linked bank account removed. Link another account before requesting a withdrawal.');
-        refresh();
+        void refresh();
       },
-      onError: () => setMessage('The linked bank account could not be removed.'),
+      onError: (error) => {
+        setMessageIsError(true);
+        setMessage(error instanceof Error ? error.message : 'The linked bank account could not be removed.');
+      },
     });
   };
 
-  const requestWithdrawal = (event: FormEvent) => {
+  const requestWithdrawal = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
-    createWithdrawal.mutate({
-      data: {
-        amount: Number(amount),
-        totpCode,
-        pinCodes: withdrawalPins,
-        idempotencyKey: crypto.randomUUID(),
-      },
-    }, {
-      onSuccess: () => {
-        setMessage('Withdrawal request submitted. It is reserved from your available balance and waiting for review.');
-        setAmount('');
-        setTotpCode('');
-        setWithdrawalPinsInput(['', '']);
-        refresh();
-      },
-      onError: () => setMessage('Withdrawal could not be submitted. Check your balance and authenticator code.'),
-    });
+    setMessageIsError(false);
+    const withdrawalAmount = Number(amount);
+    const currency = currencySettings.data?.currency ?? 'USD';
+    if (!Number.isFinite(withdrawalAmount) || withdrawalAmount <= 0) {
+      setMessageIsError(true);
+      setMessage('Enter a withdrawal amount greater than zero.');
+      return;
+    }
+    const fingerprint = `${withdrawalAmount.toFixed(2)}:${currency}`;
+    const pending = pendingWithdrawalRef.current;
+    const idempotencyKey = pending?.fingerprint === fingerprint
+      ? pending.idempotencyKey
+      : crypto.randomUUID();
+    pendingWithdrawalRef.current = { fingerprint, idempotencyKey };
+    try {
+      await createWithdrawal.mutateAsync({
+        data: {
+          amount: withdrawalAmount,
+          totpCode,
+          pinCodes: withdrawalPins,
+          idempotencyKey,
+        },
+      });
+      setMessage('Withdrawal request submitted. It is reserved from your available balance and waiting for review.');
+      setAmount('');
+      setTotpCode('');
+      setWithdrawalPinsInput(['', '']);
+      pendingWithdrawalRef.current = null;
+      await refresh();
+    } catch (error) {
+      setMessageIsError(true);
+      setMessage(error instanceof Error ? error.message : 'Withdrawal could not be submitted.');
+    }
   };
 
   const configurePins = (event: FormEvent) => {
     event.preventDefault();
+    setMessageIsError(false);
     setWithdrawalPins.mutate({ data: { pins: pinSetup } }, {
       onSuccess: () => {
         setMessage('Both merchant withdrawal PINs are configured. They are hashed and never shown again.');
         setPinSetup(['', '']);
         refresh();
       },
-      onError: () => setMessage('PIN setup failed. Enter two different six-digit PINs and try again.'),
+      onError: (error) => {
+        setMessageIsError(true);
+        setMessage(error instanceof Error ? error.message : 'PIN setup failed. Enter two different six-digit PINs and try again.');
+      },
     });
   };
 
   const securityEnabled = security.data.enabled;
   const linkedAccount = linkedBank.data;
   const hasBank = Boolean(linkedAccount);
-  const errorMessage = message.includes('could not') || message.includes('not accepted');
-
   return <AppShell>
     <div className="mx-auto max-w-[1180px]">
        <div className="flex flex-wrap items-end justify-between gap-5">
@@ -172,7 +206,7 @@ export default function Withdrawals() {
         <Link href="/dashboard" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline">Back to overview <ArrowRight className="h-4 w-4" /></Link>
       </div>
 
-      {message && <div className="mt-7"><Notice tone={errorMessage ? 'danger' : 'success'} title={errorMessage ? 'Action not completed' : 'Withdrawal update'}>{message}</Notice></div>}
+       {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Action not completed' : 'Withdrawal update'}>{message}</Notice></div>}
 
       <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-7">
         <SectionHeading eyebrow="Required payout destination" title="Link your bank account" description="Your account number is encrypted at rest. Normal screens show only the last four digits. Changing this account affects new withdrawals, not requests already submitted." />

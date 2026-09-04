@@ -5,6 +5,7 @@ import {
   tsPayAmountMinor,
   tsPayAvailableMinor,
   tsPayReferenceKey,
+  validateTsPayReplay,
   validateTsPayTransfer,
 } from "./ts-pay-ledger";
 
@@ -69,4 +70,30 @@ test("the same idempotency key cannot create a second ledger pair", () => {
     fromMerchantId: 12, toMerchantId: 13, amountMinor: 4500, currency: "USD", referenceKey: reference,
   });
   assert.deepEqual(retry, first);
+});
+
+test("an idempotency replay must match the original transfer request", () => {
+  const original = {
+    existingToMerchantId: 13,
+    existingAmountMinor: 4500,
+    existingCurrency: "USD",
+    existingNote: "Operating float",
+    requestedToMerchantId: 13,
+    requestedAmountMinor: 4500,
+    requestedCurrency: "USD",
+    requestedNote: "Operating float",
+  };
+  assert.doesNotThrow(() => validateTsPayReplay(original));
+  assert.throws(
+    () => validateTsPayReplay({ ...original, requestedAmountMinor: 4600 }),
+    /different transfer/,
+  );
+  assert.throws(
+    () => validateTsPayReplay({ ...original, requestedToMerchantId: 14 }),
+    /different transfer/,
+  );
+  assert.throws(
+    () => validateTsPayReplay({ ...original, requestedNote: null }),
+    /different transfer/,
+  );
 });

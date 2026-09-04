@@ -43,6 +43,26 @@ export function validateTsPayTransfer(input: {
   }
 }
 
+export function validateTsPayReplay(input: {
+  existingToMerchantId: number;
+  existingAmountMinor: number;
+  existingCurrency: string;
+  existingNote: string | null;
+  requestedToMerchantId: number;
+  requestedAmountMinor: number;
+  requestedCurrency: string;
+  requestedNote: string | null;
+}) {
+  if (
+    input.existingToMerchantId !== input.requestedToMerchantId
+    || input.existingAmountMinor !== input.requestedAmountMinor
+    || input.existingCurrency !== input.requestedCurrency
+    || input.existingNote !== input.requestedNote
+  ) {
+    throw new Error("This idempotency key was already used for a different transfer");
+  }
+}
+
 export function buildTsPayLedgerPostings(input: {
   fromMerchantId: number;
   toMerchantId: number;
