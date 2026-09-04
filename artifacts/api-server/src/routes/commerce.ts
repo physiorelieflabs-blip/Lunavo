@@ -5791,8 +5791,8 @@ router.get("/orders/:id/context", async (req, res): Promise<void> => {
   const nextActions: Array<{ action: string; target: string }> = [];
   if (intents.some((intent) => ["created", "submitted"].includes(intent.status)) && access.permissions.has("payments.verify")) nextActions.push({ action: "verify_payment", target: `/payments/${intents.find((intent) => ["created", "submitted"].includes(intent.status))!.id}/verify` });
   if (refunds.some((refund) => refund.status === "requested") && access.permissions.has("refunds.manage")) nextActions.push({ action: "approve_refund", target: `/refunds/${refunds.find((refund) => refund.status === "requested")!.id}/approve` });
-  if (["paid", "fulfilled"].includes(order.status) && ["pending", "ready"].includes(order.fulfillmentStatus) && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "fulfill_order", target: `/dropship/queue/${order.id}` });
-  if (order.supplierProductId && order.supplierPaymentStatus === "unpaid" && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "submit_supplier_payment", target: `/dropship/queue/${order.id}` });
+  if (["paid", "fulfilled"].includes(order.status) && ["pending", "ready"].includes(order.fulfillmentStatus) && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "fulfill_order", target: `/dropshipping?orderId=${order.id}` });
+  if (order.supplierProductId && order.supplierPaymentStatus === "unpaid" && access.permissions.has("fulfillment.manage")) nextActions.push({ action: "submit_supplier_payment", target: `/dropshipping?orderId=${order.id}` });
   res.json(GetOrderContextResponse.parse({
     order: contextRecord(order.id, `/orders/${order.id}`, order),
     customer: customer[0] ? contextRecord(customer[0].id, `/customers/${customer[0].id}`, customer[0]) : null,
@@ -5805,7 +5805,7 @@ router.get("/orders/:id/context", async (req, res): Promise<void> => {
     inventoryReservations: reservations.map((item) => contextRecord(item.id, `/inventory/reservations/${item.id}`, item)),
     inventoryMovements: movements.map((item) => contextRecord(item.id, `/inventory/movements/${item.id}`, item)),
     transitions: transitions.map((item) => contextRecord(item.id, `/orders/${order.id}/history/${item.id}`, item)),
-    fulfillment: { status: order.fulfillmentStatus, supplierOrderReference: order.supplierOrderReference, trackingNumber: order.trackingNumber, note: order.fulfillmentNote, submittedAt: order.fulfillmentSubmittedAt, updatedAt: order.fulfillmentUpdatedAt, target: `/dropship/queue/${order.id}` },
+    fulfillment: { status: order.fulfillmentStatus, supplierOrderReference: order.supplierOrderReference, trackingNumber: order.trackingNumber, note: order.fulfillmentNote, submittedAt: order.fulfillmentSubmittedAt, updatedAt: order.fulfillmentUpdatedAt, target: `/dropshipping?orderId=${order.id}` },
     events: contextEvents(events.filter((event) => event.aggregateId === String(order.id)
       || (event.aggregateType === "payment_intent" && intents.some((item) => item.id === Number(event.aggregateId)))
       || (event.aggregateType === "payment_record" && records.some((item) => item.id === Number(event.aggregateId)))
