@@ -166,8 +166,7 @@ export default function StorePage() {
              <Link href={`/store/${store.publicStoreKey}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] px-4 text-sm font-extrabold text-[#536174] hover:bg-[#f7f4ed]" data-testid="link-preview-store">Open storefront <ExternalLink className="h-4 w-4" /></Link>
           </div>
          </div>
-       </section>
-       </form>
+        </section>
       <section className="mt-6 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         <SectionHeading eyebrow="Storefront system" title="Shape the customer experience" description="These settings control the published storefront, while products remain governed by catalog visibility and server-side checkout rules." />
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1.15fr]">
@@ -205,7 +204,8 @@ export default function StorePage() {
             <div className="flex items-center justify-between gap-3 pt-2"><p className="text-xs leading-5 text-[#697687]"><Palette className="mr-1 inline h-3.5 w-3.5" />Save identity, theme, sections, and publication state together.</p><SubmitButton loading={createStore.isPending}>Save storefront</SubmitButton></div>
           </div>
         </div>
-      </section>
+       </section>
+       </form>
       <section className="mt-6 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         <SectionHeading eyebrow="Checkout rules" title="Set tax and shipping" description="These rules are calculated on the server and snapshotted on each order. Customers provide their shipping address at checkout; no merchant address is required." />
         <form onSubmit={saveCheckoutSettings} className="space-y-5">
