@@ -1,0 +1,6406 @@
+```text
+# ================================================================
+# TS COMMERCE — MICROSCOPE-LEVEL MASTER BUILD PROMPT
+# ================================================================
+#
+# GLOBAL COMMERCE OPERATING SYSTEM
+# FIRST-PARTY TS PAY
+# FIRST-PARTY BUSINESS INTELLIGENCE
+# AI BUSINESS OPERATING SYSTEM
+# MULTI-VENDOR MARKETPLACE
+# B2C + B2B
+# POS
+# DIGITAL COMMERCE
+# SERVICE COMMERCE
+# EVENT COMMERCE
+# SUBSCRIPTIONS
+# SUPPLIER URL IMPORT
+# API-INDEPENDENT CORE
+# WEB + PWA + ANDROID + IOS
+#
+# ================================================================
+
+You are responsible for designing and building the complete
+production-oriented TS Commerce platform.
+
+Act simultaneously as:
+
+- Product Architect
+- Principal Software Engineer
+- Full-Stack Engineer
+- Backend Engineer
+- Frontend Engineer
+- Database Architect
+- Distributed Systems Architect
+- Fintech Architect
+- Payment Infrastructure Architect
+- AI Systems Architect
+- Cybersecurity Engineer
+- DevOps Engineer
+- Cloud Architect
+- Mobile Engineer
+- UX/UI Designer
+- QA Engineer
+- Automation Engineer
+- Data Engineer
+- Analytics Architect
+- Technical Product Manager
+- Startup CTO
+
+Do not create a prototype.
+
+Do not create a fake dashboard.
+
+Do not create a landing page pretending to be a platform.
+
+Do not create placeholder features.
+
+Do not create fake API responses.
+
+Do not create fake transactions.
+
+Do not create fake payment success.
+
+Do not create fake balances.
+
+Do not create fake payouts.
+
+Do not create fake supplier synchronization.
+
+Do not populate production dashboards with invented metrics.
+
+Do not remove requested functionality merely to simplify development.
+
+Do not silently downgrade a feature because an external provider is unavailable.
+
+Build the complete first-party platform architecture.
+
+============================================================
+0. MASTER ARCHITECTURAL PRINCIPLE
+============================================================
+
+TS Commerce must be:
+
+API-OPTIONAL.
+
+NOT API-DEPENDENT.
+
+The core platform must operate without mandatory third-party
+API keys.
+
+The following must NOT be required for core TS Commerce operation:
+
+- Stripe
+- Paystack
+- Flutterwave
+- PayPal
+- Twilio
+- Resend
+- Firebase
+- Google Maps
+- OpenAI
+- Claude
+- Gemini
+- Google Analytics
+- Algolia
+- external tax APIs
+- external shipping APIs
+- external KYC APIs
+- external storage APIs
+- external DNS APIs
+
+These may exist later as optional adapters.
+
+Core business functionality belongs to TS Commerce.
+
+============================================================
+1. SUPPLIER MODEL — LOCKED
+============================================================
+
+IMPORTANT:
+
+THE MERCHANT MUST NOT BE REQUIRED TO ENTER A SUPPLIER API KEY.
+
+THE MERCHANT MUST NOT BE LIMITED TO A PREDEFINED SUPPLIER LIST.
+
+THE MERCHANT MUST NOT NEED TS COMMERCE TO PRE-REGISTER A SUPPLIER.
+
+The default workflow is:
+
+Merchant pastes supplier/product URL
+→ TS Commerce validates URL
+→ TS Commerce safely retrieves publicly accessible information
+→ product information extraction
+→ normalization
+→ preview
+→ duplicate detection
+→ merchant review
+→ merchant editing
+→ merchant pricing
+→ merchant inventory settings
+→ merchant shipping settings
+→ merchant tax settings
+→ import
+→ publish
+
+Example:
+
+https://example-supplier.com/product/example
+
+The system must support arbitrary supplier/product URLs where
+technical and legal access is permitted.
+
+Do not bypass:
+
+- authentication
+- login walls
+- paywalls
+- CAPTCHA
+- anti-bot systems
+- robots restrictions
+- technical controls
+- access restrictions
+- rate limits
+
+Provide manual fallback.
+
+============================================================
+2. COMPANY
+============================================================
+
+Company:
+
+TS Commerce
+
+Support email:
+
+ifeoluwaolowu4@gmail.com
+
+Availability:
+
+Worldwide / all countries
+
+Architecture must be globally configurable.
+
+Do not permanently hard-code one:
+
+- country
+- currency
+- language
+- tax system
+- payment system
+- shipping provider
+- supplier
+- legal regime
+
+============================================================
+3. PRIMARY OBJECTIVE
+============================================================
+
+TS Commerce is a complete commerce operating system.
+
+It must allow a business to:
+
+- create a business account
+- create unlimited stores
+- publish storefronts
+- sell physical goods
+- sell digital goods
+- sell courses
+- sell memberships
+- sell subscriptions
+- sell services
+- accept bookings
+- sell tickets
+- manage customers
+- manage inventory
+- manage suppliers
+- manage staff
+- manage locations
+- manage finances
+- manage payments
+- run marketing
+- operate a marketplace presence
+- run POS
+- perform B2B sales
+- analyze operations
+- automate workflows
+- use AI
+- allow AI to operate approved parts of the business
+
+============================================================
+4. PLATFORM LAYERS
+============================================================
+
+The application consists of:
+
+1. Identity Layer
+2. Merchant Layer
+3. Storefront Layer
+4. Catalog Layer
+5. Inventory Layer
+6. Order Layer
+7. Customer Layer
+8. CRM Layer
+9. Payment Layer
+10. TS Pay Layer
+11. Ledger Layer
+12. Payout Layer
+13. Marketplace Layer
+14. Shipping Layer
+15. Tax Layer
+16. Supplier Layer
+17. Marketing Layer
+18. Loyalty Layer
+19. Affiliate Layer
+20. Referral Layer
+21. Booking Layer
+22. Event Layer
+23. Course Layer
+24. Membership Layer
+25. Subscription Layer
+26. Digital Product Layer
+27. POS Layer
+28. B2B Layer
+29. Accounting/Expense Layer
+30. Reporting Layer
+31. Analytics Layer
+32. Automation Layer
+33. Notification Layer
+34. Messaging Layer
+35. Support Layer
+36. API Layer
+37. Webhook Layer
+38. Developer Layer
+39. AI Layer
+40. Admin Layer
+41. Security Layer
+42. Audit Layer
+43. File/Media Layer
+44. Domain Layer
+45. Mobile/PWA Layer
+46. Observability Layer
+47. Backup/Recovery Layer
+
+All layers must communicate through well-defined domain services
+and events.
+
+============================================================
+5. SOURCE OF TRUTH PRINCIPLE
+============================================================
+
+There must be authoritative sources of truth.
+
+Product truth:
+Catalog/Product service
+
+Inventory truth:
+Inventory service
+
+Order truth:
+Order service
+
+Payment truth:
+TS Pay
+
+Financial truth:
+TS Pay ledger
+
+Customer truth:
+Customer/identity service
+
+Fulfillment truth:
+Fulfillment service
+
+Subscription truth:
+Subscription service
+
+Entitlement truth:
+Entitlement service
+
+Permissions truth:
+Authorization service
+
+Audit truth:
+Audit service
+
+AI action truth:
+AI action/audit service
+
+Do not create conflicting duplicate sources of truth.
+
+============================================================
+6. EVENT-DRIVEN ARCHITECTURE
+============================================================
+
+Create a first-party internal event bus.
+
+Examples:
+
+product.created
+product.updated
+product.archived
+
+variant.created
+variant.updated
+
+inventory.received
+inventory.adjusted
+inventory.low
+inventory.out_of_stock
+inventory.reserved
+inventory.released
+inventory.committed
+
+cart.created
+cart.updated
+cart.abandoned
+cart.recovered
+
+checkout.started
+checkout.validated
+checkout.failed
+checkout.completed
+
+payment.created
+payment.submitted
+payment.confirmed
+payment.failed
+payment.refunded
+payment.disputed
+
+order.created
+order.confirmed
+order.processing
+order.fulfilled
+order.shipped
+order.delivered
+order.cancelled
+order.returned
+
+refund.created
+refund.completed
+
+payout.requested
+payout.approved
+payout.processing
+payout.completed
+payout.failed
+
+customer.created
+customer.updated
+customer.segment_changed
+
+review.created
+review.approved
+
+subscription.created
+subscription.renewal_due
+subscription.payment_failed
+subscription.renewed
+subscription.cancelled
+subscription.expired
+
+booking.created
+booking.cancelled
+booking.rescheduled
+
+event.created
+ticket.issued
+ticket.checked_in
+
+supplier.import_started
+supplier.import_completed
+supplier.import_failed
+supplier.source_changed
+
+campaign.created
+campaign.started
+campaign.completed
+
+ai.recommendation_created
+ai.action_requested
+ai.action_approved
+ai.action_executed
+ai.action_failed
+ai.action_rolled_back
+
+Every event must have:
+
+- unique event ID
+- event type
+- tenant ID
+- store ID where relevant
+- actor
+- timestamp
+- source
+- correlation ID
+- causation ID
+- payload
+- schema version
+
+Events must be idempotent.
+
+============================================================
+7. IDEMPOTENCY
+============================================================
+
+Financially important operations must be idempotent.
+
+Examples:
+
+Same payment event twice:
+
+DO NOT create two orders.
+
+Same refund request twice:
+
+DO NOT refund twice.
+
+Same payout request twice:
+
+DO NOT create two payouts.
+
+Same supplier import twice:
+
+DO NOT duplicate the product.
+
+Same inventory event twice:
+
+DO NOT decrement stock twice.
+
+Same webhook five times:
+
+PROCESS ONCE.
+
+Use idempotency keys.
+
+============================================================
+8. CORRELATION / TRACEABILITY
+============================================================
+
+Every important operation should be traceable through:
+
+request ID
+→ domain event
+→ action
+→ dependent events
+→ result
+
+Example:
+
+checkout request ID
+→ payment ID
+→ order ID
+→ ledger entry IDs
+→ inventory reservation ID
+→ fulfillment ID
+→ notification IDs
+
+============================================================
+9. COMPANY ACCOUNT MODEL
+============================================================
+
+Support:
+
+- individual merchant
+- business merchant
+- company account
+- teams
+- staff
+- multiple stores
+- multiple branches
+- multiple warehouses
+
+============================================================
+10. MASTER ADMIN
+============================================================
+
+Initial Master Admin:
+
+Username:
+TSAdmin
+
+Display name:
+TSAdmin
+
+Email:
+ifeoluwaolowu4@gmail.com
+
+Phone:
+08027684956
+
+Country:
+None fixed
+
+Timezone:
+Automatically detected
+
+Password:
+Generate securely.
+
+Never hard-code.
+
+Never log.
+
+Never commit.
+
+Never expose.
+
+============================================================
+11. MASTER ADMIN SECURITY
+============================================================
+
+Implement:
+
+- TOTP 2FA
+- backup codes
+- login alerts
+- device management
+- active sessions
+- session revocation
+- suspicious login detection
+- brute force protection
+- rate limiting
+- password hashing
+- secure recovery
+- security audit logs
+
+============================================================
+12. MERCHANT ROLES
+============================================================
+
+Support:
+
+- Owner
+- Administrator
+- Manager
+- Sales Staff
+- Inventory Staff
+- Accountant
+- Marketing Staff
+- Support Staff
+- Custom future roles
+
+Permissions should be granular.
+
+Examples:
+
+products.read
+products.create
+products.edit
+products.delete
+
+orders.read
+orders.edit
+orders.refund
+orders.fulfill
+
+payments.read
+payments.refund
+
+payouts.read
+payouts.request
+
+customers.read
+customers.export
+
+analytics.read
+profit.read
+
+staff.manage
+settings.manage
+
+api.manage
+
+============================================================
+13. TENANT ISOLATION
+============================================================
+
+Every merchant is isolated.
+
+Merchant A cannot:
+
+- query Merchant B data
+- access Merchant B files
+- see Merchant B customers
+- see Merchant B orders
+- see Merchant B balances
+- see Merchant B supplier data
+- see Merchant B AI memory
+- see Merchant B automations
+- see Merchant B analytics
+
+Enforce at:
+
+- backend
+- service
+- authorization
+- query
+- database/data-access
+
+Do not rely on frontend filtering.
+
+============================================================
+14. STORE MODEL
+============================================================
+
+Merchant can create unlimited stores.
+
+Each store has:
+
+- store ID
+- name
+- slug
+- owner
+- status
+- timezone
+- currency
+- locale
+- branding
+- theme
+- domain
+- policies
+- tax configuration
+- shipping configuration
+- payment configuration
+- catalog
+- inventory
+- analytics
+- customers
+- orders
+
+============================================================
+15. STORE STATUS
+============================================================
+
+Statuses:
+
+- draft
+- active
+- suspended
+- disabled
+- archived
+
+Suspended stores must not accept ordinary new transactions.
+
+============================================================
+16. STORE SUBDOMAIN
+============================================================
+
+Generate:
+
+store.tscommerce.com
+
+Subdomains must work without external DNS APIs.
+
+============================================================
+17. CUSTOM DOMAINS
+============================================================
+
+Support:
+
+store.com
+
+Support:
+
+- verification
+- ownership
+- mapping
+- SSL architecture
+- routing
+- removal
+- duplicate prevention
+
+============================================================
+18. STORE BUILDER
+============================================================
+
+Full visual builder.
+
+Components:
+
+- header
+- footer
+- navigation
+- hero
+- product grid
+- collection grid
+- product carousel
+- image
+- video
+- text
+- rich text
+- button
+- form
+- reviews
+- testimonials
+- FAQ
+- countdown
+- announcement bar
+- popup
+- featured products
+- recommendations
+- bundles
+- pricing sections
+- CTA sections
+- custom HTML
+- custom CSS
+
+============================================================
+19. STORE BUILDER BEHAVIOR
+============================================================
+
+Support:
+
+- drag and drop
+- responsive controls
+- desktop preview
+- tablet preview
+- mobile preview
+- draft
+- publish
+- scheduled publishing
+- version history
+- rollback
+- autosave
+- recovery from unsaved changes
+
+============================================================
+20. THEME SYSTEM
+============================================================
+
+Support:
+
+- themes
+- theme variants
+- global colors
+- typography
+- spacing
+- buttons
+- cards
+- forms
+- layout settings
+- theme presets
+- theme marketplace
+
+Changing a global theme variable should update dependent components.
+
+============================================================
+21. PRODUCT SYSTEM
+============================================================
+
+Product fields:
+
+- ID
+- title
+- subtitle
+- short description
+- description
+- price
+- sale price
+- cost
+- currency
+- SKU
+- barcode
+- brand
+- category
+- tags
+- images
+- videos
+- variants
+- tax
+- shipping
+- inventory
+- SEO
+- status
+- visibility
+- publish date
+- metadata
+
+============================================================
+22. PRODUCT STATUS
+============================================================
+
+- draft
+- scheduled
+- published
+- archived
+
+============================================================
+23. PRODUCT VARIANTS
+============================================================
+
+Examples:
+
+Size:
+S/M/L
+
+Color:
+Black/White
+
+Material:
+Leather/Canvas
+
+Each variant has:
+
+- variant ID
+- SKU
+- barcode
+- price
+- cost
+- stock
+- dimensions
+- weight
+- image
+- attributes
+
+============================================================
+24. PRODUCT COST
+============================================================
+
+Store:
+
+- supplier cost
+- landed cost where available
+- shipping cost
+- payment cost
+- selling price
+- discount
+- platform fee
+- margin
+
+Calculate profitability.
+
+============================================================
+25. PRODUCT SNAPSHOTS
+============================================================
+
+Historical order records must retain:
+
+- product title
+- variant title
+- SKU
+- price
+- discount
+- tax
+- applicable shipping
+- product metadata relevant to the transaction
+
+Changing today's product must not rewrite historical orders.
+
+============================================================
+26. PRODUCT MEDIA
+============================================================
+
+Support:
+
+- multiple images
+- video
+- thumbnails
+- galleries
+- media library
+- image optimization
+- variant images
+
+============================================================
+27. MEDIA LIBRARY
+============================================================
+
+Merchant can:
+
+- upload
+- organize
+- search
+- reuse
+- replace
+- delete where permitted
+
+Media should be reusable across:
+
+- products
+- pages
+- banners
+- campaigns
+- blog posts
+
+============================================================
+28. INVENTORY
+============================================================
+
+Support:
+
+- stock quantity
+- reserved stock
+- available stock
+- incoming stock
+- damaged stock
+- returned stock
+- warehouse stock
+- location stock
+- stock movements
+- transfers
+- adjustments
+- reconciliation
+
+============================================================
+29. INVENTORY FORMULA
+============================================================
+
+Available stock should account for:
+
+physical stock
+- reservations
+- committed orders
++ valid returns where appropriate
++ received stock
+
+Use atomic transactions.
+
+============================================================
+30. INVENTORY RESERVATION
+============================================================
+
+When checkout begins, optionally reserve stock.
+
+Reservation has:
+
+- reservation ID
+- order/cart/session
+- product
+- variant
+- quantity
+- created time
+- expiration
+- state
+
+Expired reservation releases stock.
+
+Payment confirmation converts valid reservation into committed stock.
+
+============================================================
+31. INVENTORY RACE CONDITIONS
+============================================================
+
+Two customers attempting to purchase the final item must not both succeed.
+
+Use:
+
+- transactional locking
+- atomic updates
+- optimistic/pessimistic controls where appropriate
+- reservation system
+
+============================================================
+32. MULTI-LOCATION INVENTORY
+============================================================
+
+Locations:
+
+- store
+- branch
+- warehouse
+
+Inventory can exist independently by location.
+
+============================================================
+33. INVENTORY TRANSFERS
+============================================================
+
+Transfer:
+
+Location A
+→ Transfer request
+→ In transit
+→ Received at B
+
+Track:
+
+- sender
+- receiver
+- quantity
+- SKU
+- timestamp
+- status
+- staff
+
+============================================================
+34. PURCHASING
+============================================================
+
+Support:
+
+- purchase orders
+- supplier cost
+- expected quantity
+- received quantity
+- partial receipt
+- supplier invoice
+- receiving
+- stock update
+
+============================================================
+35. SUPPLIER URL IMPORT
+============================================================
+
+Merchant pastes:
+
+Supplier/product URL.
+
+Extract publicly accessible information:
+
+- title
+- description
+- images
+- video where permitted
+- price
+- currency
+- SKU
+- product ID
+- variants
+- sizes
+- colors
+- specifications
+- brand
+- availability
+- category
+- metadata
+
+============================================================
+36. SUPPLIER IMPORT PREVIEW
+============================================================
+
+Before creating:
+
+SHOW:
+
+Source information
+
+Product information
+
+Price
+
+Images
+
+Variants
+
+Availability
+
+Then:
+
+TS Commerce version
+
+Selling price
+
+Margin
+
+Category
+
+Inventory strategy
+
+Tax
+
+Shipping
+
+Marketplace setting
+
+============================================================
+37. SUPPLIER IMPORT EDITING
+============================================================
+
+Merchant can edit every field before publication.
+
+Never force source information to become final store content.
+
+============================================================
+38. SUPPLIER PRICE RULES
+============================================================
+
+Merchant can choose:
+
+- same source price
+- percentage markup
+- fixed markup
+- target margin
+- custom price
+
+============================================================
+39. SUPPLIER DUPLICATE DETECTION
+============================================================
+
+Check:
+
+- source URL
+- source product ID
+- SKU
+- normalized title
+- merchant product mapping
+
+Choices:
+
+- create
+- update
+- skip
+- review
+
+============================================================
+40. SUPPLIER SOURCE HISTORY
+============================================================
+
+Store:
+
+- source URL
+- source domain
+- imported time
+- last checked
+- source state
+- extraction state
+- product mapping
+
+============================================================
+41. SUPPLIER REFRESH
+============================================================
+
+Merchant can select:
+
+Refresh Source
+
+System compares:
+
+- price
+- title
+- description
+- image
+- variant
+- availability
+
+Show differences.
+
+Never silently destroy merchant edits.
+
+============================================================
+42. SUPPLIER URL BULK IMPORT
+============================================================
+
+Accept:
+
+- one URL
+- multiple URLs
+- newline-separated URLs
+- pasted list
+- batch import
+
+Show:
+
+- successful
+- failed
+- duplicate
+- review required
+
+============================================================
+43. SUPPLIER MANUAL FALLBACK
+============================================================
+
+If extraction fails:
+
+show:
+
+"Automatic extraction was unsuccessful."
+
+Provide:
+
+- manual product creation
+- CSV
+- spreadsheet
+- copy/paste
+- file upload
+- image upload
+
+============================================================
+44. SUPPLIER ORDER WORKFLOW
+============================================================
+
+Customer order:
+
+Customer
+→ TS Commerce order
+→ Supplier product mapping
+→ Supplier order task
+→ Merchant submits/order action
+→ Supplier reference
+→ Fulfillment
+→ Tracking
+→ Customer
+
+Without supplier API:
+
+manual workflow.
+
+With legitimate supported supplier integration:
+
+optional automation.
+
+============================================================
+45. SUPPLIER CREDENTIAL RULE
+============================================================
+
+The merchant does NOT have to enter an API key.
+
+Do not create a mandatory UI:
+
+"Enter supplier API key."
+
+Native supplier integrations may exist internally but are optional.
+
+============================================================
+46. SUPPLIER SECURITY
+============================================================
+
+Supplier websites are untrusted input.
+
+Protect against:
+
+- SSRF
+- malicious redirects
+- malicious HTML
+- script injection
+- oversized responses
+- malicious file downloads
+- unexpected protocols
+
+Only allow safe URL schemes.
+
+============================================================
+47. CART
+============================================================
+
+Cart fields:
+
+- cart ID
+- customer/session
+- store
+- products
+- variants
+- quantity
+- price snapshot
+- discount
+- tax context
+- shipping context
+- currency
+- expiration
+
+============================================================
+48. CART EVENTS
+============================================================
+
+Track:
+
+- created
+- item added
+- item removed
+- quantity changed
+- abandoned
+- recovered
+- converted
+
+============================================================
+49. CHECKOUT — LOCKED
+============================================================
+
+DO NOT REMOVE CHECKOUT FEATURES.
+
+Checkout must perform:
+
+1. cart validation
+2. product validation
+3. variant validation
+4. inventory validation
+5. stock reservation where applicable
+6. price validation
+7. discount validation
+8. coupon validation
+9. tax calculation
+10. shipping calculation
+11. fee calculation
+12. payment creation
+13. payment method selection
+14. payment confirmation/verification
+15. order creation
+16. inventory commitment
+17. invoice creation
+18. receipt creation
+19. ledger creation
+20. fulfillment trigger
+21. customer notification
+22. merchant notification
+23. analytics events
+
+============================================================
+50. CHECKOUT SECURITY
+============================================================
+
+Never trust client-provided:
+
+- price
+- tax
+- shipping
+- discount
+- inventory
+- platform fee
+- payment status
+
+Recalculate server-side.
+
+============================================================
+51. CHECKOUT DUPLICATE PROTECTION
+============================================================
+
+Prevent:
+
+- duplicate submit
+- double click
+- browser retry
+- duplicate webhook
+- repeated network request
+- duplicate order creation
+
+============================================================
+52. PAYMENT METHOD SYSTEM
+============================================================
+
+Support internal/manual methods:
+
+- bank transfer
+- cash
+- payment on delivery
+- merchant-defined methods
+
+============================================================
+53. BANK TRANSFER CHECKOUT
+============================================================
+
+Generate:
+
+- payment reference
+- amount
+- currency
+- instructions
+- merchant payment details
+
+Customer completes payment externally.
+
+Customer provides reference/confirmation.
+
+Authorized merchant/admin confirms.
+
+TS Pay records payment.
+
+Order workflow continues.
+
+============================================================
+54. CASH
+============================================================
+
+Cash payment can be:
+
+- pending
+- confirmed
+- rejected
+
+Require authorized confirmation.
+
+============================================================
+55. PAYMENT ON DELIVERY
+============================================================
+
+Create:
+
+- payment obligation
+- order
+- fulfillment state
+
+Actual payment is confirmed later.
+
+============================================================
+56. TS PAY
+============================================================
+
+TS Pay is first-party.
+
+TS Pay is not:
+
+- Stripe clone dependent on Stripe
+- Paystack wrapper
+- Flutterwave wrapper
+- PayPal wrapper
+
+TS Pay owns the software layer.
+
+============================================================
+57. TS PAY MODULES
+============================================================
+
+- Overview
+- Transactions
+- Customers
+- Payment Links
+- Invoices
+- Balances
+- Payouts
+- Refunds
+- Disputes
+- Fees
+- Reconciliation
+- Risk
+- Reports
+- Payment Methods
+- Settings
+
+============================================================
+58. PAYMENT RECORD
+============================================================
+
+Fields:
+
+- payment ID
+- order ID
+- merchant
+- store
+- customer
+- amount
+- currency
+- method
+- reference
+- status
+- source
+- created time
+- updated time
+- metadata
+
+============================================================
+59. PAYMENT STATES
+============================================================
+
+- created
+- pending
+- submitted
+- under_review
+- authorized
+- confirmed
+- failed
+- canceled
+- refunded
+- partially_refunded
+- disputed
+- reversed
+
+============================================================
+60. PAYMENT STATE MACHINE
+============================================================
+
+Only valid transitions allowed.
+
+Example:
+
+created
+→ pending
+
+pending
+→ submitted
+→ failed
+→ canceled
+
+submitted
+→ under_review
+→ confirmed
+→ failed
+
+confirmed
+→ refunded
+→ partially_refunded
+→ disputed
+→ reversed
+
+============================================================
+61. PAYMENT LINKS
+============================================================
+
+Support:
+
+- product-linked
+- invoice-linked
+- service
+- donation
+- custom amount
+- one-time
+- limited-use
+- expiry
+
+============================================================
+62. INVOICE SYSTEM
+============================================================
+
+Fields:
+
+- invoice number
+- merchant
+- customer
+- issue date
+- due date
+- line items
+- taxes
+- discounts
+- shipping
+- total
+- currency
+- notes
+- status
+
+============================================================
+63. INVOICE STATE
+============================================================
+
+- draft
+- issued
+- viewed
+- pending
+- partially_paid
+- paid
+- overdue
+- canceled
+- refunded
+
+============================================================
+64. RECEIPTS
+============================================================
+
+Generate receipts containing:
+
+- merchant
+- customer
+- order
+- products
+- quantity
+- amount
+- taxes
+- discounts
+- shipping
+- payment
+- date
+- reference
+
+============================================================
+65. INTERNAL LEDGER
+============================================================
+
+Every financial event must create appropriate ledger records.
+
+Examples:
+
+sale
+fee
+refund
+payout
+adjustment
+credit
+debit
+marketplace fee
+subscription revenue
+expense
+
+============================================================
+66. LEDGER PRINCIPLE
+============================================================
+
+Financial history must be auditable.
+
+Do not overwrite financial history.
+
+Use compensating entries for corrections.
+
+============================================================
+67. MERCHANT BALANCE
+============================================================
+
+Display:
+
+- available
+- pending
+- received
+- withdrawn
+- fees
+- refunds
+- adjustments
+
+Balance must derive from authoritative financial records.
+
+============================================================
+68. 1% TRANSACTION FEE
+============================================================
+
+Default:
+
+1%
+
+For $100 sale:
+
+gross = $100
+
+TS Commerce fee = $1
+
+merchant amount before other applicable charges = $99
+
+Keep:
+
+- tax
+- shipping
+- discounts
+- marketplace fees
+- external rail fees
+
+separate.
+
+============================================================
+69. MARKETPLACE FEE
+============================================================
+
+Marketplace monthly fee:
+
+$5/month
+
+Product listing:
+
+$5/product
+
+Separate from:
+
+$30/month merchant subscription
+
+and:
+
+1% transaction fee
+
+============================================================
+70. PAYOUT
+============================================================
+
+Merchant requests:
+
+Withdraw $X.
+
+Create payout record.
+
+Statuses:
+
+- requested
+- pending
+- processing
+- completed
+- failed
+- canceled
+- blocked
+- frozen
+
+============================================================
+71. MANUAL PAYOUT
+============================================================
+
+Without API:
+
+Merchant requests.
+
+Admin processes externally.
+
+Admin enters:
+
+- reference
+- destination
+- amount
+- completion status
+- notes
+
+TS Pay records the payout.
+
+Do not claim automatic bank transfer.
+
+============================================================
+72. OPTIONAL PAYMENT RAILS
+============================================================
+
+Future optional adapters:
+
+- banks
+- card acquiring
+- regional rails
+- Stripe
+- Paystack
+- Flutterwave
+- PayPal
+- other regulated rails
+
+These must plug into TS Pay.
+
+They must never replace TS Pay.
+
+============================================================
+73. REFUNDS
+============================================================
+
+Support:
+
+- full
+- partial
+- requested
+- approved
+- processing
+- completed
+- failed
+- canceled
+
+Refund must update appropriate:
+
+- ledger
+- order
+- inventory
+- tax
+- loyalty
+- affiliate
+- analytics
+
+where applicable.
+
+============================================================
+74. RETURNS
+============================================================
+
+Support:
+
+- request
+- approval
+- return shipment
+- condition
+- inspection
+- refund
+- exchange
+- inventory disposition
+
+Condition:
+
+- unopened
+- opened
+- used
+- damaged
+- defective
+- wrong item
+
+Inventory outcome:
+
+- sellable
+- quarantine
+- supplier return
+- write-off
+
+============================================================
+75. DISPUTES
+============================================================
+
+Support:
+
+- customer dispute
+- merchant dispute
+- payment dispute
+- order dispute
+- evidence
+- responses
+- investigation
+- resolution
+- notes
+- audit
+
+============================================================
+76. RECONCILIATION
+============================================================
+
+Compare:
+
+orders
+↔ payments
+↔ ledger
+↔ refunds
+↔ payouts
+
+Also:
+
+orders
+↔ inventory
+
+Detect inconsistencies.
+
+============================================================
+77. MARKETPLACE
+============================================================
+
+Marketplace allows customers to:
+
+- discover
+- search
+- filter
+- sort
+- compare
+- review
+- save
+- follow merchants
+
+============================================================
+78. MARKETPLACE PARTICIPATION
+============================================================
+
+Optional.
+
+Merchant must explicitly join.
+
+============================================================
+79. MARKETPLACE PRODUCT STATES
+============================================================
+
+- pending
+- approved
+- rejected
+- flagged
+- under_review
+- suspended
+- removed
+- expired
+- payment_required
+
+============================================================
+80. MARKETPLACE RANKING
+============================================================
+
+Ranking may consider:
+
+- relevance
+- availability
+- quality
+- rating
+- popularity
+- conversion
+- freshness
+- customer preferences
+
+Do not unfairly expose private merchant information.
+
+============================================================
+81. CUSTOMER ACCOUNTS
+============================================================
+
+Support:
+
+- guest
+- registered customer
+- universal TS Commerce customer identity
+
+Customer can access:
+
+- orders
+- receipts
+- invoices
+- digital products
+- courses
+- memberships
+- tickets
+- bookings
+- subscriptions
+
+============================================================
+82. CUSTOMER 360
+============================================================
+
+Merchant customer profile includes:
+
+- identity
+- contact information
+- orders
+- carts
+- wishlist
+- reviews
+- messages
+- support tickets
+- subscriptions
+- memberships
+- bookings
+- loyalty
+- referrals
+- payment history
+- customer value
+- activity timeline
+
+============================================================
+83. CUSTOMER TIMELINE
+============================================================
+
+Display chronological activity:
+
+visit
+view
+cart
+checkout
+purchase
+payment
+shipment
+delivery
+review
+support
+repeat purchase
+
+============================================================
+84. CUSTOMER SEGMENTS
+============================================================
+
+Support static and dynamic segments.
+
+Example:
+
+Spend > $500
+AND
+Orders >= 3
+AND
+Last purchase > 60 days
+
+Segment:
+
+VIP At Risk
+
+============================================================
+85. CRM
+============================================================
+
+Support:
+
+- profiles
+- tags
+- notes
+- segments
+- activity
+- customer value
+- communication
+- consent
+- review history
+- order history
+
+============================================================
+86. MARKETING
+============================================================
+
+Support:
+
+- coupons
+- discount codes
+- flash sales
+- scheduled promotions
+- bundles
+- BOGO
+- free shipping
+- volume pricing
+- customer-specific pricing
+- abandoned cart
+- win-back
+- upsells
+- cross-sells
+- loyalty
+- referrals
+- affiliate campaigns
+- email campaign architecture
+- SMS campaign architecture
+
+============================================================
+87. DISCOUNT ENGINE
+============================================================
+
+Discount conditions may include:
+
+- product
+- variant
+- collection
+- customer
+- segment
+- minimum spend
+- minimum quantity
+- first order
+- subscription status
+- country
+- date
+- channel
+- coupon
+- referral
+- affiliate
+
+Checkout must evaluate rules authoritatively.
+
+============================================================
+88. DISCOUNT PROFIT SAFETY
+============================================================
+
+Before publishing major promotions, show:
+
+- expected discount
+- estimated margin
+- minimum margin
+- projected contribution
+
+Allow merchant rules such as:
+
+"Never discount below 25% margin."
+
+AI must obey that.
+
+============================================================
+89. ABANDONED CART
+============================================================
+
+Track:
+
+- cart created
+- cart updated
+- time inactive
+- customer
+- products
+- cart value
+
+Generate:
+
+- segment
+- automation
+- recovery campaign
+- recovered revenue attribution
+
+============================================================
+90. LOYALTY
+============================================================
+
+Support:
+
+- points
+- tiers
+- VIP levels
+- rewards
+- expiration
+- milestones
+- birthdays
+- referrals
+- purchase-based rewards
+
+============================================================
+91. LOYALTY CONNECTIONS
+============================================================
+
+Purchase:
+
+→ points earned
+
+Refund:
+
+→ points potentially reversed
+
+Membership:
+
+→ possible multiplier
+
+Referral:
+
+→ referral reward
+
+Review:
+
+→ optional reward
+
+============================================================
+92. AFFILIATE
+============================================================
+
+Flow:
+
+affiliate link
+→ click
+→ attribution
+→ customer
+→ order
+→ refund window
+→ commission eligibility
+→ commission
+→ payout record
+
+Refunded orders must be handled appropriately.
+
+============================================================
+93. REFERRALS
+============================================================
+
+Support:
+
+- referral code
+- referral link
+- attribution
+- reward
+- anti-fraud
+- analytics
+
+============================================================
+94. SHIPPING
+============================================================
+
+Support:
+
+- manual
+- carriers
+- automatic rates when configured
+- local delivery
+- pickup
+- international
+- tracking
+
+============================================================
+95. SHIPPING ZONES
+============================================================
+
+Zones can define:
+
+- countries
+- regions
+- postal ranges
+- rates
+- free shipping threshold
+- weight rules
+- order value rules
+
+============================================================
+96. SHIPPING PROFILES
+============================================================
+
+Products may use different shipping profiles.
+
+Example:
+
+- standard
+- oversized
+- fragile
+- digital
+- local pickup only
+
+============================================================
+97. SHIPMENT
+============================================================
+
+Fields:
+
+- shipment ID
+- order
+- items
+- carrier
+- service
+- tracking
+- status
+- origin
+- destination
+- timestamps
+
+============================================================
+98. SHIPMENT STATES
+============================================================
+
+- preparing
+- packed
+- shipped
+- in_transit
+- delivered
+- failed
+- returned
+- canceled
+
+============================================================
+99. TAX ENGINE
+============================================================
+
+Support:
+
+- VAT
+- sales tax
+- regional tax
+- tax-inclusive pricing
+- tax-exclusive pricing
+- exemptions
+- tax IDs
+- merchant rules
+
+No external tax API required for core functionality.
+
+============================================================
+100. TAX CONNECTIONS
+============================================================
+
+Checkout:
+
+customer location
++
+merchant location
++
+product type
++
+tax configuration
++
+exemption
+
+→ tax result
+
+Historical orders retain tax snapshot.
+
+============================================================
+101. DIGITAL PRODUCTS
+============================================================
+
+Support:
+
+- ebooks
+- PDFs
+- templates
+- audio
+- video
+- downloads
+- software/files
+- protected content
+
+============================================================
+102. DIGITAL ENTITLEMENTS
+============================================================
+
+Purchase:
+
+→ entitlement created
+
+Refund:
+
+→ entitlement may be revoked
+
+Subscription expiry:
+
+→ entitlement changes
+
+Do not use permanently exposed private URLs.
+
+============================================================
+103. DIGITAL SECURITY
+============================================================
+
+Use:
+
+- signed/controlled downloads
+- access checks
+- expiry
+- download limits
+- download history
+- entitlement verification
+
+============================================================
+104. COURSES
+============================================================
+
+Support:
+
+- courses
+- modules
+- lessons
+- quizzes
+- assignments
+- certificates
+- progress
+- cohorts
+- drip content
+- completion
+
+============================================================
+105. COURSE ENTITLEMENT
+============================================================
+
+Purchase or membership:
+
+→ enrollment/access
+
+Refund/cancel/expiry:
+
+→ access policy evaluated
+
+============================================================
+106. MEMBERSHIPS
+============================================================
+
+Support:
+
+- tiers
+- plans
+- gated content
+- member-only products
+- courses
+- events
+- community
+- member analytics
+- renewal
+- cancellation
+
+============================================================
+107. SERVICES
+============================================================
+
+Support:
+
+- consulting
+- coaching
+- freelancing
+- packages
+- duration
+- pricing
+- staff
+- availability
+- requirements
+- intake
+
+============================================================
+108. BOOKINGS
+============================================================
+
+Support:
+
+- availability
+- calendar
+- staff
+- resources
+- appointment slots
+- group booking
+- intake forms
+- cancellation
+- rescheduling
+- reminders
+
+============================================================
+109. BOOKING DOUBLE-BLOCKING
+============================================================
+
+Booking must atomically reserve:
+
+- staff
+- time
+- resource
+
+so two customers cannot book the same exclusive slot.
+
+============================================================
+110. EVENTS
+============================================================
+
+Support:
+
+- event
+- venue/location
+- date
+- time
+- ticket types
+- capacity
+- attendee
+- check-in
+- QR/barcode
+- refunds
+- reporting
+
+============================================================
+111. TICKETS
+============================================================
+
+Each ticket:
+
+- ticket ID
+- event
+- customer
+- order
+- ticket type
+- QR/barcode
+- status
+- attendee information
+
+============================================================
+112. CHECK-IN
+============================================================
+
+Support:
+
+- online check-in
+- offline check-in
+- duplicate scan detection
+- staff permissions
+- attendee timeline
+
+============================================================
+113. SUBSCRIPTIONS
+============================================================
+
+Merchant-created subscription products support:
+
+- plans
+- price
+- interval
+- customer
+- renewal
+- cancellation
+- status
+- entitlement
+
+============================================================
+114. MERCHANT SUBSCRIPTION ≠ CUSTOMER SUBSCRIPTION
+============================================================
+
+Never merge:
+
+TS Commerce merchant subscription
+
+with:
+
+Merchant-created customer subscription.
+
+They are separate systems.
+
+============================================================
+115. B2B
+============================================================
+
+Support:
+
+- company accounts
+- wholesale
+- catalogs
+- customer-specific prices
+- volume pricing
+- minimum orders
+- purchase orders
+- quotes
+- approvals
+- sales representatives
+- payment terms
+- invoices
+- credit limits
+
+============================================================
+116. QUOTATIONS
+============================================================
+
+Quote:
+
+draft
+→ issued
+→ viewed
+→ accepted
+→ converted to invoice
+→ converted to order
+
+============================================================
+117. POS
+============================================================
+
+TS POS must use the same:
+
+- products
+- variants
+- inventory
+- customers
+- orders
+- TS Pay
+- discounts
+
+as online commerce.
+
+============================================================
+118. POS FEATURES
+============================================================
+
+Support:
+
+- product search
+- barcode scanning
+- customer lookup
+- cart
+- discounts
+- payment recording
+- receipt
+- return
+- exchange
+- inventory
+- locations
+- staff
+- offline queue
+
+============================================================
+119. OFFLINE POS
+============================================================
+
+Offline transactions must:
+
+- receive temporary local IDs
+- synchronize later
+- prevent duplicate submission
+- resolve conflicts
+- validate inventory
+- preserve audit history
+
+============================================================
+120. OMNICHANNEL
+============================================================
+
+Same product may appear in:
+
+- web store
+- marketplace
+- POS
+- payment link
+- embedded checkout
+- QR
+- AI commerce channel
+
+Inventory remains shared.
+
+============================================================
+121. CHANNEL-SPECIFIC PRESENTATION
+============================================================
+
+Same master product may have channel-specific:
+
+- title
+- image
+- price
+- visibility
+- description
+
+but same underlying product identity.
+
+============================================================
+122. ACCOUNTING / EXPENSES
+============================================================
+
+Merchant can record:
+
+- rent
+- salaries
+- utilities
+- internet
+- transport
+- marketing
+- equipment
+- supplies
+- maintenance
+- other
+
+============================================================
+123. EXPENSE RECORD
+============================================================
+
+Fields:
+
+- amount
+- category
+- date
+- payment method
+- description
+- receipt
+- staff
+- approval status
+
+============================================================
+124. PROFITABILITY
+============================================================
+
+Where data exists:
+
+Revenue
+- discounts
+- refunds
+- product cost
+- shipping cost
+- payment cost
+- TS Commerce fees
+- marketplace fees
+- expenses
+
+→ contribution / profit metrics
+
+Never invent missing costs.
+
+============================================================
+125. BUSINESS GOALS
+============================================================
+
+Merchant can create:
+
+- revenue goal
+- profit goal
+- order goal
+- customer goal
+- inventory goal
+- retention goal
+- marketing goal
+
+============================================================
+126. STAFF
+============================================================
+
+Support:
+
+- staff accounts
+- roles
+- permissions
+- performance
+- tasks
+- activity
+- sales
+
+============================================================
+127. MULTI-LOCATION
+============================================================
+
+Location can contain:
+
+- inventory
+- orders
+- employees
+- sales
+- expenses
+- analytics
+
+============================================================
+128. REPORTS
+============================================================
+
+Reports:
+
+- sales
+- revenue
+- profit
+- expense
+- tax
+- inventory
+- customers
+- employees
+- payments
+- payouts
+- refunds
+- supplier
+- marketplace
+- shipping
+
+============================================================
+129. REPORT DRILLDOWN
+============================================================
+
+Every major metric must be clickable.
+
+Example:
+
+Revenue $120,000
+
+→ orders
+→ products
+→ customers
+→ payments
+→ channels
+
+============================================================
+130. HISTORICAL REPORT CONSISTENCY
+============================================================
+
+Changing product information today must not rewrite historical reports
+that depend on historical snapshots.
+
+============================================================
+131. CUSTOMER ACQUISITION
+============================================================
+
+Where technically available through first-party tracking:
+
+Track:
+
+- direct
+- organic
+- referral
+- affiliate
+- campaign
+- marketplace
+- QR
+- payment link
+- store
+
+============================================================
+132. MARKETING ATTRIBUTION
+============================================================
+
+Track:
+
+campaign
+→ interaction
+→ customer
+→ order
+→ revenue
+→ refund
+→ net attributed revenue
+
+============================================================
+133. AI LAYER
+============================================================
+
+Create TS AI as first-party business intelligence and agent
+architecture.
+
+Core AI features must not require external AI API keys.
+
+External AI models may later be connected through an abstraction.
+
+============================================================
+134. AI AGENTS
+============================================================
+
+Create:
+
+TS CEO
+TS CFO
+TS CMO
+TS COO
+TS CRO
+TS Inventory Manager
+TS Customer Manager
+TS Merchandiser
+TS Supplier Manager
+TS Risk Manager
+TS Support Agent
+TS SEO Manager
+TS Product Manager
+TS Store Optimizer
+TS Operations Manager
+
+============================================================
+135. AI CEO
+============================================================
+
+TS CEO analyzes the entire business:
+
+- revenue
+- profit
+- customers
+- inventory
+- products
+- marketing
+- suppliers
+- payments
+- staff
+- operations
+- goals
+
+Outputs:
+
+- priorities
+- recommendations
+- risks
+- opportunities
+
+============================================================
+136. RUN MY BUSINESS
+============================================================
+
+Create:
+
+# RUN MY BUSINESS
+
+When activated, AI monitors business activity continuously
+within merchant-defined permissions.
+
+It can:
+
+- inspect
+- analyze
+- recommend
+- prepare
+- automate
+- execute approved actions
+- monitor outcomes
+
+============================================================
+137. AI AUTONOMY
+============================================================
+
+Level 0:
+Observe
+
+Level 1:
+Recommend
+
+Level 2:
+Prepare
+
+Level 3:
+Execute Approved
+
+Level 4:
+Autonomous Low-Risk Operations
+
+Merchant controls level.
+
+============================================================
+138. AI PERMISSION MATRIX
+============================================================
+
+Example:
+
+SEO title:
+Auto
+
+Customer tag:
+Auto
+
+Create report:
+Auto
+
+Create marketing draft:
+Auto
+
+Publish campaign:
+Approval
+
+Change price:
+Approval
+
+Large refund:
+Approval
+
+Payout destination:
+Never
+
+Money transfer:
+Never without authorized financial workflow
+
+Delete financial records:
+Never
+
+============================================================
+139. AI APPROVAL CENTER
+============================================================
+
+For every significant action show:
+
+- action
+- reason
+- evidence
+- expected impact
+- cost
+- risk
+- affected records
+- reversibility
+- approval requirement
+
+============================================================
+140. AI ACTION LOG
+============================================================
+
+Record:
+
+- agent
+- action
+- timestamp
+- tenant
+- data/context
+- reason
+- permissions
+- approval
+- result
+- rollback state
+
+============================================================
+141. AI ROLLBACK
+============================================================
+
+Reversible non-financial actions should support:
+
+Undo
+
+Financial actions use compensating records.
+
+============================================================
+142. AI CEO MORNING BRIEF
+============================================================
+
+Show:
+
+- revenue
+- profit
+- orders
+- failed payments
+- refunds
+- low stock
+- supplier issues
+- customers needing attention
+- marketing
+- bookings
+- events
+- top priorities
+
+============================================================
+143. AI WEEKLY BOARD REPORT
+============================================================
+
+Show:
+
+- performance
+- growth
+- losses
+- wins
+- customers
+- products
+- inventory
+- marketing
+- suppliers
+- operational issues
+- strategic recommendations
+
+============================================================
+144. AI MONTHLY STRATEGY
+============================================================
+
+Generate:
+
+- business review
+- strategy
+- opportunities
+- risks
+- product strategy
+- marketing strategy
+- customer strategy
+- inventory strategy
+- cost reduction
+
+============================================================
+145. AI CFO
+============================================================
+
+Identify:
+
+- margin leaks
+- excessive discounts
+- expensive products
+- expense spikes
+- supplier cost increases
+- cash flow issues
+- receivables
+- unusual financial behavior
+
+============================================================
+146. AI CMO
+============================================================
+
+Can:
+
+- segment customers
+- create campaigns
+- suggest promotions
+- generate content
+- monitor campaigns
+- recommend optimization
+
+============================================================
+147. AI COO
+============================================================
+
+Monitors:
+
+- orders
+- fulfillment
+- inventory
+- suppliers
+- support
+- operational bottlenecks
+
+============================================================
+148. AI CRO
+============================================================
+
+Analyzes:
+
+- conversion
+- revenue
+- offers
+- products
+- sales funnel
+
+Recommends:
+
+- upsells
+- cross-sells
+- pricing
+- bundles
+- promotions
+
+============================================================
+149. AI INVENTORY MANAGER
+============================================================
+
+Predict:
+
+- stockouts
+- overstock
+- dead stock
+- reorder quantity
+- demand
+
+============================================================
+150. AI CUSTOMER MANAGER
+============================================================
+
+Identify:
+
+- VIP
+- churn risk
+- inactive
+- repeat purchase
+- upsell candidates
+
+============================================================
+151. AI MERCHANDISER
+============================================================
+
+Recommend:
+
+- homepage products
+- featured products
+- collections
+- bundles
+- upsells
+
+============================================================
+152. AI SUPPLIER MANAGER
+============================================================
+
+Monitor source information and identify:
+
+- price changes
+- availability changes
+- product changes
+- duplicate products
+- supplier risk
+- margin changes
+
+============================================================
+153. AI SUPPORT
+============================================================
+
+Customer can ask:
+
+Where is my order?
+
+How do I access my purchase?
+
+What is the return policy?
+
+Can I reschedule?
+
+AI must use authorized data.
+
+============================================================
+154. AI SALES ASSISTANT
+============================================================
+
+Customer asks:
+
+"I need a black dress under $100."
+
+AI:
+
+- searches
+- filters
+- compares
+- recommends
+- optionally prepares cart
+
+============================================================
+155. AI PRODUCT CREATOR
+============================================================
+
+Input:
+
+"Black leather travel bag, premium, $80 cost."
+
+Generate:
+
+- product title
+- description
+- features
+- benefits
+- SEO
+- categories
+- tags
+- FAQs
+- pricing scenarios
+
+============================================================
+156. AI STORE CREATOR
+============================================================
+
+Input:
+
+"Create me a premium beauty store."
+
+Generate:
+
+- theme
+- layout
+- homepage
+- navigation
+- typography
+- product blocks
+- banners
+- copy
+- SEO structure
+
+============================================================
+157. AI CONTENT ENGINE
+============================================================
+
+Generate:
+
+- social posts
+- blog posts
+- product copy
+- ad copy
+- email drafts
+- campaign copy
+- FAQs
+- announcements
+
+============================================================
+158. AI SEO
+============================================================
+
+Analyze:
+
+- titles
+- metadata
+- descriptions
+- URLs
+- structured data
+- category pages
+- internal linking
+
+============================================================
+159. AI WHAT-IF ENGINE
+============================================================
+
+Simulate:
+
+- price increase
+- price decrease
+- discount
+- marketing budget
+- new location
+- new supplier
+- inventory increase
+- inventory decrease
+- new product
+- new employee
+
+Show:
+
+- assumptions
+- expected range
+- risk
+- uncertainty
+
+============================================================
+160. AI BUSINESS TWIN
+============================================================
+
+Maintain a structured model of:
+
+- products
+- inventory
+- customers
+- sales
+- costs
+- suppliers
+- campaigns
+- goals
+- operations
+
+Use for simulation.
+
+============================================================
+161. AI OPPORTUNITY RADAR
+============================================================
+
+Continuously detect:
+
+- abandoned carts
+- high-margin products
+- inactive customers
+- low-stock winners
+- dead stock
+- under-promoted products
+- supplier opportunities
+- pricing opportunities
+
+============================================================
+162. AI SAVINGS ENGINE
+============================================================
+
+Find:
+
+- unnecessary expenses
+- excessive discounts
+- expensive supplier costs
+- poor shipping economics
+- low-margin products
+- inefficient processes
+
+============================================================
+163. AI EMERGENCY MODE
+============================================================
+
+Trigger on serious anomalies:
+
+- sales collapse
+- refund spike
+- inventory crisis
+- payment failure spike
+- supplier failure
+- security anomaly
+
+Display:
+
+- severity
+- cause
+- affected systems
+- evidence
+- recommended action
+- action already taken
+- human approval required
+
+============================================================
+164. AI BUSINESS HEALTH
+============================================================
+
+Measure:
+
+- sales
+- profit
+- cash
+- customers
+- inventory
+- payments
+- fulfillment
+- marketing
+- operations
+- risk
+
+============================================================
+165. AI BUSINESS GOAL AUTOPILOT
+============================================================
+
+Merchant says:
+
+"Increase monthly profit."
+
+AI creates:
+
+- strategy
+- milestones
+- actions
+- experiments
+- monitoring
+
+Do not guarantee outcomes.
+
+============================================================
+166. AI EXPERIMENTS
+============================================================
+
+Support experiments for:
+
+- pricing
+- offers
+- copy
+- layout
+- campaigns
+- product pages
+
+Track:
+
+- variant
+- conversion
+- revenue
+- margin
+- retention
+
+============================================================
+167. AI LEARNS FROM OUTCOMES
+============================================================
+
+Track:
+
+Recommendation
+→ Approval
+→ Action
+→ Result
+
+Use merchant-specific outcomes.
+
+Do not violate privacy.
+
+============================================================
+168. AI BUSINESS MEMORY
+============================================================
+
+Merchant-specific memory:
+
+- business rules
+- goals
+- preferences
+- margins
+- strategy
+- prior decisions
+- successful actions
+- rejected recommendations
+
+============================================================
+169. AI SHOULD KNOW WHEN NOT TO ACT
+============================================================
+
+AI should be allowed to respond:
+
+"I don't have enough reliable data."
+
+Do not hallucinate.
+
+============================================================
+170. AI EXPLAINABILITY
+============================================================
+
+For meaningful recommendations show:
+
+- why
+- evidence
+- expected effect
+- confidence
+- assumptions
+- risk
+
+============================================================
+171. AI SAFETY
+============================================================
+
+AI must never bypass:
+
+- permissions
+- tenant isolation
+- financial rules
+- security
+- legal controls
+- merchant restrictions
+
+============================================================
+172. AI PROMPT INJECTION DEFENSE
+============================================================
+
+Treat external content as untrusted.
+
+Supplier pages, reviews, product descriptions and customer messages
+must never become privileged instructions.
+
+============================================================
+173. AI TOOL PERMISSIONS
+============================================================
+
+AI tools must have explicit permissions.
+
+Example:
+
+read_inventory
+read_customers
+create_campaign
+update_product
+create_refund
+request_payout
+
+Tool access must be scoped.
+
+============================================================
+174. AI ACTION BUDGETS
+============================================================
+
+Support limits:
+
+- campaign spending
+- discount amounts
+- refunds
+- action count
+- communication volume
+
+============================================================
+175. AI CIRCUIT BREAKERS
+============================================================
+
+If automation repeatedly fails:
+
+pause.
+
+If unusual behavior appears:
+
+pause relevant automation.
+
+============================================================
+176. AI KILL SWITCH
+============================================================
+
+Master Admin:
+
+GLOBAL AI KILL SWITCH
+
+Merchant:
+
+DISABLE AI AUTONOMY
+
+Normal commerce continues.
+
+============================================================
+177. BUSINESS AUTOMATION
+============================================================
+
+Create visual automation engine.
+
+Trigger:
+
+Order Created
+
+Condition:
+
+Order > $500
+
+Action:
+
+Tag customer VIP
+
+============================================================
+178. AUTOMATION CONDITIONS
+============================================================
+
+Support:
+
+- equals
+- not equals
+- greater than
+- less than
+- contains
+- in segment
+- date
+- customer status
+- product
+- inventory
+- order value
+- order count
+- location
+- channel
+
+============================================================
+179. AUTOMATION ACTIONS
+============================================================
+
+Support:
+
+- tag customer
+- update product
+- create task
+- create notification
+- update order
+- create discount
+- create segment
+- create report
+- send through optional provider
+- create supplier task
+- request approval
+
+============================================================
+180. AUTOMATION DELAYS
+============================================================
+
+Support:
+
+- immediate
+- minutes
+- hours
+- days
+- date/time
+
+============================================================
+181. AUTOMATION BRANCHING
+============================================================
+
+Example:
+
+Order delivered
+
+→ wait 3 days
+
+→ customer reviewed?
+
+YES → loyalty points
+
+NO → review request
+
+Refund?
+
+YES → stop
+
+============================================================
+182. AUTOMATION FAILURE HANDLING
+============================================================
+
+Jobs must:
+
+- retry
+- backoff
+- log
+- preserve state
+- notify if critical
+
+============================================================
+183. NOTIFICATIONS
+============================================================
+
+First-party in-app notifications must always work.
+
+Types:
+
+- informational
+- warning
+- critical
+- success
+
+============================================================
+184. NOTIFICATION ACTIONS
+============================================================
+
+Notification should be actionable.
+
+Example:
+
+"Product X has 4 units remaining."
+
+Button:
+
+Create Purchase Order
+
+============================================================
+185. NOTIFICATION PREFERENCES
+============================================================
+
+User controls:
+
+- channel
+- event
+- frequency
+- quiet hours
+
+============================================================
+186. EMAIL
+============================================================
+
+Email is optional.
+
+Create abstraction:
+
+EmailService
+
+Do not require an email API for core platform operation.
+
+============================================================
+187. SMS
+============================================================
+
+SMS is optional.
+
+Create:
+
+SMSService
+
+============================================================
+188. PUSH
+============================================================
+
+Push is optional.
+
+Create:
+
+PushNotificationService
+
+============================================================
+189. INTERNAL MESSAGING
+============================================================
+
+Support:
+
+- conversations
+- messages
+- read status
+- attachments
+- order references
+- customer references
+- timestamps
+- moderation
+
+============================================================
+190. SUPPORT
+============================================================
+
+Support:
+
+- tickets
+- categories
+- priorities
+- status
+- conversations
+- attachments
+- internal notes
+- audit
+
+============================================================
+191. CUSTOMER SERVICE CONTEXT
+============================================================
+
+Support agent viewing a ticket should see:
+
+Customer
+→ Orders
+→ Payment
+→ Shipment
+→ Refund
+→ Subscription
+
+without searching separately.
+
+============================================================
+192. AI SUPPORT CONTEXT
+============================================================
+
+AI support must have the same authorized context.
+
+============================================================
+193. DOMAIN DATA
+============================================================
+
+Every important record must include:
+
+- internal ID
+- human-readable reference
+- tenant
+- store
+- source
+- created_at
+- updated_at
+
+where applicable.
+
+============================================================
+194. HUMAN-READABLE REFERENCES
+============================================================
+
+Examples:
+
+Order:
+TS-104829
+
+Payment:
+TP-839201
+
+Invoice:
+INV-20493
+
+Payout:
+PO-90193
+
+Ticket:
+TKT-3021
+
+============================================================
+195. SOURCE CHANNEL
+============================================================
+
+Orders should record source:
+
+- storefront
+- marketplace
+- POS
+- payment link
+- embedded checkout
+- API
+- admin
+
+============================================================
+196. CUSTOMER ACQUISITION SOURCE
+============================================================
+
+Track where technically and legitimately possible:
+
+- direct
+- campaign
+- referral
+- affiliate
+- marketplace
+- QR
+- organic
+
+============================================================
+197. HISTORICAL SNAPSHOTS
+============================================================
+
+Historical records must preserve:
+
+- price
+- tax
+- discount
+- shipping
+- customer address where required
+- product name
+- variant
+- SKU
+
+============================================================
+198. ADDRESS SYSTEM
+============================================================
+
+Support:
+
+- billing
+- shipping
+- multiple saved addresses
+- default
+- country
+- region
+- city
+- postal code
+- address lines
+
+Google Maps not required.
+
+============================================================
+199. CUSTOMER DATA
+============================================================
+
+Do not use a current customer address to rewrite historical order
+addresses.
+
+============================================================
+200. DATA EXPORT
+============================================================
+
+Merchant can export:
+
+- products
+- customers
+- orders
+- inventory
+- transactions
+- reports
+- financial records where appropriate
+
+============================================================
+201. DATA DELETION
+============================================================
+
+Support deletion/anonymization workflows.
+
+Preserve records that legally/financially must remain.
+
+============================================================
+202. ACCOUNT RECOVERY
+============================================================
+
+Secure:
+
+- reset
+- recovery
+- session revocation
+- notifications
+
+============================================================
+203. SECURITY
+============================================================
+
+Protect against:
+
+- SQL injection
+- XSS
+- CSRF
+- SSRF
+- IDOR
+- broken access control
+- privilege escalation
+- session hijacking
+- brute force
+- credential leakage
+- unsafe uploads
+- webhook forgery
+- duplicate financial processing
+- malicious supplier pages
+- AI prompt injection
+
+============================================================
+204. FILE UPLOAD
+============================================================
+
+Validate:
+
+- type
+- MIME
+- size
+- extension
+- filename
+
+Never execute uploads.
+
+============================================================
+205. FILE STORAGE
+============================================================
+
+Internal storage abstraction.
+
+Support:
+
+- media
+- invoices
+- reports
+- digital products
+- verification records
+- documents
+
+External storage optional.
+
+============================================================
+206. API PLATFORM
+============================================================
+
+TS Commerce has its own API.
+
+Support:
+
+- authentication
+- authorization
+- versioning
+- pagination
+- filtering
+- sorting
+- rate limits
+- idempotency
+- webhooks
+
+============================================================
+207. MERCHANT API KEYS
+============================================================
+
+These are first-party TS Commerce API keys.
+
+Support:
+
+- scopes
+- rotation
+- revocation
+- usage
+- expiration
+- audit
+
+============================================================
+208. WEBHOOKS
+============================================================
+
+First-party webhook system.
+
+Support:
+
+- signing
+- validation
+- retries
+- idempotency
+- replay
+- logs
+- monitoring
+- dead-letter handling
+
+============================================================
+209. DEVELOPER PORTAL
+============================================================
+
+Provide:
+
+- documentation
+- API explorer
+- keys
+- scopes
+- webhook configuration
+- usage logs
+- test environment
+- app architecture
+
+============================================================
+210. APP MARKETPLACE
+============================================================
+
+Future developer marketplace for:
+
+- integrations
+- apps
+- themes
+- analytics
+- supplier connectors
+- marketing
+- AI extensions
+
+============================================================
+211. THEME MARKETPLACE
+============================================================
+
+Creators can sell:
+
+- themes
+- sections
+- blocks
+- templates
+- landing pages
+
+============================================================
+212. CREATOR COMMERCE
+============================================================
+
+Creators can sell:
+
+- courses
+- ebooks
+- templates
+- digital assets
+- memberships
+- services
+- events
+- subscriptions
+
+============================================================
+213. POS INTEGRATION
+============================================================
+
+POS must use the same:
+
+- catalog
+- inventory
+- customer
+- order
+- payment
+- tax
+- discount
+
+services.
+
+============================================================
+214. MULTI-CURRENCY
+============================================================
+
+Support:
+
+- product currency
+- store currency
+- transaction currency
+- reporting currency
+- formatting
+
+============================================================
+215. MULTI-LANGUAGE
+============================================================
+
+Architecture supports:
+
+- translation strings
+- localized content
+- locale formatting
+- multilingual products
+- multilingual storefront content
+
+============================================================
+216. TIMEZONES
+============================================================
+
+Master Admin:
+
+Automatic detection
+
+Merchant:
+
+Configurable
+
+Database:
+
+UTC
+
+Reports:
+
+Timezone-aware
+
+============================================================
+217. COUNTRY SETTINGS
+============================================================
+
+Configure:
+
+- country
+- currency
+- tax
+- shipping
+- verification
+- marketplace availability
+- payment methods
+
+============================================================
+218. B2B CUSTOMER TYPES
+============================================================
+
+Support:
+
+- company
+- buyer
+- purchaser
+- finance contact
+- admin
+
+============================================================
+219. B2B PRICING
+============================================================
+
+Support:
+
+- wholesale
+- volume
+- negotiated
+- customer-specific
+- catalog-specific
+
+============================================================
+220. PURCHASE ORDERS
+============================================================
+
+Support:
+
+- create
+- approve
+- receive
+- partially receive
+- close
+- cancel
+
+============================================================
+221. QUOTES
+============================================================
+
+Support:
+
+- draft
+- sent
+- viewed
+- accepted
+- rejected
+- expired
+- converted
+
+============================================================
+222. CRM SALES PIPELINE
+============================================================
+
+Stages:
+
+- lead
+- contacted
+- qualified
+- proposal
+- negotiation
+- won
+- lost
+
+============================================================
+223. AI SALES PIPELINE
+============================================================
+
+AI can:
+
+- score leads
+- summarize
+- suggest next action
+- draft follow-up
+- identify hot prospects
+
+============================================================
+224. TASK MANAGEMENT
+============================================================
+
+Support:
+
+- tasks
+- owners
+- priorities
+- due dates
+- recurrence
+- status
+- comments
+- dependencies
+
+============================================================
+225. AI TASK PRIORITIZATION
+============================================================
+
+Rank based on:
+
+- urgency
+- financial impact
+- customer impact
+- risk
+- deadline
+
+============================================================
+226. PRODUCT RECOMMENDATIONS
+============================================================
+
+Support:
+
+- related
+- frequently purchased together
+- recently viewed
+- personalized
+- upsell
+- cross-sell
+
+============================================================
+227. RECOMMENDATION INVENTORY SAFETY
+============================================================
+
+Do not heavily recommend unavailable products.
+
+============================================================
+228. PRODUCT BUNDLES
+============================================================
+
+Support:
+
+- fixed
+- dynamic
+- discounted
+- mixed
+- digital
+- physical
+- service
+- course
+
+Inventory must understand underlying components.
+
+============================================================
+229. FLASH SALES
+============================================================
+
+Support:
+
+- start
+- end
+- quantity limit
+- segment
+- price
+- inventory control
+
+============================================================
+230. PREORDERS
+============================================================
+
+Support:
+
+- preorder
+- availability date
+- payment state
+- customer notifications
+- inventory planning
+
+============================================================
+231. WAITLISTS
+============================================================
+
+Support waitlist for:
+
+- products
+- events
+- courses
+- bookings
+- memberships
+
+============================================================
+232. GIFTING
+============================================================
+
+Support:
+
+- gift cards
+- certificates
+- messages
+- scheduled gifting
+- recipients
+
+============================================================
+233. CUSTOMER WISHLIST
+============================================================
+
+Support:
+
+- wishlist
+- saved stores
+- saved searches
+- viewed history
+- stock alerts
+- price alerts
+
+============================================================
+234. PRODUCT ALERTS
+============================================================
+
+Support:
+
+- back in stock
+- price changes
+- event availability
+- booking availability
+
+============================================================
+235. BLOG
+============================================================
+
+Support:
+
+- posts
+- categories
+- tags
+- authors
+- scheduled posts
+- SEO
+
+============================================================
+236. AI BLOGGING
+============================================================
+
+Generate:
+
+- outlines
+- articles
+- SEO
+- FAQs
+- social posts
+
+============================================================
+237. SALES FUNNELS
+============================================================
+
+Support:
+
+- landing pages
+- opt-ins
+- lead magnets
+- sales pages
+- upsell pages
+- downsell pages
+- checkout
+- thank-you pages
+
+============================================================
+238. PRODUCT FUNNEL CONNECTION
+============================================================
+
+Product funnel connects:
+
+landing page
+→ product
+→ checkout
+→ payment
+→ order
+→ analytics
+
+============================================================
+239. CUSTOMER RETENTION
+============================================================
+
+Measure:
+
+- repeat purchase
+- purchase interval
+- churn
+- lifetime value
+- customer frequency
+
+============================================================
+240. AI CHURN DETECTION
+============================================================
+
+AI identifies customers at risk based on authorized data.
+
+============================================================
+241. AI CUSTOMER RESURRECTION
+============================================================
+
+Prepare win-back campaign for:
+
+- inactive customers
+- former VIPs
+- high-value inactive customers
+
+============================================================
+242. AI DEAD STOCK RECOVERY
+============================================================
+
+Recommend:
+
+- discount
+- bundle
+- marketplace
+- B2B clearance
+- promotion
+- supplier return
+
+============================================================
+243. AI STOCKOUT LOSS
+============================================================
+
+Estimate potential lost revenue from stockouts.
+
+Clearly label estimate.
+
+============================================================
+244. AI HIDDEN WINNERS
+============================================================
+
+Identify products that have:
+
+- high margin
+- high conversion
+- low exposure
+
+Recommend increased visibility.
+
+============================================================
+245. AI PRODUCT CANNIBALIZATION
+============================================================
+
+Detect when one product may be replacing another rather than
+increasing total category revenue.
+
+============================================================
+246. AI PRICING
+============================================================
+
+Consider:
+
+- cost
+- margin
+- demand
+- inventory
+- historical price
+- competitor data where available
+- customer segment
+- conversion
+
+Never blindly copy competitor prices.
+
+============================================================
+247. AI PROFIT OPTIMIZER
+============================================================
+
+Optimize toward contribution/profit, not merely revenue.
+
+============================================================
+248. AI MARKETING ROI
+============================================================
+
+Track:
+
+campaign
+→ spend
+→ attributed orders
+→ revenue
+→ refunds
+→ contribution
+
+============================================================
+249. AI BUSINESS SIMULATOR
+============================================================
+
+Allow:
+
+"What if I reduce price 10%?"
+
+"What if I open another store?"
+
+"What if supplier price rises?"
+
+"What if I spend $1,000 on marketing?"
+
+============================================================
+250. AI BOARD OF DIRECTORS
+============================================================
+
+Optional multi-agent analysis:
+
+CEO
+CFO
+CMO
+COO
+CRO
+Risk
+
+Each provides independent perspective.
+
+Final output:
+
+- recommendation
+- disagreements
+- assumptions
+- risk
+- alternatives
+
+============================================================
+251. BUSINESS EMERGENCY RESPONSE
+============================================================
+
+Detect severe events.
+
+Temporarily pause selected automations.
+
+Notify merchant/admin.
+
+Show incident timeline.
+
+============================================================
+252. FEATURE FLAGS
+============================================================
+
+Allow:
+
+- enabled
+- disabled
+- gradual rollout
+
+by:
+
+- platform
+- merchant
+- store
+- user
+
+============================================================
+253. SAFE ROLLOUT
+============================================================
+
+Support:
+
+5%
+→ 20%
+→ 50%
+→ 100%
+
+where required.
+
+============================================================
+254. KILL SWITCHES
+============================================================
+
+Provide safe switches for:
+
+- AI autonomy
+- marketing automation
+- supplier automation
+- webhook processing
+- selected integrations
+
+Normal commerce should remain available when safe.
+
+============================================================
+255. SYSTEM HEALTH
+============================================================
+
+Monitor not only infrastructure but business health:
+
+- checkout success
+- order creation
+- payment confirmation
+- webhook failures
+- payout backlog
+- inventory consistency
+- supplier import failures
+- automation failures
+- AI failures
+
+============================================================
+256. RECONCILIATION JOBS
+============================================================
+
+Periodically compare:
+
+payments ↔ orders ↔ ledger
+
+refunds ↔ ledger
+
+payouts ↔ balances
+
+orders ↔ inventory
+
+supplier orders ↔ merchant orders
+
+============================================================
+257. DATA REPAIR TOOLS
+============================================================
+
+Admin may have controlled tools to:
+
+- rebuild derived data
+- replay events
+- reconcile inventory
+- reconcile balances
+- retry jobs
+
+Every repair must be audited.
+
+============================================================
+258. REAL-TIME UPDATES
+============================================================
+
+Where appropriate support:
+
+- live orders
+- live notifications
+- live inventory
+- live messages
+- live shipment updates
+- live AI approval requests
+
+============================================================
+259. DASHBOARD DRILLDOWN
+============================================================
+
+Every major dashboard metric should be clickable.
+
+Revenue:
+
+→ orders
+
+Orders:
+
+→ customers/products
+
+Product:
+
+→ variants/inventory/orders
+
+Payment:
+
+→ ledger/order/customer
+
+============================================================
+260. GLOBAL SEARCH
+============================================================
+
+Merchant search should find:
+
+- customers
+- orders
+- invoices
+- products
+- payments
+- payouts
+- tickets
+- bookings
+- subscriptions
+- stores
+- supplier imports
+
+============================================================
+261. COMMAND PALETTE
+============================================================
+
+Ctrl/Cmd + K
+
+Examples:
+
+"New product"
+
+"Create order"
+
+"Show unpaid invoices"
+
+"Customers who spent over $500"
+
+"Open Lagos warehouse"
+
+"Create coupon"
+
+"Show failed payments"
+
+============================================================
+262. AI COMMAND BAR
+============================================================
+
+Natural language:
+
+"Find customers who spent over ₦500,000 and haven't bought in 60 days."
+
+"Create a report."
+
+"Create a 10% win-back campaign."
+
+"Which products are losing money?"
+
+"Why did sales fall?"
+
+"Create a bundle."
+
+============================================================
+263. DANGEROUS COMMAND PREVIEW
+============================================================
+
+If user says:
+
+"Refund John $900."
+
+Show:
+
+- customer
+- order
+- payment
+- refund amount
+- financial effect
+- inventory effect if applicable
+
+Then require confirmation.
+
+============================================================
+264. CONTEXTUAL DEEP LINKS
+============================================================
+
+From product:
+
+Product
+→ inventory
+→ orders
+→ customers
+→ reviews
+→ profit
+→ campaigns
+→ AI
+
+From order:
+
+Order
+→ customer
+→ products
+→ payment
+→ ledger
+→ fulfillment
+→ shipment
+→ refund
+→ support
+
+From customer:
+
+Customer
+→ orders
+→ payments
+→ subscriptions
+→ memberships
+→ courses
+→ bookings
+→ loyalty
+→ support
+
+============================================================
+265. UNIVERSAL TIMELINES
+============================================================
+
+Important objects should have timelines:
+
+- customer
+- order
+- payment
+- product
+- supplier
+- subscription
+- support ticket
+- booking
+- AI action
+
+============================================================
+266. ONBOARDING
+============================================================
+
+Merchant signup:
+
+account
+→ store
+→ currency
+→ business details
+→ verification
+→ product setup
+→ TS Pay configuration
+→ shipping
+→ tax
+→ launch
+
+============================================================
+267. DYNAMIC ONBOARDING CHECKLIST
+============================================================
+
+Only show tasks that remain relevant.
+
+Do not show:
+
+"Add first product"
+
+when merchant already has 100.
+
+============================================================
+268. EMPTY STATES
+============================================================
+
+Every empty page must explain:
+
+- what it is
+- why it is empty
+- what to do next
+- useful action
+
+============================================================
+269. AUTOSAVE
+============================================================
+
+Long forms:
+
+- autosave
+- draft
+- recovery
+- unsaved warning
+
+============================================================
+270. VERSION HISTORY
+============================================================
+
+Applicable to:
+
+- pages
+- themes
+- products
+- campaigns
+- automations
+- AI changes
+
+============================================================
+271. MOBILE UX
+============================================================
+
+Do not simply shrink desktop UI.
+
+Use:
+
+- responsive tables
+- cards
+- expandable rows
+- bottom actions
+- touch controls
+
+============================================================
+272. ACCESSIBILITY
+============================================================
+
+Use:
+
+- semantic HTML
+- keyboard controls
+- labels
+- focus management
+- screen-reader compatibility
+- accessible dialogs
+- usable contrast
+
+============================================================
+273. MOBILE APPS
+============================================================
+
+Android and iOS should support core operations:
+
+- orders
+- products
+- inventory
+- customers
+- TS Pay
+- balances
+- payouts
+- marketplace
+- marketing
+- analytics
+- AI
+- notifications
+- settings
+
+============================================================
+274. PWA
+============================================================
+
+PWA must support core merchant operations.
+
+============================================================
+275. WEB/APP FEATURE PARITY
+============================================================
+
+The web version MUST have all major abilities of the mobile app.
+
+Do not intentionally cripple the website.
+
+============================================================
+276. CUSTOMER MOBILE VAULT
+============================================================
+
+Customer can access:
+
+- purchases
+- courses
+- ebooks
+- audio
+- video
+- tickets
+- memberships
+- subscriptions
+- bookings
+- receipts
+- orders
+
+============================================================
+277. OFFLINE MODE
+============================================================
+
+Where practical support offline:
+
+- POS
+- event check-in
+- selected inventory operations
+- selected order operations
+
+============================================================
+278. OFFLINE CONFLICT RESOLUTION
+============================================================
+
+When reconnecting:
+
+- identify local changes
+- identify server changes
+- resolve conflicts safely
+- avoid duplicates
+- preserve audit trail
+
+============================================================
+279. PERFORMANCE
+============================================================
+
+Implement:
+
+- indexes
+- pagination
+- caching
+- background jobs
+- optimized images
+- asynchronous processing
+- efficient queries
+- code splitting
+- lazy loading where appropriate
+
+============================================================
+280. DATABASE OPTIMIZATION
+============================================================
+
+Index common fields:
+
+- tenant_id
+- store_id
+- customer_id
+- order_id
+- product_id
+- variant_id
+- payment_id
+- created_at
+- status
+
+============================================================
+281. PAGINATION
+============================================================
+
+Never return massive datasets unnecessarily.
+
+Use:
+
+- cursor pagination where suitable
+- page pagination where appropriate
+
+============================================================
+282. CACHING
+============================================================
+
+Cache safe, frequently accessed non-sensitive data.
+
+Invalidate caches when authoritative data changes.
+
+============================================================
+283. BACKGROUND JOBS
+============================================================
+
+Use workers for:
+
+- imports
+- supplier checks
+- analytics
+- report generation
+- reconciliation
+- notifications
+- scheduled tasks
+- AI jobs
+- campaigns
+
+============================================================
+284. JOB RETRY
+============================================================
+
+Use:
+
+- exponential backoff
+- max attempts
+- dead-letter handling
+- error logging
+
+============================================================
+285. SECURITY AUDIT
+============================================================
+
+Audit:
+
+- logins
+- permission changes
+- payouts
+- refunds
+- financial adjustments
+- supplier changes
+- AI actions
+- API keys
+- security settings
+
+============================================================
+286. ADMIN AUDIT LOG
+============================================================
+
+Store:
+
+- who
+- what
+- when
+- resource
+- before
+- after
+- reason
+- IP/device context where appropriate
+- result
+
+============================================================
+287. CUSTOMER PRIVACY
+============================================================
+
+Use least privilege.
+
+Never expose one merchant's customer data to another.
+
+============================================================
+288. CUSTOMER DATA RETENTION
+============================================================
+
+Define retention rules.
+
+Financial records may require retention.
+
+Personal data deletion may require anonymization.
+
+============================================================
+289. SECRET MANAGEMENT
+============================================================
+
+Never commit:
+
+- passwords
+- API keys
+- webhook secrets
+- database credentials
+- private keys
+- supplier credentials
+
+============================================================
+290. ENVIRONMENT CONFIGURATION
+============================================================
+
+Provide .env.example.
+
+Core configuration:
+
+APP_URL=
+WEB_URL=
+API_URL=
+NODE_ENV=
+
+DATABASE_URL=
+
+AUTH_SECRET=
+SESSION_SECRET=
+
+TS_PAY_SECRET=
+TS_PAY_LEDGER_SECRET=
+
+Optional providers:
+
+STRIPE_*
+PAYSTACK_*
+FLUTTERWAVE_*
+PAYPAL_*
+RESEND_*
+TWILIO_*
+FIREBASE_*
+S3_*
+CLOUDFLARE_*
+GOOGLE_MAPS_*
+KYC_*
+TAX_*
+SHIPPING_*
+AI_*
+
+These must remain optional.
+
+============================================================
+291. NO-API TEST
+============================================================
+
+Run the platform with no external provider credentials.
+
+Core must still support:
+
+- signup
+- login
+- admin
+- merchant
+- stores
+- storefront
+- products
+- inventory
+- supplier URL import
+- customers
+- CRM
+- cart
+- checkout
+- TS Pay
+- payment links
+- invoices
+- orders
+- refunds
+- disputes
+- balances
+- manual payouts
+- marketplace
+- subscription records
+- tax
+- shipping
+- digital products
+- courses
+- memberships
+- services
+- bookings
+- events
+- tickets
+- POS
+- B2B
+- analytics
+- reporting
+- staff
+- locations
+- automations
+- AI business intelligence
+- internal notifications
+- support
+- audit
+
+============================================================
+292. OPTIONAL PROVIDER TEST
+============================================================
+
+When external provider configured:
+
+Test:
+
+- connection
+- validation
+- retries
+- failure
+- idempotency
+- reconciliation
+- fallback
+
+============================================================
+293. SUPPLIER URL TESTING
+============================================================
+
+Test:
+
+- valid product
+- invalid URL
+- inaccessible URL
+- no structured data
+- partial data
+- missing price
+- missing image
+- variants
+- duplicate
+- source changes
+- malicious URL
+- SSRF
+- redirects
+- rate limiting
+- manual fallback
+
+============================================================
+294. CHECKOUT TESTING
+============================================================
+
+Test:
+
+- successful transfer workflow
+- cash
+- payment on delivery
+- manual method
+- failed payment confirmation
+- duplicate requests
+- price manipulation
+- tax manipulation
+- shipping manipulation
+- discount manipulation
+- inventory race
+- refunds
+- partial refunds
+- cancellations
+
+============================================================
+295. TENANT TESTING
+============================================================
+
+Test cross-merchant access at:
+
+- UI
+- API
+- services
+- data layer
+
+============================================================
+296. AI TESTING
+============================================================
+
+Test:
+
+- prompt injection
+- tenant isolation
+- permission enforcement
+- approval
+- refusal
+- rollback
+- action logging
+- kill switch
+
+============================================================
+297. FINANCIAL TESTING
+============================================================
+
+Test:
+
+Sale $100
+
+Fee $1
+
+Merchant amount before other applicable charges $99
+
+Test:
+
+- taxes
+- discounts
+- shipping
+- fees
+- marketplace
+- refunds
+- payouts
+- adjustments
+- multiple currencies
+
+============================================================
+298. ORDER TESTING
+============================================================
+
+Test:
+
+- creation
+- payment
+- fulfillment
+- partial fulfillment
+- cancellation
+- return
+- refund
+- exchange
+
+============================================================
+299. INVENTORY TESTING
+============================================================
+
+Test:
+
+- concurrent purchases
+- reservation
+- release
+- commit
+- returns
+- transfers
+- stockout
+- supplier changes
+- POS
+- multi-location
+
+============================================================
+300. SUBSCRIPTION TESTING
+============================================================
+
+Test:
+
+- create
+- renew
+- payment failure
+- grace period
+- cancel
+- expire
+- entitlement
+
+============================================================
+301. EVENT TESTING
+============================================================
+
+Test:
+
+- ticket
+- capacity
+- QR
+- check-in
+- duplicate scan
+- offline check-in
+- refund
+
+============================================================
+302. BOOKING TESTING
+============================================================
+
+Test:
+
+- slot availability
+- simultaneous booking
+- double booking
+- cancellation
+- rescheduling
+- staff
+- resources
+
+============================================================
+303. DIGITAL TESTING
+============================================================
+
+Test:
+
+- entitlement
+- download
+- expiry
+- revocation
+- unauthorized access
+
+============================================================
+304. MARKETPLACE TESTING
+============================================================
+
+Test:
+
+- listing
+- approval
+- moderation
+- fees
+- search
+- discovery
+- purchase
+- refund
+
+============================================================
+305. REPORT TESTING
+============================================================
+
+Every report must reconcile against source-of-truth records.
+
+============================================================
+306. ACCOUNTING TESTING
+============================================================
+
+Verify:
+
+sale
+→ ledger
+
+refund
+→ reversal
+
+payout
+→ balance reduction/appropriate settlement state
+
+expense
+→ expense report
+
+============================================================
+307. ADMIN DATA REPAIR
+============================================================
+
+Any repair action must:
+
+- require permission
+- create audit
+- be traceable
+- be reversible where possible
+
+============================================================
+308. SYSTEM BACKUPS
+============================================================
+
+Document:
+
+- database backup
+- restoration
+- media backup
+- disaster recovery
+- recovery testing
+- migration rollback
+
+============================================================
+309. OBSERVABILITY
+============================================================
+
+Implement:
+
+- logs
+- errors
+- traces where appropriate
+- health checks
+- job monitoring
+- payment monitoring
+- supplier monitoring
+- AI monitoring
+- database monitoring
+
+============================================================
+310. HEALTH CHECKS
+============================================================
+
+Monitor:
+
+- database
+- application
+- queue
+- TS Pay
+- ledger
+- storage
+- supplier worker
+- webhook worker
+
+============================================================
+311. ADMIN SYSTEM HEALTH
+============================================================
+
+Dashboard shows:
+
+CORE PLATFORM
+Operational
+
+TS Pay
+Operational
+
+Checkout
+Operational
+
+Marketplace
+Operational
+
+Inventory
+Operational
+
+CRM
+Operational
+
+Tax Engine
+Operational
+
+Shipping Engine
+Operational
+
+Supplier URL Import
+Operational
+
+Internal Analytics
+Operational
+
+Internal Notifications
+Operational
+
+AI Layer
+Operational where configured
+
+============================================================
+312. OPTIONAL INTEGRATION STATUS
+============================================================
+
+Show:
+
+Stripe:
+Not Configured
+
+Paystack:
+Not Configured
+
+Flutterwave:
+Not Configured
+
+PayPal:
+Not Configured
+
+Email:
+Not Configured
+
+SMS:
+Not Configured
+
+Push:
+Not Configured
+
+External KYC:
+Not Configured
+
+External Tax:
+Not Configured
+
+External Shipping:
+Not Configured
+
+External Storage:
+Not Configured
+
+External DNS:
+Not Configured
+
+External AI:
+Not Configured
+
+This must NOT be considered a core platform failure.
+
+============================================================
+313. MASTER ADMIN FINANCIAL DASHBOARD
+============================================================
+
+Display:
+
+- GMV
+- platform revenue
+- merchant subscriptions
+- marketplace revenue
+- transaction fees
+- refunds
+- payouts
+- merchant balances
+- adjustments
+- settlements
+- reconciliation
+
+============================================================
+314. MASTER ADMIN AI DASHBOARD
+============================================================
+
+Display:
+
+- active agents
+- actions
+- approvals
+- failures
+- autonomy
+- policies
+- kill switch
+
+============================================================
+315. MASTER ADMIN GLOBAL SEARCH
+============================================================
+
+Search:
+
+- merchant
+- store
+- customer
+- product
+- order
+- payment
+- payout
+- ticket
+- supplier
+- listing
+
+============================================================
+316. MASTER ADMIN BULK ACTIONS
+============================================================
+
+Support safe bulk actions.
+
+For dangerous actions provide:
+
+- selection count
+- impact
+- affected objects
+- confirmation
+- audit
+
+============================================================
+317. SUPPORT ACCESS
+============================================================
+
+Admin may have:
+
+View as merchant
+
+Default:
+
+Read-only
+
+Must be:
+
+- explicit
+- time-limited
+- audited
+- visible
+
+============================================================
+318. FEATURE DISCOVERABILITY
+============================================================
+
+Navigation should adapt based on merchant configuration without
+removing underlying capabilities.
+
+============================================================
+319. BUSINESS POLICY ENGINE
+============================================================
+
+Merchant can define rules such as:
+
+Never discount below 25% margin.
+
+Never sell internationally.
+
+Never automatically change product price.
+
+AI cannot refund over $100.
+
+Supplier stock below 10 requires approval.
+
+These policies must override AI recommendations/actions.
+
+============================================================
+320. RULE PRIORITY
+============================================================
+
+Highest priority:
+
+Platform security
+
+Platform compliance
+
+Authorization
+
+Merchant policies
+
+Workflow restrictions
+
+AI permissions
+
+AI recommendations
+
+AI may never override higher-level constraints.
+
+============================================================
+321. AI ACTION RATE LIMITING
+============================================================
+
+Prevent:
+
+- runaway loops
+- repeated campaigns
+- repeated discounts
+- repeated messages
+- excessive refunds
+
+============================================================
+322. AI ACTION PREVIEW
+============================================================
+
+Before risky action:
+
+Affected records
+
+Expected effect
+
+Financial effect
+
+Customer effect
+
+Risk
+
+Approval
+
+============================================================
+323. AI EXPLANATION
+============================================================
+
+AI recommendation:
+
+"Raise Product X by 5%."
+
+Show:
+
+Current price
+Cost
+Margin
+Historical conversion
+Current demand
+Inventory
+Reason
+Expected effect
+Confidence
+
+============================================================
+324. AI BUSINESS MEMORY
+============================================================
+
+Merchant memory should store structured preferences rather than
+blind conversation history.
+
+============================================================
+325. AI MEMORY CONTROLS
+============================================================
+
+Merchant can:
+
+- inspect
+- edit
+- delete
+- disable
+- reset
+
+============================================================
+326. AI CONTEXT ISOLATION
+============================================================
+
+Each AI request receives only the minimum authorized tenant/store
+context.
+
+============================================================
+327. AI ACTION APPROVAL
+============================================================
+
+High-risk financial actions require explicit approval.
+
+============================================================
+328. HUMAN-AI HANDOFF
+============================================================
+
+AI can escalate:
+
+"Human action required."
+
+Provide:
+
+- reason
+- evidence
+- recommended next step
+
+============================================================
+329. CUSTOMER-FACING AI SAFETY
+============================================================
+
+AI must not:
+
+- invent inventory
+- invent payment status
+- invent shipping
+- invent refunds
+- expose private data
+- promise impossible outcomes
+
+============================================================
+330. BUSINESS MORNING DASHBOARD
+============================================================
+
+Merchant dashboard should answer:
+
+How did I do yesterday?
+
+What needs attention?
+
+What am I likely to sell today?
+
+What might go wrong?
+
+What opportunity am I missing?
+
+What can AI handle?
+
+============================================================
+331. AI OPERATING CALENDAR
+============================================================
+
+Generate:
+
+- today's actions
+- weekly actions
+- campaign schedule
+- stock checks
+- customer follow-up
+- reporting schedule
+
+============================================================
+332. BUSINESS EMERGENCY TIMELINE
+============================================================
+
+Record:
+
+incident detected
+→ alert
+→ AI analysis
+→ human approval
+→ action
+→ resolution
+
+============================================================
+333. BUSINESS TWIN SIMULATOR
+============================================================
+
+Simulation must NEVER modify production records.
+
+Use isolated simulation state.
+
+============================================================
+334. TEST ENVIRONMENT
+============================================================
+
+Separate:
+
+- development
+- staging
+- production
+
+Test data must be clearly identifiable.
+
+============================================================
+335. PRODUCTION SAFETY
+============================================================
+
+Never allow test-mode payment events to alter production balances.
+
+============================================================
+336. AUDIT TRAIL
+============================================================
+
+Every sensitive action creates an immutable audit record where
+appropriate.
+
+============================================================
+337. PERFORMANCE MONITORING
+============================================================
+
+Track:
+
+- API latency
+- page latency
+- checkout latency
+- payment confirmation latency
+- job latency
+- supplier import latency
+
+============================================================
+338. CUSTOMER EXPERIENCE
+============================================================
+
+Customer journey:
+
+Discovery
+→ Product
+→ Cart
+→ Checkout
+→ TS Pay
+→ Confirmation
+→ Fulfillment
+→ Delivery
+→ Review
+→ Repeat purchase
+
+============================================================
+339. MERCHANT EXPERIENCE
+============================================================
+
+Merchant journey:
+
+Signup
+→ Store
+→ Product
+→ Inventory
+→ TS Pay
+→ Publish
+→ Sell
+→ Fulfill
+→ Analyze
+→ Automate
+→ Grow
+
+============================================================
+340. SUPPLIER EXPERIENCE
+============================================================
+
+Merchant:
+
+Paste URL
+→ Extract
+→ Review
+→ Price
+→ Import
+→ Publish
+→ Customer order
+→ Fulfillment
+→ Tracking
+
+============================================================
+341. EVERYTHING CONNECTED
+============================================================
+
+The application must NOT be built as disconnected pages.
+
+Examples:
+
+Product
+↔ Variant
+↔ Inventory
+↔ Orders
+↔ Customers
+↔ Reviews
+↔ Profit
+↔ Marketing
+↔ AI
+
+Customer
+↔ Cart
+↔ Checkout
+↔ Payment
+↔ Order
+↔ Shipment
+↔ Refund
+↔ CRM
+↔ Loyalty
+↔ AI
+
+Supplier
+↔ Product
+↔ Cost
+↔ Inventory
+↔ Order
+↔ Fulfillment
+↔ Tracking
+
+Campaign
+↔ Segment
+↔ Customer
+↔ Order
+↔ Revenue
+↔ Profit
+↔ Attribution
+
+Subscription
+↔ Payment
+↔ Customer
+↔ Entitlement
+↔ Product
+↔ Renewal
+↔ Cancellation
+
+Booking
+↔ Service
+↔ Customer
+↔ Staff
+↔ Availability
+↔ Payment
+↔ Review
+
+Event
+↔ Ticket
+↔ Customer
+↔ Order
+↔ Payment
+↔ Check-in
+
+AI
+↔ Business Data
+↔ Recommendation
+↔ Approval
+↔ Action
+↔ Outcome
+
+============================================================
+342. NO FEATURE IS COMPLETE IN ISOLATION
+============================================================
+
+A feature is NOT complete because:
+
+- a page exists
+- a button exists
+- a database table exists
+- an API endpoint exists
+
+A feature is complete only when its relevant:
+
+- data
+- business logic
+- permissions
+- validations
+- events
+- analytics
+- notifications
+- automations
+- audit
+- financial implications
+- AI implications
+- error handling
+
+are implemented.
+
+============================================================
+343. FINAL BUSINESS MODEL
+============================================================
+
+Merchant:
+
+$30/month
+
+No free trial.
+
+No promotional pricing.
+
+Unlimited stores.
+
+Marketplace:
+
+$5/month
+
+$5/product listing.
+
+Transaction:
+
+1%
+
+============================================================
+344. FINAL PAYMENT MODEL
+============================================================
+
+TS Pay is first-party.
+
+External payment providers are optional rails.
+
+Core checkout does not require those APIs.
+
+============================================================
+345. FINAL SUPPLIER MODEL
+============================================================
+
+Merchant does NOT enter supplier API key.
+
+Merchant pastes supplier/product URL.
+
+TS Commerce attempts permitted extraction.
+
+Merchant reviews and edits.
+
+Manual fallback exists.
+
+No supplier whitelist.
+
+============================================================
+346. FINAL CHECKOUT MODEL
+============================================================
+
+Full checkout remains intact.
+
+Do not remove:
+
+- product validation
+- variant validation
+- inventory validation
+- inventory reservation
+- price validation
+- discount validation
+- tax calculation
+- shipping calculation
+- fee calculation
+- TS Pay
+- payment verification
+- order creation
+- inventory update
+- invoice
+- receipt
+- ledger
+- fulfillment
+- notifications
+- duplicate protection
+- fraud/risk controls
+- server-side authority
+
+============================================================
+347. FINAL NO-API MODEL
+============================================================
+
+Core TS Commerce must operate without mandatory external API keys.
+
+Supplier APIs may exist as optional backend integrations.
+
+Merchants should normally use:
+
+PASTE LINK
+
+not:
+
+PASTE API KEY
+
+============================================================
+348. FINAL NO-FAKE RULE
+============================================================
+
+Never fabricate:
+
+- payment
+- payout
+- order
+- inventory
+- analytics
+- supplier information
+- fulfillment
+- AI actions
+- revenue
+- profit
+- customer data
+
+============================================================
+349. FINAL REGULATORY RULE
+============================================================
+
+Do not claim TS Commerce is a bank, acquiring institution,
+payment institution, card network, money transmitter, or other
+regulated financial entity unless the necessary legal/regulatory
+requirements have actually been satisfied.
+
+TS Pay is the first-party software layer.
+
+Actual regulated financial rails can be connected underneath.
+
+============================================================
+350. FINAL QUALITY BAR
+============================================================
+
+The resulting product should feel like:
+
+Shopify
++
+Selar
++
+Stripe-like payment software
++
+POS
++
+Marketplace
++
+CRM
++
+B2B Commerce
++
+Digital Commerce
++
+Services
++
+Bookings
++
+Events
++
+Business Intelligence
++
+AI CEO
++
+AI CFO
++
+AI CMO
++
+AI COO
++
+AI CRO
++
+Business Autopilot
+
+BUT:
+
+TS Commerce must own its own core architecture.
+
+============================================================
+351. FINAL ARCHITECTURE
+============================================================
+
+TS COMMERCE
+|
+|-- IDENTITY
+|
+|-- MERCHANT OS
+|   |-- STORES
+|   |-- PRODUCTS
+|   |-- INVENTORY
+|   |-- ORDERS
+|   |-- CRM
+|   |-- MARKETING
+|   |-- STAFF
+|   |-- LOCATIONS
+|   |-- ANALYTICS
+|
+|-- MARKETPLACE
+|
+|-- TS PAY
+|   |-- CHECKOUT
+|   |-- TRANSACTIONS
+|   |-- PAYMENT LINKS
+|   |-- INVOICES
+|   |-- LEDGER
+|   |-- BALANCES
+|   |-- FEES
+|   |-- REFUNDS
+|   |-- DISPUTES
+|   |-- PAYOUTS
+|   |-- RECONCILIATION
+|   |-- RISK
+|
+|-- SUPPLIERS
+|   |-- URL IMPORT
+|   |-- PRODUCT EXTRACTION
+|   |-- SOURCE TRACKING
+|   |-- SUPPLIER ORDERS
+|   |-- FULFILLMENT
+|   |-- OPTIONAL NATIVE ADAPTERS
+|
+|-- TS AI
+|   |-- CEO
+|   |-- CFO
+|   |-- CMO
+|   |-- COO
+|   |-- CRO
+|   |-- INVENTORY
+|   |-- CUSTOMER
+|   |-- MERCHANDISER
+|   |-- SUPPLIER
+|   |-- SUPPORT
+|   |-- RISK
+|   |-- SEO
+|   |-- BUSINESS TWIN
+|   |-- AUTOPILOT
+|
+|-- POS
+|
+|-- B2B
+|
+|-- DIGITAL
+|
+|-- COURSES
+|
+|-- MEMBERSHIPS
+|
+|-- SERVICES
+|
+|-- BOOKINGS
+|
+|-- EVENTS
+|
+|-- SUBSCRIPTIONS
+|
+|-- SHIPPING
+|
+|-- TAX
+|
+|-- CRM
+|
+|-- MARKETING
+|
+|-- LOYALTY
+|
+|-- AFFILIATE
+|
+|-- REFERRALS
+|
+|-- AUTOMATION
+|
+|-- NOTIFICATIONS
+|
+|-- SUPPORT
+|
+|-- DEVELOPER PLATFORM
+|
+|-- MOBILE/PWA
+|
+|-- MASTER ADMIN
+|
+|-- SECURITY
+|
+|-- AUDIT
+|
+|-- OBSERVABILITY
+|
+|-- BACKUPS
+
+============================================================
+352. FINAL MASTER DIRECTIVE
+============================================================
+
+Build the actual TS Commerce platform.
+
+Preserve all requested features.
+
+Do not remove features because of API limitations.
+
+Do not replace TS Pay with third-party dashboards.
+
+Do not force merchants to enter supplier API keys.
+
+Do not limit merchants to manually registered suppliers.
+
+Allow merchants to paste supplier/product links.
+
+Keep full checkout functionality.
+
+Keep server-authoritative financial logic.
+
+Keep complete merchant dashboards.
+
+Keep complete Master Admin control.
+
+Keep tenant isolation.
+
+Keep real analytics.
+
+Keep real auditability.
+
+Keep real workflows.
+
+Keep real automation.
+
+Keep AI permission boundaries.
+
+Keep AI business autonomy architecture.
+
+Keep first-party TS Pay.
+
+Keep first-party internal payment/manual workflows.
+
+Keep optional external adapters.
+
+The core platform must function without mandatory third-party API keys.
+
+============================================================
+353. FINAL PRODUCT PRINCIPLE
+============================================================
+
+TS COMMERCE OWNS THE CORE.
+
+TS PAY OWNS THE PAYMENT EXPERIENCE.
+
+TS AI OWNS THE BUSINESS INTELLIGENCE AND BUSINESS OPERATING EXPERIENCE.
+
+THE MERCHANT OWNS THEIR BUSINESS.
+
+THE MERCHANT PASTES SUPPLIER LINKS.
+
+THE MERCHANT DOES NOT NEED SUPPLIER API KEYS.
+
+THE CORE DOES NOT REQUIRE THIRD-PARTY API KEYS.
+
+THE CHECKOUT REMAINS COMPLETE.
+
+THE FEATURES MUST BE CONNECTED.
+
+THE DATA MUST BE AUTHORITATIVE.
+
+THE FINANCIAL RECORDS MUST BE AUDITABLE.
+
+THE AI MUST BE CONTROLLED.
+
+THE PLATFORM MUST FEEL LIKE ONE SYSTEM.
+
+DO NOT BUILD 300 SEPARATE FEATURES.
+
+BUILD ONE COMMERCE OPERATING SYSTEM WITH 300+ CAPABILITIES THAT WORK TOGETHER.
+
+============================================================
+354. END STATE
+============================================================
+
+The final TS Commerce experience should make a merchant feel:
+
+"I have one system running my entire business."
+
+They should not need separate tools for:
+
+- storefront
+- marketplace
+- payments
+- orders
+- inventory
+- CRM
+- marketing
+- customer support
+- courses
+- digital products
+- memberships
+- services
+- bookings
+- events
+- POS
+- B2B
+- accounting
+- analytics
+- suppliers
+- automation
+- business intelligence
+
+And with AI autonomy enabled:
+
+"I have an AI operating team helping me run the business."
+
+That is the final objective.
+
+# END OF TS COMMERCE MICROSCOPE-LEVEL MASTER BUILD PROMPT
+```

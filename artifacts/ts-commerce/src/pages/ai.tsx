@@ -18,6 +18,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
+  customFetch,
   getGetAiOverviewQueryKey,
   getGetAiSettingsQueryKey,
   getListAiActionsQueryKey,
@@ -156,6 +157,14 @@ export default function AiControlRoom() {
   const [simulation, setSimulation] = useState<Awaited<ReturnType<typeof simulate.mutateAsync>> | null>(null);
   const [operatorCommand, setOperatorCommand] = useState('');
   const [operatorPlan, setOperatorPlan] = useState<OperatorPlan | null>(null);
+  const [copilotMessage, setCopilotMessage] = useState('');
+  const [copilotReply, setCopilotReply] = useState<{
+    reply: string;
+    model: string;
+    groundedAt: string;
+    evidence: { storeName: string; currency: string; healthScore: number };
+  } | null>(null);
+  const [copilotPending, setCopilotPending] = useState(false);
 
   if (overview.isLoading || settings.isLoading || actions.isLoading) {
     return <AppShell><LoadingState label="Loading AI control room" /></AppShell>;
@@ -302,6 +311,28 @@ export default function AiControlRoom() {
       onError: () => setMessage('The operator could not prepare that action. Open the owning workflow and try again.'),
     });
   };
+  const askCopilot = async () => {
+    const question = copilotMessage.trim();
+    if (question.length < 3) {
+      setMessage('Ask the copilot a specific business question first.');
+      return;
+    }
+    setCopilotPending(true);
+    setCopilotReply(null);
+    setMessage('');
+    try {
+      const result = await customFetch<NonNullable<typeof copilotReply>>('/api/ai/copilot', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: question }),
+      });
+      setCopilotReply(result);
+    } catch {
+      setMessage('The AI copilot could not answer right now. No commerce data was changed.');
+    } finally {
+      setCopilotPending(false);
+    }
+  };
   const errorMessage = message.includes('not') || message.includes('could') || message.includes('requires');
 
   return <AppShell>
@@ -328,6 +359,15 @@ export default function AiControlRoom() {
          <div className="mt-6 flex flex-col gap-3 md:flex-row"><input value={operatorCommand} onChange={(event) => setOperatorCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') runOperator(); }} maxLength={500} placeholder="e.g. Help me launch a new product and promote it" className="h-12 min-w-0 flex-1 rounded-lg border border-[#536174] bg-[#263644] px-4 text-sm font-bold text-[#f8f3e8] outline-none placeholder:text-[#9aa7b5] focus:border-[#d6aa46]" data-testid="input-ai-operator-command" /><Button onClick={runOperator} className="h-12 shrink-0 bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]"><Command className="h-4 w-4" />Plan this work</Button></div>
          <div className="mt-4 flex flex-wrap gap-2">{['Improve my product catalog', 'Find order blockers', 'Help with customer retention', 'Review low stock', 'Prepare a campaign', 'Explain my finances'].map((prompt) => <button key={prompt} type="button" onClick={() => { setOperatorCommand(prompt); setOperatorPlan(planForCommand(prompt)); }} className="rounded-full border border-[#536174] px-3 py-1.5 text-xs font-bold text-[#d8e1e3] transition hover:border-[#d6aa46] hover:text-[#f8f3e8]">{prompt}</button>)}</div>
          {operatorPlan && <div className="mt-6 grid gap-4 rounded-xl border border-[#536174] bg-[#263644] p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-extrabold">{operatorPlan.title}</h3><Badge tone="info">guarded plan</Badge></div><p className="mt-2 text-sm leading-6 text-[#d8e1e3]">{operatorPlan.summary}</p><ol className="mt-4 grid gap-2 text-xs text-[#b8c2cc] md:grid-cols-3">{operatorPlan.steps.map((step, index) => <li key={step} className="rounded-lg border border-[#536174] p-3"><span className="font-mono text-[#d6aa46]">0{index + 1}</span><span className="mt-2 block">{step}</span></li>)}</ol></div><div className="flex flex-wrap items-end gap-2 md:flex-col md:items-stretch md:justify-end"><Link href={operatorPlan.href} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#f8f3e8] hover:bg-[#344454]">Open workflow <ArrowRight className="h-3.5 w-3.5" /></Link>{operatorPlan.action && <Button onClick={prepareOperatorAction} disabled={createAction.isPending} className="min-h-9 bg-[#d6aa46] px-3 py-2 text-xs text-[#182333] hover:bg-[#e0b95d]"><Sparkles className="h-3.5 w-3.5" />{createAction.isPending ? 'Preparing…' : 'Prepare for approval'}</Button>}</div></div>}
+       </section>
+
+       <section className="mt-8 rounded-xl border border-[#526b8a] bg-[#eef3f8] p-6 md:p-7">
+         <div className="flex flex-wrap items-start justify-between gap-5">
+           <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#315e6c]">Provider-backed copilot</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Ask about the whole business.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[#536174]">OpenAI reads a fresh, tenant-scoped snapshot of your commerce evidence for each question. It can explain what is happening and prepare next steps, but it cannot publish, message customers, change permissions, move money, approve payouts, or change stock.</p></div>
+           <BrainCircuit className="h-6 w-6 text-[#315e6c]" />
+         </div>
+         <div className="mt-6 flex flex-col gap-3 md:flex-row"><textarea value={copilotMessage} onChange={(event) => setCopilotMessage(event.target.value)} maxLength={2000} rows={3} placeholder="e.g. What is the safest way to improve sales this month without risking cash flow?" className="min-w-0 flex-1 rounded-lg border border-[#bfd6dc] bg-white px-4 py-3 text-sm font-bold outline-none placeholder:text-[#8997a8] focus:border-[#315e6c]" data-testid="input-ai-copilot" /><Button onClick={() => void askCopilot()} disabled={copilotPending || copilotMessage.trim().length < 3} className="h-12 shrink-0 self-start bg-[#315e6c] text-white hover:bg-[#274d59]"><Sparkles className="h-4 w-4" />{copilotPending ? 'Thinking…' : 'Ask copilot'}</Button></div>
+         {copilotReply && <div className="mt-5 rounded-xl border border-[#bfd6dc] bg-white p-5"><div className="whitespace-pre-wrap text-sm leading-7 text-[#263644]">{copilotReply.reply}</div><p className="mt-4 border-t border-[#e1e8eb] pt-3 text-[11px] text-[#697687]">Grounded in {copilotReply.evidence.storeName} · {copilotReply.evidence.currency} · health {copilotReply.evidence.healthScore}/100 · {new Date(copilotReply.groundedAt).toLocaleString()}</p></div>}
        </section>
 
       <section className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
