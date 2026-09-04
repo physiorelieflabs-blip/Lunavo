@@ -1261,7 +1261,7 @@ export interface WithdrawalInput {
      * @minLength 8
      * @maxLength 120
      */
-  idempotencyKey?: string;
+  idempotencyKey: string;
 }
 
 export interface BankAccountInput {
@@ -1311,6 +1311,21 @@ export interface WithdrawalRecord {
   reviewedAt: string | null;
   /** @nullable */
   paidAt: string | null;
+  payoutProvider: string;
+  /** @nullable */
+  providerPayoutId: string | null;
+  /** @nullable */
+  providerStatus: string | null;
+  /** @nullable */
+  providerFailureReason: string | null;
+  /** @nullable */
+  settlementReference: string | null;
+  /** @nullable */
+  submittedAt: string | null;
+  /** @nullable */
+  settledAt: string | null;
+  /** @nullable */
+  failedAt: string | null;
   createdAt: string;
 }
 
@@ -1340,6 +1355,11 @@ export interface AdminWithdrawalReviewInput {
   status: AdminWithdrawalReviewInputStatus;
   /** @maxLength 500 */
   note?: string;
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  settlementReference?: string;
   /** @pattern ^[0-9]{6}$ */
   securityCode: string;
   /**

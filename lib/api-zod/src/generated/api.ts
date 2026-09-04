@@ -1300,6 +1300,14 @@ export const ListWithdrawalsResponseItem = zod.object({
   "reviewNote": zod.string().nullable(),
   "reviewedAt": zod.coerce.date().nullable(),
   "paidAt": zod.coerce.date().nullable(),
+  "payoutProvider": zod.string(),
+  "providerPayoutId": zod.string().nullable(),
+  "providerStatus": zod.string().nullable(),
+  "providerFailureReason": zod.string().nullable(),
+  "settlementReference": zod.string().nullable(),
+  "submittedAt": zod.coerce.date().nullable(),
+  "settledAt": zod.coerce.date().nullable(),
+  "failedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 })
 export const ListWithdrawalsResponse = zod.array(ListWithdrawalsResponseItem)
@@ -1332,7 +1340,7 @@ export const CreateWithdrawalBody = zod.object({
   "totpCode": zod.string().regex(createWithdrawalBodyTotpCodeRegExp),
   "pinCodes": zod.array(zod.string().regex(createWithdrawalBodyPinCodesItemRegExp)).min(createWithdrawalBodyPinCodesMin).max(createWithdrawalBodyPinCodesMax),
   "confirmation": zod.string().min(createWithdrawalBodyConfirmationMin).max(createWithdrawalBodyConfirmationMax).optional(),
-  "idempotencyKey": zod.string().min(createWithdrawalBodyIdempotencyKeyMin).max(createWithdrawalBodyIdempotencyKeyMax).optional()
+  "idempotencyKey": zod.string().min(createWithdrawalBodyIdempotencyKeyMin).max(createWithdrawalBodyIdempotencyKeyMax)
 })
 
 export const CreateWithdrawalResponse = zod.object({
@@ -1346,6 +1354,14 @@ export const CreateWithdrawalResponse = zod.object({
   "reviewNote": zod.string().nullable(),
   "reviewedAt": zod.coerce.date().nullable(),
   "paidAt": zod.coerce.date().nullable(),
+  "payoutProvider": zod.string(),
+  "providerPayoutId": zod.string().nullable(),
+  "providerStatus": zod.string().nullable(),
+  "providerFailureReason": zod.string().nullable(),
+  "settlementReference": zod.string().nullable(),
+  "submittedAt": zod.coerce.date().nullable(),
+  "settledAt": zod.coerce.date().nullable(),
+  "failedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 })
 
@@ -3606,6 +3622,14 @@ export const ListAdminWithdrawalsResponseItem = zod.object({
   "reviewNote": zod.string().nullable(),
   "reviewedAt": zod.coerce.date().nullable(),
   "paidAt": zod.coerce.date().nullable(),
+  "payoutProvider": zod.string(),
+  "providerPayoutId": zod.string().nullable(),
+  "providerStatus": zod.string().nullable(),
+  "providerFailureReason": zod.string().nullable(),
+  "settlementReference": zod.string().nullable(),
+  "submittedAt": zod.coerce.date().nullable(),
+  "settledAt": zod.coerce.date().nullable(),
+  "failedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 }).and(zod.object({
   "merchantName": zod.string(),
@@ -3623,6 +3647,9 @@ export const ReviewWithdrawalParams = zod.object({
 
 export const reviewWithdrawalBodyNoteMax = 500;
 
+export const reviewWithdrawalBodySettlementReferenceMin = 2;
+export const reviewWithdrawalBodySettlementReferenceMax = 160;
+
 export const reviewWithdrawalBodySecurityCodeRegExp = new RegExp('^[0-9]{6}$');
 export const reviewWithdrawalBodyPinCodesItemRegExp = new RegExp('^[0-9]{6}$');
 export const reviewWithdrawalBodyPinCodesMin = 5;
@@ -3636,6 +3663,7 @@ export const reviewWithdrawalBodyConfirmationMax = 80;
 export const ReviewWithdrawalBody = zod.object({
   "status": zod.enum(['approved', 'rejected', 'paid']),
   "note": zod.string().max(reviewWithdrawalBodyNoteMax).optional(),
+  "settlementReference": zod.string().min(reviewWithdrawalBodySettlementReferenceMin).max(reviewWithdrawalBodySettlementReferenceMax).optional(),
   "securityCode": zod.string().regex(reviewWithdrawalBodySecurityCodeRegExp),
   "pinCodes": zod.array(zod.string().regex(reviewWithdrawalBodyPinCodesItemRegExp)).min(reviewWithdrawalBodyPinCodesMin).max(reviewWithdrawalBodyPinCodesMax),
   "confirmation": zod.string().min(reviewWithdrawalBodyConfirmationMin).max(reviewWithdrawalBodyConfirmationMax)
@@ -3652,6 +3680,14 @@ export const ReviewWithdrawalResponse = zod.object({
   "reviewNote": zod.string().nullable(),
   "reviewedAt": zod.coerce.date().nullable(),
   "paidAt": zod.coerce.date().nullable(),
+  "payoutProvider": zod.string(),
+  "providerPayoutId": zod.string().nullable(),
+  "providerStatus": zod.string().nullable(),
+  "providerFailureReason": zod.string().nullable(),
+  "settlementReference": zod.string().nullable(),
+  "submittedAt": zod.coerce.date().nullable(),
+  "settledAt": zod.coerce.date().nullable(),
+  "failedAt": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date()
 }).and(zod.object({
   "merchantName": zod.string(),

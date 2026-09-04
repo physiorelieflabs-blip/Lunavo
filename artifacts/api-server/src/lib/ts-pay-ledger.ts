@@ -6,6 +6,34 @@ export type TsPayLedgerPosting = {
   referenceKey: string;
 };
 
+export type TsPayWithdrawalLedgerEvent = "reserve" | "release" | "paid";
+
+export function buildTsPayWithdrawalLedgerEntry(input: {
+  merchantId: number;
+  withdrawalId: number;
+  amountMinor: number;
+  currency: string;
+  event: TsPayWithdrawalLedgerEvent;
+}) {
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new Error("Withdrawal amount must be positive minor units");
+  }
+  const amountMinor =
+    input.event === "reserve"
+      ? -input.amountMinor
+      : input.event === "release"
+        ? input.amountMinor
+        : 0;
+  return {
+    merchantId: input.merchantId,
+    withdrawalId: input.withdrawalId,
+    amountMinor,
+    currency: input.currency,
+    entryType: `withdrawal_${input.event}` as const,
+    referenceKey: `withdrawal:${input.withdrawalId}:${input.event}`,
+  };
+}
+
 export function tsPayReferenceKey(merchantId: number, idempotencyKey: string) {
   const key = idempotencyKey.trim();
   if (!key) throw new Error("Transfer idempotency key is required");

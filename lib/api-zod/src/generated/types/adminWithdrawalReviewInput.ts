@@ -11,6 +11,11 @@ export interface AdminWithdrawalReviewInput {
   status: AdminWithdrawalReviewInputStatus;
   /** @maxLength 500 */
   note?: string;
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  settlementReference?: string;
   /** @pattern ^[0-9]{6}$ */
   securityCode: string;
   /**

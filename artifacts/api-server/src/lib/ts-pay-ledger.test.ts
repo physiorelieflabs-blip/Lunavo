@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildTsPayLedgerPostings,
+  buildTsPayWithdrawalLedgerEntry,
   tsPayAmountMinor,
   tsPayAvailableMinor,
   tsPayReferenceKey,
@@ -95,5 +96,45 @@ test("an idempotency replay must match the original transfer request", () => {
   assert.throws(
     () => validateTsPayReplay({ ...original, requestedNote: null }),
     /different transfer/,
+  );
+});
+
+test("withdrawal lifecycle entries reserve once, release on rejection, and settle without a second debit", () => {
+  const reserve = buildTsPayWithdrawalLedgerEntry({
+    merchantId: 12,
+    withdrawalId: 44,
+    amountMinor: 12500,
+    currency: "USD",
+    event: "reserve",
+  });
+  const release = buildTsPayWithdrawalLedgerEntry({
+    merchantId: 12,
+    withdrawalId: 44,
+    amountMinor: 12500,
+    currency: "USD",
+    event: "release",
+  });
+  const paid = buildTsPayWithdrawalLedgerEntry({
+    merchantId: 12,
+    withdrawalId: 44,
+    amountMinor: 12500,
+    currency: "USD",
+    event: "paid",
+  });
+  assert.equal(reserve.amountMinor + release.amountMinor, 0);
+  assert.equal(paid.amountMinor, 0);
+  assert.deepEqual(
+    [reserve.entryType, release.entryType, paid.entryType],
+    ["withdrawal_reserve", "withdrawal_release", "withdrawal_paid"],
+  );
+  assert.throws(
+    () => buildTsPayWithdrawalLedgerEntry({
+      merchantId: 12,
+      withdrawalId: 44,
+      amountMinor: 0,
+      currency: "USD",
+      event: "reserve",
+    }),
+    /positive minor units/,
   );
 });

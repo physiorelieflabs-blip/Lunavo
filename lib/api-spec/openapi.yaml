@@ -2975,7 +2975,7 @@ components:
           items: { type: string, pattern: "^[0-9]{6}$" }
         confirmation: { type: string, minLength: 12, maxLength: 120 }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
-      required: [amount, totpCode, pinCodes]
+      required: [amount, totpCode, pinCodes, idempotencyKey]
     BankAccountInput:
       type: object
       properties:
@@ -3008,8 +3008,16 @@ components:
         reviewNote: { type: ["string", "null"] }
         reviewedAt: { type: ["string", "null"], format: date-time }
         paidAt: { type: ["string", "null"], format: date-time }
+        payoutProvider: { type: string }
+        providerPayoutId: { type: ["string", "null"] }
+        providerStatus: { type: ["string", "null"] }
+        providerFailureReason: { type: ["string", "null"] }
+        settlementReference: { type: ["string", "null"] }
+        submittedAt: { type: ["string", "null"], format: date-time }
+        settledAt: { type: ["string", "null"], format: date-time }
+        failedAt: { type: ["string", "null"], format: date-time }
         createdAt: { type: string, format: date-time }
-      required: [id, amount, currency, status, beneficiaryName, bankName, accountLast4, reviewNote, reviewedAt, paidAt, createdAt]
+      required: [id, amount, currency, status, beneficiaryName, bankName, accountLast4, reviewNote, reviewedAt, paidAt, payoutProvider, providerPayoutId, providerStatus, providerFailureReason, settlementReference, submittedAt, settledAt, failedAt, createdAt]
     AdminWithdrawalRecord:
       allOf:
         - $ref: "#/components/schemas/WithdrawalRecord"
@@ -3034,6 +3042,7 @@ components:
           type: string
           enum: [approved, rejected, paid]
         note: { type: string, maxLength: 500 }
+        settlementReference: { type: string, minLength: 2, maxLength: 160 }
         securityCode: { type: string, pattern: "^[0-9]{6}$" }
         pinCodes:
           type: array

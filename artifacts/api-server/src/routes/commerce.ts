@@ -322,6 +322,7 @@ import {
 import { emitDomainEvent } from "../lib/domain-events";
 import {
   buildTsPayLedgerPostings,
+  buildTsPayWithdrawalLedgerEntry,
   tsPayAmountMinor,
   tsPayAvailableMinor,
   tsPayReferenceKey,
@@ -386,6 +387,7 @@ router.use((req, _res, next) => {
     /^\/ai(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "ai.execute") :
     /^(\/withdrawals|\/security\/withdrawal)/.test(path) ? "withdrawals.manage" :
     /^\/bank-account/.test(path) ? "bank_accounts.manage" :
+    /^\/ts-pay(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
     /^\/payments\/[^/]+\/verify/.test(path) ? "payments.verify" :
     /^\/invoices\/[^/]+\/payments\/[^/]+\/verify/.test(path) ? "payments.verify" :
     /^\/refunds/.test(path) ? "refunds.manage" :
@@ -408,7 +410,7 @@ router.use((req, _res, next) => {
     /^\/marketplace\/(management|listings|billing)/.test(path) ? "marketplace.manage" :
     /^\/marketplace\/products/.test(path) && req.method !== "GET" ? "marketplace.manage" :
     /^\/events(?:\/|$)|^\/notifications(?:\/|$)/.test(path) ? "orders.read" : null;
-  const blocksLocationScoped = !(/^\/marketplace\/products/.test(path) && req.method === "GET") && /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
+  const blocksLocationScoped = !(/^\/marketplace\/products/.test(path) && req.method === "GET") && /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/ts-pay|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
   workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
 });
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
@@ -770,6 +772,46 @@ async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
     await ensureTenantOwnerMembership(created.id, identity.clerkUserId);
     return created;
   });
+}
+
+async function getOrCreateAdminLedgerMerchant(identity: Identity): Promise<Merchant> {
+  if (!identity.isAdmin) {
+    throw new CommerceAuthorizationError("Admin ledger access required");
+  }
+  const existing = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.clerkUserId, identity.clerkUserId))
+      .limit(1)
+  )[0];
+  if (existing) return existing;
+  const [created] = await db
+    .insert(merchantsTable)
+    .values({
+      clerkUserId: identity.clerkUserId,
+      name: identity.name,
+      email: identity.email,
+      storeName: "TS Commerce",
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (created) return created;
+  const retried = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.clerkUserId, identity.clerkUserId))
+      .limit(1)
+  )[0];
+  if (!retried) throw new Error("Admin ledger account could not be initialized");
+  return retried;
+}
+
+async function getWithdrawalMerchant(identity: Identity): Promise<Merchant> {
+  return identity.isAdmin
+    ? getOrCreateAdminLedgerMerchant(identity)
+    : getOrCreateMerchant(identity);
 }
 
 async function getSubscriptionForMerchant(
@@ -2367,6 +2409,14 @@ function serializeWithdrawal(withdrawal: Withdrawal) {
     reviewNote: withdrawal.reviewNote,
     reviewedAt: withdrawal.reviewedAt,
     paidAt: withdrawal.paidAt,
+    payoutProvider: withdrawal.payoutProvider,
+    providerPayoutId: withdrawal.providerPayoutId,
+    providerStatus: withdrawal.providerStatus,
+    providerFailureReason: withdrawal.providerFailureReason,
+    settlementReference: withdrawal.settlementReference,
+    submittedAt: withdrawal.submittedAt,
+    settledAt: withdrawal.settledAt,
+    failedAt: withdrawal.failedAt,
     createdAt: withdrawal.createdAt,
   };
 }
@@ -2451,7 +2501,7 @@ async function requireAdminWithdrawalSecurity(
     });
     return false;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getOrCreateAdminLedgerMerchant(identity);
   const security = await getWithdrawalSecurity(merchant.id);
   if (!security?.totpSecretCiphertext) {
     res.status(409).json({
@@ -2638,27 +2688,74 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
     });
     return;
   }
-  const updated = await db.transaction(async (tx) => {
-    const [nextMerchant] = await tx
-      .update(merchantsTable)
-      .set({ currency })
-      .where(eq(merchantsTable.id, merchant.id))
-      .returning();
-    if (quote) {
-      await tx
-        .update(subscriptionsTable)
-        .set({
-          amountDue: quote.amountDue.toFixed(2),
-          baseAmountUsd: quote.baseAmountUsd.toFixed(2),
-          currency: quote.currency,
-          fxRate: quote.fxRate.toFixed(8),
-          fxSource: quote.fxSource,
-          fxAsOf: quote.fxAsOf,
-        })
-        .where(eq(subscriptionsTable.id, currentSubscription.id));
-    }
-    return nextMerchant;
-  });
+  let updated: Merchant | undefined;
+  try {
+    updated = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from ${merchantsTable} where ${merchantsTable.id} = ${merchant.id} for update`,
+      );
+      const [tsPayAccount] = await tx
+        .select()
+        .from(tsPayAccountsTable)
+        .where(eq(tsPayAccountsTable.merchantId, merchant.id))
+        .limit(1);
+      if (tsPayAccount && tsPayAccount.currency !== currency) {
+        const [ledgerHistory] = await tx
+          .select({ id: ledgerEntriesTable.id })
+          .from(ledgerEntriesTable)
+          .where(eq(ledgerEntriesTable.merchantId, merchant.id))
+          .limit(1);
+        const [transferHistory] = await tx
+          .select({ id: tsPayTransfersTable.id })
+          .from(tsPayTransfersTable)
+          .where(
+            or(
+              eq(tsPayTransfersTable.fromMerchantId, merchant.id),
+              eq(tsPayTransfersTable.toMerchantId, merchant.id),
+            ),
+          )
+          .limit(1);
+        const [withdrawalHistory] = await tx
+          .select({ id: withdrawalsTable.id })
+          .from(withdrawalsTable)
+          .where(eq(withdrawalsTable.merchantId, merchant.id))
+          .limit(1);
+        if (ledgerHistory || transferHistory || withdrawalHistory) {
+          throw new Error(
+            `Currency change blocked: this TS Pay account has historical ${tsPayAccount.currency} activity. Create a new settlement account instead of relabelling historical money.`,
+          );
+        }
+        await tx
+          .update(tsPayAccountsTable)
+          .set({ currency })
+          .where(eq(tsPayAccountsTable.id, tsPayAccount.id));
+      }
+      const [nextMerchant] = await tx
+        .update(merchantsTable)
+        .set({ currency })
+        .where(eq(merchantsTable.id, merchant.id))
+        .returning();
+      if (quote) {
+        await tx
+          .update(subscriptionsTable)
+          .set({
+            amountDue: quote.amountDue.toFixed(2),
+            baseAmountUsd: quote.baseAmountUsd.toFixed(2),
+            currency: quote.currency,
+            fxRate: quote.fxRate.toFixed(8),
+            fxSource: quote.fxSource,
+            fxAsOf: quote.fxAsOf,
+          })
+          .where(eq(subscriptionsTable.id, currentSubscription.id));
+      }
+      return nextMerchant;
+    });
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "Currency change could not be completed",
+    });
+    return;
+  }
   if (!updated) {
     res.status(404).json({ error: "Merchant account not found" });
     return;
@@ -2928,8 +3025,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
   const availableBalance = Math.max(
     0,
     Number(ledgerBalance?.total ?? 0) / 100 -
-      earningsHeldForSubscription -
-      toNumber(withdrawalReserve?.total),
+      earningsHeldForSubscription,
   );
   res.json(
     GetDashboardOverviewResponse.parse({
@@ -3025,7 +3121,7 @@ router.get("/marketing/billing", async (req, res): Promise<void> => {
         : 0;
     const availableBalance = Math.max(
       0,
-      ledgerBalance - heldSubscription - toNumber(withdrawalReserve?.total),
+      ledgerBalance - heldSubscription,
     );
     res.json(
       GetMarketingBillingResponse.parse({
@@ -3130,8 +3226,7 @@ router.post(
           Number(balance?.total ?? 0) / 100 -
           (subscription?.currency === merchant.currency
             ? toNumber(subscription.earningsHeld)
-            : 0) -
-          toNumber(withdrawalReserve?.total);
+            : 0);
         if (available < budget.amount) {
           throw new Error(
             `Not enough available ${merchant.currency} earnings for this campaign`,
@@ -3940,7 +4035,8 @@ router.post("/ai/actions/:id/rollback", async (req, res): Promise<void> => {
 router.get("/bank-account", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "bank_accounts.manage", res))) return;
   const account = (
     await db
       .select()
@@ -3964,7 +4060,8 @@ router.put("/bank-account", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter a valid account number" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "bank_accounts.manage", res))) return;
   const [account] = await db
     .insert(merchantBankAccountsTable)
     .values({
@@ -3993,7 +4090,8 @@ router.put("/bank-account", async (req, res): Promise<void> => {
 router.delete("/bank-account", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "bank_accounts.manage", res))) return;
   await db
     .delete(merchantBankAccountsTable)
     .where(eq(merchantBankAccountsTable.merchantId, merchant.id));
@@ -4003,7 +4101,8 @@ router.delete("/bank-account", async (req, res): Promise<void> => {
 router.get("/security/withdrawal", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "withdrawals.manage", res))) return;
   const security = await getWithdrawalSecurity(merchant.id);
   res.json(
     GetWithdrawalSecurityResponse.parse({
@@ -4027,7 +4126,8 @@ router.post("/security/withdrawal/setup", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Verify your primary email before enabling withdrawal security" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "withdrawals.manage", res))) return;
   const current = await getWithdrawalSecurity(merchant.id);
   if (current?.totpSecretCiphertext) {
     res.status(409).json({ error: "Withdrawal authenticator security is already enabled" });
@@ -4067,7 +4167,8 @@ router.post("/security/withdrawal/confirm", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter the six-digit authenticator code" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "withdrawals.manage", res))) return;
   const security = await getWithdrawalSecurity(merchant.id);
   if (!security?.pendingTotpSecretCiphertext || !security.pendingTotpExpiresAt) {
     res.status(409).json({ error: "Start authenticator setup first" });
@@ -4116,7 +4217,8 @@ router.post("/security/withdrawal/pins", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Configure exactly ${required} unique withdrawal PINs` });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "withdrawals.manage", res))) return;
   const current = await getWithdrawalSecurity(merchant.id);
   const hashes = parsed.data.pins.map(hashPin);
   const update = identity.isAdmin
@@ -4144,7 +4246,8 @@ router.post("/security/withdrawal/pins", async (req, res): Promise<void> => {
 router.get("/withdrawals", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "withdrawals.manage", res))) return;
   const withdrawals = await db
     .select()
     .from(withdrawalsTable)
@@ -4162,7 +4265,13 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Amount and a six-digit authenticator code are required" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const idempotencyKey = parsed.data.idempotencyKey?.trim();
+  if (!idempotencyKey) {
+    res.status(400).json({ error: "A unique withdrawal idempotency key is required" });
+    return;
+  }
+  const merchant = await getWithdrawalMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "withdrawals.manage", res))) return;
   if (merchant.status === "banned") {
     res.status(403).json({ error: "Banned accounts cannot request withdrawals" });
     return;
@@ -4238,29 +4347,26 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
       if (!currentBankAccount) {
         throw new Error("Link a bank account before requesting a withdrawal");
       }
-      const idempotencyKey = parsed.data.idempotencyKey?.trim() || null;
-      if (idempotencyKey) {
-        const existing = (
-          await tx
-            .select()
-            .from(withdrawalsTable)
-            .where(
-              and(
-                eq(withdrawalsTable.merchantId, merchant.id),
-                eq(withdrawalsTable.idempotencyKey, idempotencyKey),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (existing) {
-          if (
-            Number(existing.amount) !== amount
-            || existing.currency !== currency
-          ) {
-            throw new Error("This idempotency key was already used for a different withdrawal");
-          }
-          return existing;
-        }
+       const existing = (
+         await tx
+           .select()
+           .from(withdrawalsTable)
+           .where(
+             and(
+               eq(withdrawalsTable.merchantId, merchant.id),
+               eq(withdrawalsTable.idempotencyKey, idempotencyKey),
+             ),
+           )
+           .limit(1)
+       )[0];
+       if (existing) {
+         if (
+           Number(existing.amount) !== amount
+           || existing.currency !== currency
+         ) {
+           throw new Error("This idempotency key was already used for a different withdrawal");
+         }
+         return existing;
       }
       // Compatibility boundary: legacy paid orders have no authoritative
       // ledger entry. Refuse withdrawals rather than treating order status as
@@ -4274,48 +4380,27 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
           throw new Error("Withdrawals are unavailable until paid orders have verified accounting records");
         }
       }
-      const [revenue] = identity.isAdmin
-        ? await tx
-            .select({
-              total: sql<string>`coalesce(sum(${paymentsTable.amount}) filter (where ${paymentsTable.status} = 'confirmed'), 0)`,
-            })
-            .from(paymentsTable)
-            .where(eq(paymentsTable.currency, merchant.currency))
-        : await tx
-            .select({
-              total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
-            })
-            .from(ledgerEntriesTable)
-            .where(
-              and(
-                eq(ledgerEntriesTable.merchantId, merchant.id),
-                eq(ledgerEntriesTable.currency, merchant.currency),
-              ),
-            );
+       const [revenue] = await tx
+         .select({
+           total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+         })
+         .from(ledgerEntriesTable)
+         .where(
+           and(
+             eq(ledgerEntriesTable.merchantId, merchant.id),
+             eq(ledgerEntriesTable.currency, merchant.currency),
+           ),
+         );
       const [subscription] = await tx
         .select()
         .from(subscriptionsTable)
         .where(eq(subscriptionsTable.merchantId, merchant.id))
         .limit(1);
-      const [reserved] = await tx
-        .select({
-          total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
-        })
-        .from(withdrawalsTable)
-        .where(
-          and(
-            eq(withdrawalsTable.merchantId, merchant.id),
-            eq(withdrawalsTable.currency, merchant.currency),
-          ),
-        );
       const available =
-        (identity.isAdmin
-          ? toNumber(revenue?.total)
-          : Number(revenue?.total ?? 0) / 100) -
-        (identity.isAdmin || subscription?.currency !== merchant.currency
+         Number(revenue?.total ?? 0) / 100 -
+         (subscription?.currency !== merchant.currency
           ? 0
-          : toNumber(subscription?.earningsHeld)) -
-        toNumber(reserved?.total);
+           : toNumber(subscription?.earningsHeld));
       if (amount > available) {
         throw new Error(`Only ${Math.max(0, available).toFixed(2)} is available to withdraw`);
       }
@@ -4338,27 +4423,35 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
           ),
           accountLast4: currentBankAccount.accountLast4,
           idempotencyKey,
+           payoutProvider: "manual",
+           providerStatus: "awaiting_review",
+           submittedAt: new Date(),
         })
         .onConflictDoNothing()
         .returning();
       if (!withdrawal) {
-        if (idempotencyKey) {
-          const replay = (
-            await tx
-              .select()
-              .from(withdrawalsTable)
-              .where(
-                and(
-                  eq(withdrawalsTable.merchantId, merchant.id),
-                  eq(withdrawalsTable.idempotencyKey, idempotencyKey),
-                ),
-              )
-              .limit(1)
-          )[0];
-          if (replay) return replay;
-        }
+         const replay = (
+           await tx
+             .select()
+             .from(withdrawalsTable)
+             .where(
+               and(
+                 eq(withdrawalsTable.merchantId, merchant.id),
+                 eq(withdrawalsTable.idempotencyKey, idempotencyKey),
+               ),
+             )
+             .limit(1)
+         )[0];
+         if (replay) return replay;
         throw new Error("Withdrawal request could not be created");
       }
+       await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
+         merchantId: merchant.id,
+         withdrawalId: withdrawal.id,
+         amountMinor: Math.round(amount * 100),
+         currency,
+         event: "reserve",
+       }));
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "withdrawal_requested",
@@ -8700,6 +8793,19 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
           )
         : sql`false`,
     );
+  const [adminLedgerBalance] = await db
+    .select({
+      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+    })
+    .from(ledgerEntriesTable)
+    .where(
+      adminMerchant
+        ? and(
+            eq(ledgerEntriesTable.merchantId, adminMerchant.id),
+            eq(ledgerEntriesTable.currency, platformCurrency),
+          )
+        : sql`false`,
+    );
   res.json(
     GetAdminOverviewResponse.parse({
       currency: platformCurrency,
@@ -8707,7 +8813,7 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
       subscriptionRevenue: confirmedRevenue,
       availableBalance: Math.max(
         0,
-        confirmedRevenue - toNumber(adminWithdrawalReserve?.total),
+        Number(adminLedgerBalance?.total ?? 0) / 100,
       ),
       withdrawalReserved: toNumber(adminWithdrawalReserve?.total),
       heldMerchantRevenue: subs.reduce(
@@ -9031,6 +9137,13 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
     res.status(400).json({ error: "Status, authenticator code, and confirmation are required" });
     return;
   }
+  const settlementReference = parsed.data.settlementReference?.trim() || null;
+  if (parsed.data.status === "paid" && !settlementReference) {
+    res.status(400).json({
+      error: "A bank transfer reference is required before a manual payout can be marked paid",
+    });
+    return;
+  }
   const expectedConfirmation = `${parsed.data.status.toUpperCase()} WITHDRAWAL ${params.data.id}`;
   if (
     !(await requireAdminWithdrawalSecurity(
@@ -9091,6 +9204,21 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
           reviewNote: parsed.data.note?.trim() || null,
           reviewedAt: new Date(),
           paidAt: parsed.data.status === "paid" ? new Date() : current.paidAt,
+          providerStatus:
+            parsed.data.status === "approved"
+              ? "awaiting_manual_transfer"
+              : parsed.data.status === "rejected"
+                ? "released"
+                : "succeeded",
+          providerFailureReason:
+            parsed.data.status === "rejected"
+              ? parsed.data.note?.trim() || "Rejected during administrative review"
+              : current.providerFailureReason,
+          settlementReference:
+            parsed.data.status === "paid"
+              ? settlementReference
+              : current.settlementReference,
+          settledAt: parsed.data.status === "paid" ? new Date() : current.settledAt,
         })
         .where(
           and(
@@ -9100,6 +9228,23 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
         )
         .returning();
       if (!updated) throw new Error("Withdrawal was already updated");
+      if (parsed.data.status === "rejected") {
+        await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
+          merchantId: current.merchantId,
+          withdrawalId: current.id,
+          amountMinor: Math.round(Number(current.amount) * 100),
+          currency: current.currency,
+          event: "release",
+        })).onConflictDoNothing();
+      } else if (parsed.data.status === "paid") {
+        await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
+          merchantId: current.merchantId,
+          withdrawalId: current.id,
+          amountMinor: Math.round(Number(current.amount) * 100),
+          currency: current.currency,
+          event: "paid",
+        })).onConflictDoNothing();
+      }
       await tx.insert(activityTable).values({
         merchantId: current.merchantId,
         type: "withdrawal_reviewed",
@@ -9301,10 +9446,10 @@ async function getOrCreateTsPayAccount(merchant: MerchantRecord) {
       .insert(tsPayAccountsTable)
       .values({
         merchantId: merchant.id,
-        accountNumber: `TS${String(merchant.id).padStart(10, "0")}`,
+        accountNumber: `TS${randomBytes(8).toString("hex").toUpperCase()}`,
         currency: merchant.currency,
       })
-      .onConflictDoNothing({ target: tsPayAccountsTable.merchantId })
+      .onConflictDoNothing()
       .returning();
     if (!account) {
       account = (
@@ -9317,6 +9462,11 @@ async function getOrCreateTsPayAccount(merchant: MerchantRecord) {
     }
   }
   if (!account) throw new Error("TS Pay account could not be opened");
+  if (account.currency !== merchant.currency) {
+    throw new Error(
+      `TS Pay account currency is ${account.currency}, while this workspace is ${merchant.currency}. Currency cannot relabel historical TS Pay money.`,
+    );
+  }
   return account;
 }
 
@@ -9375,7 +9525,7 @@ async function listTsPayTransactions(merchantId: number) {
       .where(
         and(
           eq(withdrawalsTable.merchantId, merchantId),
-          inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
+          inArray(withdrawalsTable.status, ["pending", "approved", "paid", "rejected"]),
         ),
       )
       .orderBy(desc(withdrawalsTable.createdAt))
@@ -9425,7 +9575,11 @@ async function listTsPayTransactions(merchantId: number) {
       amountMinor: Math.round(toNumber(withdrawal.amount) * 100),
       currency: withdrawal.currency,
       status: withdrawal.status,
-      description: "External payout reservation",
+      description: withdrawal.status === "rejected"
+        ? "External payout reservation released"
+        : withdrawal.status === "paid"
+          ? "Manual external payout settled"
+          : "External payout reservation",
       referenceKey: withdrawal.idempotencyKey ?? `withdrawal-${withdrawal.id}`,
       occurredAt: withdrawal.createdAt,
     })),
@@ -9536,16 +9690,6 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
         .select({ total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)` })
         .from(ledgerEntriesTable)
         .where(and(eq(ledgerEntriesTable.merchantId, merchant.id), eq(ledgerEntriesTable.currency, currency)));
-      const [withdrawalHold] = await tx
-        .select({ total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)` })
-        .from(withdrawalsTable)
-        .where(
-          and(
-            eq(withdrawalsTable.merchantId, merchant.id),
-            eq(withdrawalsTable.currency, currency),
-            inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
-          ),
-        );
       const [subscription] = await tx
         .select()
         .from(subscriptionsTable)
@@ -9554,7 +9698,7 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
       const availableMinor =
         tsPayAvailableMinor({
           ledgerBalanceMinor: Number(ledger?.total ?? 0),
-          withdrawalHoldMinor: Math.round(toNumber(withdrawalHold?.total) * 100),
+           withdrawalHoldMinor: 0,
           earningsHeldMinor: subscription?.currency === currency ? Math.round(toNumber(subscription.earningsHeld) * 100) : 0,
         });
       validateTsPayTransfer({
@@ -9651,26 +9795,20 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
 router.get("/balances", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity);
   const rows = await db.select({ currency: ledgerEntriesTable.currency, balance: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}),0)` }).from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).groupBy(ledgerEntriesTable.currency);
-  const [subscription, withdrawalRows] = await Promise.all([
-    db.select({ currency: subscriptionsTable.currency, earningsHeld: subscriptionsTable.earningsHeld }).from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1).then(([row]) => row),
-    db.select({
-      currency: withdrawalsTable.currency,
-      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)`,
-    }).from(withdrawalsTable).where(and(
-      eq(withdrawalsTable.merchantId, merchant.id),
-      inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
-    )).groupBy(withdrawalsTable.currency),
-  ]);
-  const withdrawalByCurrency = new Map(withdrawalRows.map((row) => [row.currency, toNumber(row.total)]));
+  const subscription = await db
+    .select({ currency: subscriptionsTable.currency, earningsHeld: subscriptionsTable.earningsHeld })
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.merchantId, merchant.id))
+    .limit(1)
+    .then(([row]) => row);
   res.json(GetMerchantBalancesResponse.parse(rows.map((r) => {
     const ledgerBalanceMinor = Number(r.balance);
-    const withdrawalHeldMinor = Math.round((withdrawalByCurrency.get(r.currency) ?? 0) * 100);
     const subscriptionHeldMinor = subscription?.currency === r.currency ? Math.round(toNumber(subscription.earningsHeld) * 100) : 0;
     return {
       currency: r.currency,
       ledgerBalanceMinor,
-      availableBalanceMinor: Math.max(0, ledgerBalanceMinor - withdrawalHeldMinor - subscriptionHeldMinor),
-      heldBalanceMinor: withdrawalHeldMinor + subscriptionHeldMinor,
+      availableBalanceMinor: Math.max(0, ledgerBalanceMinor - subscriptionHeldMinor),
+      heldBalanceMinor: subscriptionHeldMinor,
     };
   })));
 });

@@ -1,6 +1,7 @@
 import { type FormEvent, useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Copy, Landmark, RefreshCw, Send } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import {
   getGetMerchantBalancesQueryKey,
   getGetTsPayAccountQueryKey,
@@ -52,7 +53,7 @@ export default function TsPay() {
     const toAccountNumber = destination.trim().toUpperCase();
     const transferAmount = Number(amount);
     const transferNote = note.trim();
-    if (!/^TS\d{10}$/.test(toAccountNumber)) {
+    if (!/^TS[A-Z0-9]{16}$/.test(toAccountNumber)) {
       setMessageIsError(true);
       setMessage('Enter a valid TS Pay destination account number.');
       return;
@@ -115,7 +116,7 @@ export default function TsPay() {
           <h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Move money inside the platform.</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#697687]">Your TS Pay account is the platform’s own internal settlement account. Sales, refunds, holds, withdrawals, and transfers remain visible in one ledger.</p>
         </div>
-        <Button variant="secondary" onClick={refresh}><RefreshCw className="h-4 w-4" />Refresh account</Button>
+         <div className="flex flex-wrap gap-2"><Link href="/withdrawals" className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-4 text-sm font-extrabold text-[#1f2b38] hover:bg-[#f1ede4]">External payouts</Link><Button variant="secondary" onClick={refresh}><RefreshCw className="h-4 w-4" />Refresh account</Button></div>
       </div>
 
        {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'TS Pay action failed' : 'TS Pay update'}>{message}</Notice></div>}
@@ -133,14 +134,14 @@ export default function TsPay() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
           <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#697687]">Available to move</p><p className="mt-3 font-mono text-3xl font-extrabold">{money((balance?.availableBalanceMinor ?? 0) / 100, account.data.currency)}</p><p className="mt-2 text-xs text-[#697687]">After withdrawal and subscription holds.</p></section>
-          <section className="rounded-2xl border border-[#dfc27a] bg-[#fff7df] p-6"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#85601b]">Held in controls</p><p className="mt-3 font-mono text-3xl font-extrabold text-[#765817]">{money((balance?.heldBalanceMinor ?? 0) / 100, account.data.currency)}</p><p className="mt-2 text-xs text-[#765817]">Reserved until the related action settles.</p></section>
+           <section className="rounded-2xl border border-[#dfc27a] bg-[#fff7df] p-6"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#85601b]">Subscription hold</p><p className="mt-3 font-mono text-3xl font-extrabold text-[#765817]">{money((balance?.heldBalanceMinor ?? 0) / 100, account.data.currency)}</p><p className="mt-2 text-xs text-[#765817]">Withdrawal reservations are already removed from the ledger balance.</p></section>
         </div>
       </section>
 
       <section className="mt-7 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-7">
         <SectionHeading eyebrow="Internal transfer" title="Send to another TS Pay account" description="Transfers are instant inside TS Commerce and create matching debit and credit entries. They cannot overdraft available funds." />
         <form onSubmit={submit} className="mt-6 grid gap-4 md:grid-cols-2">
-          <label className="block text-sm font-bold">Destination account<input required pattern="TS[0-9]{10}" value={destination} onChange={(event) => setDestination(event.target.value.toUpperCase())} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm outline-none focus:border-[#bca26a]" placeholder="TS0000000001" /></label>
+           <label className="block text-sm font-bold">Destination account<input required pattern="TS[A-Z0-9]{16}" value={destination} onChange={(event) => setDestination(event.target.value.toUpperCase())} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm outline-none focus:border-[#bca26a]" placeholder="TS4F8A2C9D10E7B6A" /></label>
           <label className="block text-sm font-bold">Amount ({account.data.currency})<input required min="0.01" step="0.01" type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm outline-none focus:border-[#bca26a]" placeholder="100.00" /></label>
           <label className="block text-sm font-bold md:col-span-2">Note <span className="font-normal text-[#697687]">(optional)</span><input maxLength={240} value={note} onChange={(event) => setNote(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" placeholder="Why are you sending this?" /></label>
           <div className="md:col-span-2"><SubmitButton loading={createTransfer.isPending}><Send className="h-4 w-4" />Send through TS Pay</SubmitButton></div>

@@ -20,5 +20,20 @@ export interface WithdrawalRecord {
   reviewedAt: Date | null;
   /** @nullable */
   paidAt: Date | null;
+  payoutProvider: string;
+  /** @nullable */
+  providerPayoutId: string | null;
+  /** @nullable */
+  providerStatus: string | null;
+  /** @nullable */
+  providerFailureReason: string | null;
+  /** @nullable */
+  settlementReference: string | null;
+  /** @nullable */
+  submittedAt: Date | null;
+  /** @nullable */
+  settledAt: Date | null;
+  /** @nullable */
+  failedAt: Date | null;
   createdAt: Date;
 }

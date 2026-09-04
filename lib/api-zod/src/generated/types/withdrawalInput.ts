@@ -31,5 +31,5 @@ export interface WithdrawalInput {
      * @minLength 8
      * @maxLength 120
      */
-  idempotencyKey?: string;
+  idempotencyKey: string;
 }
