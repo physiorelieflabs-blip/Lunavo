@@ -1,0 +1,19 @@
+:root {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+  --radius: .7rem;
+}
+
+@keyframes recovery-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.recovery-rise {
+  animation: recovery-rise 460ms ease-out both;
+}
+
+.recovery-delay-1 { animation-delay: 90ms; }
+.recovery-delay-2 { animation-delay: 170ms; }
+.recovery-delay-3 { animation-delay: 250ms; }
