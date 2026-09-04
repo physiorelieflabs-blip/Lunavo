@@ -50,6 +50,22 @@ TS Commerce is an authenticated merchant workspace for catalog import, public or
 
 - Supplier product workflows must not require merchants to enter supplier API keys.
 
+## Feature completeness contract
+
+Do not treat TS Commerce as complete until these product areas are implemented, connected to the tenant-scoped API/database, and smoke-tested through the UI:
+
+- **Business AI operator:** a real merchant copilot grounded in sales, orders, customers, catalog, inventory, suppliers, marketing, finance, storefront, and subscription data; natural-language business questions; explainable recommendations; citations or source signals; and approval-gated actions with execution and rollback history. AI must never independently publish, send customer messages, change permissions, move money, approve payouts, or claim payment settlement.
+- **Store media library:** merchant image uploads with persistent object storage, file/type/size validation, ownership checks, alt text, ordering, deletion, replacement, and an asset picker usable from products and storefront sections.
+- **AI store imagery:** approved AI image generation and editing for product photography, product cutouts, banners, hero sections, ad creative, and social variants; prompts must support product context and brand style; generated assets must enter the media library before storefront publication.
+- **Catalog-to-storefront path:** product media galleries, active/visible/priced public products, product detail pages, store hero/banner imagery, published preview, custom sections/themes, SEO metadata, domain readiness, and checkout from the public storefront.
+- **Checkout and payments:** truthful pending/verified payment states, Flutterwave test/live visibility without exposing credentials, transaction verification, webhook deduplication, refunds, fees, TS Pay ledger posting, payout holds, and interrupted hosted-return recovery.
+- **Merchant settings:** persistent account profile, store profile, currency, tax, shipping, checkout, payment, notification, security/password, theme, publishing, domain, location, role, and workspace settings with clear errors and refresh-safe saved values.
+- **Commerce operations:** supplier ingestion, catalog editing, stock reservations, low-stock purchase workflow, fulfillment, returns/refunds, invoices, payment links, POS, receipts, marketplace listings, auctions, General Store, subscriptions, advertising, CRM, customer notes/segments, loyalty, referrals, and marketing eligibility.
+- **Communication and mobile:** merchant-selected alerts, consent-aware customer communication, responsive mobile/PWA support, installable storefront experience, and offline-safe fee/suspension behavior.
+- **Quality gates:** authenticated browser coverage for settings and money flows, concurrency tests for balances/withdrawals/inventory/retries, regional date and currency tests, API-codegen freshness, production migration registration, and publish-readiness checks.
+
+Current platform blocker: managed AI provider and persistent App Storage provisioning are unavailable in this workspace. Do not replace them with silent mock data or non-persistent local files; resume the real AI/media implementation when those services are available.
+
 ## Gotchas
 
 - Public checkout is order capture plus payment confirmation, not card processing. A payment provider is required before claiming online card payments.
