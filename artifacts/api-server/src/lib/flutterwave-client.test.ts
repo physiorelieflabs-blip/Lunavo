@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
   flutterwaveAmount,
+  flutterwaveCredentialMode,
   flutterwaveStatus,
   flutterwaveTransactionId,
   verifyFlutterwaveWebhookSignature,
@@ -15,6 +16,18 @@ test("Flutterwave transaction helpers normalize provider responses", () => {
   assert.equal(flutterwaveStatus({ status: "successful" }), "paid");
   assert.equal(flutterwaveStatus({ status: "reversed" }), "failed");
   assert.equal(flutterwaveStatus({ status: "pending" }), "pending");
+});
+
+test("Flutterwave credential mode is classified without exposing the key", () => {
+  const previous = process.env.FLUTTERWAVE_SECRET_KEY;
+  process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
+  assert.equal(flutterwaveCredentialMode(), "test");
+  process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK-example";
+  assert.equal(flutterwaveCredentialMode(), "live");
+  process.env.FLUTTERWAVE_SECRET_KEY = "unexpected-format";
+  assert.equal(flutterwaveCredentialMode(), "unknown");
+  if (previous === undefined) delete process.env.FLUTTERWAVE_SECRET_KEY;
+  else process.env.FLUTTERWAVE_SECRET_KEY = previous;
 });
 
 test("Flutterwave webhook signatures accept the configured hash and HMAC form only", () => {

@@ -58,8 +58,12 @@ export default function Settings() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
   const [messageIsError, setMessageIsError] = useState(false);
   const [currency, setCurrency] = useState('');
   const [taxRate, setTaxRate] = useState('');
@@ -98,22 +102,22 @@ export default function Settings() {
     setMessageIsError(false);
     setSaving(true);
     try {
-      await user.update({
+      const updatedUser = await user.update({
         firstName: firstName.trim() || null,
         lastName: lastName.trim() || null,
       });
+      setFirstName(updatedUser.firstName ?? '');
+      setLastName(updatedUser.lastName ?? '');
       const nextUsername = username.trim();
       const currentUsername = user.username ?? '';
       if (nextUsername !== currentUsername) {
         try {
-          await user.update({ username: nextUsername || null });
-        } catch {
-          await user.reload();
-          setFirstName(user.firstName ?? '');
-          setLastName(user.lastName ?? '');
+          const usernameUser = await user.update({ username: nextUsername || null });
+          setUsername(usernameUser.username ?? '');
+        } catch (error) {
           setUsername(user.username ?? '');
           setMessageIsError(true);
-          setMessage('Your name was updated, but the username could not be changed. Usernames may be disabled for this Clerk workspace.');
+          setMessage(`Your name was saved, but the username could not be changed. ${getApiErrorMessage(error, 'Usernames may be disabled for this workspace.')}`);
           return;
         }
       }
@@ -127,6 +131,41 @@ export default function Settings() {
       setMessage(error instanceof Error ? error.message : 'Your account details could not be updated.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const savePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!user) return;
+    setCommerceMessage('');
+    setCommerceMessageIsError(false);
+    const nextPassword = newPassword;
+    if (nextPassword.length < 8) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage('Password must be at least 8 characters long.');
+      return;
+    }
+    if (nextPassword !== confirmPassword) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage('The new password and confirmation do not match.');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await user.updatePassword({
+        newPassword: nextPassword,
+        ...(currentPassword.trim() ? { currentPassword: currentPassword.trim() } : {}),
+        signOutOfOtherSessions: true,
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setCommerceMessage('Password updated. Other active sessions were signed out.');
+    } catch (error) {
+      setCommerceMessageIsError(true);
+      setCommerceMessage(getApiErrorMessage(error, 'Password could not be updated. Check your current password and try again.'));
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -217,7 +256,7 @@ export default function Settings() {
             </div>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2">
               <SubmitButton loading={saving}><Save className="h-4 w-4" />Save account details</SubmitButton>
-              <Link href="/sign-in/forgot-password" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline underline-offset-4"><ShieldCheck className="h-4 w-4" />Change password</Link>
+              <a href="#change-password" className="inline-flex items-center gap-2 text-sm font-extrabold text-[#8a6826] underline underline-offset-4"><ShieldCheck className="h-4 w-4" />Change password</a>
             </div>
           </form>
            {message && <div className="mt-5" aria-live="polite"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Profile not updated' : 'Profile updated'}>{message}</Notice></div>}
@@ -259,6 +298,26 @@ export default function Settings() {
               <div className="flex justify-end"><SubmitButton loading={updateCheckout.isPending}>Save checkout rules</SubmitButton></div>
             </form>}
           </div>
+        </section>
+        <section id="change-password" className="mt-9 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <SectionHeading eyebrow="Account security" title="Change your password" description="Use your current password when required by your account. Other active sessions will be signed out after a successful change." />
+            <span className="grid h-10 w-10 place-items-center rounded-lg bg-[#e9e1cd] text-[#8a6826]"><LockKeyhole className="h-5 w-5" /></span>
+          </div>
+          <form onSubmit={savePassword} className="mt-6 grid gap-4 md:grid-cols-3">
+            <label className="text-sm font-bold">Current password <span className="font-normal text-[#697687]">(if required)</span>
+              <input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" className={inputClass} />
+            </label>
+            <label className="text-sm font-bold">New password
+              <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={8} autoComplete="new-password" required className={inputClass} />
+            </label>
+            <label className="text-sm font-bold">Confirm new password
+              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={8} autoComplete="new-password" required className={inputClass} />
+            </label>
+            <div className="md:col-span-3 flex justify-end">
+              <SubmitButton loading={savingPassword}><ShieldCheck className="h-4 w-4" />Update password</SubmitButton>
+            </div>
+          </form>
         </section>
         {commerceMessage && <div className="mt-5"><Notice tone={commerceMessageIsError ? 'danger' : 'success'} title={commerceMessageIsError ? 'Settings not saved' : 'Settings saved'}>{commerceMessage}</Notice></div>}
 

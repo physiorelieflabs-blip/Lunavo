@@ -19,3 +19,4 @@
 - [Generated query options](generated-query-options.md) — custom options passed to generated TanStack hooks must include the matching generated query key.
 - [Admin ledger boundary](admin-ledger-boundary.md) — backoffice payout security uses a separate admin ledger anchor, never a merchant workspace membership.
 - [Generated client artifacts](generated-client-artifacts.md) — regenerate committed API-client declarations after changing exported client signatures.
+- [Clerk account settings](clerk-account-settings.md) — frontend profile updates depend on enabled Clerk attributes; password changes use the authenticated user password API.
