@@ -69,6 +69,13 @@ export function isFlutterwaveConfigured(): boolean {
   return Boolean(process.env.FLUTTERWAVE_SECRET_KEY?.trim());
 }
 
+export function flutterwaveCredentialMode(): "live" | "test" | "unknown" {
+  const key = process.env.FLUTTERWAVE_SECRET_KEY?.trim() ?? "";
+  if (key.startsWith("FLWSECK_TEST-")) return "test";
+  if (key.startsWith("FLWSECK-")) return "live";
+  return "unknown";
+}
+
 export async function checkFlutterwaveConnection(): Promise<{ status: string }> {
   const response = await flutterwaveRequest<FlutterwaveResponse<unknown>>("/transactions?limit=1");
   return { status: String(response.status ?? "ok") };
