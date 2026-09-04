@@ -54,7 +54,10 @@ export default function Checkout() {
         idempotencyKey: crypto.randomUUID(),
       },
     }, {
-      onSuccess: (order) => setReceipt(order),
+      onSuccess: (order) => {
+        setReceipt(order);
+        if (order.paymentUrl) window.location.assign(order.paymentUrl);
+      },
       onError: () => setMessage('We could not submit this order. Check your details and try again.'),
     });
   };

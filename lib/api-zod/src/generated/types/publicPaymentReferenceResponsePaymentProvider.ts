@@ -10,5 +10,6 @@ export type PublicPaymentReferenceResponsePaymentProvider = typeof PublicPayment
 
 
 export const PublicPaymentReferenceResponsePaymentProvider = {
+  flutterwave: 'flutterwave',
   ts_pay: 'ts_pay',
 } as const;

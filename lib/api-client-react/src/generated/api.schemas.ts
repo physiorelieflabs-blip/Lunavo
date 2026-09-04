@@ -2534,6 +2534,7 @@ export type PublicCheckoutOrderPaymentProvider = typeof PublicCheckoutOrderPayme
 
 
 export const PublicCheckoutOrderPaymentProvider = {
+  flutterwave: 'flutterwave',
   ts_pay: 'ts_pay',
 } as const;
 
@@ -3003,6 +3004,7 @@ export type PublicCheckoutPaymentSessionPaymentProvider = typeof PublicCheckoutP
 
 
 export const PublicCheckoutPaymentSessionPaymentProvider = {
+  flutterwave: 'flutterwave',
   ts_pay: 'ts_pay',
 } as const;
 
@@ -3038,6 +3040,7 @@ export type PublicCheckoutVerificationResponsePaymentProvider = typeof PublicChe
 
 
 export const PublicCheckoutVerificationResponsePaymentProvider = {
+  flutterwave: 'flutterwave',
   ts_pay: 'ts_pay',
 } as const;
 
@@ -3096,6 +3099,7 @@ export type PublicPaymentReferenceResponsePaymentProvider = typeof PublicPayment
 
 
 export const PublicPaymentReferenceResponsePaymentProvider = {
+  flutterwave: 'flutterwave',
   ts_pay: 'ts_pay',
 } as const;
 

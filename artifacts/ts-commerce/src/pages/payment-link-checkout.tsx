@@ -29,9 +29,10 @@ export default function PaymentLinkCheckout() {
     event.preventDefault();
     setMessage('');
     checkout.mutate({ token, data: { customerName, customerEmail, customerPhone: customerPhone || undefined, shippingAddress, marketingConsent, idempotencyKey: crypto.randomUUID() } }, {
-      onSuccess: (result) => {
-        setCompleted({ orderNumber: result.orderNumber, total: result.total, currency: result.currency, paymentToken: result.paymentToken ?? '' });
-        setMessage('Your order is pending merchant payment confirmation.');
+       onSuccess: (result) => {
+         setCompleted({ orderNumber: result.orderNumber, total: result.total, currency: result.currency, paymentToken: result.paymentToken ?? '' });
+         if (result.paymentUrl) window.location.assign(result.paymentUrl);
+         else setMessage('Your order is pending merchant payment confirmation.');
       },
       onError: () => setMessage('This payment link could not create an order. Check your details or ask the merchant for a fresh link.'),
     });

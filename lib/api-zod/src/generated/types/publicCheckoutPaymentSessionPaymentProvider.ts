@@ -10,5 +10,6 @@ export type PublicCheckoutPaymentSessionPaymentProvider = typeof PublicCheckoutP
 
 
 export const PublicCheckoutPaymentSessionPaymentProvider = {
+  flutterwave: 'flutterwave',
   ts_pay: 'ts_pay',
 } as const;

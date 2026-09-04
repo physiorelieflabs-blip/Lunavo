@@ -37,6 +37,7 @@ import {
   paymentsTable,
   paymentIntentsTable,
   paymentRecordsTable,
+  paymentWebhookEventsTable,
   ledgerEntriesTable,
   refundRecordsTable,
   commerceTransitionHistoryTable,
@@ -347,18 +348,16 @@ import {
 } from "../lib/ai";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
-  isCustomerWhopConfigured,
-  isWhopConfigured,
-  whopCompanyId,
-  whopCustomerProductId,
-  whopPlanId,
-  whopRequest,
-  whopMoneyMajor,
-  type WhopCheckoutConfiguration,
-  type WhopPlan,
-  type WhopPayment,
-  type WhopRefund,
-} from "../lib/whop-client";
+  flutterwaveAmount,
+  flutterwaveStatus,
+  flutterwaveTransactionId,
+  initializeFlutterwavePayment,
+  isFlutterwaveConfigured,
+  refundFlutterwaveTransaction,
+  verifyFlutterwaveTransaction,
+  verifyFlutterwaveWebhookSignature,
+  type FlutterwaveTransaction,
+} from "../lib/flutterwave-client";
 
 const router: IRouter = Router();
 class CommerceAuthorizationError extends Error {
@@ -1477,10 +1476,10 @@ function serializePublicCheckoutOrder(
     total: toNumber(order.total),
     currency: order.currency,
     status: "pending" as const,
-    paymentMessage: "Your order is reserved in TS Commerce. Submit your payment evidence here for merchant approval; the order enters fulfillment only after verification.",
+    paymentMessage: "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.",
     paymentToken: order.publicPaymentToken,
     paymentIntentId: payment?.paymentIntentId ?? null,
-    paymentProvider: "ts_pay" as const,
+    paymentProvider: "flutterwave" as const,
     paymentUrl: payment?.purchaseUrl ?? null,
     paymentStatus: payment?.status ?? "created",
   };
@@ -1520,7 +1519,7 @@ function requestOrigin(req: Request): string {
   return host ? `${protocol}://${host}` : "";
 }
 
-type PublicWhopCheckout = {
+type PublicFlutterwaveCheckout = {
   paymentToken: string;
   paymentIntentId: number;
   checkoutId: string;
@@ -1583,12 +1582,12 @@ async function ensurePublicManualPaymentIntent(order: Order) {
   return intent;
 }
 
-async function ensurePublicWhopCheckout(
+async function ensurePublicFlutterwaveCheckout(
   order: Order,
   title: string,
   origin: string,
-): Promise<PublicWhopCheckout> {
-  if (!isCustomerWhopConfigured()) {
+): Promise<PublicFlutterwaveCheckout> {
+  if (!isFlutterwaveConfigured()) {
     throw new Error("Online customer checkout is not configured");
   }
   if (!order.publicPaymentToken) {
@@ -1613,7 +1612,7 @@ async function ensurePublicWhopCheckout(
         orderId: order.id,
         amountMinor: Math.round(toNumber(order.total) * 100),
         currency: order.currency,
-        method: "whop_hosted",
+        method: "flutterwave",
         idempotencyKey: `public-order:${order.id}`,
         status: "created",
       })
@@ -1634,130 +1633,66 @@ async function ensurePublicWhopCheckout(
     throw new Error("This order has already been paid");
   }
 
-  if (intent.evidenceReference && intent.status === "submitted") {
-    try {
-      const existing = await whopRequest<WhopCheckoutConfiguration>(
-        `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
-      );
-      if (existing.purchase_url) {
-        return {
-          paymentToken: order.publicPaymentToken,
-          paymentIntentId: intent.id,
-          checkoutId: existing.id,
-          purchaseUrl: existing.purchase_url,
-          status: "submitted",
-        };
-      }
-    } catch {
-      // The provider checkout may have expired or been deleted. A new one is safe.
-    }
-  }
-
-  const plan = await whopRequest<WhopPlan>("/api/v1/plans", {
-    method: "POST",
-    body: {
-      company_id: whopCompanyId(),
-      product_id: whopCustomerProductId(),
-      plan_type: "one_time",
-      initial_price: Number(toNumber(order.total).toFixed(2)),
-      currency: order.currency.toLowerCase(),
-      visibility: "hidden",
-      internal_notes: `TS Commerce order ${order.orderNumber}; payment intent ${intent.id}`,
+  if (!origin) throw new Error("The checkout return address could not be determined");
+  const customer = order.customerId
+    ? (await db.select().from(customersTable).where(eq(customersTable.id, order.customerId)).limit(1))[0]
+    : null;
+  if (!customer) throw new Error("Checkout customer could not be found");
+  const txRef = `TSO-${order.id}-${intent.id}`;
+  const checkout = await initializeFlutterwavePayment({
+    txRef,
+    amount: toNumber(order.total),
+    currency: order.currency,
+    redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(order.publicPaymentToken)}`,
+    customer: { email: customer.email, name: customer.name, phonenumber: customer.phone ?? undefined },
+    title,
+    meta: {
+      provider: "flutterwave",
+      merchant_id: order.merchantId,
+      order_id: order.id,
+      order_number: order.orderNumber,
+      payment_intent_id: intent.id,
+      payment_token: order.publicPaymentToken,
     },
   });
-  if (!plan.id) throw new Error("Whop did not return a customer payment plan");
-
-  if (!origin) throw new Error("The checkout return address could not be determined");
-  const checkout = await whopRequest<WhopCheckoutConfiguration>(
-    "/api/v1/checkout_configurations",
-    {
-      method: "POST",
-      body: {
-        company_id: whopCompanyId(),
-        plan_id: plan.id,
-        redirect_url: `${origin}/checkout/payment-return?token=${encodeURIComponent(order.publicPaymentToken)}`,
-        metadata: {
-          provider: "ts-commerce",
-          merchant_id: String(order.merchantId),
-          order_id: String(order.id),
-          order_number: order.orderNumber,
-          payment_intent_id: String(intent.id),
-          payment_token: order.publicPaymentToken,
-        },
-      },
-    },
-  );
-  if (!checkout.id || !checkout.purchase_url) {
-    throw new Error("Whop returned an incomplete customer checkout");
-  }
   const [updated] = await db
     .update(paymentIntentsTable)
-    .set({ status: "submitted", evidenceReference: checkout.id })
+    .set({ status: "submitted", evidenceReference: checkout.txRef })
     .where(eq(paymentIntentsTable.id, intent.id))
     .returning();
   if (!updated) throw new Error("Could not save the customer checkout reference");
   return {
     paymentToken: order.publicPaymentToken,
     paymentIntentId: intent.id,
-    checkoutId: checkout.id,
-    purchaseUrl: checkout.purchase_url,
+    checkoutId: checkout.txRef,
+    purchaseUrl: checkout.link,
     status: "submitted",
   };
 }
 
-async function findWhopCustomerPayment(
+async function findFlutterwaveCustomerPayment(
   intent: typeof paymentIntentsTable.$inferSelect,
   order: Order,
+  transactionId: string | null,
 ): Promise<{ status: "paid" | "failed" | "pending"; providerPaymentId?: string }> {
-  if (!intent.evidenceReference) return { status: "pending" };
-  const checkout = await whopRequest<WhopCheckoutConfiguration>(
-    `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
-  );
-  const metadata = checkout.metadata ?? {};
-  if (
-    metadata.order_id !== undefined &&
-    String(metadata.order_id) !== String(order.id)
-  ) {
-    throw new Error("Whop checkout metadata does not match this order");
+  if (!intent.evidenceReference || !transactionId) return { status: "pending" };
+  const transaction = await verifyFlutterwaveTransaction(transactionId);
+  if (transaction.tx_ref !== intent.evidenceReference) {
+    throw new Error("Flutterwave transaction does not belong to this order");
   }
-  const paymentsPayload = await whopRequest<{ data?: WhopPayment[] }>(
-    `/api/v1/payments?account_id=${encodeURIComponent(whopCompanyId())}&checkout_configuration_ids%5B%5D=${encodeURIComponent(intent.evidenceReference)}&first=100`,
-  );
-  const candidates = Array.isArray(paymentsPayload.data) ? paymentsPayload.data : [];
-  const exact = candidates.filter((candidate) => {
-    const candidateCheckoutId =
-      candidate.checkout_configuration_id ??
-      candidate.checkout_id ??
-      (typeof candidate.metadata?.checkout_id === "string"
-        ? candidate.metadata.checkout_id
-        : null);
-    const amount = whopMoneyMajor(candidate.amount ?? candidate.total);
-    const currency = String(candidate.currency ?? "").toUpperCase();
-    return (
-      candidateCheckoutId === intent.evidenceReference &&
-      Number.isFinite(amount) &&
-      Math.abs(amount - toNumber(order.total)) < 0.01 &&
-      (!currency || currency === order.currency)
-    );
-  });
-  const paid = exact.find((candidate) =>
-    ["succeeded", "paid", "completed", "captured"].includes(
-      String(candidate.status ?? "").toLowerCase(),
-    ),
-  );
-  if (paid?.id) return { status: "paid", providerPaymentId: paid.id };
-  const failed = exact.find((candidate) =>
-    ["failed", "declined", "canceled", "cancelled"].includes(
-      String(candidate.status ?? "").toLowerCase(),
-    ),
-  );
-  if (failed) return { status: "failed", providerPaymentId: failed.id };
-  return { status: "pending" };
+  const amount = flutterwaveAmount(transaction);
+  const currency = String(transaction.currency ?? "").toUpperCase();
+  if (!Number.isFinite(amount) || Math.abs(amount - toNumber(order.total)) >= 0.01 || currency !== order.currency) {
+    throw new Error("Flutterwave payment amount or currency does not match this order");
+  }
+  const status = flutterwaveStatus(transaction);
+  const providerPaymentId = flutterwaveTransactionId(transaction) ?? undefined;
+  return { status, providerPaymentId };
 }
 
-async function verifyPublicWhopOrder(
+async function verifyPublicFlutterwaveOrder(
   paymentToken: string,
-  checkoutId: string | null,
+  transactionId: string | null,
 ) {
   const order = (
     await db
@@ -1776,13 +1711,10 @@ async function verifyPublicWhopOrder(
       .limit(1)
   )[0];
   if (!intent) throw new Error("Payment session is not ready");
-  if (checkoutId && checkoutId !== intent.evidenceReference) {
-    throw new Error("That checkout does not belong to this order");
-  }
   if (intent.status === "verified") {
     return { order, status: "paid" as const, providerPaymentId: null };
   }
-  const provider = await findWhopCustomerPayment(intent, order);
+  const provider = await findFlutterwaveCustomerPayment(intent, order, transactionId);
   if (provider.status === "failed") {
     await db
       .update(paymentIntentsTable)
@@ -1909,7 +1841,7 @@ async function verifyPublicWhopOrder(
         method: currentIntent.method,
         evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
         status: "verified",
-        verifiedBy: "whop",
+        verifiedBy: "flutterwave",
         verifiedAt: new Date(),
       })
       .onConflictDoNothing()
@@ -1938,7 +1870,7 @@ async function verifyPublicWhopOrder(
       .set({
         status: "verified",
         evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
-        verifiedBy: "whop",
+        verifiedBy: "flutterwave",
         verifiedAt: new Date(),
       })
       .where(eq(paymentRecordsTable.id, paymentRecord.id));
@@ -1998,7 +1930,7 @@ async function verifyPublicWhopOrder(
       merchantId: order.merchantId,
       type: "order_payment_confirmed",
       title: `Payment confirmed for ${updatedOrder.orderNumber}`,
-      description: "Whop confirmed the customer payment and the sale entered the ledger.",
+      description: "Flutterwave confirmed the customer payment and the sale entered the ledger.",
       amount: updatedOrder.total,
       currency: updatedOrder.currency,
       tone: "positive",
@@ -2009,7 +1941,7 @@ async function verifyPublicWhopOrder(
       aggregateType: "payment_intent",
       aggregateId: String(currentIntent.id),
       actorType: "system",
-      actorId: "whop",
+      actorId: "flutterwave",
       source: "public_checkout",
       idempotencyKey: `payment-intent:${currentIntent.id}:verified`,
       payload: {
@@ -2030,11 +1962,12 @@ async function verifyPublicWhopOrder(
   };
 }
 
-async function ensurePublicWhopInvoiceCheckout(
+/*
+async function ensurePublicFlutterwaveInvoiceCheckout(
   invoice: typeof invoicesTable.$inferSelect,
   origin: string,
-): Promise<PublicWhopCheckout> {
-  if (!isCustomerWhopConfigured()) {
+): Promise<PublicFlutterwaveCheckout> {
+  if (!isFlutterwaveConfigured()) {
     throw new Error("Online customer checkout is not configured");
   }
   const outstanding = Number(
@@ -2061,7 +1994,7 @@ async function ensurePublicWhopInvoiceCheckout(
         merchantId: invoice.merchantId,
         amountMinor: Math.round(outstanding * 100),
         currency: invoice.currency,
-        method: "whop_hosted",
+        method: "flutterwave",
         idempotencyKey,
         status: "created",
       })
@@ -2091,7 +2024,7 @@ async function ensurePublicWhopInvoiceCheckout(
   if (intent.status === "verified") throw new Error("This invoice has already been paid");
   if (intent.evidenceReference && intent.status === "submitted") {
     try {
-      const existing = await whopRequest<WhopCheckoutConfiguration>(
+      const existing = await flutterwaveRequest<FlutterwaveCheckoutConfiguration>(
         `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
       );
       if (existing.purchase_url) {
@@ -2107,11 +2040,11 @@ async function ensurePublicWhopInvoiceCheckout(
       // Recreate an expired provider session without changing the invoice.
     }
   }
-  const plan = await whopRequest<WhopPlan>("/api/v1/plans", {
+  const plan = await flutterwaveRequest<FlutterwavePlan>("/api/v1/plans", {
     method: "POST",
     body: {
-      company_id: whopCompanyId(),
-      product_id: whopCustomerProductId(),
+      company_id: flutterwaveCompanyId(),
+      product_id: flutterwaveCustomerProductId(),
       plan_type: "one_time",
       initial_price: outstanding,
       currency: invoice.currency.toLowerCase(),
@@ -2119,14 +2052,14 @@ async function ensurePublicWhopInvoiceCheckout(
       internal_notes: `TS Commerce invoice ${invoice.invoiceNumber}; payment intent ${intent.id}`,
     },
   });
-  const checkout = await whopRequest<WhopCheckoutConfiguration>(
+  const checkout = await flutterwaveRequest<FlutterwaveCheckoutConfiguration>(
     "/api/v1/checkout_configurations",
     {
       method: "POST",
       body: {
-        company_id: whopCompanyId(),
+        company_id: flutterwaveCompanyId(),
         plan_id: plan.id,
-        redirect_url: `${origin}/invoice/${encodeURIComponent(invoice.publicToken)}?whop=return`,
+        redirect_url: `${origin}/invoice/${encodeURIComponent(invoice.publicToken)}?flutterwave=return`,
         metadata: {
           provider: "ts-commerce",
           merchant_id: String(invoice.merchantId),
@@ -2139,7 +2072,7 @@ async function ensurePublicWhopInvoiceCheckout(
     },
   );
   if (!checkout.id || !checkout.purchase_url) {
-    throw new Error("Whop returned an incomplete invoice checkout");
+    throw new Error("Flutterwave returned an incomplete invoice checkout");
   }
   const [updated] = await db
     .update(paymentIntentsTable)
@@ -2156,7 +2089,7 @@ async function ensurePublicWhopInvoiceCheckout(
   };
 }
 
-async function verifyPublicWhopInvoice(token: string, checkoutId: string | null) {
+async function verifyPublicFlutterwaveInvoice(token: string, checkoutId: string | null) {
   let invoice = (
     await db
       .select()
@@ -2190,22 +2123,22 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
     throw new Error("That checkout does not belong to this invoice");
   }
   if (!intent.evidenceReference) return { invoice, status: "pending" as const, providerPaymentId: null };
-  const checkout = await whopRequest<WhopCheckoutConfiguration>(
+  const checkout = await flutterwaveRequest<FlutterwaveCheckoutConfiguration>(
     `/api/v1/checkout_configurations/${encodeURIComponent(intent.evidenceReference)}`,
   );
   const metadata = checkout.metadata ?? {};
   if (metadata.invoice_id !== undefined && String(metadata.invoice_id) !== String(invoice.id)) {
-    throw new Error("Whop checkout metadata does not match this invoice");
+    throw new Error("Flutterwave checkout metadata does not match this invoice");
   }
-  const payload = await whopRequest<{ data?: WhopPayment[] }>(
-    `/api/v1/payments?account_id=${encodeURIComponent(whopCompanyId())}&checkout_configuration_ids%5B%5D=${encodeURIComponent(intent.evidenceReference)}&first=100`,
+  const payload = await flutterwaveRequest<{ data?: FlutterwaveTransaction[] }>(
+    `/transactions?account_id=${encodeURIComponent(flutterwaveCompanyId())}&checkout_configuration_ids%5B%5D=${encodeURIComponent(intent.evidenceReference)}&first=100`,
   );
   const candidates = (Array.isArray(payload.data) ? payload.data : []).filter((candidate) => {
     const candidateCheckoutId =
       candidate.checkout_configuration_id ??
       candidate.checkout_id ??
       (typeof candidate.metadata?.checkout_id === "string" ? candidate.metadata.checkout_id : null);
-    const amount = whopMoneyMajor(candidate.amount ?? candidate.total);
+    const amount = flutterwaveAmount(candidate);
     const currency = String(candidate.currency ?? "").toUpperCase();
     return candidateCheckoutId === intent.evidenceReference &&
       Number.isFinite(amount) &&
@@ -2241,7 +2174,7 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
       method: currentIntent.method,
       status: "verified",
       evidenceReference: paid.id ?? currentIntent.evidenceReference,
-      verifiedBy: "whop",
+      verifiedBy: "flutterwave",
       verifiedAt: new Date(),
     }).onConflictDoNothing().returning();
     const paymentRecord = record ?? (await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, currentIntent.id)).limit(1))[0];
@@ -2255,7 +2188,7 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
       amountMinor: currentIntent.amountMinor,
       currency: currentIntent.currency,
       entryType: "sale",
-      referenceKey: `invoice-whop:${currentIntent.id}`,
+      referenceKey: `invoice-flutterwave:${currentIntent.id}`,
     }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     const nextPaid = Number((toNumber(current.amountPaid) + outstanding).toFixed(2));
     const [updated] = await tx.update(invoicesTable).set({
@@ -2268,7 +2201,7 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
       merchantId: current.merchantId,
       type: "invoice_payment_confirmed",
       title: `Online payment confirmed for ${current.invoiceNumber}`,
-      description: "Whop confirmed the invoice payment and it entered the sales ledger.",
+      description: "Flutterwave confirmed the invoice payment and it entered the sales ledger.",
       amount: outstanding.toFixed(2),
       currency: current.currency,
       tone: "positive",
@@ -2279,7 +2212,7 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
       aggregateType: "invoice",
       aggregateId: String(current.id),
       actorType: "system",
-      actorId: "whop",
+      actorId: "flutterwave",
       source: "public_checkout",
       idempotencyKey: `invoice-payment:${current.id}:${currentIntent.id}:verified`,
       payload: { invoiceId: current.id, paymentIntentId: currentIntent.id, amount: outstanding, currency: current.currency },
@@ -2291,15 +2224,15 @@ async function verifyPublicWhopInvoice(token: string, checkoutId: string | null)
   return { invoice: settledInvoice, status: "paid" as const, providerPaymentId: paid.id ?? null };
 }
 
-async function requestWhopRefund(
+async function requestFlutterwaveRefund(
   paymentId: string,
   amountMinor: number,
   idempotencyKey: string,
-): Promise<WhopRefund> {
-  if (!isCustomerWhopConfigured()) {
-    throw new Error("Whop refunds are not configured");
+): Promise<{ id: string | null; status: string }> {
+  if (!isFlutterwaveConfigured()) {
+    throw new Error("Flutterwave refunds are not configured");
   }
-  await whopRequest<WhopPayment>(
+  await flutterwaveRequest<FlutterwaveTransaction>(
     `/api/v1/payments/${encodeURIComponent(paymentId)}/refund`,
     {
       method: "POST",
@@ -2307,15 +2240,15 @@ async function requestWhopRefund(
       idempotencyKey,
     },
   );
-  const refunds = await whopRequest<{ data?: WhopRefund[] }>(
-    `/api/v1/refunds?account_id=${encodeURIComponent(whopCompanyId())}&payment_id=${encodeURIComponent(paymentId)}&first=100`,
+  const refunds = await flutterwaveRequest<{ data?: FlutterwaveRefund[] }>(
+    `/transactions?payment_id=${encodeURIComponent(paymentId)}&first=100`,
   );
   const candidates = Array.isArray(refunds.data)
     ? refunds.data.filter((refund) => refund.payment_id === paymentId)
     : [];
   const exact = candidates
     .filter((refund) => {
-      const amount = whopMoneyMajor(refund.amount);
+      const amount = flutterwaveAmount(refund);
       return Number.isFinite(amount) && Math.abs(amount - amountMinor / 100) < 0.01;
     })
     .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")));
@@ -2323,13 +2256,14 @@ async function requestWhopRefund(
   if (!latest) {
     return {
       status: "pending",
-      failure_message: "Whop accepted the refund request but the refund record is not visible yet",
+      failure_message: "Flutterwave accepted the refund request but the refund record is not visible yet",
       payment_id: paymentId,
     };
   }
   return latest;
 }
 
+*/
 function serializeMarketplaceListing(
   listing: typeof marketplaceListingsTable.$inferSelect,
   product: typeof supplierProductsTable.$inferSelect,
@@ -7393,10 +7327,14 @@ router.post(
         });
         return { order, product };
       });
-       await ensurePublicManualPaymentIntent(result.order);
+      const payment = await ensurePublicFlutterwaveCheckout(
+        result.order,
+        result.product.title,
+        requestOrigin(req),
+      );
       res.status(201).json(
         CreatePublicCheckoutResponse.parse(
-           serializePublicCheckoutOrder(result.order, result.product, null),
+          serializePublicCheckoutOrder(result.order, result.product, payment),
         ),
       );
     } catch (error) {
@@ -7504,7 +7442,11 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       });
       return order;
     });
-    const paymentIntent = await ensurePublicManualPaymentIntent(result);
+    const payment = await ensurePublicFlutterwaveCheckout(
+      result,
+      link.title,
+      requestOrigin(req),
+    );
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
       title: link.title,
@@ -7514,12 +7456,12 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       total: toNumber(result.total),
       currency: result.currency,
       status: "pending",
-       paymentMessage: "Your order is reserved in TS Commerce. Submit your payment evidence here for merchant approval; the order enters fulfillment only after verification.",
+      paymentMessage: "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.",
       paymentToken: result.publicPaymentToken,
-       paymentIntentId: paymentIntent.id,
-       paymentProvider: "ts_pay",
-       paymentUrl: null,
-       paymentStatus: "created",
+      paymentIntentId: payment.paymentIntentId,
+      paymentProvider: "flutterwave",
+      paymentUrl: payment.purchaseUrl,
+      paymentStatus: "submitted",
     }));
   } catch (error) {
     req.log.error({ err: error }, "payment link checkout failed");
@@ -7545,15 +7487,22 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
     return;
   }
   try {
-    const intent = await ensurePublicManualPaymentIntent(order);
+    const product = order.supplierProductId
+      ? (await db.select().from(supplierProductsTable).where(eq(supplierProductsTable.id, order.supplierProductId)).limit(1))[0]
+      : null;
+    const payment = await ensurePublicFlutterwaveCheckout(
+      order,
+      product?.title ?? "TS Commerce payment",
+      requestOrigin(req),
+    );
     res.status(201).json({
       orderNumber: order.orderNumber,
       status: order.status,
       paymentToken,
-      paymentIntentId: intent.id,
-      paymentProvider: "ts_pay",
-      paymentUrl: null,
-      paymentStatus: intent.status === "submitted" ? "submitted" : "manual",
+      paymentIntentId: payment.paymentIntentId,
+      paymentProvider: "flutterwave",
+      paymentUrl: payment.purchaseUrl,
+      paymentStatus: "submitted",
     });
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : "Payment session could not be reopened" });
@@ -7562,21 +7511,18 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
 
 router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<void> => {
   const paymentToken = String(req.params.paymentToken ?? "").trim();
-  const checkoutId =
-    typeof req.body?.checkoutId === "string" ? req.body.checkoutId.trim() : null;
+  const transactionId =
+    typeof req.body?.transaction_id === "string" ? req.body.transaction_id.trim()
+      : typeof req.body?.transactionId === "string" ? req.body.transactionId.trim()
+        : typeof req.query.transaction_id === "string" ? req.query.transaction_id.trim()
+          : null;
   if (paymentToken.length < 20 || paymentToken.length > 120) {
     res.status(400).json({ error: "Invalid payment session" });
     return;
   }
   try {
-    const order = (
-      await db
-        .select()
-        .from(ordersTable)
-        .where(eq(ordersTable.publicPaymentToken, paymentToken))
-        .limit(1)
-    )[0];
-    if (!order) throw new Error("Payment session not found");
+    const verified = await verifyPublicFlutterwaveOrder(paymentToken, transactionId);
+    const order = verified.order;
     const intent = (
       await db
         .select()
@@ -7585,15 +7531,7 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
         .limit(1)
     )[0];
     if (!intent) throw new Error("Payment session is not ready");
-    const result = {
-      order,
-      status: order.status === "paid" || intent.status === "verified"
-        ? "paid" as const
-        : intent.status === "failed"
-          ? "failed" as const
-          : "pending" as const,
-      providerPaymentId: null,
-    };
+    const result = verified;
     const product = result.order.supplierProductId
       ? (
           await db
@@ -7626,7 +7564,7 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
           .where(eq(paymentIntentsTable.orderId, result.order.id))
           .limit(1)
       )[0]?.id ?? null,
-       paymentProvider: "ts_pay",
+      paymentProvider: "flutterwave",
       paymentUrl: null,
       paymentStatus: result.status === "paid" ? "verified" : result.status,
       providerPaymentId: result.providerPaymentId,
@@ -7635,6 +7573,80 @@ router.post("/public/checkout/:paymentToken/verify", async (req, res): Promise<v
     res.status(409).json({
       error: error instanceof Error ? error.message : "Payment could not be verified",
     });
+  }
+});
+
+router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!rawBody || !verifyFlutterwaveWebhookSignature(rawBody, req.header("verif-hash"))) {
+    res.status(401).json({ error: "Invalid Flutterwave webhook signature" });
+    return;
+  }
+  let payload: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(rawBody.toString("utf8"));
+    if (!parsed || typeof parsed !== "object") throw new Error("Invalid webhook payload");
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    res.status(400).json({ error: "Invalid Flutterwave webhook payload" });
+    return;
+  }
+  const eventType = typeof payload.event === "string"
+    ? payload.event
+    : typeof payload.type === "string" ? payload.type : "transaction";
+  const data = payload.data && typeof payload.data === "object"
+    ? payload.data as FlutterwaveTransaction
+    : {};
+  const providerPaymentId = flutterwaveTransactionId(data);
+  const webhookId = req.header("x-webhook-id")?.trim()
+    || `${eventType}:${providerPaymentId ?? "unknown"}:${data.tx_ref ?? "unknown"}`;
+  const [created] = await db
+    .insert(paymentWebhookEventsTable)
+    .values({
+      provider: "flutterwave",
+      webhookId,
+      eventType,
+      providerPaymentId,
+      payload,
+    })
+    .onConflictDoNothing({
+      target: [paymentWebhookEventsTable.provider, paymentWebhookEventsTable.webhookId],
+    })
+    .returning({ id: paymentWebhookEventsTable.id, status: paymentWebhookEventsTable.status });
+  const event = created ?? (await db
+    .select({ id: paymentWebhookEventsTable.id, status: paymentWebhookEventsTable.status })
+    .from(paymentWebhookEventsTable)
+    .where(and(
+      eq(paymentWebhookEventsTable.provider, "flutterwave"),
+      eq(paymentWebhookEventsTable.webhookId, webhookId),
+    ))
+    .limit(1))[0];
+  if (!event) {
+    res.status(500).json({ error: "Webhook event could not be stored" });
+    return;
+  }
+  if (event.status === "processed") {
+    res.json({ received: true, duplicate: true });
+    return;
+  }
+  try {
+    const meta = data.meta && typeof data.meta === "object" ? data.meta : {};
+    const paymentToken = typeof meta.payment_token === "string" ? meta.payment_token : null;
+    if (paymentToken && providerPaymentId) {
+      await verifyPublicFlutterwaveOrder(paymentToken, providerPaymentId);
+    }
+    await db.update(paymentWebhookEventsTable).set({
+      status: "processed",
+      processedAt: new Date(),
+      error: null,
+    }).where(eq(paymentWebhookEventsTable.id, event.id));
+    res.json({ received: true });
+  } catch (error) {
+    await db.update(paymentWebhookEventsTable).set({
+      status: "failed",
+      error: error instanceof Error ? error.message : "Webhook processing failed",
+    }).where(eq(paymentWebhookEventsTable.id, event.id));
+    res.status(500).json({ error: "Flutterwave webhook processing failed" });
   }
 });
 
@@ -8337,7 +8349,189 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
+router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (identity.isAdmin) {
+    res.status(409).json({ error: "Master admin account is subscription exempt" });
+    return;
+  }
+  if (!isFlutterwaveConfigured()) {
+    res.status(503).json({ error: "Flutterwave hosted checkout is not configured yet" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  if (merchant.status === "banned") {
+    res.status(403).json({ error: "Banned accounts cannot submit subscription payments" });
+    return;
+  }
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const outstanding = Number(Math.max(
+    0,
+    toNumber(enforced.subscription.amountDue) - toNumber(enforced.subscription.amountPaid),
+  ).toFixed(2));
+  if (outstanding === 0) {
+    res.status(409).json({ error: "Subscription is already settled" });
+    return;
+  }
+  const reference = `FLW-SUB-${enforced.subscription.id}`;
+  let payment = (await db.select().from(paymentsTable).where(and(
+    eq(paymentsTable.merchantId, merchant.id),
+    eq(paymentsTable.reference, reference),
+  )).limit(1))[0];
+  if (!payment) {
+    [payment] = await db.insert(paymentsTable).values({
+      merchantId: merchant.id,
+      amount: outstanding.toFixed(2),
+      currency: enforced.subscription.currency,
+      method: "flutterwave",
+      reference,
+      status: "pending",
+    }).onConflictDoNothing().returning();
+    if (!payment) {
+      payment = (await db.select().from(paymentsTable).where(eq(paymentsTable.reference, reference)).limit(1))[0];
+    }
+  }
+  if (!payment) {
+    res.status(409).json({ error: "Could not reserve the Flutterwave payment attempt" });
+    return;
+  }
+  try {
+    const checkout = await initializeFlutterwavePayment({
+      txRef: reference,
+      amount: outstanding,
+      currency: enforced.subscription.currency,
+      redirectUrl: `${requestOrigin(req)}/billing?flutterwave=return`,
+      customer: { email: merchant.email, name: merchant.name },
+      title: "TS Commerce subscription",
+      meta: {
+        provider: "flutterwave",
+        merchant_id: merchant.id,
+        subscription_id: enforced.subscription.id,
+        payment_reference: reference,
+      },
+    });
+    const [updatedPayment] = await db.update(paymentsTable).set({
+      evidenceReference: checkout.txRef,
+      status: "under_review",
+      reviewNote: "Awaiting server-side Flutterwave payment verification",
+    }).where(eq(paymentsTable.id, payment.id)).returning();
+    if (!updatedPayment) throw new Error("Could not save the Flutterwave checkout reference");
+    res.status(201).json({
+      provider: "flutterwave",
+      checkoutId: checkout.txRef,
+      purchaseUrl: checkout.link,
+      status: updatedPayment.status,
+      amount: outstanding,
+      currency: enforced.subscription.currency,
+    });
+  } catch (error) {
+    await db.update(paymentsTable).set({
+      status: "failed",
+      reviewNote: error instanceof Error ? error.message : "Flutterwave checkout could not be created",
+    }).where(eq(paymentsTable.id, payment.id));
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Flutterwave checkout could not be created",
+    });
+  }
+});
+
+router.post("/subscription/flutterwave-verify", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (identity.isAdmin) {
+    res.status(409).json({ error: "Master admin account is subscription exempt" });
+    return;
+  }
+  const transactionId = typeof req.body?.transaction_id === "string"
+    ? req.body.transaction_id.trim()
+    : typeof req.body?.transactionId === "string" ? req.body.transactionId.trim() : "";
+  if (!transactionId) {
+    res.status(400).json({ error: "A Flutterwave transaction ID is required" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  try {
+    const transaction = await verifyFlutterwaveTransaction(transactionId);
+    const providerStatus = flutterwaveStatus(transaction);
+    const txRef = transaction.tx_ref ?? "";
+    const payment = (await db.select().from(paymentsTable).where(and(
+      eq(paymentsTable.merchantId, merchant.id),
+      eq(paymentsTable.method, "flutterwave"),
+      or(eq(paymentsTable.evidenceReference, txRef), eq(paymentsTable.reference, txRef)),
+    )).limit(1))[0];
+    if (!payment) {
+      res.status(404).json({ error: "Flutterwave transaction is not associated with this account" });
+      return;
+    }
+    if (payment.status === "confirmed") {
+      res.json({ status: "confirmed", paymentId: transactionId, message: "Flutterwave payment was already verified.", subscription: serializeSubscription(merchant, enforced.subscription) });
+      return;
+    }
+    const amount = flutterwaveAmount(transaction);
+    if (!Number.isFinite(amount) || Math.abs(amount - toNumber(payment.amount)) >= 0.01 || String(transaction.currency ?? "").toUpperCase() !== payment.currency) {
+      res.status(409).json({ error: "The verified Flutterwave amount or currency does not match the subscription" });
+      return;
+    }
+    if (providerStatus === "failed") {
+      await db.update(paymentsTable).set({ status: "failed", reviewNote: "Flutterwave reported that the payment failed", reviewedAt: new Date() }).where(and(eq(paymentsTable.id, payment.id), eq(paymentsTable.status, payment.status)));
+      res.json({ status: "failed", paymentId: transactionId, message: "Flutterwave reported that this payment failed. No subscription credit was created.", subscription: serializeSubscription(merchant, enforced.subscription) });
+      return;
+    }
+    if (providerStatus !== "paid") {
+      res.json({ status: "pending", paymentId: null, message: "Flutterwave has not reported a successful payment yet.", subscription: serializeSubscription(merchant, enforced.subscription) });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${subscriptionsTable} where id=${enforced.subscription.id} and merchant_id=${merchant.id} for update`);
+      await tx.execute(sql`select id from ${paymentsTable} where id=${payment.id} and merchant_id=${merchant.id} for update`);
+      const currentSubscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.id, enforced.subscription.id)).limit(1))[0];
+      const currentPayment = (await tx.select().from(paymentsTable).where(eq(paymentsTable.id, payment.id)).limit(1))[0];
+      if (!currentSubscription || !currentPayment) throw new Error("Flutterwave payment record is no longer available");
+      if (currentPayment.status === "confirmed") return currentSubscription;
+      const remaining = Math.max(0, toNumber(currentSubscription.amountDue) - toNumber(currentSubscription.amountPaid));
+      if (remaining === 0) return currentSubscription;
+      if (Math.abs(remaining - amount) >= 0.01) throw new Error("Subscription changed while Flutterwave payment was processing");
+      const [updatedSubscription] = await tx.update(subscriptionsTable).set({
+        amountPaid: (toNumber(currentSubscription.amountPaid) + remaining).toFixed(2),
+        paymentMethod: "flutterwave",
+        status: "active",
+      }).where(and(
+        eq(subscriptionsTable.id, currentSubscription.id),
+        eq(subscriptionsTable.amountPaid, currentSubscription.amountPaid),
+      )).returning();
+      if (!updatedSubscription) throw new Error("Subscription changed while Flutterwave payment was processing");
+      await tx.update(paymentsTable).set({
+        status: "confirmed",
+        evidenceReference: transactionId,
+        reviewNote: "Verified from Flutterwave transaction records",
+        reviewedBy: "flutterwave",
+        reviewedAt: new Date(),
+      }).where(and(eq(paymentsTable.id, currentPayment.id), eq(paymentsTable.status, currentPayment.status)));
+      if (merchant.status !== "banned") {
+        await tx.update(merchantsTable).set({ status: "active" }).where(eq(merchantsTable.id, merchant.id));
+      }
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "flutterwave_payment_verified",
+        title: "Flutterwave subscription payment verified",
+        description: "Flutterwave payment evidence was verified server-side and applied to the subscription.",
+        amount: remaining.toFixed(2),
+        currency: currentSubscription.currency,
+        tone: "positive",
+      });
+      return updatedSubscription;
+    });
+    res.json({ status: "confirmed", paymentId: transactionId, message: "Flutterwave payment verified and subscription settled.", subscription: serializeSubscription(merchant, result) });
+  } catch (error) {
+    req.log.warn({ err: error }, "Flutterwave subscription verification failed");
+    res.status(502).json({ error: error instanceof Error ? error.message : "Flutterwave payment could not be verified" });
+  }
+});
+
+/*
+router.post("/subscription/legacy-checkout", async (req, res): Promise<void> => {
   res.status(410).json({ error: "Hosted provider checkout has been retired. Use Pay from bank or Pay from dashboard inside TS Commerce." });
   return;
   /*
@@ -8347,8 +8541,8 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
-  if (!isWhopConfigured()) {
-    res.status(503).json({ error: "Whop hosted checkout is not configured yet" });
+  if (!isFlutterwaveConfigured()) {
+    res.status(503).json({ error: "Legacy hosted checkout is not configured yet" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
@@ -8368,7 +8562,7 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
   }
   if (enforced.subscription.currency !== "USD") {
     res.status(409).json({
-      error: "Whop checkout is currently available for USD billing only. Use Pay from bank or Pay from dashboard for another currency.",
+      error: "Legacy checkout is no longer available. Use the Flutterwave subscription checkout.",
     });
     return;
   }
@@ -8386,17 +8580,17 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
       .limit(1)
   )[0];
   if (payment?.status === "confirmed") {
-    res.status(409).json({ error: "This subscription is already settled through Whop" });
+    res.status(409).json({ error: "This subscription is already settled through the legacy provider" });
     return;
   }
   if (payment?.evidenceReference && payment.status !== "failed") {
     try {
-      const checkout = await whopRequest<WhopCheckoutConfiguration>(
+      const checkout = await flutterwaveRequest<FlutterwaveCheckoutConfiguration>(
         `/api/v1/checkout_configurations/${encodeURIComponent(payment.evidenceReference)}`,
       );
       if (checkout.purchase_url) {
         res.json({
-          provider: "whop",
+          provider: "flutterwave",
           checkoutId: checkout.id,
           purchaseUrl: checkout.purchase_url,
           status: payment.status,
@@ -8406,7 +8600,7 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
         return;
       }
     } catch (error) {
-      req.log.warn({ err: error }, "Could not reuse the existing Whop checkout");
+      req.log.warn({ err: error }, "Could not reuse the existing legacy checkout");
     }
   }
 
@@ -8417,7 +8611,7 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
         merchantId: merchant.id,
         amount: outstanding.toFixed(2),
         currency: "USD",
-        method: "whop",
+        method: "flutterwave",
         reference,
         status: "pending",
       })
@@ -8451,7 +8645,7 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
       .returning();
   }
   if (!payment) {
-    res.status(409).json({ error: "Could not reserve the Whop payment attempt" });
+    res.status(409).json({ error: "Could not reserve the legacy payment attempt" });
     return;
   }
 
@@ -8463,16 +8657,16 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
     return;
   }
   const redirectUrl = new URL(
-    `/billing?whop=return&checkout_id=${encodeURIComponent(reference)}`,
+    `/billing?flutterwave=return&checkout_id=${encodeURIComponent(reference)}`,
     `${protocol}://${host}`,
   ).toString();
   try {
-    const checkout = await whopRequest<WhopCheckoutConfiguration>(
+    const checkout = await flutterwaveRequest<FlutterwaveCheckoutConfiguration>(
       "/api/v1/checkout_configurations",
       {
         method: "POST",
         body: {
-          plan_id: whopPlanId(),
+          plan_id: flutterwavePlanId(),
           redirect_url: redirectUrl,
           metadata: {
             provider: "ts-commerce",
@@ -8484,28 +8678,28 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
       },
     );
     if (!checkout.id || !checkout.purchase_url) {
-      throw new Error("Whop returned an incomplete hosted checkout");
+      throw new Error("Legacy provider returned an incomplete hosted checkout");
     }
     const [updatedPayment] = await db
       .update(paymentsTable)
       .set({
         evidenceReference: checkout.id,
         status: "under_review",
-        reviewNote: "Awaiting server-side Whop payment verification",
+        reviewNote: "Awaiting server-side Flutterwave payment verification",
       })
       .where(eq(paymentsTable.id, payment.id))
       .returning();
-    if (!updatedPayment) throw new Error("Could not save the Whop checkout reference");
+    if (!updatedPayment) throw new Error("Could not save the legacy checkout reference");
     await addActivity(merchant.id, {
-      type: "whop_checkout_created",
-      title: "Whop checkout opened",
-      description: "A hosted Whop checkout is waiting for verified payment.",
+      type: "flutterwave_checkout_created",
+      title: "Flutterwave checkout opened",
+      description: "A hosted Flutterwave checkout is waiting for verified payment.",
       amount: outstanding.toFixed(2),
       currency: "USD",
       tone: "neutral",
     });
     res.status(201).json({
-      provider: "whop",
+      provider: "flutterwave",
       checkoutId: checkout.id,
       purchaseUrl: checkout.purchase_url,
       status: updatedPayment.status,
@@ -8517,17 +8711,17 @@ router.post("/subscription/whop-checkout", async (req, res): Promise<void> => {
       .update(paymentsTable)
       .set({
         status: "failed",
-        reviewNote: error instanceof Error ? error.message : "Whop checkout could not be created",
+        reviewNote: error instanceof Error ? error.message : "Flutterwave checkout could not be created",
       })
       .where(eq(paymentsTable.id, payment.id));
     res.status(502).json({
-      error: error instanceof Error ? error.message : "Whop checkout could not be created",
+      error: error instanceof Error ? error.message : "Flutterwave checkout could not be created",
     });
   }
-  */
 });
+*/
 
-router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
+router.post("/subscription/legacy-verify", async (req, res): Promise<void> => {
   res.status(410).json({ error: "Hosted provider verification has been retired. Use the TS Commerce payment review queue." });
   return;
   /*
@@ -8541,7 +8735,7 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
     ? req.body.checkoutId.trim()
     : "";
   if (!checkoutIdentifier) {
-    res.status(400).json({ error: "A Whop checkout ID is required" });
+    res.status(400).json({ error: "A legacy checkout ID is required" });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
@@ -8553,7 +8747,7 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
       .where(
         and(
           eq(paymentsTable.merchantId, merchant.id),
-          eq(paymentsTable.method, "whop"),
+          eq(paymentsTable.method, "flutterwave"),
           or(
             eq(paymentsTable.evidenceReference, checkoutIdentifier),
             eq(paymentsTable.reference, checkoutIdentifier),
@@ -8563,14 +8757,14 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
       .limit(1)
   )[0];
   if (!payment) {
-    res.status(404).json({ error: "Whop checkout is not associated with this account" });
+    res.status(404).json({ error: "Legacy checkout is not associated with this account" });
     return;
   }
   if (payment.status === "confirmed") {
     res.json({
       status: "confirmed",
       paymentId: null,
-      message: "Whop payment was already verified.",
+      message: "Legacy payment was already verified.",
       subscription: serializeSubscription(merchant, enforced.subscription),
     });
     return;
@@ -8578,16 +8772,16 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
   const checkoutId = payment.evidenceReference;
   if (!checkoutId) {
     res.status(409).json({
-      error: "The Whop checkout is still being prepared. Retry in a moment.",
+      error: "The legacy checkout is still being prepared. Retry in a moment.",
     });
     return;
   }
   try {
-    await whopRequest<WhopCheckoutConfiguration>(
+    await flutterwaveRequest<FlutterwaveCheckoutConfiguration>(
       `/api/v1/checkout_configurations/${encodeURIComponent(checkoutId)}`,
     );
-    const paymentsPayload = await whopRequest<{ data?: WhopPayment[] }>(
-      `/api/v1/payments?account_id=${encodeURIComponent(whopCompanyId())}&first=100`,
+    const paymentsPayload = await flutterwaveRequest<{ data?: FlutterwaveTransaction[] }>(
+      `/transactions?account_id=${encodeURIComponent(flutterwaveCompanyId())}&first=100`,
     );
     const candidates = Array.isArray(paymentsPayload.data) ? paymentsPayload.data : [];
     const paymentMatch = candidates.find((candidate) => {
@@ -8601,11 +8795,11 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
         candidate.plan?.id ??
         null;
       const status = String(candidate.status ?? "").toLowerCase();
-      const amount = whopMoneyMajor(candidate.amount ?? candidate.total);
+      const amount = flutterwaveAmount(candidate);
       const createdAt = candidate.created_at ? new Date(candidate.created_at).getTime() : NaN;
       return (
         (candidateCheckoutId === checkoutId ||
-          (planId === whopPlanId() &&
+          (planId === flutterwavePlanId() &&
             Number.isFinite(createdAt) &&
             createdAt >= payment.createdAt.getTime())) &&
         ["succeeded", "paid", "completed", "captured", "active"].includes(status) &&
@@ -8629,14 +8823,14 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
         .update(paymentsTable)
         .set({
           status: "failed",
-          reviewNote: "Whop reported that the payment failed",
+          reviewNote: "Flutterwave reported that the payment failed",
           reviewedAt: new Date(),
         })
         .where(and(eq(paymentsTable.id, payment.id), eq(paymentsTable.status, "under_review")));
       res.json({
         status: "failed",
         paymentId: failedMatch.id ?? null,
-        message: "Whop reported that this payment failed. No balance was credited.",
+        message: "Flutterwave reported that this payment failed. No balance was credited.",
         subscription: serializeSubscription(merchant, enforced.subscription),
       });
       return;
@@ -8645,7 +8839,7 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
       res.json({
         status: "pending",
         paymentId: null,
-        message: "Whop has not reported a verified payment yet. You can retry verification shortly.",
+        message: "Flutterwave has not reported a verified payment yet. You can retry verification shortly.",
         subscription: serializeSubscription(merchant, enforced.subscription),
       });
       return;
@@ -8669,7 +8863,7 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
           .limit(1)
       )[0];
       if (!currentSubscription || !currentPayment) {
-        throw new Error("The Whop payment record is no longer available");
+        throw new Error("The legacy payment record is no longer available");
       }
       if (currentPayment.status === "confirmed") {
         return currentSubscription;
@@ -8681,13 +8875,13 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
       );
       if (remaining === 0) return currentSubscription;
       if (Math.abs(remaining - toNumber(currentPayment.amount)) >= 0.01) {
-        throw new Error("The verified Whop amount does not match the outstanding subscription");
+        throw new Error("The verified Flutterwave amount does not match the outstanding subscription");
       }
       const [updatedSubscription] = await tx
         .update(subscriptionsTable)
         .set({
           amountPaid: (toNumber(currentSubscription.amountPaid) + remaining).toFixed(2),
-          paymentMethod: "whop",
+          paymentMethod: "flutterwave",
           status: "active",
         })
         .where(
@@ -8697,13 +8891,13 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
           ),
         )
         .returning();
-      if (!updatedSubscription) throw new Error("Subscription changed while Whop payment was processing");
+      if (!updatedSubscription) throw new Error("Subscription changed while Flutterwave payment was processing");
       await tx
         .update(paymentsTable)
         .set({
           status: "confirmed",
-          reviewNote: "Verified from Whop payment records",
-          reviewedBy: "whop",
+          reviewNote: "Verified from Flutterwave payment records",
+          reviewedBy: "flutterwave",
           reviewedAt: new Date(),
         })
         .where(and(eq(paymentsTable.id, currentPayment.id), eq(paymentsTable.status, currentPayment.status)));
@@ -8715,9 +8909,9 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
       }
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
-        type: "whop_payment_verified",
-        title: "Whop subscription payment verified",
-        description: "Whop payment evidence was verified server-side and applied to the subscription.",
+        type: "flutterwave_payment_verified",
+        title: "Flutterwave subscription payment verified",
+        description: "Flutterwave payment evidence was verified server-side and applied to the subscription.",
         amount: remaining.toFixed(2),
         currency: currentSubscription.currency,
         tone: "positive",
@@ -8727,13 +8921,13 @@ router.post("/subscription/whop-verify", async (req, res): Promise<void> => {
     res.json({
       status: "confirmed",
       paymentId: paymentMatch.id ?? null,
-      message: "Whop payment verified and subscription settled.",
+      message: "Flutterwave payment verified and subscription settled.",
       subscription: serializeSubscription(merchant, result),
     });
   } catch (error) {
-    req.log.warn({ err: error }, "Whop payment verification failed");
+    req.log.warn({ err: error }, "Flutterwave payment verification failed");
     res.status(502).json({
-      error: error instanceof Error ? error.message : "Whop payment could not be verified",
+      error: error instanceof Error ? error.message : "Flutterwave payment could not be verified",
     });
   }
   */
@@ -9835,6 +10029,58 @@ router.post("/refunds", async (req, res): Promise<void> => {
 
 router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const id = Number(req.params.id); const merchant = await getOrCreateMerchant(identity);
+  const pendingRefund = (await db.select().from(refundRecordsTable).where(and(
+    eq(refundRecordsTable.id, id),
+    eq(refundRecordsTable.merchantId, merchant.id),
+  )).limit(1))[0];
+  let providerRefund: { id: string | null; status: string } | null = null;
+  if (pendingRefund?.status === "requested") {
+    const payment = (await db.select().from(paymentRecordsTable).where(and(
+      eq(paymentRecordsTable.id, pendingRefund.paymentRecordId),
+      eq(paymentRecordsTable.merchantId, merchant.id),
+    )).limit(1))[0];
+    if (payment?.method === "flutterwave") {
+      const providerTransactionId = payment.evidenceReference?.trim();
+      if (!providerTransactionId) {
+        res.status(409).json({ error: "The Flutterwave payment has no provider transaction ID" });
+        return;
+      }
+      if (!isFlutterwaveConfigured()) {
+        res.status(503).json({ error: "Flutterwave refunds are not configured" });
+        return;
+      }
+      try {
+        providerRefund = await refundFlutterwaveTransaction(
+          providerTransactionId,
+          pendingRefund.amountMinor / 100,
+          `refund:${pendingRefund.id}`,
+        );
+      } catch (error) {
+        await db.update(refundRecordsTable).set({
+          providerStatus: "failed",
+          providerFailureReason: error instanceof Error ? error.message : "Flutterwave refund failed",
+        }).where(and(
+          eq(refundRecordsTable.id, pendingRefund.id),
+          eq(refundRecordsTable.status, "requested"),
+        ));
+        res.status(502).json({ error: error instanceof Error ? error.message : "Flutterwave refund failed" });
+        return;
+      }
+      const accepted = ["success", "successful", "completed", "processed", "paid"].includes(providerRefund.status.toLowerCase());
+      if (!accepted) {
+        const [updated] = await db.update(refundRecordsTable).set({
+          providerRefundId: providerRefund.id,
+          providerStatus: providerRefund.status,
+          providerFailureReason: null,
+        }).where(and(
+          eq(refundRecordsTable.id, pendingRefund.id),
+          eq(refundRecordsTable.status, "requested"),
+        )).returning();
+        res.status(202).json(ApproveRefundResponse.parse(updated ?? pendingRefund));
+        return;
+      }
+    }
+  }
   try {
     const refund = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${refundRecordsTable} where id=${id} and merchant_id=${merchant.id} for update`);
@@ -9848,9 +10094,9 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
          status: "processed",
          approvedBy: identity.clerkUserId,
          approvedAt: new Date(),
-          providerRefundId: current.providerRefundId,
-          providerStatus: current.providerStatus,
-          providerFailureReason: current.providerFailureReason,
+           providerRefundId: providerRefund?.id ?? current.providerRefundId,
+           providerStatus: providerRefund?.status ?? current.providerStatus,
+           providerFailureReason: null,
        }).where(eq(refundRecordsTable.id, id)).returning();
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: current.paymentRecordId, refundId: id, amountMinor: -current.amountMinor, currency: current.currency, entryType: "refund", referenceKey: `refund:${id}` });
       if (current.inventoryRestock && order?.supplierProductId) {

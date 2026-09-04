@@ -53,6 +53,10 @@ app.use(
     ),
   })),
 );
+// Flutterwave signs the exact JSON bytes. Capture this route before the
+// general JSON parser so webhook verification cannot be bypassed by parsing
+// and re-serializing the payload.
+app.use("/api/webhooks/flutterwave", express.raw({ type: "application/json", limit: "256kb" }));
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 

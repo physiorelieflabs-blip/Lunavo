@@ -2303,7 +2303,7 @@ export const CreatePublicCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string().nullable(),
   "paymentIntentId": zod.int().nullable(),
-  "paymentProvider": zod.enum(['ts_pay']),
+  "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
@@ -2377,7 +2377,7 @@ export const CreatePaymentLinkCheckoutResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string().nullable(),
   "paymentIntentId": zod.int().nullable(),
-  "paymentProvider": zod.enum(['ts_pay']),
+  "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
@@ -2400,7 +2400,7 @@ export const RetryPublicPaymentSessionResponse = zod.object({
   "status": zod.enum(['pending', 'paid']),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['ts_pay']),
+  "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['submitted', 'manual'])
 })
@@ -2430,7 +2430,7 @@ export const VerifyPublicPaymentSessionResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['ts_pay']),
+  "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['verified', 'pending', 'failed']),
   "providerPaymentId": zod.string().nullable()
@@ -2468,7 +2468,7 @@ export const SubmitPublicPaymentReferenceResponse = zod.object({
   "paymentMessage": zod.string(),
   "paymentToken": zod.string(),
   "paymentIntentId": zod.int(),
-  "paymentProvider": zod.enum(['ts_pay']),
+  "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
   "paymentStatus": zod.enum(['submitted', 'verified'])
 })

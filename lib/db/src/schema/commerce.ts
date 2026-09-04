@@ -1053,6 +1053,26 @@ export const paymentRecordsTable = pgTable("payment_records", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const paymentWebhookEventsTable = pgTable(
+  "payment_webhook_events",
+  {
+    id: serial("id").primaryKey(),
+    provider: text("provider").notNull(),
+    webhookId: text("webhook_id").notNull(),
+    eventType: text("event_type").notNull(),
+    providerPaymentId: text("provider_payment_id"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    status: text("status").notNull().default("received"),
+    error: text("error"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("payment_webhook_events_provider_id_unique").on(table.provider, table.webhookId),
+    index("payment_webhook_events_payment_idx").on(table.provider, table.providerPaymentId),
+  ],
+);
+
 export const ledgerEntriesTable = pgTable("ledger_entries", {
   id: serial("id").primaryKey(),
   merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
