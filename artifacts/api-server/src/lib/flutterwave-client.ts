@@ -69,6 +69,11 @@ export function isFlutterwaveConfigured(): boolean {
   return Boolean(process.env.FLUTTERWAVE_SECRET_KEY?.trim());
 }
 
+export async function checkFlutterwaveConnection(): Promise<{ status: string }> {
+  const response = await flutterwaveRequest<FlutterwaveResponse<unknown>>("/transactions?limit=1");
+  return { status: String(response.status ?? "ok") };
+}
+
 export function flutterwaveTransactionId(value: FlutterwaveTransaction): string | null {
   if (value.id === undefined || value.id === null) return null;
   return String(value.id);
