@@ -18,25 +18,41 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
 let _workspaceId: string | null = null;
+let _workspaceUserId: string | null = null;
 const WORKSPACE_STORAGE_KEY = "ts-commerce.selected-workspace-id";
 
-function readStoredWorkspaceId(): string | null {
+function readStoredWorkspaceId(userId: string | null): string | null {
+  if (!userId) return null;
   if (typeof window === "undefined") return null;
-  try { return window.localStorage.getItem(WORKSPACE_STORAGE_KEY); } catch { return null; }
+  try { return window.localStorage.getItem(`${WORKSPACE_STORAGE_KEY}:${userId}`); } catch { return null; }
 }
 
 /** Persisted tenant selection used by every generated authenticated request. */
-export function setSelectedWorkspaceId(workspaceId: string | number | null): void {
+export function setSelectedWorkspaceId(
+  workspaceId: string | number | null | undefined,
+  userId?: string | null,
+): void {
+  if (userId !== undefined) {
+    const nextUserId = userId?.trim() || null;
+    if (_workspaceUserId !== nextUserId) {
+      _workspaceUserId = nextUserId;
+      _workspaceId = readStoredWorkspaceId(nextUserId);
+    }
+    if (workspaceId === undefined) return;
+  }
+  if (workspaceId === undefined) return;
   _workspaceId = workspaceId == null ? null : String(workspaceId);
   if (typeof window === "undefined") return;
   try {
-    if (_workspaceId) window.localStorage.setItem(WORKSPACE_STORAGE_KEY, _workspaceId);
-    else window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    if (!_workspaceUserId) return;
+    const key = `${WORKSPACE_STORAGE_KEY}:${_workspaceUserId}`;
+    if (_workspaceId) window.localStorage.setItem(key, _workspaceId);
+    else window.localStorage.removeItem(key);
   } catch { /* Storage may be unavailable in privacy-restricted browsers. */ }
 }
 
 export function getSelectedWorkspaceId(): string | null {
-  return _workspaceId ?? (_workspaceId = readStoredWorkspaceId());
+  return _workspaceId;
 }
 
 /**

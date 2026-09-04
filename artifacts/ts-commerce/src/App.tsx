@@ -43,6 +43,7 @@ import TsPay from '@/pages/ts-pay';
 import Invite from '@/pages/invite';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId } from '@workspace/api-client-react';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -97,7 +98,7 @@ function ClerkQueryCacheInvalidator() {
       const id = user?.id ?? null;
       if (previous.current !== undefined && previous.current !== id) {
         client.clear();
-        setSelectedWorkspaceId(null);
+        setSelectedWorkspaceId(undefined, id);
       }
       previous.current = id;
     });
@@ -170,7 +171,7 @@ function Router() {
 }
 
 function App() {
-  return <TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><Toaster /></TooltipProvider>;
+  return <TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><ThemeToggle /><Toaster /></TooltipProvider>;
 }
 
 export default App;

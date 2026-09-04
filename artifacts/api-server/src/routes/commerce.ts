@@ -330,7 +330,7 @@ import {
   validateTsPayReplay,
   validateTsPayTransfer,
 } from "../lib/ts-pay-ledger";
-import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
+import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, TenantAuthorizationError, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
 import {
   importPublicSupplierProduct,
   type ImportedSupplierProduct,
@@ -379,6 +379,7 @@ router.use((req, _res, next) => {
   const path = req.path;
   const explicitAuthorization = /^(\/healthz|\/public\/|\/admin\/|\/invitations\/accept|\/workspaces(?:\/|$)|\/team(?:\/|$))/.test(path);
   const requiredPermission =
+    /^\/settings\/(?:currency|checkout|fx)$/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
     /^\/settings(?:\/|$)|^\/store$/.test(path) ? "team.manage" :
     /^\/dashboard(?:\/|$)/.test(path) ? "orders.read" :
     /^\/ai\/actions\/[^/]+\/(approve|reject)/.test(path) ? "ai.approve" :
@@ -626,9 +627,12 @@ async function requireAdmin(req: Request, res: Response) {
 async function requireTenantPermission(identity: Identity, merchantId: number, permission: Parameters<typeof requirePermission>[2], res: Response) {
   try {
     return await requirePermission(identity.clerkUserId, merchantId, permission);
-  } catch {
-    res.status(403).json({ error: "You do not have permission for this action" });
-    return null;
+  } catch (error) {
+    if (error instanceof TenantAuthorizationError) {
+      res.status(403).json({ error: "You do not have permission for this action" });
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -716,7 +720,7 @@ async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
       merchant.clerkUserId === null &&
       !identity.emailVerified
     ) {
-      throw new Error("A verified email is required to claim this account");
+      throw new CommerceAuthorizationError("A verified email is required to claim this account");
     }
     if (
       merchant.clerkUserId !== identity.clerkUserId ||
@@ -7442,11 +7446,29 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       });
       return order;
     });
-    const payment = await ensurePublicFlutterwaveCheckout(
-      result,
-      link.title,
-      requestOrigin(req),
-    );
+    let paymentProvider: "flutterwave" | "ts_pay" = "flutterwave";
+    let paymentUrl: string | null = null;
+    let paymentIntentId: number | null = null;
+    let paymentStatus: "submitted" | "manual" = "submitted";
+    let paymentMessage = "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.";
+    try {
+      const payment = await ensurePublicFlutterwaveCheckout(
+        result,
+        link.title,
+        requestOrigin(req),
+      );
+      paymentIntentId = payment.paymentIntentId;
+      paymentUrl = payment.purchaseUrl;
+    } catch (error) {
+      // A payment-link order must remain usable when the hosted provider is
+      // unavailable. The merchant can review manual evidence from Finance.
+      req.log.warn({ err: error, orderId: result.id }, "Falling back to manual payment-link evidence");
+      const manualIntent = await ensurePublicManualPaymentIntent(result);
+      paymentProvider = "ts_pay";
+      paymentIntentId = manualIntent.id;
+      paymentStatus = "manual";
+      paymentMessage = "Your order is reserved in TS Commerce. Submit your bank or cash payment reference below; the merchant will verify it before fulfillment.";
+    }
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
       title: link.title,
@@ -7456,12 +7478,12 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       total: toNumber(result.total),
       currency: result.currency,
       status: "pending",
-      paymentMessage: "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.",
+       paymentMessage,
       paymentToken: result.publicPaymentToken,
-      paymentIntentId: payment.paymentIntentId,
-      paymentProvider: "flutterwave",
-      paymentUrl: payment.purchaseUrl,
-      paymentStatus: "submitted",
+       paymentIntentId,
+       paymentProvider,
+       paymentUrl,
+       paymentStatus,
     }));
   } catch (error) {
     req.log.error({ err: error }, "payment link checkout failed");
@@ -7781,15 +7803,22 @@ router.post("/public/invoices/:token/payment-reference", async (req, res): Promi
   if (body.data.amount > outstanding) { res.status(400).json({ error: "Submitted amount exceeds the outstanding balance" }); return; }
   try {
     const submission = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${invoicesTable} where id=${invoice.id} for update`);
+      const lockedInvoice = (await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoice.id)).limit(1))[0];
+      if (!lockedInvoice || !["sent", "viewed", "partially_paid", "overdue"].includes(lockedInvoice.status)) {
+        throw new Error("Invoice is not accepting payment references");
+      }
+      const lockedOutstanding = toNumber(lockedInvoice.total) - toNumber(lockedInvoice.amountPaid);
+      if (body.data.amount > lockedOutstanding) throw new Error("Submitted amount exceeds the outstanding balance");
       const [created] = await tx.insert(invoicePaymentSubmissionsTable).values({
-        invoiceId: invoice.id, merchantId: invoice.merchantId, amount: body.data.amount.toFixed(2), currency: invoice.currency,
+        invoiceId: lockedInvoice.id, merchantId: lockedInvoice.merchantId, amount: body.data.amount.toFixed(2), currency: lockedInvoice.currency,
         paymentReference: body.data.paymentReference.trim(), senderName: body.data.senderName?.trim() || null,
       }).returning();
       if (!created) throw new Error("Payment reference could not be saved");
-      await tx.update(invoicesTable).set({ paymentReference: created.paymentReference }).where(eq(invoicesTable.id, invoice.id));
+      await tx.update(invoicesTable).set({ paymentReference: created.paymentReference }).where(eq(invoicesTable.id, lockedInvoice.id));
       await emitDomainEvent(tx, {
-        merchantId: invoice.merchantId, eventType: "invoice.payment_submitted", aggregateType: "invoice",
-        aggregateId: invoice.id, actorType: "customer", source: "public_checkout",
+        merchantId: lockedInvoice.merchantId, eventType: "invoice.payment_submitted", aggregateType: "invoice",
+        aggregateId: lockedInvoice.id, actorType: "customer", source: "public_checkout",
         idempotencyKey: `invoice-payment-submission:${created.id}`,
         payload: { invoiceId: invoice.id, submissionId: created.id, amount: created.amount, currency: created.currency },
       });
@@ -7804,6 +7833,8 @@ router.post("/invoices/:id/payments/:paymentId/verify", async (req, res): Promis
   const params = VerifyInvoicePaymentParams.safeParse(req.params); const body = VerifyInvoicePaymentBody.safeParse(req.body);
   if (!params.success || !body.success) { res.status(400).json({ error: "Invalid invoice payment review" }); return; }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "payments.verify", res);
+  if (!access) return;
   try {
     const invoice = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${invoicesTable} where id=${params.data.id} and merchant_id=${merchant.id} for update`);
@@ -9555,6 +9586,8 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
   const body = VerifyPaymentBody.safeParse(req.body ?? {}); const id = Number(req.params.id);
   if (!body.success || !Number.isInteger(id)) { res.status(400).json({ error: "Invalid verification" }); return; }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "payments.verify", res);
+  if (!access) return;
   try {
     const intent = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${paymentIntentsTable} where id=${id} and merchant_id=${merchant.id} for update`);
@@ -10029,6 +10062,8 @@ router.post("/refunds", async (req, res): Promise<void> => {
 
 router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const id = Number(req.params.id); const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "refunds.manage", res);
+  if (!access) return;
   let pendingRefund = (await db.select().from(refundRecordsTable).where(and(
     eq(refundRecordsTable.id, id),
     eq(refundRecordsTable.merchantId, merchant.id),

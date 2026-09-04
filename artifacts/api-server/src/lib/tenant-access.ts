@@ -68,19 +68,23 @@ export type TenantAccess = {
   locationIds: Set<string> | null;
 };
 
+export class TenantAuthorizationError extends Error {
+  readonly statusCode = 403;
+}
+
 /** Resolves authorization solely from Clerk identity and durable tenant state. */
 export async function getTenantAccess(clerkUserId: string, merchantId: number): Promise<TenantAccess | null> {
   const merchant = (await db.select({ clerkUserId: merchantsTable.clerkUserId }).from(merchantsTable)
     .where(eq(merchantsTable.id, merchantId)).limit(1))[0];
   if (merchant?.clerkUserId === clerkUserId) await ensureTenantOwnerMembership(merchantId, clerkUserId);
   const membership = (await db.select({
-    id: merchantMembershipsTable.id, roleKey: merchantRolesTable.key,
+    id: merchantMembershipsTable.id, roleId: merchantMembershipsTable.roleId, roleKey: merchantRolesTable.key,
   }).from(merchantMembershipsTable).innerJoin(merchantRolesTable, eq(merchantMembershipsTable.roleId, merchantRolesTable.id))
     .where(and(eq(merchantMembershipsTable.merchantId, merchantId), eq(merchantMembershipsTable.clerkUserId, clerkUserId), eq(merchantMembershipsTable.status, "active"))).limit(1))[0];
   if (!membership) return null;
   const [permissionRows, scopeRows] = await Promise.all([
     db.select({ permission: merchantRolePermissionsTable.permission }).from(merchantRolePermissionsTable)
-      .where(eq(merchantRolePermissionsTable.roleId, (await db.select({ roleId: merchantMembershipsTable.roleId }).from(merchantMembershipsTable).where(eq(merchantMembershipsTable.id, membership.id)).limit(1))[0]!.roleId)),
+      .where(eq(merchantRolePermissionsTable.roleId, membership.roleId)),
     db.select({ locationId: merchantMembershipLocationsTable.locationId }).from(merchantMembershipLocationsTable)
       .where(eq(merchantMembershipLocationsTable.membershipId, membership.id)),
   ]);
@@ -106,9 +110,9 @@ export async function requirePermission(
   permission: PermissionKey,
 ): Promise<TenantAccess> {
   const access = await getTenantAccess(clerkUserId, merchantId);
-  if (!access) throw new Error("Active tenant membership required");
+  if (!access) throw new TenantAuthorizationError("Active tenant membership required");
   if (!hasPermission(access, permission)) {
-    throw new Error(`Missing required permission: ${permission}`);
+    throw new TenantAuthorizationError(`Missing required permission: ${permission}`);
   }
   return access;
 }

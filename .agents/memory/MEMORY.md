@@ -18,3 +18,4 @@
 - [Provider refund claiming](provider-refund-claiming.md) — claim an external refund before calling the provider, then post local accounting only after a successful provider result.
 - [Generated query options](generated-query-options.md) — custom options passed to generated TanStack hooks must include the matching generated query key.
 - [Admin ledger boundary](admin-ledger-boundary.md) — backoffice payout security uses a separate admin ledger anchor, never a merchant workspace membership.
+- [Generated client artifacts](generated-client-artifacts.md) — regenerate committed API-client declarations after changing exported client signatures.

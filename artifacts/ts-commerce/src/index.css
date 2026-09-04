@@ -506,6 +506,31 @@
   --sidebar-ring: 12 60% 57%;
 }
 
+/* The app uses a crafted palette in component classes. These small bridges
+   keep that palette readable when the shared dark tokens are active. */
+.dark [class~="bg-[#f5f1e8]"] { background-color: #101820; }
+.dark [class~="bg-[#f1eee7]"] { background-color: #111a22; }
+.dark [class~="bg-[#fbfaf6]"] { background-color: #18232d; }
+.dark [class~="bg-[#f7f4ed]"] { background-color: #202e39; }
+.dark [class~="bg-[#fcfaf5]"] { background-color: #18232d; }
+.dark [class~="bg-[#eee3d2]"] { background-color: #293640; }
+.dark [class~="bg-[#e8e0cd]"] { background-color: #2d3b45; }
+.dark [class~="bg-[#fff7df]"] { background-color: #3a321e; }
+.dark [class~="bg-[#eef7f8]"] { background-color: #172d34; }
+.dark [class~="border-[#d9d2c4]"],
+.dark [class~="border-[#ded8cd]"],
+.dark [class~="border-[#d6cdbb]"] { border-color: #344552; }
+.dark [class~="text-[#182333]"] { color: #f8f3e8; }
+.dark [class~="text-[#536174]"] { color: #bec8d1; }
+.dark [class~="text-[#697687]"] { color: #aab6c2; }
+.dark [class~="text-[#8994a2]"] { color: #9aa7b5; }
+.dark [class~="text-[#aab6c2]"] { color: #bec8d1; }
+.dark [class~="text-[#765817]"] { color: #f0d48b; }
+.dark [class~="text-[#315e6c]"] { color: #a9d1d8; }
+.dark [class~="text-[#8a6826]"] { color: #e0b95d; }
+.dark [class~="bg-[#182333]"] { background-color: #0e161d; }
+.dark .noise::after { opacity: .02; background-image: radial-gradient(rgba(248,243,232,.32) .6px, transparent .6px); }
+
 html { background: hsl(var(--background)); }
 body { min-width: 320px; font-feature-settings: "cv11", "ss01"; }
 button, a, input, select, textarea { transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease; }

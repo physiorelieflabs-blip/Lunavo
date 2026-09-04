@@ -4,7 +4,7 @@ import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, ge
 import { useClerk, useUser } from '@clerk/react';
 import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, Landmark, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
-import { Logo } from '@/components/primitives';
+import { ErrorState, LoadingState, Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
 import { initials } from '@/lib/format';
 
@@ -44,28 +44,53 @@ const adminLinks = [
 export function AppShell({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const [location, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const queryClient = useQueryClient();
-  const workspaces = useListAccessibleWorkspaces({ query: { queryKey: getListAccessibleWorkspacesQueryKey(), retry: false, staleTime: 60_000 } });
-  const currentWorkspace = useGetCurrentWorkspace({ query: { queryKey: getGetCurrentWorkspaceQueryKey(), retry: false, staleTime: 60_000 } });
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(() => getSelectedWorkspaceId());
+  const workspaces = useListAccessibleWorkspaces({ query: { queryKey: getListAccessibleWorkspacesQueryKey(), enabled: !admin && isLoaded && !!user, retry: false, staleTime: 60_000 } });
+  const currentWorkspace = useGetCurrentWorkspace({ query: { queryKey: getGetCurrentWorkspaceQueryKey(), enabled: !admin && isLoaded && !!user && workspaces.isFetched && (Boolean(selectedWorkspace) || workspaces.data?.length === 0), retry: false, staleTime: 60_000 } });
   useEffect(() => {
-    if (!admin && !getSelectedWorkspaceId() && workspaces.data?.length) {
-      // First multi-workspace visit has no server default. Persist a valid
-      // membership before reloading so every generated query shares its scope.
-      setSelectedWorkspaceId(workspaces.data[0]!.id);
+    if (!isLoaded) return;
+    setSelectedWorkspaceId(undefined, user?.id ?? null);
+    const nextSelected = getSelectedWorkspaceId();
+    setSelectedWorkspace(nextSelected);
+    queryClient.clear();
+  }, [isLoaded, user?.id, queryClient]);
+  useEffect(() => {
+    if (admin || !workspaces.data?.length) return;
+    const available = new Set(workspaces.data.map((workspace) => String(workspace.id)));
+    const nextSelected = selectedWorkspace && available.has(selectedWorkspace)
+      ? selectedWorkspace
+      : String(workspaces.data[0]!.id);
+    if (nextSelected !== selectedWorkspace) {
+      setSelectedWorkspace(nextSelected);
+      setSelectedWorkspaceId(nextSelected);
       queryClient.clear();
-      window.location.reload();
     }
-  }, [admin, queryClient, workspaces.data]);
+  }, [admin, queryClient, selectedWorkspace, workspaces.data]);
+  useEffect(() => {
+    if (currentWorkspace.data?.id == null) return;
+    const nextSelected = String(currentWorkspace.data.id);
+    if (nextSelected !== selectedWorkspace) {
+      setSelectedWorkspace(nextSelected);
+      setSelectedWorkspaceId(nextSelected);
+    }
+  }, [currentWorkspace.data?.id, selectedWorkspace]);
   const links = admin ? adminLinks : merchantLinks;
   const displayName = admin ? 'TS / OPERATIONS' : currentWorkspace.data?.storeName || user?.fullName || 'Your workspace';
   const switchWorkspace = (merchantId: number) => {
     if (merchantId === currentWorkspace.data?.id) return;
+    setSelectedWorkspace(String(merchantId));
     setSelectedWorkspaceId(merchantId);
     queryClient.clear();
     const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-    window.location.assign(`${basePath}/dashboard`);
+    setLocation('/dashboard');
+  };
+  const switchToCustomerProfile = () => {
+    window.localStorage.setItem('ts-commerce-role', 'customer');
+    queryClient.clear();
+    setLocation('/general-store');
   };
   const activeLabel = links.find((link) => location === link.href)?.label ?? (admin ? 'Control room' : 'Overview');
   const goBack = () => {
@@ -75,6 +100,19 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
       setLocation(admin ? '/admin' : '/dashboard');
     }
   };
+
+  if (!isLoaded || (!admin && !workspaces.isFetched)) {
+    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><LoadingState label="Loading workspace" /></div>;
+  }
+  if (!admin && workspaces.isError) {
+    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><ErrorState onRetry={() => { void workspaces.refetch(); }} /></div>;
+  }
+  if (!admin && currentWorkspace.isError) {
+    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><ErrorState onRetry={() => { void currentWorkspace.refetch(); }} /></div>;
+  }
+  if (!admin && (!currentWorkspace.isFetched || !currentWorkspace.data)) {
+    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><LoadingState label="Opening workspace" /></div>;
+  }
 
   return (
     <div className="noise min-h-[100dvh] bg-[#f1eee7] text-[#182333]">
@@ -114,6 +152,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
             <p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#697687] md:hidden">{activeLabel}</p>
           </div>
           <div className="flex items-center gap-3">
+            {!admin && <button type="button" onClick={switchToCustomerProfile} className="inline-flex rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-2 py-2 text-xs font-extrabold text-[#536174] transition hover:border-[#bca26a] hover:text-[#182333] sm:px-3" data-testid="button-switch-customer-profile"><ShoppingCart className="h-3.5 w-3.5 sm:mr-2" /><span className="hidden sm:inline">Customer profile</span></button>}
             <div className="hidden border-l border-[#d9d2c4] pl-4 text-right sm:block"><p className="text-xs font-extrabold">{user?.firstName || 'Merchant'}</p><p className="mt-0.5 text-[10px] text-[#697687]">{admin ? 'Administrator' : 'Store operator'}</p></div>
             <div className="grid h-10 w-10 place-items-center rounded-full border-2 border-[#fbfaf6] bg-[#d8e1e3] font-mono text-xs font-bold text-[#315e6c] shadow-[0_0_0_1px_#c4d0d1]" data-testid="text-user-avatar">{initials(user?.fullName || user?.primaryEmailAddress?.emailAddress)}</div>
           </div>
@@ -126,5 +165,8 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
 }
 
 export function PublicHeader() {
-  return <header className="flex items-center justify-between px-5 py-5 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/general-store" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/sign-in" className="rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8]" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-xl bg-[#c85d3f] px-4 py-2.5 text-sm font-extrabold text-[#fffaf3] shadow-[0_8px_18px_rgba(200,93,63,.2)] transition hover:-translate-y-0.5 hover:bg-[#b84f36]" data-testid="link-sign-up">Open an account</Link></div></header>;
+  const chooseMerchantProfile = () => {
+    window.localStorage.setItem('ts-commerce-role', 'merchant');
+  };
+  return <header className="flex items-center justify-between px-5 py-5 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/general-store" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/dashboard" onClick={chooseMerchantProfile} className="rounded-lg px-3 py-2 text-sm font-extrabold text-[#536174] hover:bg-[#e7e2d8]" data-testid="link-merchant-workspace">Merchant workspace</Link><Link href="/sign-in" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-xl bg-[#c85d3f] px-4 py-2.5 text-sm font-extrabold text-[#fffaf3] shadow-[0_8px_18px_rgba(200,93,63,.2)] transition hover:-translate-y-0.5 hover:bg-[#b84f36]" data-testid="link-sign-up">Open an account</Link></div></header>;
 }
