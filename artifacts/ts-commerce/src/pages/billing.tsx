@@ -41,8 +41,8 @@ export default function Billing() {
     const params = new URLSearchParams(window.location.search);
     const transactionId = params.get('transaction_id') ?? params.get('transactionId');
     if (params.get('flutterwave') !== 'return') return;
-    window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
     if (!transactionId) {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
       setMessage('Flutterwave did not return a transaction ID. Confirm the payment status before trying again.');
       return;
     }
@@ -53,6 +53,7 @@ export default function Billing() {
       responseType: 'json',
     }).then((result) => {
       if (!active) return;
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
       setMessage(result.message);
       void refreshBilling();
     }).catch((error) => {
