@@ -10029,23 +10029,68 @@ router.post("/refunds", async (req, res): Promise<void> => {
 
 router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const id = Number(req.params.id); const merchant = await getOrCreateMerchant(identity);
-  const pendingRefund = (await db.select().from(refundRecordsTable).where(and(
+  let pendingRefund = (await db.select().from(refundRecordsTable).where(and(
     eq(refundRecordsTable.id, id),
     eq(refundRecordsTable.merchantId, merchant.id),
   )).limit(1))[0];
   let providerRefund: { id: string | null; status: string } | null = null;
-  if (pendingRefund?.status === "requested") {
+  if (pendingRefund && ["requested", "approved"].includes(pendingRefund.status)) {
     const payment = (await db.select().from(paymentRecordsTable).where(and(
       eq(paymentRecordsTable.id, pendingRefund.paymentRecordId),
       eq(paymentRecordsTable.merchantId, merchant.id),
     )).limit(1))[0];
     if (payment?.method === "flutterwave") {
+      const providerStatus = pendingRefund.providerStatus?.toLowerCase() ?? "";
+      const canClaim = pendingRefund.status === "requested" || (pendingRefund.status === "approved" && providerStatus === "pending");
+      if (pendingRefund.status === "approved" && !canClaim && ["success", "successful", "completed", "processed", "paid"].includes(providerStatus)) {
+        providerRefund = { id: pendingRefund.providerRefundId, status: providerStatus };
+      } else if (canClaim) {
+        const [claimed] = await db.update(refundRecordsTable).set({
+          status: "approved",
+          providerStatus: "authorizing",
+          providerFailureReason: null,
+        }).where(and(
+          eq(refundRecordsTable.id, pendingRefund.id),
+          eq(refundRecordsTable.merchantId, merchant.id),
+          or(
+            eq(refundRecordsTable.status, "requested"),
+            and(
+              eq(refundRecordsTable.status, "approved"),
+              sql`lower(coalesce(${refundRecordsTable.providerStatus}, '')) = 'pending'`,
+            ),
+          ),
+        )).returning();
+        if (!claimed) {
+          const current = (await db.select().from(refundRecordsTable).where(eq(refundRecordsTable.id, pendingRefund.id)).limit(1))[0];
+          res.status(202).json(ApproveRefundResponse.parse(current ?? pendingRefund));
+          return;
+        }
+        pendingRefund = claimed;
+      } else {
+        res.status(202).json(ApproveRefundResponse.parse(pendingRefund));
+        return;
+      }
+      if (providerRefund) {
+        // A previous request already received a successful provider response.
+        // Continue to the local transaction without issuing the refund twice.
+      } else {
       const providerTransactionId = payment.evidenceReference?.trim();
       if (!providerTransactionId) {
+        if (pendingRefund.status === "approved" && pendingRefund.providerStatus === "authorizing") {
+          await db.update(refundRecordsTable).set({ status: "requested", providerStatus: "failed", providerFailureReason: "The Flutterwave payment has no provider transaction ID" }).where(eq(refundRecordsTable.id, pendingRefund.id));
+        }
         res.status(409).json({ error: "The Flutterwave payment has no provider transaction ID" });
         return;
       }
       if (!isFlutterwaveConfigured()) {
+        await db.update(refundRecordsTable).set({
+          status: "requested",
+          providerStatus: "failed",
+          providerFailureReason: "Flutterwave refunds are not configured",
+        }).where(and(
+          eq(refundRecordsTable.id, pendingRefund.id),
+          eq(refundRecordsTable.status, "approved"),
+        ));
         res.status(503).json({ error: "Flutterwave refunds are not configured" });
         return;
       }
@@ -10057,11 +10102,12 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
         );
       } catch (error) {
         await db.update(refundRecordsTable).set({
+          status: "requested",
           providerStatus: "failed",
           providerFailureReason: error instanceof Error ? error.message : "Flutterwave refund failed",
         }).where(and(
           eq(refundRecordsTable.id, pendingRefund.id),
-          eq(refundRecordsTable.status, "requested"),
+          eq(refundRecordsTable.status, "approved"),
         ));
         res.status(502).json({ error: error instanceof Error ? error.message : "Flutterwave refund failed" });
         return;
@@ -10074,10 +10120,24 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
           providerFailureReason: null,
         }).where(and(
           eq(refundRecordsTable.id, pendingRefund.id),
-          eq(refundRecordsTable.status, "requested"),
+          eq(refundRecordsTable.status, "approved"),
         )).returning();
         res.status(202).json(ApproveRefundResponse.parse(updated ?? pendingRefund));
         return;
+      }
+      const [providerRecorded] = await db.update(refundRecordsTable).set({
+        providerRefundId: providerRefund.id,
+        providerStatus: providerRefund.status,
+        providerFailureReason: null,
+      }).where(and(
+        eq(refundRecordsTable.id, pendingRefund.id),
+        eq(refundRecordsTable.status, "approved"),
+      )).returning();
+      if (!providerRecorded) {
+        res.status(202).json(ApproveRefundResponse.parse(pendingRefund));
+        return;
+      }
+      pendingRefund = providerRecorded;
       }
     }
   }
@@ -10087,7 +10147,7 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
       const current = (await tx.select().from(refundRecordsTable).where(and(eq(refundRecordsTable.id, id), eq(refundRecordsTable.merchantId, merchant.id))).limit(1))[0];
        if (!current) throw new Error("Refund not found");
        if (current.status === "processed") return current;
-       if (current.status !== "requested") throw new Error("Refund is not awaiting approval");
+        if (!["requested", "approved"].includes(current.status)) throw new Error("Refund is not awaiting approval");
       await tx.execute(sql`select id from ${ordersTable} where id=${current.orderId} and merchant_id=${merchant.id} for update`);
       const order = (await tx.select().from(ordersTable).where(eq(ordersTable.id, current.orderId)).limit(1))[0];
        const [updated] = await tx.update(refundRecordsTable).set({

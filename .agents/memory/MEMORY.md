@@ -14,5 +14,6 @@
 - [Staff workspace authorization](staff-workspace-authorization.md) — resolve tenants from active membership and validate workspace/location scope server-side; unmapped staff routes fail closed.
 - [Subscription regional time](subscription-regional-time.md) — subscription thresholds use the saved IANA billing timezone and local calendar dates, not elapsed UTC hours.
 - [Flutterwave provider boundary](flutterwave-provider-boundary.md) — Flutterwave hosts initial payment, while TS Commerce owns verification, idempotency, and accounting.
+- [Provider refund claiming](provider-refund-claiming.md) — claim an external refund before calling the provider, then post local accounting only after a successful provider result.
 - [Generated query options](generated-query-options.md) — custom options passed to generated TanStack hooks must include the matching generated query key.
 - [Admin ledger boundary](admin-ledger-boundary.md) — backoffice payout security uses a separate admin ledger anchor, never a merchant workspace membership.
