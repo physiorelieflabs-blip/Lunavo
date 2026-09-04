@@ -5,6 +5,7 @@ import {
   BrainCircuit,
   Check,
   CircleAlert,
+  Command,
   Gauge,
   History,
   Megaphone,
@@ -48,6 +49,83 @@ import {
 const inputClass =
   'mt-2 h-10 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm font-bold outline-none focus:border-[#bca26a]';
 
+type OperatorPlan = {
+  title: string;
+  summary: string;
+  steps: string[];
+  href: string;
+  action?: {
+    agent: string;
+    actionType: string;
+    title: string;
+    reason: string;
+    risk: 'low' | 'medium' | 'high';
+  };
+};
+
+function planForCommand(command: string): OperatorPlan {
+  const normalized = command.toLowerCase();
+  if (normalized.includes('product') || normalized.includes('catalog') || normalized.includes('listing')) {
+    return {
+      title: 'Catalog operator plan',
+      summary: 'I can help shape a product, improve its presentation, and prepare it for merchant review without publishing unsupported claims.',
+      steps: ['Review existing catalog and supplier context', 'Prepare title, description, SEO, tags, and pricing context', 'Approve the draft before changing the public store'],
+      href: '/store',
+      action: { agent: 'Catalog operator', actionType: 'product_draft', title: 'Prepare a catalog product draft', reason: `Merchant requested catalog help: ${command.trim()}`, risk: 'low' },
+    };
+  }
+  if (normalized.includes('order') || normalized.includes('fulfill') || normalized.includes('shipping')) {
+    return {
+      title: 'Order operations plan',
+      summary: 'I can surface pending payment and fulfillment work, then route each record to the order workflow so verification stays authoritative.',
+      steps: ['Review pending and verified payment states', 'Identify fulfillment or delivery blockers', 'Open the order queue for merchant-controlled resolution'],
+      href: '/orders',
+      action: { agent: 'Order operations assistant', actionType: 'fulfillment_review', title: 'Review order fulfillment queue', reason: `Merchant requested order operations help: ${command.trim()}`, risk: 'medium' },
+    };
+  }
+  if (normalized.includes('customer') || normalized.includes('crm') || normalized.includes('retention')) {
+    return {
+      title: 'Customer operations plan',
+      summary: 'I can organize customer follow-up, consent-aware segments, and retention work while keeping customer data scoped to this merchant.',
+      steps: ['Review customer records, consent, and order history', 'Find a useful segment or follow-up opportunity', 'Open the CRM before any customer-facing message is drafted or sent'],
+      href: '/customers',
+      action: { agent: 'Customer operations assistant', actionType: 'draft_message', title: 'Prepare a customer operations brief', reason: `Merchant requested customer help: ${command.trim()}`, risk: 'medium' },
+    };
+  }
+  if (normalized.includes('stock') || normalized.includes('inventory') || normalized.includes('low')) {
+    return {
+      title: 'Inventory control plan',
+      summary: 'I can inspect availability and reservation pressure, then prepare a reviewable inventory action without inventing stock movements.',
+      steps: ['Review current stock and reservation holds', 'Separate authoritative movements from source estimates', 'Open inventory for a documented adjustment or supplier decision'],
+      href: '/inventory',
+      action: { agent: 'Inventory operator', actionType: 'inventory_review', title: 'Review inventory pressure', reason: `Merchant requested inventory help: ${command.trim()}`, risk: 'medium' },
+    };
+  }
+  if (normalized.includes('marketing') || normalized.includes('campaign') || normalized.includes('advert')) {
+    return {
+      title: 'Marketing operator plan',
+      summary: 'I can turn persisted catalog and business context into reviewable campaign ideas; publishing and spend remain merchant-approved.',
+      steps: ['Choose a real product and audience angle', 'Prepare campaign copy variants', 'Review budget and payment evidence before any campaign can proceed'],
+      href: '/marketing',
+      action: { agent: 'Marketing operator', actionType: 'prepare_report', title: 'Prepare a marketing campaign brief', reason: `Merchant requested marketing help: ${command.trim()}`, risk: 'medium' },
+    };
+  }
+  if (normalized.includes('money') || normalized.includes('finance') || normalized.includes('payment') || normalized.includes('payout')) {
+    return {
+      title: 'Finance control plan',
+      summary: 'I can explain recorded money states, reconciliation, fees, and available earnings, but I will never move funds or approve a payout for you.',
+      steps: ['Review verified payment evidence and ledger entries', 'Separate available, held, and pending amounts', 'Open Finance or Withdrawals for the required human security steps'],
+      href: '/finance',
+    };
+  }
+  return {
+    title: 'Business health plan',
+    summary: 'I can coordinate the next safe business step from recorded signals across your store, catalog, customers, orders, inventory, marketing, and finance.',
+    steps: ['Read the current health score, signals, and operating goal', 'Choose the most relevant operating area', 'Prepare reversible work for approval or open the owning workflow'],
+    href: '/dashboard',
+  };
+}
+
 export default function AiControlRoom() {
   const overview = useGetAiOverview();
   const settings = useGetAiSettings();
@@ -71,10 +149,13 @@ export default function AiControlRoom() {
   const [researchQuery, setResearchQuery] = useState('');
   const [researchResult, setResearchResult] = useState<Awaited<ReturnType<typeof research.mutateAsync>> | null>(null);
   const [adBrief, setAdBrief] = useState('');
+  const [adBudget, setAdBudget] = useState('10');
   const [productBrief, setProductBrief] = useState('');
   const [scenario, setScenario] = useState<'price_change' | 'discount_change' | 'new_product' | 'new_branch' | 'hiring' | 'supplier_change' | 'marketing_campaign' | 'inventory_change'>('price_change');
   const [scenarioValue, setScenarioValue] = useState('10');
   const [simulation, setSimulation] = useState<Awaited<ReturnType<typeof simulate.mutateAsync>> | null>(null);
+  const [operatorCommand, setOperatorCommand] = useState('');
+  const [operatorPlan, setOperatorPlan] = useState<OperatorPlan | null>(null);
 
   if (overview.isLoading || settings.isLoading || actions.isLoading) {
     return <AppShell><LoadingState label="Loading AI control room" /></AppShell>;
@@ -149,6 +230,11 @@ export default function AiControlRoom() {
   };
   const prepareAd = () => {
     setMessage('');
+    const budgetAmount = Number(adBudget);
+    if (!Number.isFinite(budgetAmount) || budgetAmount <= 0) {
+      setMessage('Add a positive campaign budget before preparing ad concepts.');
+      return;
+    }
     createAction.mutate({
       data: {
         agent: 'Marketing assistant',
@@ -157,6 +243,7 @@ export default function AiControlRoom() {
         reason: adBrief.trim() || 'Use persisted catalog products to prepare reviewable ad copy variants.',
         risk: 'low',
         reversible: true,
+        budgetAmount,
       },
     }, {
       onSuccess: () => { setAdBrief(''); setMessage('Ad concepts are waiting in the approval center. Nothing was published.'); refresh(); },
@@ -190,6 +277,31 @@ export default function AiControlRoom() {
       onError: () => setMessage('The scenario could not be simulated. Enter a valid numeric value.'),
     });
   };
+  const runOperator = () => {
+    const command = operatorCommand.trim();
+    if (command.length < 3) {
+      setMessage('Tell the business operator what you want to accomplish in at least a few words.');
+      return;
+    }
+    setOperatorPlan(planForCommand(command));
+    setMessage('Operating plan prepared from your request and the current workspace guardrails.');
+  };
+  const prepareOperatorAction = () => {
+    if (!operatorPlan?.action) return;
+    createAction.mutate({
+      data: {
+        agent: operatorPlan.action.agent,
+        actionType: operatorPlan.action.actionType,
+        title: operatorPlan.action.title,
+        reason: operatorPlan.action.reason,
+        risk: operatorPlan.action.risk,
+        reversible: true,
+      },
+    }, {
+      onSuccess: () => { setMessage('The operator prepared a reversible action for approval. Nothing was published, sent, or charged.'); refresh(); },
+      onError: () => setMessage('The operator could not prepare that action. Open the owning workflow and try again.'),
+    });
+  };
   const errorMessage = message.includes('not') || message.includes('could') || message.includes('requires');
 
   return <AppShell>
@@ -207,6 +319,16 @@ export default function AiControlRoom() {
       </div>
 
       {message && <div className="mt-7"><Notice tone={errorMessage ? 'danger' : 'success'} title={errorMessage ? 'Action not completed' : 'AI workspace updated'}>{message}</Notice></div>}
+
+       <section className="mt-8 overflow-hidden rounded-xl border border-[#182333] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
+         <div className="flex flex-wrap items-start justify-between gap-5">
+           <div className="max-w-2xl"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">Business operator</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em] md:text-3xl">Tell it what you need to run.</h2><p className="mt-3 text-sm leading-6 text-[#b8c2cc]">Use plain language for catalog, orders, customers, stock, marketing, finance, or store operations. The operator creates a plan from this workspace’s recorded signals and keeps consequential actions approval-gated.</p></div>
+           <Command className="h-6 w-6 shrink-0 text-[#d6aa46]" />
+         </div>
+         <div className="mt-6 flex flex-col gap-3 md:flex-row"><input value={operatorCommand} onChange={(event) => setOperatorCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') runOperator(); }} maxLength={500} placeholder="e.g. Help me launch a new product and promote it" className="h-12 min-w-0 flex-1 rounded-lg border border-[#536174] bg-[#263644] px-4 text-sm font-bold text-[#f8f3e8] outline-none placeholder:text-[#9aa7b5] focus:border-[#d6aa46]" data-testid="input-ai-operator-command" /><Button onClick={runOperator} className="h-12 shrink-0 bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]"><Command className="h-4 w-4" />Plan this work</Button></div>
+         <div className="mt-4 flex flex-wrap gap-2">{['Improve my product catalog', 'Find order blockers', 'Help with customer retention', 'Review low stock', 'Prepare a campaign', 'Explain my finances'].map((prompt) => <button key={prompt} type="button" onClick={() => { setOperatorCommand(prompt); setOperatorPlan(planForCommand(prompt)); }} className="rounded-full border border-[#536174] px-3 py-1.5 text-xs font-bold text-[#d8e1e3] transition hover:border-[#d6aa46] hover:text-[#f8f3e8]">{prompt}</button>)}</div>
+         {operatorPlan && <div className="mt-6 grid gap-4 rounded-xl border border-[#536174] bg-[#263644] p-5 md:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-extrabold">{operatorPlan.title}</h3><Badge tone="info">guarded plan</Badge></div><p className="mt-2 text-sm leading-6 text-[#d8e1e3]">{operatorPlan.summary}</p><ol className="mt-4 grid gap-2 text-xs text-[#b8c2cc] md:grid-cols-3">{operatorPlan.steps.map((step, index) => <li key={step} className="rounded-lg border border-[#536174] p-3"><span className="font-mono text-[#d6aa46]">0{index + 1}</span><span className="mt-2 block">{step}</span></li>)}</ol></div><div className="flex flex-wrap items-end gap-2 md:flex-col md:items-stretch md:justify-end"><Link href={operatorPlan.href} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#f8f3e8] hover:bg-[#344454]">Open workflow <ArrowRight className="h-3.5 w-3.5" /></Link>{operatorPlan.action && <Button onClick={prepareOperatorAction} disabled={createAction.isPending} className="min-h-9 bg-[#d6aa46] px-3 py-2 text-xs text-[#182333] hover:bg-[#e0b95d]"><Sparkles className="h-3.5 w-3.5" />{createAction.isPending ? 'Preparing…' : 'Prepare for approval'}</Button>}</div></div>}
+       </section>
 
       <section className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
         <div className="rounded-xl border border-[#182333] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
@@ -273,7 +395,7 @@ export default function AiControlRoom() {
         <div className="rounded-xl border border-[#dfc27a] bg-[#fff7df] p-6">
           <div className="flex items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#85601b]">Ad assistance</p><h2 className="mt-2 text-xl font-extrabold">Turn real products into campaign drafts.</h2></div><Megaphone className="h-5 w-5 text-[#85601b]" /></div>
           <p className="mt-3 text-sm leading-6 text-[#765817]">The assistant uses your persisted catalog, then sends a reversible draft to approval. It never publishes, spends, or contacts customers.</p>
-          <textarea value={adBrief} onChange={(event) => setAdBrief(event.target.value)} maxLength={500} rows={3} placeholder="Optional angle, audience, or offer context" className={`${inputClass} h-auto py-3`} data-testid="input-ai-ad-brief" />
+           <textarea value={adBrief} onChange={(event) => setAdBrief(event.target.value)} maxLength={500} rows={3} placeholder="Optional angle, audience, or offer context" className={`${inputClass} h-auto py-3`} data-testid="input-ai-ad-brief" /><label className="mt-3 block text-sm font-bold text-[#765817]">Campaign budget<input value={adBudget} onChange={(event) => setAdBudget(event.target.value)} min="0.01" step="0.01" type="number" className={inputClass} data-testid="input-ai-ad-budget" /></label>
           <Button className="mt-4" onClick={prepareAd} disabled={createAction.isPending}><Megaphone className="h-4 w-4" />{createAction.isPending ? 'Preparing…' : 'Prepare ad concepts'}</Button>
         </div>
       </section>
