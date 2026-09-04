@@ -1,0 +1,381 @@
+# TS COMMERCE — SUPPLIER PRODUCT LINK INGESTION REQUIREMENT
+
+## Supplier/Product Import Philosophy
+
+TS Commerce must **NOT require merchants to configure, obtain, paste, or manage supplier API keys** in order to import products.
+
+TS Commerce must also **NOT restrict merchants to a predefined list of suppliers**.
+
+A merchant must be able to use a product or supplier website simply by providing its publicly accessible URL.
+
+### Primary workflow
+
+```text
+Merchant
+   ↓
+Paste Supplier/Product URL
+   ↓
+TS Commerce analyzes the URL
+   ↓
+Extract publicly accessible product information
+   ↓
+Show Import Preview
+   ↓
+Merchant reviews and edits
+   ↓
+Merchant confirms
+   ↓
+Product imported into TS Commerce
+```
+
+## Accepted Input
+
+Allow merchants to paste:
+
+* Individual product URLs
+* Supplier product URLs
+* Supplier/catalog URLs
+* Public product-page URLs
+* Public catalog/product-listing URLs
+
+Do not require the merchant to identify the supplier from a predefined dropdown.
+
+Do not require the merchant to provide an API key.
+
+Do not require the merchant to create a special supplier integration before importing a product.
+
+---
+
+# PRODUCT DATA EXTRACTION
+
+Where technically and legally possible, TS Commerce should attempt to extract publicly accessible information from the supplied URL.
+
+Potential fields include:
+
+* Product title
+* Product description
+* Short description
+* Images
+* Product videos where publicly accessible
+* Price
+* Currency
+* Sale price
+* Original price
+* Variants
+* Variant names
+* Variant options
+* SKU
+* Product ID
+* Availability
+* Stock information where publicly exposed
+* Product category
+* Brand
+* Specifications
+* Dimensions
+* Weight
+* Shipping information where publicly exposed
+* Product attributes
+* Metadata
+* Structured product information
+
+Prioritize structured/public data sources such as:
+
+* JSON-LD
+* Schema.org Product data
+* Open Graph metadata
+* standard HTML metadata
+* publicly rendered product information
+
+Use appropriate parsing/extraction techniques when structured data is unavailable.
+
+---
+
+# IMPORT PREVIEW
+
+Never automatically publish an imported product without merchant confirmation.
+
+After extraction, show a preview:
+
+```text
+PRODUCT IMPORT PREVIEW
+
+Title:
+Description:
+Images:
+Price:
+Currency:
+Variants:
+SKU:
+Availability:
+Category:
+Brand:
+Specifications:
+```
+
+Allow the merchant to edit every appropriate field.
+
+The merchant must be able to:
+
+* Edit title
+* Rewrite description
+* Change price
+* Change currency
+* Select/remove images
+* Edit variants
+* Edit SKU
+* Change category
+* Change availability
+* Add their own product images
+* Add their own description
+* Set inventory
+* Set profit margin
+* Configure shipping
+* Configure taxes
+* Configure product options
+* Choose whether to publish immediately or save as draft
+
+---
+
+# PRICING/MARGIN TOOLS
+
+Allow merchants to optionally configure pricing rules during import.
+
+Examples:
+
+```text
+Supplier price: $20
+Markup: 30%
+TS Commerce selling price: $26
+```
+
+Support:
+
+* fixed markup
+* percentage markup
+* fixed profit
+* rounding rules
+* minimum selling price
+
+Do not overwrite the supplier's original price without clearly identifying it.
+
+Store the imported/source price separately from the merchant's selling price where appropriate.
+
+---
+
+# MULTIPLE PRODUCTS
+
+If a supplier/catalog URL contains multiple publicly accessible products, TS Commerce may offer:
+
+**Import detected products**
+
+The merchant can:
+
+* select all
+* select individual products
+* edit products individually
+* apply bulk pricing rules
+* apply bulk categories
+* apply bulk tags
+* import selected products as drafts
+
+Do not automatically import thousands of products without confirmation.
+
+---
+
+# PRODUCT SOURCE RECORD
+
+For every imported product, maintain an internal source record where appropriate.
+
+Store:
+
+* source URL
+* source domain
+* date/time imported
+* extraction status
+* extracted fields
+* merchant-edited fields
+* last successful extraction
+* import history
+
+Clearly distinguish:
+
+**SOURCE DATA**
+
+from:
+
+**MERCHANT DATA**
+
+Merchant edits must take precedence over subsequently extracted source information.
+
+---
+
+# OPTIONAL PRODUCT REFRESH
+
+Where technically and legally permitted, allow merchants to manually refresh an imported product from its source URL.
+
+Example:
+
+```text
+Refresh source data
+```
+
+Before overwriting anything, show:
+
+```text
+SOURCE CHANGES DETECTED
+
+Price:
+Old → New
+
+Availability:
+Old → New
+
+Images:
+Changed
+
+Description:
+Changed
+```
+
+The merchant decides what changes to accept.
+
+Do not silently overwrite merchant-created content.
+
+---
+
+# SOURCE ACCESS RULES
+
+TS Commerce must only retrieve information that it is technically and legally permitted to access.
+
+Respect:
+
+* website terms
+* robots.txt where applicable
+* copyright
+* rate limits
+* privacy requirements
+* access restrictions
+* authentication requirements
+* anti-bot protections
+
+Do NOT:
+
+* bypass CAPTCHAs
+* bypass authentication
+* bypass paywalls
+* bypass access controls
+* defeat anti-bot systems
+* scrape private information
+* impersonate users
+* steal credentials
+* circumvent technical restrictions
+
+If the source cannot legally or technically be accessed, clearly tell the merchant:
+
+```text
+We couldn't retrieve product information from this source.
+
+You can enter the product information manually.
+```
+
+---
+
+# NO SUPPLIER API REQUIREMENT
+
+This is a fundamental TS Commerce principle:
+
+> **Merchants should not need supplier API keys to import products.**
+
+Do not create onboarding that says:
+
+```text
+Choose Supplier
+Enter API Key
+Enter API Secret
+Connect Supplier
+```
+
+as the mandatory workflow.
+
+Instead:
+
+```text
+Paste product/supplier URL
+```
+
+must be the primary workflow.
+
+Supplier-specific API integrations may be added **optionally in the future**, but they must never be required for basic product-link importing.
+
+---
+
+# NO PREDEFINED SUPPLIER LIMITATION
+
+Do not build a system where merchants can only import from:
+
+```text
+Supplier A
+Supplier B
+Supplier C
+```
+
+The system should accept arbitrary publicly accessible supplier/product URLs.
+
+Therefore TS Commerce should be capable of supporting products from previously unknown suppliers without requiring TS Commerce developers to manually add that supplier first.
+
+---
+
+# IMPORT MODES
+
+Provide at least:
+
+### 1. Single Product Import
+
+```text
+Paste product URL
+→ Extract
+→ Review
+→ Import
+```
+
+### 2. Catalog Import
+
+```text
+Paste public catalog URL
+→ Detect products
+→ Select products
+→ Review
+→ Import
+```
+
+### 3. Manual Import
+
+If extraction fails:
+
+```text
+Paste URL
+→ Extraction unsuccessful
+→ Manual product form
+→ Merchant completes information
+→ Save/import
+```
+
+---
+
+# IMPORTANT
+
+The product-link ingestion system must be considered a **core TS Commerce feature**, not an optional supplier integration.
+
+The fundamental merchant experience must be:
+
+> **Bring your supplier/product link. TS Commerce helps turn it into a store-ready product.**
+
+No supplier API keys.
+
+No mandatory supplier registration.
+
+No predefined supplier list.
+
+No requirement for the TS Commerce development team to build a custom integration for every supplier.
+
+All extracted information must remain subject to technical availability, website permissions, applicable law, and the merchant's confirmation before publication.

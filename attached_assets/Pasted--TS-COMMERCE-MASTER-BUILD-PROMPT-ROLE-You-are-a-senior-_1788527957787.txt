@@ -1,0 +1,2023 @@
+# TS COMMERCE — MASTER BUILD PROMPT
+
+## ROLE
+
+You are a senior staff-level software architect, full-stack engineer, security engineer, payments engineer, database engineer, DevOps engineer, QA engineer, and product engineer.
+
+Your task is to design and build **TS Commerce** from scratch as a production-grade global commerce SaaS platform.
+
+Do not produce a superficial demo, mockup, fake payment system, or collection of disconnected examples.
+
+Build a coherent, maintainable, secure, scalable application whose modules work together.
+
+---
+
+# 1. PRODUCT
+
+## Name
+
+**TS Commerce**
+
+## Vision
+
+TS Commerce is a global commerce operating system that allows merchants to create and operate online businesses through independent storefronts while optionally participating in a central TS Commerce marketplace.
+
+The platform must support physical commerce, digital commerce, services, subscriptions, courses, memberships, bookings and events.
+
+The system must be designed for worldwide expansion.
+
+---
+
+# 2. CORE ARCHITECTURAL PRINCIPLE
+
+TS Commerce must be **first-party in software architecture**.
+
+Do NOT build TS Commerce as a wrapper around Stripe, Shopify, WooCommerce, Paystack, Flutterwave, or another platform.
+
+The core application must belong to TS Commerce.
+
+External providers may be used as replaceable infrastructure adapters.
+
+## Initial payment decision
+
+Use **Flutterwave as the ONLY external payment provider/rail initially.**
+
+Do NOT integrate Stripe, Paystack, Moniepoint, Grey, PayPal, or another payment provider in the initial implementation.
+
+However:
+
+### CRITICAL
+
+Do NOT hard-code Flutterwave throughout the application.
+
+Create a payment abstraction:
+
+```text
+TS Commerce
+     ↓
+TS Pay
+     ↓
+TS Payment Interface
+     ↓
+Flutterwave Adapter
+     ↓
+Flutterwave
+```
+
+Flutterwave must be replaceable later without rewriting TS Pay.
+
+---
+
+# 3. TS PAY
+
+TS Pay is TS Commerce's first-party payment operating layer.
+
+TS Pay is NOT merely a Flutterwave wrapper.
+
+TS Pay must own the application-level payment experience and accounting logic.
+
+## TS Pay responsibilities
+
+Implement:
+
+* Checkout
+* Payment sessions
+* Payment intents
+* Payment authorization state
+* Payment capture state
+* Payment status
+* Payment links
+* Invoices
+* Recurring subscriptions
+* Merchant balances
+* Transaction ledger
+* Platform fees
+* Merchant fees
+* Refunds
+* Partial refunds
+* Disputes
+* Payout requests
+* Payout states
+* Reconciliation
+* Payment reporting
+* Payment webhooks
+* Idempotency
+* Risk flags
+* Transaction audit history
+* Currency handling
+* Payment failure handling
+* Subscription renewal handling
+* Failed-payment retries
+* Receipts
+* Financial reporting
+
+---
+
+# 4. TS COMMERCE REVENUE
+
+TS Commerce charges merchants:
+
+## Merchant subscription
+
+**$30/month**
+
+Requirements:
+
+* No free trial
+* No promotional pricing
+* Unlimited stores
+* All standard TS Commerce features included
+
+## Transaction fee
+
+TS Commerce charges:
+
+**1% of every merchant sale**
+
+## Marketplace fees
+
+If a merchant participates in the marketplace:
+
+* $5/month marketplace fee
+* $5 per product listed
+
+Marketplace fees are separate from:
+
+* $30/month subscription
+* 1% transaction fee
+
+---
+
+# 5. FINANCIAL ACCOUNTING
+
+Never calculate balances by simply modifying:
+
+```text
+balance = balance + amount
+```
+
+Use a proper immutable financial ledger.
+
+Use:
+
+* integer minor units OR exact decimal arithmetic
+* never floating-point arithmetic for money
+
+Every financial event must create ledger entries.
+
+Implement double-entry accounting.
+
+Example:
+
+## Merchant sale
+
+```text
+DEBIT  TS_PAY_SETTLEMENT
+CREDIT MERCHANT_AVAILABLE
+CREDIT TS_COMMERCE_REVENUE
+```
+
+The exact accounting entries must be designed consistently according to the transaction type and fee structure.
+
+## Payout reservation
+
+```text
+DEBIT  MERCHANT_AVAILABLE
+CREDIT MERCHANT_PAYOUTS_PAYABLE
+```
+
+## Successful payout
+
+```text
+DEBIT  MERCHANT_PAYOUTS_PAYABLE
+CREDIT TS_PAY_SETTLEMENT
+```
+
+## Failed payout
+
+```text
+DEBIT  TS_PAY_SETTLEMENT/PAYOUT_HOLD
+CREDIT MERCHANT_PAYOUTS_PAYABLE
+DEBIT/CREDIT corresponding reversal entries as required
+```
+
+Never silently delete or modify historical ledger entries.
+
+Use reversal/correction entries.
+
+---
+
+# 6. PAYMENT STATES
+
+Implement explicit state machines.
+
+Example:
+
+```text
+CREATED
+→ REQUIRES_PAYMENT
+→ PROCESSING
+→ SUCCEEDED
+```
+
+Failure states:
+
+```text
+FAILED
+CANCELED
+EXPIRED
+```
+
+Refund:
+
+```text
+REFUND_REQUESTED
+→ REFUND_PROCESSING
+→ REFUNDED
+```
+
+Payout:
+
+```text
+REQUESTED
+→ RISK_CHECK
+→ APPROVED
+→ SUBMITTED
+→ PROCESSING
+→ SETTLED
+```
+
+Possible terminal states:
+
+```text
+FAILED
+REVERSED
+CANCELED
+```
+
+Never mark a payment or payout successful without appropriate provider confirmation.
+
+---
+
+# 7. IDEMPOTENCY
+
+Implement idempotency for every operation where duplicate execution could create financial damage.
+
+At minimum:
+
+* payments
+* payment creation
+* refunds
+* payouts
+* subscription charges
+* webhook processing
+* ledger-affecting operations
+
+Repeated requests with the same idempotency key must not create duplicate financial transactions.
+
+---
+
+# 8. FLUTTERWAVE INTEGRATION
+
+Flutterwave is the initial and only external payment rail.
+
+Create a dedicated adapter such as:
+
+```text
+FlutterwavePaymentAdapter
+```
+
+Do not scatter Flutterwave-specific code throughout the application.
+
+Create interfaces similar to:
+
+```text
+PaymentRail
+PayoutRail
+PaymentWebhookHandler
+```
+
+The application should communicate with these interfaces.
+
+Flutterwave credentials must:
+
+* never be hard-coded
+* never be committed to Git
+* never be stored in frontend code
+* never be exposed to customers
+* never be logged
+
+Use environment variables/secrets management.
+
+If Flutterwave is not configured:
+
+```text
+RAIL_NOT_CONFIGURED
+```
+
+must be returned safely.
+
+Never pretend that a payment succeeded.
+
+---
+
+# 9. TS COMMERCE SUBSCRIPTIONS
+
+TS Commerce itself must be able to charge merchants the:
+
+**$30/month subscription.**
+
+Implement:
+
+* subscription creation
+* subscription activation
+* recurring billing
+* renewal dates
+* failed payment handling
+* grace period
+* retry logic
+* cancellation
+* expiration
+* invoice generation
+* payment receipt
+* subscription history
+
+Merchant subscription status:
+
+```text
+PENDING
+ACTIVE
+PAST_DUE
+PAUSED
+CANCELED
+EXPIRED
+```
+
+Do not confuse:
+
+* TS Commerce merchant subscription
+* merchant's own customer subscriptions
+
+They are separate systems.
+
+---
+
+# 10. MERCHANT CUSTOMER SUBSCRIPTIONS
+
+Merchants must also be able to sell recurring subscriptions to their own customers.
+
+Support:
+
+* monthly
+* yearly
+* custom recurring intervals where technically supported
+* subscription plans
+* trial configuration where merchant chooses to offer it
+* recurring billing
+* failed payment retries
+* cancellation
+* renewal
+* invoices
+* receipts
+* subscription status
+* customer subscription history
+
+---
+
+# 11. MERCHANT ACCOUNTS
+
+Merchants can:
+
+* register
+* verify email
+* verify phone
+* create stores
+* manage stores
+* add products
+* receive orders
+* manage customers
+* configure payments
+* manage shipping
+* configure taxes
+* request payouts
+* customize storefronts
+* connect domains
+* view analytics
+
+Each merchant must have isolated tenant data.
+
+---
+
+# 12. MULTI-STORE ARCHITECTURE
+
+One merchant can own multiple stores.
+
+Example:
+
+```text
+Merchant
+ ├── Store A
+ ├── Store B
+ └── Store C
+```
+
+Each store has:
+
+* products
+* orders
+* customers
+* inventory
+* themes
+* branding
+* domains
+* settings
+* analytics
+
+Merchant-level resources must remain separate from store-level resources.
+
+---
+
+# 13. STORE BUILDER
+
+Build a no-code/low-code storefront builder.
+
+Features:
+
+* sections
+* blocks
+* hero sections
+* product grids
+* categories
+* banners
+* text
+* images
+* buttons
+* testimonials
+* FAQs
+* footer
+* navigation
+* featured products
+* custom pages
+* responsive layouts
+* mobile preview
+* desktop preview
+
+Changes should be previewable before publishing.
+
+---
+
+# 14. THEMES
+
+Create a theme system.
+
+Themes must support:
+
+* typography
+* colors
+* spacing
+* buttons
+* cards
+* headers
+* footers
+* product layouts
+* checkout appearance
+* responsive behavior
+
+Theme configuration must be stored as structured data.
+
+---
+
+# 15. PRODUCTS
+
+Support:
+
+* physical products
+* digital products
+* services
+* courses
+* memberships
+* subscriptions
+* tickets
+* bookings
+
+Product fields:
+
+* title
+* description
+* images
+* videos where supported
+* SKU
+* price
+* currency
+* variants
+* options
+* inventory
+* availability
+* categories
+* tags
+* tax settings
+* shipping settings
+* SEO
+* status
+
+---
+
+# 16. SUPPLIER/PRODUCT URL INGESTION
+
+Do NOT require merchants to provide supplier API keys.
+
+Do NOT restrict merchants to a predefined supplier list.
+
+Allow merchants to paste:
+
+* supplier URL
+* product URL
+
+The system should attempt to extract publicly accessible information where technically and legally permitted.
+
+Possible fields:
+
+* title
+* description
+* images
+* price
+* currency
+* variants
+* SKU
+* availability
+* specifications
+* category
+
+Then show a review/import interface.
+
+Merchant must be able to:
+
+* review
+* edit
+* map fields
+* remove fields
+* change pricing
+* change descriptions
+* choose images
+* select variants
+* import
+
+Respect:
+
+* robots.txt where applicable
+* website terms
+* copyright
+* rate limits
+* anti-bot controls
+* privacy
+* applicable law
+
+Never bypass authentication, CAPTCHAs, paywalls or access controls.
+
+---
+
+# 17. INVENTORY
+
+Implement:
+
+* stock quantities
+* reservations
+* low-stock alerts
+* inventory adjustments
+* inventory history
+* SKU tracking
+* variant-level inventory
+* multiple inventory locations
+* stock transfers
+* stock reconciliation
+
+Prevent overselling where inventory is controlled.
+
+---
+
+# 18. ORDERS
+
+Order system must support:
+
+* order creation
+* payment status
+* fulfillment status
+* shipping status
+* cancellation
+* refunds
+* partial refunds
+* returns
+* notes
+* customer information
+* tax
+* discounts
+* shipping
+* fees
+* merchant net amount
+
+Order financial breakdown must show:
+
+```text
+Gross Sale
+- Discount
++ Tax
++ Shipping
+- Payment Provider Fee
+- TS Commerce 1% Fee
+- Marketplace Fees where applicable
+= Merchant Net
+```
+
+Use exact accounting calculations.
+
+---
+
+# 19. MARKETPLACE
+
+Marketplace is optional.
+
+Merchants do NOT automatically appear.
+
+Merchant must opt into marketplace participation.
+
+Implement:
+
+* marketplace application
+* approval
+* product listing
+* marketplace product search
+* categories
+* merchant storefront
+* marketplace fees
+* marketplace orders
+* marketplace analytics
+
+Marketplace fee:
+
+```text
+$5/month
++
+$5/product listed
+```
+
+---
+
+# 20. CUSTOMER ACCOUNTS
+
+Customers can optionally create accounts.
+
+Support:
+
+* registration
+* login
+* order history
+* saved addresses
+* payment-related records
+* subscriptions
+* downloads
+* bookings
+* memberships
+* tickets
+* profile settings
+
+---
+
+# 21. SHIPPING
+
+Support:
+
+* manual shipping
+* shipping zones
+* shipping rates
+* carriers
+* tracking
+* local delivery
+* pickup
+* international shipping
+* shipping labels where integrated
+* delivery status
+
+Do not make Google Maps mandatory.
+
+---
+
+# 22. TAX
+
+Support:
+
+* manual tax configuration
+* tax-inclusive pricing
+* tax-exclusive pricing
+* tax rates
+* tax categories
+* tax reporting
+
+Tax automation may be implemented as an optional integration later.
+
+Core commerce must work without external tax APIs.
+
+---
+
+# 23. DIGITAL COMMERCE
+
+Support:
+
+* digital downloads
+* protected files
+* download limits
+* download expiry
+* customer access
+* digital order history
+
+---
+
+# 24. COURSES
+
+Support:
+
+* courses
+* lessons
+* modules
+* video/content links
+* enrollment
+* progress
+* completion
+* certificates where implemented
+
+---
+
+# 25. MEMBERSHIPS
+
+Support:
+
+* membership plans
+* recurring payments
+* member access
+* access levels
+* expiration
+* renewal
+* cancellation
+
+---
+
+# 26. SERVICES AND BOOKINGS
+
+Support:
+
+* services
+* staff
+* availability
+* appointment duration
+* booking slots
+* customer bookings
+* cancellations
+* rescheduling
+* reminders
+
+---
+
+# 27. EVENTS
+
+Support:
+
+* events
+* ticket types
+* ticket pricing
+* capacity
+* ticket orders
+* digital tickets
+* attendee management
+
+---
+
+# 28. DISCOUNTS
+
+Support:
+
+* percentage discounts
+* fixed discounts
+* product-specific discounts
+* category discounts
+* minimum order values
+* usage limits
+* expiration
+* customer-specific discounts
+
+---
+
+# 29. REVIEWS
+
+Support:
+
+* customer reviews
+* ratings
+* moderation
+* merchant responses
+* review reporting
+
+---
+
+# 30. CRM
+
+Implement:
+
+* customer profiles
+* customer segmentation
+* purchase history
+* customer value
+* notes
+* tags
+* communication history
+
+---
+
+# 31. MARKETING
+
+Implement:
+
+* discount campaigns
+* coupons
+* abandoned cart support
+* email campaign infrastructure
+* customer segmentation
+* promotional campaigns
+* referral functionality where appropriate
+
+Do not make Twilio or another messaging API mandatory for core functionality.
+
+---
+
+# 32. ANALYTICS
+
+Merchant analytics:
+
+* revenue
+* orders
+* customers
+* conversion
+* average order value
+* products
+* inventory
+* refunds
+* fees
+* payouts
+* subscriptions
+* marketplace performance
+
+Admin analytics:
+
+* merchants
+* active stores
+* subscriptions
+* platform revenue
+* transaction volume
+* marketplace activity
+* payment success rates
+* failed payments
+* refunds
+* disputes
+* payouts
+
+---
+
+# 33. ADMIN SYSTEM
+
+Create a completely separate Master Admin dashboard.
+
+Master Admin can control:
+
+* merchants
+* stores
+* products
+* marketplace
+* payments
+* payouts
+* subscriptions
+* fees
+* disputes
+* refunds
+* users
+* verification
+* system settings
+* feature flags
+* audit logs
+* security events
+* platform analytics
+
+---
+
+# 34. MASTER ADMIN
+
+Initial Master Admin:
+
+Username:
+
+```text
+TSAdmin
+```
+
+Display name:
+
+```text
+TSAdmin
+```
+
+Email:
+
+```text
+ifeoluwaolowu4@gmail.com
+```
+
+Phone:
+
+```text
+08027684956
+```
+
+Timezone:
+
+```text
+Automatically detect
+```
+
+Do NOT hard-code a password.
+
+Generate a secure initial password/setup flow.
+
+Never place credentials in:
+
+* source code
+* frontend code
+* Git
+* logs
+* documentation
+* database plaintext
+
+---
+
+# 35. ADMIN SECURITY
+
+Implement:
+
+* password hashing
+* 2FA
+* login alerts
+* device/session management
+* session revocation
+* suspicious-login detection
+* brute-force protection
+* rate limiting
+* secure password reset
+* audit logs
+* IP/security event logging
+* CSRF protection where applicable
+* secure cookies
+* secure headers
+* input validation
+* authorization checks
+
+Use least privilege.
+
+---
+
+# 36. AUTHENTICATION
+
+Implement secure authentication for:
+
+* Master Admin
+* merchants
+* customers
+* staff
+
+Support:
+
+* email/password
+* email verification
+* password reset
+* session management
+* optional/required 2FA according to account role
+* device management
+
+Never store plaintext passwords.
+
+---
+
+# 37. MERCHANT KYC
+
+Merchant onboarding:
+
+```text
+Basic registration
+↓
+Account verification
+↓
+Business/profile verification
+↓
+Payment setup
+↓
+KYC where required
+↓
+Payout eligibility
+```
+
+Full verification is required before payouts where applicable.
+
+Do not ask users for:
+
+* banking passwords
+* PINs
+* OTPs
+* CVV
+* online banking credentials
+
+---
+
+# 38. BANK ACCOUNT INFORMATION
+
+Allow merchants to add payout bank information.
+
+Store:
+
+* bank country
+* bank name
+* account number/IBAN where applicable
+* account holder name
+* currency
+* verification status
+
+Do not claim that an account is verified merely because a merchant entered it.
+
+Bank verification must come from an appropriate verification mechanism.
+
+Bank information must be encrypted/protected appropriately.
+
+---
+
+# 39. PAYOUTS
+
+Merchants request manual withdrawals.
+
+Payout workflow:
+
+```text
+REQUESTED
+↓
+RISK_CHECK
+↓
+APPROVED
+↓
+SUBMITTED
+↓
+PROCESSING
+↓
+SETTLED
+```
+
+Failure states:
+
+```text
+FAILED
+REVERSED
+CANCELED
+```
+
+Never show a payout as settled before appropriate confirmation.
+
+---
+
+# 40. CURRENCY SYSTEM
+
+Build a currency abstraction from day one.
+
+Do not hard-code USD or NGN into the architecture.
+
+Support:
+
+* currency codes
+* minor units
+* currency formatting
+* exchange rates
+* multi-currency prices
+* merchant settlement currency
+* customer display currency
+
+Do not use floating-point arithmetic for financial calculations.
+
+---
+
+# 41. GLOBAL ARCHITECTURE
+
+TS Commerce must be designed for worldwide expansion.
+
+Do not assume:
+
+* Nigeria
+* USD
+* English
+* one timezone
+* one tax system
+* one payment method
+* one shipping method
+
+However, don't pretend every country/payment method is live on day one.
+
+Use a capability system:
+
+```text
+Country
+Currency
+Payment Methods
+Payout Methods
+Tax Support
+Shipping Support
+```
+
+This allows capabilities to be activated progressively.
+
+---
+
+# 42. DATABASE
+
+Use **PostgreSQL**.
+
+Design proper normalized relational models.
+
+At minimum include concepts for:
+
+* users
+* roles
+* permissions
+* merchants
+* stores
+* products
+* variants
+* inventory
+* orders
+* order items
+* customers
+* addresses
+* payments
+* payment intents
+* payment methods
+* refunds
+* disputes
+* subscriptions
+* subscription plans
+* invoices
+* ledger accounts
+* ledger entries
+* payouts
+* bank accounts
+* marketplace listings
+* fees
+* taxes
+* shipping
+* domains
+* themes
+* audit logs
+* webhooks
+* API keys
+* sessions
+* devices
+* KYC records
+
+Use database constraints to protect data integrity.
+
+---
+
+# 43. MULTI-TENANCY
+
+Every merchant-owned record must have proper tenant isolation.
+
+Never trust a client-provided merchant ID.
+
+Derive tenant context from authenticated authorization.
+
+Prevent:
+
+* cross-merchant access
+* insecure direct object references
+* privilege escalation
+* unauthorized admin access
+
+---
+
+# 44. API
+
+Build a versioned API.
+
+Example:
+
+```text
+/api/v1
+```
+
+Support:
+
+* authentication
+* products
+* orders
+* customers
+* payments
+* subscriptions
+* payouts
+* stores
+* inventory
+* webhooks
+
+Merchant API keys must support:
+
+* scopes
+* rotation
+* revocation
+* expiration
+* usage logs
+* rate limits
+
+Never expose secret API keys to frontend code.
+
+---
+
+# 45. WEBHOOKS
+
+Implement secure webhook handling.
+
+Features:
+
+* signature verification
+* idempotency
+* event storage
+* retry
+* failure logging
+* replay capability for authorized admins
+* event status
+
+Never blindly trust incoming webhook payloads.
+
+---
+
+# 46. NOTIFICATIONS
+
+Build notification infrastructure that can support:
+
+* email
+* SMS
+* push notifications
+* in-app notifications
+
+But core TS Commerce functionality must not depend on third-party notification APIs.
+
+Create provider interfaces so providers can be added later.
+
+---
+
+# 47. EMAIL
+
+Create transactional email templates for:
+
+* registration
+* verification
+* password reset
+* payment receipt
+* invoice
+* subscription renewal
+* failed payment
+* payout
+* order confirmation
+* shipping updates
+
+Email provider must be replaceable.
+
+---
+
+# 48. MOBILE
+
+Design APIs so TS Commerce can later support:
+
+* Android
+* iOS
+
+The web application must not contain business logic that cannot be reused by mobile clients.
+
+---
+
+# 49. SECURITY
+
+Follow secure engineering practices.
+
+Implement:
+
+* OWASP-aligned security
+* input validation
+* output encoding
+* authorization
+* rate limiting
+* secure cookies
+* CSRF protection
+* CORS policy
+* secure headers
+* encryption where appropriate
+* secret management
+* audit logs
+* dependency security
+* database constraints
+* safe file uploads
+* malware/content checks where appropriate
+
+Never expose secrets.
+
+---
+
+# 50. FILE STORAGE
+
+Create an abstraction for file storage.
+
+Do not hard-code a single cloud provider.
+
+Support local development storage and production object storage through an adapter.
+
+---
+
+# 51. BACKGROUND JOBS
+
+Create job infrastructure for:
+
+* subscription renewals
+* payment retries
+* webhook processing
+* email
+* inventory tasks
+* reconciliation
+* analytics
+* payout processing
+* scheduled tasks
+
+Jobs must be idempotent.
+
+---
+
+# 52. RECONCILIATION
+
+Implement TS Pay reconciliation.
+
+Compare:
+
+```text
+TS Pay Ledger
+vs
+Flutterwave Transactions
+vs
+Settlement/Payout Records
+```
+
+Flag:
+
+* missing transactions
+* duplicate transactions
+* amount mismatches
+* status mismatches
+* unexpected fees
+* failed settlements
+
+Provide an admin reconciliation dashboard.
+
+---
+
+# 53. TEST AND LIVE ENVIRONMENTS
+
+Strictly isolate:
+
+```text
+TEST
+LIVE
+```
+
+Never allow test transactions to affect live financial records.
+
+Never expose fake successful payment endpoints in production.
+
+Use environment configuration.
+
+---
+
+# 54. LOGGING
+
+Implement structured logging.
+
+Never log:
+
+* passwords
+* authentication tokens
+* secret API keys
+* full card details
+* CVV
+* OTP
+* sensitive credentials
+
+Financial events should have traceable IDs.
+
+---
+
+# 55. OBSERVABILITY
+
+Implement:
+
+* application logs
+* error tracking interface
+* health checks
+* database health
+* queue health
+* payment-rail health
+* webhook health
+* basic metrics
+
+---
+
+# 56. ERROR HANDLING
+
+Never silently swallow errors.
+
+Return safe user-facing errors.
+
+Internally preserve useful diagnostic information.
+
+Examples:
+
+```text
+PAYMENT_FAILED
+RAIL_NOT_CONFIGURED
+INSUFFICIENT_BALANCE
+PAYOUT_FAILED
+WEBHOOK_INVALID
+UNAUTHORIZED
+FORBIDDEN
+RESOURCE_NOT_FOUND
+VALIDATION_ERROR
+```
+
+Never expose stack traces to users in production.
+
+---
+
+# 57. FRONTEND
+
+Build a professional responsive interface.
+
+Required areas:
+
+### Public
+
+* homepage
+* pricing
+* merchant registration
+* login
+* marketplace
+* store pages
+* product pages
+* checkout
+
+### Merchant
+
+* dashboard
+* products
+* inventory
+* orders
+* customers
+* marketing
+* analytics
+* store builder
+* themes
+* branding
+* marketplace
+* shipping
+* taxes
+* payments
+* payouts
+* discounts
+* reviews
+* digital products
+* courses
+* memberships
+* services
+* bookings
+* events
+* subscriptions
+* domains
+* integrations
+* API
+* settings
+
+### Master Admin
+
+* overview
+* merchants
+* stores
+* payments
+* payouts
+* subscriptions
+* marketplace
+* fees
+* disputes
+* refunds
+* KYC
+* security
+* audit logs
+* system configuration
+
+---
+
+# 58. DESIGN
+
+Design should feel like a serious modern global SaaS product.
+
+Requirements:
+
+* responsive
+* accessible
+* fast
+* clean
+* consistent
+* mobile-friendly
+* professional
+* clear navigation
+* useful empty states
+* useful loading states
+* useful error states
+
+Do not make every screen look like a generic admin template.
+
+---
+
+# 59. SEO
+
+Implement:
+
+* metadata
+* Open Graph
+* structured URLs
+* product SEO
+* store SEO
+* sitemap
+* robots controls
+* canonical URLs
+
+---
+
+# 60. DOMAINS
+
+Support:
+
+* TS subdomains
+* custom domains
+* domain verification
+* SSL-ready architecture
+* domain-to-store mapping
+
+Do not require a specific DNS provider.
+
+---
+
+# 61. PRICING PAGE
+
+Display:
+
+### TS Commerce
+
+**$30/month**
+
+Include:
+
+* unlimited stores
+* commerce tools
+* storefront builder
+* analytics
+* CRM
+* marketing
+* payment infrastructure
+* etc.
+
+Clearly explain marketplace fees separately.
+
+---
+
+# 62. PLATFORM FEE ENGINE
+
+Build a centralized fee engine.
+
+It must calculate and separately record:
+
+```text
+gross sale
+discount
+tax
+shipping
+payment-provider fee
+TS Commerce 1% fee
+marketplace monthly fee
+marketplace product-listing fee
+merchant net
+```
+
+Never hard-code fee calculations in individual checkout pages.
+
+---
+
+# 63. CONFIGURATION
+
+Use configuration/environment variables for:
+
+* database
+* application URL
+* JWT/session settings
+* Flutterwave credentials
+* email provider
+* storage provider
+* encryption secrets
+* webhook secrets
+* feature flags
+
+Create a `.env.example`.
+
+Never commit `.env`.
+
+---
+
+# 64. DEVELOPMENT EXPERIENCE
+
+The project must be straightforward to run locally.
+
+Provide:
+
+* dependency installation
+* database setup
+* migrations
+* seed data
+* environment configuration
+* development server
+* test commands
+* build commands
+
+If appropriate, provide a setup script.
+
+---
+
+# 65. DO NOT USE THESE AS CORE DEPENDENCIES
+
+TS Commerce must not require:
+
+* Stripe
+* Paystack
+* Moniepoint
+* Grey
+* PayPal
+* Twilio
+* Google Maps
+* OpenAI
+* Claude
+* Gemini
+* another AI API
+
+for core commerce functionality.
+
+Flutterwave is the **initial payment rail only**.
+
+AI may be added later as an optional feature.
+
+---
+
+# 66. WHAT MUST NOT BE FAKED
+
+Never fake:
+
+* payments
+* balances
+* payouts
+* KYC
+* bank verification
+* payment success
+* transaction settlement
+* refunds
+* financial records
+
+In development, use explicit test/sandbox mode.
+
+---
+
+# 67. LEGAL/REGULATORY ARCHITECTURE
+
+Design TS Pay so that TS Commerce does not falsely represent itself as a bank or regulated financial institution.
+
+Actual regulated money movement initially occurs through the appropriate external financial/payment rail.
+
+TS Pay owns the software-level payment orchestration, records and ledger.
+
+Do not claim that TS Commerce itself holds customer funds unless the appropriate legal/regulatory structure actually exists.
+
+Build regulatory expansion points into the architecture.
+
+---
+
+# 68. DEVELOPMENT ORDER
+
+Do NOT attempt to randomly generate the entire project.
+
+Build in controlled stages.
+
+### Phase 1
+
+Project foundation:
+
+* repository structure
+* backend
+* frontend
+* PostgreSQL
+* configuration
+* authentication
+* authorization
+* logging
+* migrations
+
+### Phase 2
+
+Merchant system:
+
+* merchants
+* stores
+* users
+* roles
+* store management
+
+### Phase 3
+
+Commerce:
+
+* products
+* variants
+* inventory
+* customers
+* orders
+* discounts
+* storefront
+
+### Phase 4
+
+TS Pay:
+
+* payment models
+* ledger
+* fees
+* checkout
+* invoices
+* refunds
+* subscriptions
+* reconciliation
+
+### Phase 5
+
+Flutterwave adapter:
+
+* payment initialization
+* payment verification
+* webhooks
+* refunds where supported
+* subscription/payment handling
+* payout functionality where supported
+* error handling
+
+### Phase 6
+
+Admin:
+
+* Master Admin
+* financial dashboards
+* merchant management
+* audit logs
+* reconciliation
+
+### Phase 7
+
+Advanced commerce:
+
+* marketplace
+* shipping
+* taxes
+* digital products
+* courses
+* memberships
+* services
+* bookings
+* events
+
+### Phase 8
+
+Developer ecosystem:
+
+* API
+* API keys
+* webhooks
+* documentation
+* rate limits
+
+### Phase 9
+
+Security and testing:
+
+* unit tests
+* integration tests
+* end-to-end tests
+* authorization tests
+* payment tests
+* ledger tests
+* concurrency tests
+* security tests
+
+### Phase 10
+
+Production readiness:
+
+* deployment
+* database backups
+* monitoring
+* logging
+* environment separation
+* migration strategy
+* disaster recovery
+
+---
+
+# 69. CODING RULES
+
+Write production-quality code.
+
+Use:
+
+* modular architecture
+* strong typing where applicable
+* clear naming
+* reusable services
+* dependency injection where useful
+* validation
+* tests
+* database transactions
+* proper error handling
+
+Avoid:
+
+* giant files
+* duplicated logic
+* hard-coded secrets
+* magic numbers
+* direct database manipulation from random frontend components
+* insecure authorization
+* floating-point money calculations
+
+---
+
+# 70. BEFORE WRITING CODE
+
+First produce:
+
+1. Architecture overview
+2. Technology stack
+3. Folder structure
+4. Database architecture
+5. Core entities
+6. Authentication architecture
+7. TS Pay architecture
+8. Ledger architecture
+9. Flutterwave adapter architecture
+10. API architecture
+11. Security architecture
+12. Development roadmap
+
+Then begin implementation.
+
+Do not skip architecture.
+
+---
+
+# 71. WHEN IMPLEMENTING
+
+For every stage:
+
+1. Explain what is being built.
+2. Create the required files.
+3. Provide complete code, not fragments.
+4. Include dependencies.
+5. Include database migrations.
+6. Include environment configuration.
+7. Include tests.
+8. Explain how to run it.
+9. Check for missing imports.
+10. Check for inconsistent filenames.
+11. Check for broken routes.
+12. Check database relationships.
+13. Check authentication/authorization.
+14. Check financial calculations.
+15. Check error handling.
+
+Do not tell me to “fill in the rest.”
+
+---
+
+# 72. DEBUGGING REQUIREMENT
+
+Before presenting implementation code, mentally inspect the entire dependency chain.
+
+Check:
+
+* imports
+* package names
+* versions
+* environment variables
+* database connections
+* migrations
+* API routes
+* frontend routes
+* authentication
+* authorization
+* schemas
+* foreign keys
+* payment state transitions
+* ledger entries
+* webhook handling
+* TypeScript/Python/etc. typing
+* build configuration
+
+If something is uncertain, choose the most reliable implementation rather than inventing a nonexistent library/API.
+
+---
+
+# 73. IMPORTANT PAYMENT SAFETY RULE
+
+If Flutterwave is unavailable, incorrectly configured, rejects the request, times out, or cannot confirm the transaction:
+
+**DO NOT mark the transaction successful.**
+
+The system must fail safely.
+
+---
+
+# 74. FUTURE RAIL EXPANSION
+
+Although Flutterwave is the only initial external rail, TS Rail Router must be designed so additional rails can later be added:
+
+```text
+TS Rail Router
+ ├── FlutterwaveAdapter
+ ├── FutureRailAdapter
+ ├── FutureBankAdapter
+ └── FutureInternationalAdapter
+```
+
+Do not implement unnecessary additional providers now.
+
+Build the interfaces now.
+
+---
+
+# 75. FINAL PRODUCT REQUIREMENT
+
+The finished TS Commerce system should feel like a genuine commerce operating system, not a school project.
+
+It must be:
+
+* modular
+* secure
+* scalable
+* maintainable
+* multi-tenant
+* globally extensible
+* payment-aware
+* accounting-safe
+* API-ready
+* mobile-ready
+* production-oriented
+
+The central principle is:
+
+> **TS Commerce owns the commerce platform.**
+>
+> **TS Pay owns the payment software layer.**
+>
+> **TS Rail Router owns payment-rail abstraction.**
+>
+> **Flutterwave is only the initial external payment rail.**
+
+Never allow Flutterwave-specific implementation details to contaminate the core TS Commerce architecture.
+
+---
+
+# START
+
+Begin by producing the complete architecture and project structure.
+
+Do not jump directly into random application code.
+
+After the architecture is approved, implement the project systematically in the development phases above.
+
+Do not remove features from the specification without explicitly identifying the reason.
+
+If a feature cannot safely or legally be implemented as described, implement the correct architectural abstraction and clearly identify what requires an external regulated service, legal approval, or additional infrastructure.
+
+Build TS Commerce as a real product.
