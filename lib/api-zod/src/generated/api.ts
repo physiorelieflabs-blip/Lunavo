@@ -20,14 +20,43 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary Get merchant dashboard overview
  */
+export const getDashboardOverviewResponseStorefrontThemeAccentColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getDashboardOverviewResponseStorefrontThemeBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getDashboardOverviewResponseStorefrontThemeTextColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getDashboardOverviewResponseStorefrontThemeAnnouncementMax = 160;
+
+export const getDashboardOverviewResponseStorefrontSectionsItemIdMax = 40;
+
+export const getDashboardOverviewResponseStorefrontSectionsItemHeadingMax = 120;
+
+export const getDashboardOverviewResponseStorefrontSectionsItemBodyMax = 500;
+
+
+
 export const GetDashboardOverviewResponse = zod.object({
   "currency": zod.string(),
-  "storeName": zod.string().optional(),
-  "storeDescription": zod.string().nullish(),
-  "storeContactEmail": zod.string().nullish(),
-  "storePhone": zod.string().nullish(),
-  "storeWebsite": zod.string().nullish(),
-  "storeAddress": zod.record(zod.string(), zod.unknown()).nullish(),
+  "storeName": zod.string(),
+  "storeDescription": zod.string().nullable(),
+  "storeContactEmail": zod.string().nullable(),
+  "storePhone": zod.string().nullable(),
+  "storeWebsite": zod.string().nullable(),
+  "storeAddress": zod.record(zod.string(), zod.unknown()).nullable(),
+  "publicStoreKey": zod.string(),
+  "storefrontTheme": zod.object({
+  "accentColor": zod.string().regex(getDashboardOverviewResponseStorefrontThemeAccentColorRegExp),
+  "backgroundColor": zod.string().regex(getDashboardOverviewResponseStorefrontThemeBackgroundColorRegExp),
+  "textColor": zod.string().regex(getDashboardOverviewResponseStorefrontThemeTextColorRegExp),
+  "layout": zod.enum(['editorial', 'minimal', 'catalog']),
+  "announcement": zod.string().max(getDashboardOverviewResponseStorefrontThemeAnnouncementMax)
+}),
+  "storefrontSections": zod.array(zod.object({
+  "id": zod.string().min(1).max(getDashboardOverviewResponseStorefrontSectionsItemIdMax),
+  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "enabled": zod.boolean(),
+  "heading": zod.string().max(getDashboardOverviewResponseStorefrontSectionsItemHeadingMax),
+  "body": zod.string().max(getDashboardOverviewResponseStorefrontSectionsItemBodyMax)
+})),
+  "storefrontPublished": zod.boolean(),
   "storeSlug": zod.string(),
   "revenue": zod.number(),
   "revenueChange": zod.number(),
@@ -201,6 +230,19 @@ export const createStoreBodyStoreDescriptionMax = 500;
 
 export const createStoreBodyStorePhoneMax = 40;
 
+export const createStoreBodyStorefrontThemeAccentColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const createStoreBodyStorefrontThemeBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const createStoreBodyStorefrontThemeTextColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const createStoreBodyStorefrontThemeAnnouncementMax = 160;
+
+export const createStoreBodyStorefrontSectionsItemIdMax = 40;
+
+export const createStoreBodyStorefrontSectionsItemHeadingMax = 120;
+
+export const createStoreBodyStorefrontSectionsItemBodyMax = 500;
+
+export const createStoreBodyStorefrontSectionsMax = 20;
+
 
 
 export const CreateStoreBody = zod.object({
@@ -209,12 +251,38 @@ export const CreateStoreBody = zod.object({
   "storeContactEmail": zod.email().nullish(),
   "storePhone": zod.string().max(createStoreBodyStorePhoneMax).nullish(),
   "storeWebsite": zod.url().nullish(),
-  "storeAddress": zod.record(zod.string(), zod.unknown()).nullish()
+  "storeAddress": zod.record(zod.string(), zod.unknown()).nullish(),
+  "storefrontTheme": zod.object({
+  "accentColor": zod.string().regex(createStoreBodyStorefrontThemeAccentColorRegExp),
+  "backgroundColor": zod.string().regex(createStoreBodyStorefrontThemeBackgroundColorRegExp),
+  "textColor": zod.string().regex(createStoreBodyStorefrontThemeTextColorRegExp),
+  "layout": zod.enum(['editorial', 'minimal', 'catalog']),
+  "announcement": zod.string().max(createStoreBodyStorefrontThemeAnnouncementMax)
+}).optional(),
+  "storefrontSections": zod.array(zod.object({
+  "id": zod.string().min(1).max(createStoreBodyStorefrontSectionsItemIdMax),
+  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "enabled": zod.boolean(),
+  "heading": zod.string().max(createStoreBodyStorefrontSectionsItemHeadingMax),
+  "body": zod.string().max(createStoreBodyStorefrontSectionsItemBodyMax)
+})).max(createStoreBodyStorefrontSectionsMax).optional(),
+  "storefrontPublished": zod.boolean().optional()
 })
 
 export const createStoreResponseStoreDescriptionMax = 500;
 
 export const createStoreResponseStorePhoneMax = 40;
+
+export const createStoreResponseStorefrontThemeAccentColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const createStoreResponseStorefrontThemeBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const createStoreResponseStorefrontThemeTextColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const createStoreResponseStorefrontThemeAnnouncementMax = 160;
+
+export const createStoreResponseStorefrontSectionsItemIdMax = 40;
+
+export const createStoreResponseStorefrontSectionsItemHeadingMax = 120;
+
+export const createStoreResponseStorefrontSectionsItemBodyMax = 500;
 
 
 
@@ -227,6 +295,22 @@ export const CreateStoreResponse = zod.object({
   "storePhone": zod.string().max(createStoreResponseStorePhoneMax).nullable(),
   "storeWebsite": zod.url().nullable(),
   "storeAddress": zod.record(zod.string(), zod.unknown()).nullable(),
+  "publicStoreKey": zod.string(),
+  "storefrontTheme": zod.object({
+  "accentColor": zod.string().regex(createStoreResponseStorefrontThemeAccentColorRegExp),
+  "backgroundColor": zod.string().regex(createStoreResponseStorefrontThemeBackgroundColorRegExp),
+  "textColor": zod.string().regex(createStoreResponseStorefrontThemeTextColorRegExp),
+  "layout": zod.enum(['editorial', 'minimal', 'catalog']),
+  "announcement": zod.string().max(createStoreResponseStorefrontThemeAnnouncementMax)
+}),
+  "storefrontSections": zod.array(zod.object({
+  "id": zod.string().min(1).max(createStoreResponseStorefrontSectionsItemIdMax),
+  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "enabled": zod.boolean(),
+  "heading": zod.string().max(createStoreResponseStorefrontSectionsItemHeadingMax),
+  "body": zod.string().max(createStoreResponseStorefrontSectionsItemBodyMax)
+})),
+  "storefrontPublished": zod.boolean(),
   "storeSlug": zod.string(),
   "merchantKey": zod.string(),
   "createdAt": zod.coerce.date()
@@ -2232,9 +2316,41 @@ export const GetPublicStoreParams = zod.object({
   "merchantKey": zod.coerce.string().min(1).max(getPublicStorePathMerchantKeyMax)
 })
 
+export const getPublicStoreResponseStorefrontThemeAccentColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getPublicStoreResponseStorefrontThemeBackgroundColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getPublicStoreResponseStorefrontThemeTextColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getPublicStoreResponseStorefrontThemeAnnouncementMax = 160;
+
+export const getPublicStoreResponseStorefrontSectionsItemIdMax = 40;
+
+export const getPublicStoreResponseStorefrontSectionsItemHeadingMax = 120;
+
+export const getPublicStoreResponseStorefrontSectionsItemBodyMax = 500;
+
+
+
 export const GetPublicStoreResponse = zod.object({
   "merchantKey": zod.string(),
   "storeName": zod.string(),
+  "storeDescription": zod.string().nullable(),
+  "storeContactEmail": zod.email().nullable(),
+  "storePhone": zod.string().nullable(),
+  "storeWebsite": zod.url().nullable(),
+  "storeAddress": zod.record(zod.string(), zod.unknown()).nullable(),
+  "storefrontTheme": zod.object({
+  "accentColor": zod.string().regex(getPublicStoreResponseStorefrontThemeAccentColorRegExp),
+  "backgroundColor": zod.string().regex(getPublicStoreResponseStorefrontThemeBackgroundColorRegExp),
+  "textColor": zod.string().regex(getPublicStoreResponseStorefrontThemeTextColorRegExp),
+  "layout": zod.enum(['editorial', 'minimal', 'catalog']),
+  "announcement": zod.string().max(getPublicStoreResponseStorefrontThemeAnnouncementMax)
+}),
+  "storefrontSections": zod.array(zod.object({
+  "id": zod.string().min(1).max(getPublicStoreResponseStorefrontSectionsItemIdMax),
+  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "enabled": zod.boolean(),
+  "heading": zod.string().max(getPublicStoreResponseStorefrontSectionsItemHeadingMax),
+  "body": zod.string().max(getPublicStoreResponseStorefrontSectionsItemBodyMax)
+})),
   "products": zod.array(zod.object({
   "id": zod.int(),
   "title": zod.string(),

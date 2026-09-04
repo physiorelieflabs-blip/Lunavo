@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useUser } from '@clerk/react';
-import { ExternalLink, Store as StoreIcon } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, Palette, Plus, Store as StoreIcon, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
@@ -10,6 +10,8 @@ import {
   useGetCheckoutSettings,
   useGetDashboardOverview,
   useUpdateCheckoutSettings,
+  type StorefrontSection,
+  type StorefrontTheme,
 } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
@@ -30,6 +32,15 @@ export default function StorePage() {
   const [taxRate, setTaxRate] = useState('0');
   const [shippingFee, setShippingFee] = useState('0');
   const [freeShippingThreshold, setFreeShippingThreshold] = useState('');
+  const [theme, setTheme] = useState<StorefrontTheme>({
+    accentColor: '#c85d3f',
+    backgroundColor: '#f5f1e8',
+    textColor: '#182333',
+    layout: 'editorial',
+    announcement: '',
+  });
+  const [sections, setSections] = useState<StorefrontSection[]>([]);
+  const [published, setPublished] = useState(true);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -41,6 +52,9 @@ export default function StorePage() {
     setStoreWebsite(overview.data.storeWebsite ?? '');
     const address = overview.data.storeAddress;
     setStoreAddress(address && typeof address === 'object' && 'formatted' in address ? String(address.formatted ?? '') : '');
+    setTheme(overview.data.storefrontTheme);
+    setSections(overview.data.storefrontSections);
+    setPublished(overview.data.storefrontPublished);
   }, [overview.data]);
 
   useEffect(() => {
@@ -65,6 +79,9 @@ export default function StorePage() {
       storePhone: storePhone.trim() || null,
       storeWebsite: storeWebsite.trim() || null,
       storeAddress: storeAddress.trim() ? { formatted: storeAddress.trim() } : null,
+       storefrontTheme: theme,
+       storefrontSections: sections,
+       storefrontPublished: published,
     } }, {
       onSuccess: (result) => {
         setStoreName(result.storeName);
@@ -74,7 +91,10 @@ export default function StorePage() {
         setStoreWebsite(result.storeWebsite ?? '');
         const address = result.storeAddress;
         setStoreAddress(address && typeof address === 'object' && 'formatted' in address ? String(address.formatted ?? '') : '');
-        setMessage('Your store is live and the new name is saved to your merchant workspace.');
+         setTheme(result.storefrontTheme);
+         setSections(result.storefrontSections);
+         setPublished(result.storefrontPublished);
+         setMessage(result.storefrontPublished ? 'Your storefront is published and ready for customers.' : 'Your storefront changes are saved as a draft.');
         void queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() });
       },
       onError: () => setMessage('Store name could not be saved. Use 2 to 80 characters and try again.'),
@@ -142,9 +162,47 @@ export default function StorePage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <SubmitButton loading={createStore.isPending}>Save store</SubmitButton>
-            {user?.id && <Link href={`/checkout/${user.id}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] px-4 text-sm font-extrabold text-[#536174] hover:bg-[#f7f4ed]" data-testid="link-preview-store">Preview checkout <ExternalLink className="h-4 w-4" /></Link>}
+             <Link href={`/store/${store.publicStoreKey}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] px-4 text-sm font-extrabold text-[#536174] hover:bg-[#f7f4ed]" data-testid="link-preview-store">Open storefront <ExternalLink className="h-4 w-4" /></Link>
           </div>
         </form>
+      </section>
+      <section className="mt-6 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+        <SectionHeading eyebrow="Storefront system" title="Shape the customer experience" description="These settings control the published storefront, while products remain governed by catalog visibility and server-side checkout rules." />
+        <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1.15fr]">
+          <div className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-3">
+              {([
+                ['accentColor', 'Accent'],
+                ['backgroundColor', 'Canvas'],
+                ['textColor', 'Text'],
+              ] as const).map(([key, label]) => <label key={key} className="block text-sm font-bold">{label}<div className="mt-2 flex h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-2"><input type="color" value={theme[key]} onChange={(event) => setTheme((current) => ({ ...current, [key]: event.target.value }))} className="h-8 w-10 cursor-pointer rounded border-0 bg-transparent" /><span className="font-mono text-xs text-[#697687]">{theme[key]}</span></div></label>)}
+            </div>
+            <label className="block text-sm font-bold">Layout
+              <select value={theme.layout} onChange={(event) => setTheme((current) => ({ ...current, layout: event.target.value as StorefrontTheme['layout'] }))} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]">
+                <option value="editorial">Editorial — large story-led hero</option>
+                <option value="minimal">Minimal — quiet product grid</option>
+                <option value="catalog">Catalog — dense discovery layout</option>
+              </select>
+            </label>
+            <label className="block text-sm font-bold">Announcement bar <span className="font-normal text-[#697687]">(optional)</span>
+              <input maxLength={160} value={theme.announcement} onChange={(event) => setTheme((current) => ({ ...current, announcement: event.target.value }))} placeholder="Free delivery this week" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" />
+            </label>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4">
+              <div><p className="text-sm font-extrabold">Publication state</p><p className="mt-1 text-xs leading-5 text-[#697687]">{published ? 'Customers can browse this storefront.' : 'Only your workspace can see these changes.'}</p></div>
+              <button type="button" onClick={() => setPublished((value) => !value)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-extrabold ${published ? 'bg-[#d8eee2] text-[#2f6958]' : 'bg-[#e7e2d8] text-[#536174]'}`}>{published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}{published ? 'Published' : 'Draft'}</button>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between"><p className="text-sm font-extrabold">Content sections</p><button type="button" onClick={() => setSections((current) => [...current, { id: `section-${Date.now()}`, type: 'story', enabled: true, heading: 'Tell your story', body: 'Share the point of view behind your collection.' }])} className="inline-flex items-center gap-1.5 rounded-lg border border-[#d9d2c4] px-3 py-2 text-xs font-extrabold text-[#536174] hover:bg-[#f7f4ed]"><Plus className="h-3.5 w-3.5" />Add section</button></div>
+            {sections.map((section, index) => <div key={section.id} className="rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4">
+              <div className="flex items-center gap-2"><select value={section.type} onChange={(event) => setSections((current) => current.map((item) => item.id === section.id ? { ...item, type: event.target.value as StorefrontSection['type'] } : item))} className="h-9 flex-1 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-2 text-xs font-bold"><option value="hero">Hero</option><option value="products">Products</option><option value="story">Story</option><option value="announcement">Announcement</option></select><button type="button" onClick={() => setSections((current) => current.map((item) => item.id === section.id ? { ...item, enabled: !item.enabled } : item))} className={`rounded-lg p-2 ${section.enabled ? 'text-[#2f6958]' : 'text-[#9b9182]'}`} aria-label={section.enabled ? 'Disable section' : 'Enable section'}>{section.enabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</button><button type="button" disabled={index === 0} onClick={() => setSections((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index]!, next[index - 1]!]; return next; })} className="rounded-lg px-2 text-xs font-bold text-[#697687] disabled:opacity-30" aria-label="Move section up">↑</button><button type="button" disabled={index === sections.length - 1} onClick={() => setSections((current) => { const next = [...current]; [next[index], next[index + 1]] = [next[index + 1]!, next[index]!]; return next; })} className="rounded-lg px-2 text-xs font-bold text-[#697687] disabled:opacity-30" aria-label="Move section down">↓</button><button type="button" onClick={() => setSections((current) => current.filter((item) => item.id !== section.id))} className="rounded-lg p-2 text-[#a33e38]" aria-label="Remove section"><Trash2 className="h-4 w-4" /></button></div>
+              <input value={section.heading} onChange={(event) => setSections((current) => current.map((item) => item.id === section.id ? { ...item, heading: event.target.value } : item))} maxLength={120} placeholder="Section heading" className="mt-3 h-10 w-full rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-3 text-sm font-bold outline-none focus:border-[#bca26a]" />
+              <textarea value={section.body} onChange={(event) => setSections((current) => current.map((item) => item.id === section.id ? { ...item, body: event.target.value } : item))} maxLength={500} rows={2} placeholder="Optional supporting copy" className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-3 py-2 text-xs leading-5 outline-none focus:border-[#bca26a]" />
+            </div>)}
+            {!sections.length && <div className="rounded-xl border border-dashed border-[#cfc7b8] p-6 text-center text-sm text-[#697687]">Add a section to begin shaping your storefront.</div>}
+            <div className="flex items-center justify-between gap-3 pt-2"><p className="text-xs leading-5 text-[#697687]"><Palette className="mr-1 inline h-3.5 w-3.5" />Save identity, theme, sections, and publication state together.</p><SubmitButton loading={createStore.isPending}>Save storefront</SubmitButton></div>
+          </div>
+        </div>
       </section>
       <section className="mt-6 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         <SectionHeading eyebrow="Checkout rules" title="Set tax and shipping" description="These rules are calculated on the server and snapshotted on each order. Customers provide their shipping address at checkout; no merchant address is required." />

@@ -46,6 +46,7 @@ const migrations = [
   "0035_ts_pay_internal_bank",
   "0036_ts_pay_payout_accounting",
   "0037_flutterwave_webhook_events",
+  "0038_storefront_builder",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

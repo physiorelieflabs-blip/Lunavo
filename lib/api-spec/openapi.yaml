@@ -2392,10 +2392,16 @@ components:
         storePhone: { type: ["string", "null"], maxLength: 40 }
         storeWebsite: { type: ["string", "null"], format: uri }
         storeAddress: { type: ["object", "null"], additionalProperties: true }
+        publicStoreKey: { type: string }
+        storefrontTheme: { $ref: "#/components/schemas/StorefrontTheme" }
+        storefrontSections:
+          type: array
+          items: { $ref: "#/components/schemas/StorefrontSection" }
+        storefrontPublished: { type: boolean }
         storeSlug: { type: string }
         merchantKey: { type: string }
         createdAt: { type: string, format: date-time }
-      required: [id, name, storeName, storeDescription, storeContactEmail, storePhone, storeWebsite, storeAddress, storeSlug, merchantKey, createdAt]
+      required: [id, name, storeName, storeDescription, storeContactEmail, storePhone, storeWebsite, storeAddress, publicStoreKey, storefrontTheme, storefrontSections, storefrontPublished, storeSlug, merchantKey, createdAt]
     StoreInput:
       type: object
       properties:
@@ -2405,7 +2411,31 @@ components:
         storePhone: { type: ["string", "null"], maxLength: 40 }
         storeWebsite: { type: ["string", "null"], format: uri }
         storeAddress: { type: ["object", "null"], additionalProperties: true }
+        storefrontTheme: { $ref: "#/components/schemas/StorefrontTheme" }
+        storefrontSections:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/StorefrontSection" }
+        storefrontPublished: { type: boolean }
       required: [storeName]
+    StorefrontTheme:
+      type: object
+      properties:
+        accentColor: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
+        backgroundColor: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
+        textColor: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
+        layout: { type: string, enum: [editorial, minimal, catalog] }
+        announcement: { type: string, maxLength: 160 }
+      required: [accentColor, backgroundColor, textColor, layout, announcement]
+    StorefrontSection:
+      type: object
+      properties:
+        id: { type: string, minLength: 1, maxLength: 40 }
+        type: { type: string, enum: [hero, products, story, announcement] }
+        enabled: { type: boolean }
+        heading: { type: string, maxLength: 120 }
+        body: { type: string, maxLength: 500 }
+      required: [id, type, enabled, heading, body]
     HealthStatus:
       type: object
       properties:
@@ -2794,6 +2824,12 @@ components:
         storePhone: { type: ["string", "null"] }
         storeWebsite: { type: ["string", "null"] }
         storeAddress: { type: ["object", "null"], additionalProperties: true }
+        publicStoreKey: { type: string }
+        storefrontTheme: { $ref: "#/components/schemas/StorefrontTheme" }
+        storefrontSections:
+          type: array
+          items: { $ref: "#/components/schemas/StorefrontSection" }
+        storefrontPublished: { type: boolean }
         storeSlug: { type: string }
         revenue: { type: number }
         revenueChange: { type: number }
@@ -2811,11 +2847,15 @@ components:
       required:
         - currency
         - storeName
-         - storeDescription
-         - storeContactEmail
-         - storePhone
-         - storeWebsite
-         - storeAddress
+        - storeDescription
+        - storeContactEmail
+        - storePhone
+        - storeWebsite
+        - storeAddress
+        - publicStoreKey
+        - storefrontTheme
+        - storefrontSections
+        - storefrontPublished
         - storeSlug
         - revenue
         - revenueChange
@@ -3439,11 +3479,20 @@ components:
       properties:
         merchantKey: { type: string }
         storeName: { type: string }
+        storeDescription: { type: ["string", "null"] }
+        storeContactEmail: { type: ["string", "null"], format: email }
+        storePhone: { type: ["string", "null"] }
+        storeWebsite: { type: ["string", "null"], format: uri }
+        storeAddress: { type: ["object", "null"], additionalProperties: true }
+        storefrontTheme: { $ref: "#/components/schemas/StorefrontTheme" }
+        storefrontSections:
+          type: array
+          items: { $ref: "#/components/schemas/StorefrontSection" }
         products:
           type: array
           items:
             $ref: "#/components/schemas/PublicStoreProduct"
-      required: [merchantKey, storeName, products]
+      required: [merchantKey, storeName, storeDescription, storeContactEmail, storePhone, storeWebsite, storeAddress, storefrontTheme, storefrontSections, products]
     PublicStoreProduct:
       type: object
       properties:

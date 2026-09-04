@@ -6,9 +6,24 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PublicStoreProduct } from './publicStoreProduct';
+import type { PublicStoreStoreAddress } from './publicStoreStoreAddress';
+import type { StorefrontSection } from './storefrontSection';
+import type { StorefrontTheme } from './storefrontTheme';
 
 export interface PublicStore {
   merchantKey: string;
   storeName: string;
+  /** @nullable */
+  storeDescription: string | null;
+  /** @nullable */
+  storeContactEmail: string | null;
+  /** @nullable */
+  storePhone: string | null;
+  /** @nullable */
+  storeWebsite: string | null;
+  /** @nullable */
+  storeAddress: PublicStoreStoreAddress;
+  storefrontTheme: StorefrontTheme;
+  storefrontSections: StorefrontSection[];
   products: PublicStoreProduct[];
 }

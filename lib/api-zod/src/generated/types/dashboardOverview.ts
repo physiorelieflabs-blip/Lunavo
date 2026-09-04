@@ -7,21 +7,27 @@
  */
 import type { DashboardOverviewStoreAddress } from './dashboardOverviewStoreAddress';
 import type { RevenuePoint } from './revenuePoint';
+import type { StorefrontSection } from './storefrontSection';
+import type { StorefrontTheme } from './storefrontTheme';
 import type { Subscription } from './subscription';
 
 export interface DashboardOverview {
   currency: string;
-  storeName?: string;
+  storeName: string;
   /** @nullable */
-  storeDescription?: string | null;
+  storeDescription: string | null;
   /** @nullable */
-  storeContactEmail?: string | null;
+  storeContactEmail: string | null;
   /** @nullable */
-  storePhone?: string | null;
+  storePhone: string | null;
   /** @nullable */
-  storeWebsite?: string | null;
+  storeWebsite: string | null;
   /** @nullable */
-  storeAddress?: DashboardOverviewStoreAddress;
+  storeAddress: DashboardOverviewStoreAddress;
+  publicStoreKey: string;
+  storefrontTheme: StorefrontTheme;
+  storefrontSections: StorefrontSection[];
+  storefrontPublished: boolean;
   storeSlug: string;
   revenue: number;
   revenueChange: number;

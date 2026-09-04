@@ -538,6 +538,51 @@ export interface MarketExchangeRate {
  */
 export type StoreStoreAddress = { [key: string]: unknown } | null;
 
+export type StorefrontThemeLayout = typeof StorefrontThemeLayout[keyof typeof StorefrontThemeLayout];
+
+
+export const StorefrontThemeLayout = {
+  editorial: 'editorial',
+  minimal: 'minimal',
+  catalog: 'catalog',
+} as const;
+
+export interface StorefrontTheme {
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  accentColor: string;
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  backgroundColor: string;
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  textColor: string;
+  layout: StorefrontThemeLayout;
+  /** @maxLength 160 */
+  announcement: string;
+}
+
+export type StorefrontSectionType = typeof StorefrontSectionType[keyof typeof StorefrontSectionType];
+
+
+export const StorefrontSectionType = {
+  hero: 'hero',
+  products: 'products',
+  story: 'story',
+  announcement: 'announcement',
+} as const;
+
+export interface StorefrontSection {
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  id: string;
+  type: StorefrontSectionType;
+  enabled: boolean;
+  /** @maxLength 120 */
+  heading: string;
+  /** @maxLength 500 */
+  body: string;
+}
+
 export interface Store {
   id: number;
   name: string;
@@ -558,6 +603,10 @@ export interface Store {
   storeWebsite: string | null;
   /** @nullable */
   storeAddress: StoreStoreAddress;
+  publicStoreKey: string;
+  storefrontTheme: StorefrontTheme;
+  storefrontSections: StorefrontSection[];
+  storefrontPublished: boolean;
   storeSlug: string;
   merchantKey: string;
   createdAt: string;
@@ -590,6 +639,10 @@ export interface StoreInput {
   storeWebsite?: string | null;
   /** @nullable */
   storeAddress?: StoreInputStoreAddress;
+  storefrontTheme?: StorefrontTheme;
+  /** @maxItems 20 */
+  storefrontSections?: StorefrontSection[];
+  storefrontPublished?: boolean;
 }
 
 export interface HealthStatus {
@@ -1076,17 +1129,21 @@ export interface RevenuePoint {
 
 export interface DashboardOverview {
   currency: string;
-  storeName?: string;
+  storeName: string;
   /** @nullable */
-  storeDescription?: string | null;
+  storeDescription: string | null;
   /** @nullable */
-  storeContactEmail?: string | null;
+  storeContactEmail: string | null;
   /** @nullable */
-  storePhone?: string | null;
+  storePhone: string | null;
   /** @nullable */
-  storeWebsite?: string | null;
+  storeWebsite: string | null;
   /** @nullable */
-  storeAddress?: DashboardOverviewStoreAddress;
+  storeAddress: DashboardOverviewStoreAddress;
+  publicStoreKey: string;
+  storefrontTheme: StorefrontTheme;
+  storefrontSections: StorefrontSection[];
+  storefrontPublished: boolean;
   storeSlug: string;
   revenue: number;
   revenueChange: number;
@@ -2255,6 +2312,11 @@ export interface SupplierPaymentRecord {
   availableBalanceMinor: number;
 }
 
+/**
+ * @nullable
+ */
+export type PublicStoreStoreAddress = { [key: string]: unknown } | null;
+
 export type PublicStoreProductVariantsItem = { [key: string]: unknown };
 
 export interface PublicStoreProduct {
@@ -2283,6 +2345,18 @@ export interface PublicStoreProduct {
 export interface PublicStore {
   merchantKey: string;
   storeName: string;
+  /** @nullable */
+  storeDescription: string | null;
+  /** @nullable */
+  storeContactEmail: string | null;
+  /** @nullable */
+  storePhone: string | null;
+  /** @nullable */
+  storeWebsite: string | null;
+  /** @nullable */
+  storeAddress: PublicStoreStoreAddress;
+  storefrontTheme: StorefrontTheme;
+  storefrontSections: StorefrontSection[];
   products: PublicStoreProduct[];
 }
 

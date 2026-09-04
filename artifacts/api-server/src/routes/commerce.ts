@@ -384,7 +384,7 @@ router.use((req, _res, next) => {
     /^\/dashboard(?:\/|$)/.test(path) ? "orders.read" :
     /^\/ai\/actions\/[^/]+\/(approve|reject)/.test(path) ? "ai.approve" :
     /^\/ai\/actions\/[^/]+\/(execute|rollback)/.test(path) ? "ai.execute" :
-    /^\/ai(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "ai.execute") :
+      /^\/ai(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "ai.execute") :
     /^(\/withdrawals|\/security\/withdrawal)/.test(path) ? "withdrawals.manage" :
     /^\/bank-account/.test(path) ? "bank_accounts.manage" :
     /^\/ts-pay(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
@@ -508,6 +508,55 @@ function storeSlug(storeName: string): string {
       .replace(/(^-|-$)/g, "")
       .slice(0, 60) || "store"
   );
+}
+
+const DEFAULT_STOREFRONT_THEME = {
+  accentColor: "#c85d3f",
+  backgroundColor: "#f5f1e8",
+  textColor: "#182333",
+  layout: "editorial",
+  announcement: "",
+} as const;
+
+const DEFAULT_STOREFRONT_SECTIONS = [
+  { id: "hero", type: "hero", enabled: true, heading: "Thoughtful goods, clearly presented.", body: "" },
+  { id: "products", type: "products", enabled: true, heading: "Shop the collection", body: "" },
+] as const;
+
+function storefrontTheme(value: unknown) {
+  const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const color = (key: string, fallback: string) =>
+    typeof candidate[key] === "string" && /^#[0-9a-fA-F]{6}$/.test(candidate[key] as string)
+      ? candidate[key] as string
+      : fallback;
+  return {
+    accentColor: color("accentColor", DEFAULT_STOREFRONT_THEME.accentColor),
+    backgroundColor: color("backgroundColor", DEFAULT_STOREFRONT_THEME.backgroundColor),
+    textColor: color("textColor", DEFAULT_STOREFRONT_THEME.textColor),
+    layout: candidate.layout === "minimal" || candidate.layout === "catalog" ? candidate.layout : DEFAULT_STOREFRONT_THEME.layout,
+    announcement: typeof candidate.announcement === "string" ? candidate.announcement.slice(0, 160) : "",
+  };
+}
+
+function storefrontSections(value: unknown) {
+  if (!Array.isArray(value)) return [...DEFAULT_STOREFRONT_SECTIONS];
+  return value.slice(0, 20).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const section = item as Record<string, unknown>;
+    const type = section.type;
+    if (!["hero", "products", "story", "announcement"].includes(String(type))) return [];
+    return [{
+      id: typeof section.id === "string" && section.id.trim() ? section.id.trim().slice(0, 40) : randomUUID().slice(0, 8),
+      type: String(type),
+      enabled: section.enabled !== false,
+      heading: typeof section.heading === "string" ? section.heading.slice(0, 120) : "",
+      body: typeof section.body === "string" ? section.body.slice(0, 500) : "",
+    }];
+  });
+}
+
+function publicStoreKeyFor(merchant: MerchantRecord): string {
+  return merchant.publicStoreKey ?? merchant.clerkUserId ?? String(merchant.id);
 }
 
 function isSupportedCurrency(value: string): boolean {
@@ -2808,7 +2857,17 @@ router.post("/store", async (req, res): Promise<void> => {
   }
   const [updated] = await db
     .update(merchantsTable)
-    .set({ storeName, storeDescription, storeContactEmail, storePhone, storeWebsite, storeAddress: parsed.data.storeAddress ?? null })
+    .set({
+      storeName,
+      storeDescription,
+      storeContactEmail,
+      storePhone,
+      storeWebsite,
+      storeAddress: parsed.data.storeAddress ?? null,
+      ...(parsed.data.storefrontTheme ? { storefrontTheme: storefrontTheme(parsed.data.storefrontTheme) } : {}),
+      ...(parsed.data.storefrontSections ? { storefrontSections: storefrontSections(parsed.data.storefrontSections) } : {}),
+      ...(parsed.data.storefrontPublished === undefined ? {} : { storefrontPublished: parsed.data.storefrontPublished }),
+    })
     .where(eq(merchantsTable.id, merchant.id))
     .returning();
   if (!updated) {
@@ -2831,8 +2890,12 @@ router.post("/store", async (req, res): Promise<void> => {
       storePhone: updated.storePhone,
       storeWebsite: updated.storeWebsite,
       storeAddress: updated.storeAddress,
+      publicStoreKey: publicStoreKeyFor(updated),
+      storefrontTheme: storefrontTheme(updated.storefrontTheme),
+      storefrontSections: storefrontSections(updated.storefrontSections),
+      storefrontPublished: updated.storefrontPublished,
       storeSlug: storeSlug(updated.storeName),
-      merchantKey: updated.clerkUserId ?? identity.clerkUserId,
+      merchantKey: publicStoreKeyFor(updated),
       createdAt: updated.registeredAt,
     }),
   );
@@ -2973,6 +3036,10 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       storePhone: enforced.merchant.storePhone,
       storeWebsite: enforced.merchant.storeWebsite,
       storeAddress: enforced.merchant.storeAddress,
+      publicStoreKey: publicStoreKeyFor(enforced.merchant),
+      storefrontTheme: storefrontTheme(enforced.merchant.storefrontTheme),
+      storefrontSections: storefrontSections(enforced.merchant.storefrontSections),
+      storefrontPublished: enforced.merchant.storefrontPublished,
       currency: enforced.merchant.currency,
       storeSlug: storeSlug(enforced.merchant.storeName),
       revenue,
@@ -7020,7 +7087,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
   if (Number.isFinite(minPrice) && minPrice !== null) filters.push(gte(supplierProductsTable.sellingPrice, minPrice.toFixed(2)));
   if (Number.isFinite(maxPrice) && maxPrice !== null) filters.push(sql`${supplierProductsTable.sellingPrice} <= ${maxPrice.toFixed(2)}`);
   const rows = await db
-    .select({ product: supplierProductsTable, merchantKey: merchantsTable.clerkUserId, merchantName: merchantsTable.storeName })
+    .select({ product: supplierProductsTable, merchantKey: merchantsTable.publicStoreKey, merchantName: merchantsTable.storeName })
     .from(supplierProductsTable)
     .innerJoin(merchantsTable, eq(supplierProductsTable.merchantId, merchantsTable.id))
     .leftJoin(marketplaceListingsTable, eq(marketplaceListingsTable.supplierProductId, supplierProductsTable.id))
@@ -7054,10 +7121,13 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     await db
       .select()
       .from(merchantsTable)
-      .where(eq(merchantsTable.clerkUserId, parsed.data.merchantKey))
+      .where(or(
+        eq(merchantsTable.publicStoreKey, parsed.data.merchantKey),
+        eq(merchantsTable.clerkUserId, parsed.data.merchantKey),
+      ))
       .limit(1)
   )[0];
-  if (!merchant || merchant.status !== "active") {
+  if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
     res.status(404).json({ error: "Store not found" });
     return;
   }
@@ -7076,13 +7146,15 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     .limit(100);
   res.json(
     GetPublicStoreResponse.parse({
-      merchantKey: parsed.data.merchantKey,
+       merchantKey: publicStoreKeyFor(merchant),
       storeName: merchant.storeName,
-      storeDescription: merchant.storeDescription,
-      storeContactEmail: merchant.storeContactEmail,
-      storePhone: merchant.storePhone,
-      storeWebsite: merchant.storeWebsite,
-      storeAddress: merchant.storeAddress,
+       storeDescription: merchant.storeDescription,
+       storeContactEmail: merchant.storeContactEmail,
+       storePhone: merchant.storePhone,
+       storeWebsite: merchant.storeWebsite,
+       storeAddress: merchant.storeAddress,
+       storefrontTheme: storefrontTheme(merchant.storefrontTheme),
+       storefrontSections: storefrontSections(merchant.storefrontSections),
       products: products.map((product) => ({
         id: product.id,
         title: product.title,
@@ -7118,10 +7190,13 @@ router.post(
       await db
         .select()
         .from(merchantsTable)
-        .where(eq(merchantsTable.clerkUserId, params.data.merchantKey))
+        .where(or(
+          eq(merchantsTable.publicStoreKey, params.data.merchantKey),
+          eq(merchantsTable.clerkUserId, params.data.merchantKey),
+        ))
         .limit(1)
     )[0];
-    if (!merchant || merchant.status !== "active") {
+    if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
       res.status(404).json({ error: "Store not found" });
       return;
     }

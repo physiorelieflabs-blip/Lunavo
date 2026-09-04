@@ -5,6 +5,8 @@
  * TS Commerce Plattform merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { StorefrontSection } from './storefrontSection';
+import type { StorefrontTheme } from './storefrontTheme';
 import type { StoreStoreAddress } from './storeStoreAddress';
 
 export interface Store {
@@ -27,6 +29,10 @@ export interface Store {
   storeWebsite: string | null;
   /** @nullable */
   storeAddress: StoreStoreAddress;
+  publicStoreKey: string;
+  storefrontTheme: StorefrontTheme;
+  storefrontSections: StorefrontSection[];
+  storefrontPublished: boolean;
   storeSlug: string;
   merchantKey: string;
   createdAt: Date;

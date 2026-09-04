@@ -5,6 +5,8 @@
  * TS Commerce Plattform merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { StorefrontSection } from './storefrontSection';
+import type { StorefrontTheme } from './storefrontTheme';
 import type { StoreInputStoreAddress } from './storeInputStoreAddress';
 
 export interface StoreInput {
@@ -29,4 +31,8 @@ export interface StoreInput {
   storeWebsite?: string | null;
   /** @nullable */
   storeAddress?: StoreInputStoreAddress;
+  storefrontTheme?: StorefrontTheme;
+  /** @maxItems 20 */
+  storefrontSections?: StorefrontSection[];
+  storefrontPublished?: boolean;
 }
