@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Banknote, CheckCircle2, Clipboard, CreditCard, Printer, Search, ShoppingBag, Smartphone, Trash2, UsersRound, WifiOff } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getGetDashboardOverviewQueryKey, getListCustomersQueryKey, getListDashboardActivityQueryKey, getListDropshipQueueQueryKey, getListOrdersQueryKey, useCreateOrder, useCreatePaymentIntent, useListCustomers, useListSupplierProducts, useVerifyPayment } from '@workspace/api-client-react';
+import { getGetDashboardOverviewQueryKey, getGetMerchantBalancesQueryKey, getListCustomersQueryKey, getListDashboardActivityQueryKey, getListDropshipQueueQueryKey, getListOrdersQueryKey, useCreateOrder, useCreatePaymentIntent, useListCustomers, useListSupplierProducts, useVerifyPayment } from '@workspace/api-client-react';
 import type { CreateOrderInput } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
@@ -82,6 +82,7 @@ export default function Pos() {
     queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() }),
+    queryClient.invalidateQueries({ queryKey: getGetMerchantBalancesQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getListDashboardActivityQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getListDropshipQueueQueryKey() }),
   ]);

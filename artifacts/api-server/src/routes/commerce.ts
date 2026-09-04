@@ -1323,7 +1323,9 @@ function serializeSupplierProduct(product: typeof supplierProductsTable.$inferSe
     imageUrls: jsonArray(product.imageUrls),
     videoUrls: jsonArray(product.videoUrls),
     price: product.price === null ? null : toNumber(product.price),
-    salePrice: product.salePrice === null ? null : toNumber(product.salePrice),
+     // Marketplace shoppers must see the merchant's selling price. The
+     // supplier salePrice is a source cost and is not customer-facing.
+     salePrice: null,
     currency: product.currency,
     sku: product.sku,
     variants: jsonArray(product.variants),
@@ -7312,7 +7314,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     .where(and(...filters))
     .orderBy(desc(supplierProductsTable.publishedAt), desc(supplierProductsTable.importedAt))
     .limit(100);
-  res.json(ListMarketplaceProductsResponse.parse(rows.map(({ product, merchantKey, merchantName }) => ({
+   res.json(ListMarketplaceProductsResponse.parse(rows.map(({ product, merchantKey, merchantName }) => ({
     id: product.id,
     merchantKey,
     merchantName: merchantName || "Independent merchant",
@@ -7320,7 +7322,8 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     description: product.description,
     imageUrl: product.imageUrl,
     price: toNumber(product.sellingPrice),
-    salePrice: product.salePrice === null ? null : toNumber(product.salePrice),
+     // Supplier source sale prices are costs, not shopper discounts.
+     salePrice: null,
     currency: product.currency,
     category: product.category,
     brand: product.brand,
@@ -7378,8 +7381,11 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
         title: product.title,
         description: product.description,
         imageUrl: product.imageUrl,
-        price: toNumber(product.sellingPrice),
-        salePrice: product.salePrice === null ? null : toNumber(product.salePrice),
+         // `price` and `salePrice` on supplierProducts are source costs.
+         // Public checkout must expose and charge the merchant's sellingPrice,
+         // never a supplier's temporary sale price.
+         price: toNumber(product.sellingPrice),
+         salePrice: null,
         currency: product.currency,
         sku: product.sku,
         availability: product.availability,
@@ -7437,7 +7443,30 @@ router.post(
             )
             .limit(1)
         )[0];
-        if (existing) return existing;
+         if (existing) {
+           const requestedEmail = parsed.data.customerEmail.trim().toLowerCase();
+           const existingCustomer = (
+             await tx
+               .select({ email: customersTable.email })
+               .from(customersTable)
+               .where(
+                 and(
+                   eq(customersTable.id, existing.order.customerId),
+                   eq(customersTable.merchantId, merchant.id),
+                 ),
+               )
+               .limit(1)
+           )[0];
+           if (
+             existing.order.supplierProductId !== parsed.data.supplierProductId
+             || existing.order.quantity !== parsed.data.quantity
+             || existing.order.shippingAddress !== parsed.data.shippingAddress.trim()
+             || existingCustomer?.email !== requestedEmail
+           ) {
+             throw new Error("This checkout idempotency key was already used for a different order");
+           }
+           return existing;
+         }
 
         const product = (
           await tx
@@ -7493,9 +7522,7 @@ router.post(
             throw new Error("Insufficient inventory");
           }
         }
-        const unitPrice = product.salePrice === null
-          ? toNumber(product.sellingPrice)
-          : toNumber(product.salePrice);
+         const unitPrice = toNumber(product.sellingPrice);
         const subtotal = Number((unitPrice * quantity).toFixed(2));
         const shippingAmount = merchant.freeShippingThreshold !== null
           && subtotal >= toNumber(merchant.freeShippingThreshold)
@@ -8223,6 +8250,12 @@ router.post("/dropship/queue/:id", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   try {
     const result = await db.transaction(async (tx) => {
+      // Serialize all supplier-fund debits for this merchant. Checking the
+      // aggregate ledger balance without a shared lock lets two orders spend
+      // the same available earnings concurrently.
+      await tx.execute(
+        sql`select id from ${merchantsTable} where ${merchantsTable.id} = ${merchant.id} for update`,
+      );
       await tx.execute(
         sql`select id from ${ordersTable} where ${ordersTable.id} = ${params.data.id} and ${ordersTable.merchantId} = ${merchant.id} for update`,
       );
@@ -8359,6 +8392,28 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
         .limit(1)
     )[0];
     if (!existing) throw new Error("Dropshipping order not found");
+    if (nextStatus === "delivered") {
+      if (!["paid", "fulfilled"].includes(existing.order.status)) {
+        throw new Error("Only a paid order can be marked delivered");
+      }
+      const [verifiedPayment] = await tx
+        .select({ id: paymentIntentsTable.id })
+        .from(paymentIntentsTable)
+        .where(
+          and(
+            eq(paymentIntentsTable.merchantId, merchant.id),
+            eq(paymentIntentsTable.orderId, existing.order.id),
+            eq(paymentIntentsTable.status, "verified"),
+          ),
+        )
+        .limit(1);
+      if (!verifiedPayment) {
+        throw new Error("A verified customer payment is required before delivery");
+      }
+      if (existing.order.supplierPaymentStatus !== "paid") {
+        throw new Error("Allocate supplier funds before marking this order delivered");
+      }
+    }
     const currentStatus = existing.order.fulfillmentStatus;
     const allowedTransitions: Record<string, string[]> = {
       not_submitted: ["not_submitted", "submitted", "canceled", "failed"],
@@ -9862,10 +9917,20 @@ router.post("/payments", async (req, res): Promise<void> => {
       await tx.execute(sql`select id from ${ordersTable} where id=${body.data.orderId} and merchant_id=${merchant.id} for update`);
       const order = (await tx.select().from(ordersTable).where(and(eq(ordersTable.id, body.data.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
       if (!order) throw new Error("Order not found");
-      if (order.currency !== body.data.currency.toUpperCase()) throw new Error("Payment currency does not match order");
+       const currency = body.data.currency.toUpperCase();
+       const amountMinor = Math.round(Number(order.total) * 100);
+       if (order.currency !== currency) throw new Error("Payment currency does not match order");
+       if (body.data.amountMinor !== undefined && body.data.amountMinor !== amountMinor) {
+         throw new Error("Payment amount does not match the server-computed order total");
+       }
       const old = (await tx.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.merchantId, merchant.id), eq(paymentIntentsTable.idempotencyKey, key))).limit(1))[0];
-      if (old) return old;
-      const [created] = await tx.insert(paymentIntentsTable).values({ merchantId: merchant.id, orderId: order.id, amountMinor: Math.round(Number(order.total) * 100), currency: order.currency, method: body.data.method, evidenceReference: body.data.evidenceReference ?? null, idempotencyKey: key, status: body.data.evidenceReference ? "submitted" : "created" }).returning();
+       if (old) {
+         if (old.orderId !== order.id || old.amountMinor !== amountMinor || old.currency !== currency || old.method !== body.data.method) {
+           throw new Error("This idempotency key was already used for a different payment");
+         }
+         return old;
+       }
+       const [created] = await tx.insert(paymentIntentsTable).values({ merchantId: merchant.id, orderId: order.id, amountMinor, currency: order.currency, method: body.data.method, evidenceReference: body.data.evidenceReference ?? null, idempotencyKey: key, status: body.data.evidenceReference ? "submitted" : "created" }).returning();
       if (!created) throw new Error("Payment intent could not be created");
       await tx.insert(paymentRecordsTable).values({ intentId: created.id, merchantId: merchant.id, orderId: order.id, amountMinor: created.amountMinor, currency: order.currency, method: created.method, evidenceReference: created.evidenceReference, status: created.status });
       return created;

@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
   getGetDashboardOverviewQueryKey,
+  getGetMerchantBalancesQueryKey,
   getListCustomersQueryKey,
   getListDashboardActivityQueryKey,
   getListDropshipQueueQueryKey,
@@ -47,6 +48,7 @@ export default function Orders() {
     queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() }),
+    queryClient.invalidateQueries({ queryKey: getGetMerchantBalancesQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getListDashboardActivityQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getListDropshipQueueQueryKey() }),
   ]);

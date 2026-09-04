@@ -43,6 +43,7 @@ import Settings from '@/pages/settings';
 import Media from '@/pages/media';
 import TsPay from '@/pages/ts-pay';
 import Invite from '@/pages/invite';
+import PasswordReset from '@/pages/password-reset';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId } from '@workspace/api-client-react';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -157,6 +158,7 @@ function AuthRoutes() {
     <Route path="/auctions" component={Auctions} />
      <Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} />
     <Route path="/auctions/manage" component={() => <Protected><AuctionManagement /></Protected>} />
+       <Route path="/sign-in/forgot-password" component={PasswordReset} />
       <Route path="/sign-in/*?" component={SignInPage} />
       <Route path="/sign-up/*?" component={SignUpPage} />
      <Route path="/checkout/payment-return" component={PublicPaymentReturn} />
@@ -206,7 +208,7 @@ function Router() {
 }
 
    function AuthRoutesWithoutClerk() {
-     return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/store/:merchantKey" component={PublicStorefront} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
+     return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/marketplace" component={Marketplace} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/store/:merchantKey" component={PublicStorefront} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/forgot-password" component={() => <AuthUnavailable mode="password reset" />} /><Route path="/sign-in/*?" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>;
 }
 
  function AuthUnavailable({ mode }: { mode: string }) {
