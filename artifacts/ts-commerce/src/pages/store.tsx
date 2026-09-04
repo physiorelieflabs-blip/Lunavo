@@ -133,9 +133,10 @@ export default function StorePage() {
 
       {message && <div className="mt-7"><Notice tone={message.includes('could not') ? 'danger' : 'success'} title={message.includes('could not') ? 'Store not saved' : 'Store saved'}>{message}</Notice></div>}
 
-      <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+       <form onSubmit={save}>
+       <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         <SectionHeading eyebrow="Store identity" title="Make the storefront yours" description="You can change this later. Existing orders and historical money are not renamed or altered." />
-        <form onSubmit={save} className="space-y-5">
+         <div className="space-y-5">
           <label className="block text-sm font-bold">Store name
             <input value={value} onChange={(event) => setStoreName(event.target.value)} minLength={2} maxLength={80} required className="mt-2 h-12 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-base font-bold outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" data-testid="input-store-name" />
           </label>
@@ -164,8 +165,9 @@ export default function StorePage() {
             <SubmitButton loading={createStore.isPending}>Save store</SubmitButton>
              <Link href={`/store/${store.publicStoreKey}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] px-4 text-sm font-extrabold text-[#536174] hover:bg-[#f7f4ed]" data-testid="link-preview-store">Open storefront <ExternalLink className="h-4 w-4" /></Link>
           </div>
-        </form>
-      </section>
+         </div>
+       </section>
+       </form>
       <section className="mt-6 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         <SectionHeading eyebrow="Storefront system" title="Shape the customer experience" description="These settings control the published storefront, while products remain governed by catalog visibility and server-side checkout rules." />
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1.15fr]">
