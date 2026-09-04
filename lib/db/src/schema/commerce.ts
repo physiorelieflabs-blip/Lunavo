@@ -384,6 +384,39 @@ export const customersTable = pgTable(
   ],
 );
 
+/**
+ * Durable merchant-owned media. Images are kept in the database until App
+ * Storage is available; the API still enforces image-only, size, and tenant
+ * boundaries so callers never fall back to browser-only files.
+ */
+export const mediaAssetsTable = pgTable(
+  "media_assets",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id")
+      .notNull()
+      .references(() => merchantsTable.id),
+    uploadedByClerkUserId: text("uploaded_by_clerk_user_id").notNull(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    imageData: text("image_data").notNull(),
+    altText: text("alt_text"),
+    caption: text("caption"),
+    visibility: text("visibility").notNull().default("private"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("media_assets_merchant_idx").on(table.merchantId, table.createdAt),
+  ],
+);
+
 export const suppliersTable = pgTable(
   "suppliers",
   {
@@ -1232,6 +1265,11 @@ export const insertCustomerSchema = createInsertSchema(customersTable).omit({
   createdAt: true,
   updatedAt: true,
 });
+export const insertMediaAssetSchema = createInsertSchema(mediaAssetsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({
   id: true,
   createdAt: true,
@@ -1316,6 +1354,7 @@ export type Subscription = typeof subscriptionsTable.$inferSelect;
 export type Payment = typeof paymentsTable.$inferSelect;
 export type Activity = typeof activityTable.$inferSelect;
 export type Customer = typeof customersTable.$inferSelect;
+export type MediaAsset = typeof mediaAssetsTable.$inferSelect;
 export type Order = typeof ordersTable.$inferSelect;
 export type Invoice = typeof invoicesTable.$inferSelect;
 export type InvoiceLine = typeof invoiceLinesTable.$inferSelect;
@@ -1325,6 +1364,7 @@ export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type InsertActivity = z.infer<typeof insertActivitySchema>;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type InsertMediaAsset = z.infer<typeof insertMediaAssetSchema>;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type InsertInvoiceLine = z.infer<typeof insertInvoiceLineSchema>;

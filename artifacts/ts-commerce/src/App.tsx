@@ -40,6 +40,7 @@ import Activity from '@/pages/activity';
 import Team from '@/pages/team';
 import Analytics from '@/pages/analytics';
 import Settings from '@/pages/settings';
+import Media from '@/pages/media';
 import TsPay from '@/pages/ts-pay';
 import Invite from '@/pages/invite';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
@@ -75,6 +76,45 @@ function AuthRoleChooser() {
     setRole(value);
   };
   return <div className="mb-5 w-full max-w-[440px] rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-4 shadow-[0_10px_25px_rgba(31,39,48,.04)]"><p className="text-center text-[10px] font-extrabold uppercase tracking-[.14em] text-[#a2772e]">Optional sign-in path</p><p className="mt-1 text-center text-sm font-bold text-[#182333]">What are you here to do?</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => choose('merchant')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'merchant' ? 'border-[#c85d3f] bg-[#fae8df]' : 'border-[#d9d2c4] bg-[#f7f4ed] hover:border-[#c85d3f]'}`}><span className="block font-extrabold">Run a store</span><span className="mt-1 block text-xs text-[#697687]">Merchant workspace</span></button><button type="button" onClick={() => choose('customer')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'customer' ? 'border-[#c85d3f] bg-[#fae8df]' : 'border-[#d9d2c4] bg-[#f7f4ed] hover:border-[#c85d3f]'}`}><span className="block font-extrabold">Shop & bid</span><span className="mt-1 block text-xs text-[#697687]">Customer experience</span></button></div><p className="mt-3 text-center text-[11px] text-[#697687]">Optional — skip this and we’ll keep the standard merchant path.</p></div>;
+}
+
+function AuthPageFrame({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+  return <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8">
+    <div className="mb-7 text-center">
+      <Link href="/" className="inline-flex" data-testid="link-auth-logo">
+        <span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span>
+      </Link>
+      <p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p>
+    </div>
+    {children}
+    {footer}
+  </div>;
+}
+
+function SignInPage() {
+  return <AuthPageFrame footer={<p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">
+    Forgot your password? <a href={`${basePath}/sign-in/forgot-password`} className="font-extrabold text-[#b14f36] underline" data-testid="link-forgot-password">Reset it securely</a>.
+  </p>}>
+    <AuthRoleChooser />
+    <SignIn
+      routing="path"
+      path={`${basePath}/sign-in`}
+      signUpUrl={`${basePath}/sign-up`}
+      fallbackRedirectUrl={`${basePath}/dashboard`}
+    />
+  </AuthPageFrame>;
+}
+
+function SignUpPage() {
+  return <AuthPageFrame>
+    <AuthRoleChooser />
+    <SignUp
+      routing="path"
+      path={`${basePath}/sign-up`}
+      signInUrl={`${basePath}/sign-in`}
+      fallbackRedirectUrl={`${basePath}/dashboard`}
+    />
+  </AuthPageFrame>;
 }
 
 function Protected({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
@@ -117,8 +157,8 @@ function AuthRoutes() {
     <Route path="/auctions" component={Auctions} />
      <Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} />
     <Route path="/auctions/manage" component={() => <Protected><AuctionManagement /></Protected>} />
-     <Route path="/sign-in/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-in-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p></div><AuthRoleChooser /><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /><p className="mt-4 max-w-[440px] text-center text-xs leading-5 text-[#697687]">Forgot your password? <Link href="/sign-in/forgot-password" className="font-extrabold text-[#b14f36] underline" data-testid="link-forgot-password">Reset it securely</Link>.</p></div>} />
-     <Route path="/sign-up/*?" component={() => <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8"><div className="mb-7 text-center"><Link href="/" className="inline-flex" data-testid="link-auth-sign-up-logo"><span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span></Link><p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">Commerce, kept clear</p></div><AuthRoleChooser /><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>} />
+      <Route path="/sign-in/*?" component={SignInPage} />
+      <Route path="/sign-up/*?" component={SignUpPage} />
      <Route path="/checkout/payment-return" component={PublicPaymentReturn} />
       <Route path="/store/:merchantKey" component={PublicStorefront} />
      <Route path="/checkout/:merchantKey" component={Checkout} />
@@ -128,6 +168,7 @@ function AuthRoutes() {
     <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
      <Route path="/analytics" component={() => <Protected><Analytics /></Protected>} />
      <Route path="/settings" component={() => <Protected><Settings /></Protected>} />
+      <Route path="/media" component={() => <Protected><Media /></Protected>} />
      <Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} />
     <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
      <Route path="/activity" component={() => <Protected><Activity /></Protected>} />

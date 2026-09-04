@@ -121,10 +121,10 @@ export default function Settings() {
           return;
         }
       }
-      await user.reload();
-      setFirstName(user.firstName ?? '');
-      setLastName(user.lastName ?? '');
-      setUsername(user.username ?? '');
+      const reloadedUser = await user.reload();
+      setFirstName(reloadedUser.firstName ?? '');
+      setLastName(reloadedUser.lastName ?? '');
+      setUsername(reloadedUser.username ?? '');
       setMessage('Your account details have been updated.');
     } catch (error) {
       setMessageIsError(true);

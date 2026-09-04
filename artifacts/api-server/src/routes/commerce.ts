@@ -68,6 +68,7 @@ import {
   auctionBidsTable,
   tsPayAccountsTable,
   tsPayTransfersTable,
+  mediaAssetsTable,
   type Merchant as MerchantRecord,
 } from "@workspace/db";
 import {
@@ -535,6 +536,59 @@ function imageUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
+const MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+function hasImageSignature(mimeType: string, bytes: Buffer) {
+  if (mimeType === "image/jpeg") return bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === "image/png") return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mimeType === "image/gif") return bytes.subarray(0, 6).toString("ascii") === "GIF87a" || bytes.subarray(0, 6).toString("ascii") === "GIF89a";
+  return mimeType === "image/webp" &&
+    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+    bytes.subarray(8, 12).toString("ascii") === "WEBP";
+}
+
+function mediaPayload(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const filename = typeof candidate.filename === "string"
+    ? candidate.filename.trim().replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120)
+    : "";
+  const mimeType = typeof candidate.mimeType === "string" ? candidate.mimeType.toLowerCase().trim() : "";
+  const data = typeof candidate.data === "string" ? candidate.data : "";
+  const altText = typeof candidate.altText === "string" ? candidate.altText.trim().slice(0, 160) : null;
+  const caption = typeof candidate.caption === "string" ? candidate.caption.trim().slice(0, 500) : null;
+  const visibility = candidate.visibility === "public" ? "public" : "private";
+  if (!filename || !MEDIA_TYPES.has(mimeType) || !data.startsWith(`data:${mimeType};base64,`)) return null;
+  const encoded = data.slice(data.indexOf(",") + 1);
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) return null;
+  const bytes = Buffer.from(encoded, "base64");
+  if (!bytes.length || bytes.length > MEDIA_MAX_BYTES || !hasImageSignature(mimeType, bytes)) return null;
+  const extension = filename.toLowerCase().split(".").pop();
+  const expectedExtensions: Record<string, string[]> = {
+    "image/jpeg": ["jpg", "jpeg"],
+    "image/png": ["png"],
+    "image/webp": ["webp"],
+    "image/gif": ["gif"],
+  };
+  if (!extension || !expectedExtensions[mimeType]?.includes(extension)) return null;
+  return { filename, mimeType, data, bytes, byteSize: bytes.length, altText, caption, visibility };
+}
+
+function publicMediaRecord(asset: typeof mediaAssetsTable.$inferSelect) {
+  return {
+    id: asset.id,
+    filename: asset.filename,
+    mimeType: asset.mimeType,
+    byteSize: asset.byteSize,
+    altText: asset.altText,
+    caption: asset.caption,
+    visibility: asset.visibility,
+    createdAt: asset.createdAt,
+    url: `/api/media/${asset.id}`,
+  };
 }
 
 function storefrontTheme(value: unknown) {
@@ -2917,6 +2971,95 @@ router.post("/store", async (req, res): Promise<void> => {
       createdAt: updated.registeredAt,
     }),
   );
+});
+
+router.get("/media", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+  const assets = await db.select().from(mediaAssetsTable)
+    .where(eq(mediaAssetsTable.merchantId, merchant.id))
+    .orderBy(desc(mediaAssetsTable.createdAt));
+  res.json(assets.map(publicMediaRecord));
+});
+
+router.post("/media", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+  const parsed = mediaPayload(req.body);
+  if (!parsed) {
+    res.status(400).json({
+      error: "Upload a JPEG, PNG, WebP, or GIF image with a matching filename, up to 5 MB.",
+    });
+    return;
+  }
+  const [asset] = await db.insert(mediaAssetsTable).values({
+    merchantId: merchant.id,
+    uploadedByClerkUserId: identity.clerkUserId,
+    filename: parsed.filename,
+    mimeType: parsed.mimeType,
+    byteSize: parsed.byteSize,
+    imageData: parsed.data,
+    altText: parsed.altText,
+    caption: parsed.caption,
+    visibility: parsed.visibility,
+  }).returning();
+  if (!asset) {
+    res.status(500).json({ error: "The image could not be saved." });
+    return;
+  }
+  res.status(201).json(publicMediaRecord(asset));
+});
+
+router.delete("/media/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: "Invalid media asset." });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+  const [deleted] = await db.delete(mediaAssetsTable).where(and(
+    eq(mediaAssetsTable.id, id),
+    eq(mediaAssetsTable.merchantId, merchant.id),
+  )).returning({ id: mediaAssetsTable.id });
+  if (!deleted) {
+    res.status(404).json({ error: "Media asset not found." });
+    return;
+  }
+  res.status(204).end();
+});
+
+router.get("/media/:id", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: "Invalid media asset." });
+    return;
+  }
+  const asset = (await db.select().from(mediaAssetsTable).where(eq(mediaAssetsTable.id, id)).limit(1))[0];
+  if (!asset) {
+    res.status(404).json({ error: "Media asset not found." });
+    return;
+  }
+  if (asset.visibility !== "public") {
+    const identity = await requireIdentity(req, res);
+    if (!identity) return;
+    const merchant = await getOrCreateMerchant(identity);
+    if (merchant.id !== asset.merchantId) {
+      res.status(403).json({ error: "You do not have permission to view this image." });
+      return;
+    }
+  }
+  const encoded = asset.imageData.slice(asset.imageData.indexOf(",") + 1);
+  res.setHeader("Content-Type", asset.mimeType);
+  res.setHeader("Content-Length", String(asset.byteSize));
+  res.setHeader("Cache-Control", asset.visibility === "public" ? "public, max-age=31536000, immutable" : "private, no-store");
+  res.send(Buffer.from(encoded, "base64"));
 });
 
 router.get("/dashboard/overview", async (req, res): Promise<void> => {
