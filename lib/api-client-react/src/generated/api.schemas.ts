@@ -557,6 +557,16 @@ export interface StorefrontTheme {
   layout: StorefrontThemeLayout;
   /** @maxLength 160 */
   announcement: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  logoUrl: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  heroImageUrl: string | null;
 }
 
 export type StorefrontSectionType = typeof StorefrontSectionType[keyof typeof StorefrontSectionType];
@@ -581,6 +591,13 @@ export interface StorefrontSection {
   heading: string;
   /** @maxLength 500 */
   body: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  imageUrl: string | null;
+  /** @maxLength 160 */
+  imageAlt: string;
 }
 
 export interface Store {

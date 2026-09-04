@@ -2426,7 +2426,9 @@ components:
         textColor: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
         layout: { type: string, enum: [editorial, minimal, catalog] }
         announcement: { type: string, maxLength: 160 }
-      required: [accentColor, backgroundColor, textColor, layout, announcement]
+        logoUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        heroImageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+      required: [accentColor, backgroundColor, textColor, layout, announcement, logoUrl, heroImageUrl]
     StorefrontSection:
       type: object
       properties:
@@ -2435,7 +2437,9 @@ components:
         enabled: { type: boolean }
         heading: { type: string, maxLength: 120 }
         body: { type: string, maxLength: 500 }
-      required: [id, type, enabled, heading, body]
+        imageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        imageAlt: { type: string, maxLength: 160 }
+      required: [id, type, enabled, heading, body, imageUrl, imageAlt]
     HealthStatus:
       type: object
       properties:

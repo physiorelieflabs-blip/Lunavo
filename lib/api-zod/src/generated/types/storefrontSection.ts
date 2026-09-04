@@ -19,4 +19,11 @@ export interface StorefrontSection {
   heading: string;
   /** @maxLength 500 */
   body: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  imageUrl: string | null;
+  /** @maxLength 160 */
+  imageAlt: string;
 }

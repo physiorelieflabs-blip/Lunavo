@@ -516,12 +516,25 @@ const DEFAULT_STOREFRONT_THEME = {
   textColor: "#182333",
   layout: "editorial",
   announcement: "",
+  logoUrl: null,
+  heroImageUrl: null,
 } as const;
 
 const DEFAULT_STOREFRONT_SECTIONS = [
-  { id: "hero", type: "hero", enabled: true, heading: "Thoughtful goods, clearly presented.", body: "" },
-  { id: "products", type: "products", enabled: true, heading: "Shop the collection", body: "" },
+  { id: "hero", type: "hero", enabled: true, heading: "Thoughtful goods, clearly presented.", body: "", imageUrl: null, imageAlt: "" },
+  { id: "products", type: "products", enabled: true, heading: "Shop the collection", body: "", imageUrl: null, imageAlt: "" },
 ] as const;
+
+function imageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return url.toString().slice(0, 2000);
+  } catch {
+    return null;
+  }
+}
 
 function storefrontTheme(value: unknown) {
   const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -535,6 +548,8 @@ function storefrontTheme(value: unknown) {
     textColor: color("textColor", DEFAULT_STOREFRONT_THEME.textColor),
     layout: candidate.layout === "minimal" || candidate.layout === "catalog" ? candidate.layout : DEFAULT_STOREFRONT_THEME.layout,
     announcement: typeof candidate.announcement === "string" ? candidate.announcement.slice(0, 160) : "",
+    logoUrl: imageUrl(candidate.logoUrl),
+    heroImageUrl: imageUrl(candidate.heroImageUrl),
   };
 }
 
@@ -551,6 +566,8 @@ function storefrontSections(value: unknown) {
       enabled: section.enabled !== false,
       heading: typeof section.heading === "string" ? section.heading.slice(0, 120) : "",
       body: typeof section.body === "string" ? section.body.slice(0, 500) : "",
+      imageUrl: imageUrl(section.imageUrl),
+      imageAlt: typeof section.imageAlt === "string" ? section.imageAlt.slice(0, 160) : "",
     }];
   });
 }

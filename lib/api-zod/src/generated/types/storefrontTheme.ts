@@ -17,4 +17,14 @@ export interface StorefrontTheme {
   layout: StorefrontThemeLayout;
   /** @maxLength 160 */
   announcement: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  logoUrl: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  heroImageUrl: string | null;
 }
