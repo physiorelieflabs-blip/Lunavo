@@ -761,7 +761,7 @@ async function requireTenantPermission(identity: Identity, merchantId: number, p
       return {
         merchantId,
         membershipId: "admin-preview",
-        roleKey: "master_admin",
+        roleKey: "preview",
         permissions: new Set<string>(permissionKeys),
         locationIds: null,
       } satisfies TenantAccess;
