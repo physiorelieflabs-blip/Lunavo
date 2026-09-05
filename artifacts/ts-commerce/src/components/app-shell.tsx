@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces } from '@workspace/api-client-react';
+import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getListMerchantsQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces, useListMerchants } from '@workspace/api-client-react';
 import { useClerk, useUser } from '@clerk/react';
 import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, ImagePlus, Landmark, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
@@ -41,6 +41,7 @@ const adminLinks = [
   { href: '/admin/merchants', label: 'Merchants', icon: Users },
   { href: '/admin/withdrawals', label: 'Withdrawals', icon: ShieldCheck },
 ];
+const ADMIN_EMAIL = 'ifeoluwaolowu4@gmail.com';
 
 export function AppShell({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const [location, setLocation] = useLocation();
@@ -49,8 +50,11 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
   const { signOut } = useClerk();
   const queryClient = useQueryClient();
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(() => getSelectedWorkspaceId());
-  const workspaces = useListAccessibleWorkspaces({ query: { queryKey: getListAccessibleWorkspacesQueryKey(), enabled: !admin && isLoaded && !!user, retry: false, staleTime: 60_000 } });
-  const currentWorkspace = useGetCurrentWorkspace({ query: { queryKey: getGetCurrentWorkspaceQueryKey(), enabled: !admin && isLoaded && !!user && workspaces.isFetched && (Boolean(selectedWorkspace) || workspaces.data?.length === 0), retry: false, staleTime: 60_000 } });
+  const isMasterAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified';
+  const adminMerchants = useListMerchants({ query: { queryKey: getListMerchantsQueryKey(), enabled: admin && isLoaded && !!user, retry: false, staleTime: 60_000 } });
+  const workspaces = useListAccessibleWorkspaces({ query: { queryKey: getListAccessibleWorkspacesQueryKey(), enabled: !admin && !isMasterAdmin && isLoaded && !!user, retry: false, staleTime: 60_000 } });
+  const currentWorkspace = useGetCurrentWorkspace({ query: { queryKey: getGetCurrentWorkspaceQueryKey(), enabled: !admin && isLoaded && !!user && ((isMasterAdmin && Boolean(selectedWorkspace)) || (!isMasterAdmin && workspaces.isFetched && (Boolean(selectedWorkspace) || workspaces.data?.length === 0))), retry: false, staleTime: 60_000 } });
+  const isAdminPreview = isMasterAdmin && !admin && Boolean(selectedWorkspace);
   useEffect(() => {
     if (!isLoaded) return;
     setSelectedWorkspaceId(undefined, user?.id ?? null);
@@ -59,7 +63,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     queryClient.clear();
   }, [isLoaded, user?.id, queryClient]);
   useEffect(() => {
-    if (admin || !workspaces.data?.length) return;
+    if (admin || isMasterAdmin || !workspaces.data?.length) return;
     const available = new Set(workspaces.data.map((workspace) => String(workspace.id)));
     const nextSelected = selectedWorkspace && available.has(selectedWorkspace)
       ? selectedWorkspace
@@ -69,7 +73,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
       setSelectedWorkspaceId(nextSelected);
       queryClient.clear();
     }
-  }, [admin, queryClient, selectedWorkspace, workspaces.data]);
+  }, [admin, isMasterAdmin, queryClient, selectedWorkspace, workspaces.data]);
   useEffect(() => {
     if (currentWorkspace.data?.id == null) return;
     const nextSelected = String(currentWorkspace.data.id);
@@ -88,6 +92,23 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
     setLocation('/dashboard');
   };
+  const switchToMerchant = (merchantId: number) => {
+    setSelectedWorkspace(String(merchantId));
+    setSelectedWorkspaceId(merchantId);
+    queryClient.clear();
+    setLocation('/dashboard');
+  };
+  const returnToAdmin = () => {
+    setSelectedWorkspace(null);
+    setSelectedWorkspaceId(null);
+    queryClient.clear();
+    setLocation('/admin');
+  };
+  const switchAccount = () => {
+    setSelectedWorkspaceId(null);
+    queryClient.clear();
+    void signOut({ redirectUrl: '/sign-in' });
+  };
   const switchToCustomerProfile = () => {
     window.localStorage.setItem('ts-commerce-role', 'customer');
     queryClient.clear();
@@ -102,7 +123,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     }
   };
 
-  if (!isLoaded || (!admin && !workspaces.isFetched)) {
+  if (!isLoaded || (!admin && !isMasterAdmin && !workspaces.isFetched) || (!admin && isMasterAdmin && Boolean(selectedWorkspace) && !currentWorkspace.isFetched)) {
     return <div className="min-h-[100dvh] bg-background p-6 md:pl-[312px] md:pt-10"><LoadingState label="Loading workspace" /></div>;
   }
   if (!admin && workspaces.isError) {
@@ -125,7 +146,9 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
         <div className="studio-sidebar-panel mt-12 rounded-[14px] px-4 py-3.5" data-testid="panel-workspace">
           <p className="studio-nav-label">{admin ? 'Master admin' : 'Merchant workspace'}</p>
           <p className="mt-2 truncate text-sm font-bold text-sidebar-foreground" title={displayName}>{displayName}</p>
-            {!admin && (workspaces.data?.length ?? 0) > 1 && <select aria-label="Switch workspace" value={currentWorkspace.data?.id ?? ''} onChange={(event) => switchWorkspace(Number(event.target.value))} className="mt-3 w-full rounded-lg bg-sidebar px-2 py-1.5 text-xs font-bold text-sidebar-foreground ring-1 ring-sidebar-border"><option value="" disabled>Choose workspace</option>{workspaces.data?.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.storeName}</option>)}</select>}
+            {admin && <select aria-label="Switch merchant account" defaultValue="" onChange={(event) => switchToMerchant(Number(event.target.value))} className="mt-3 w-full rounded-lg bg-sidebar px-2 py-1.5 text-xs font-bold text-sidebar-foreground ring-1 ring-sidebar-border"><option value="">Switch merchant account</option>{adminMerchants.data?.filter((merchant) => merchant.email.toLowerCase() !== ADMIN_EMAIL).map((merchant) => <option key={merchant.id} value={merchant.id}>{merchant.storeName} · {merchant.email}</option>)}</select>}
+            {!admin && !isMasterAdmin && (workspaces.data?.length ?? 0) > 1 && <select aria-label="Switch workspace" value={currentWorkspace.data?.id ?? ''} onChange={(event) => switchWorkspace(Number(event.target.value))} className="mt-3 w-full rounded-lg bg-sidebar px-2 py-1.5 text-xs font-bold text-sidebar-foreground ring-1 ring-sidebar-border"><option value="" disabled>Choose workspace</option>{workspaces.data?.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.storeName}</option>)}</select>}
+            {isAdminPreview && <p className="mt-3 text-[10px] font-bold uppercase tracking-[.1em] text-[#f0c57a]">Admin preview</p>}
            <div className="mt-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.1em] text-[#8cc1a8]"><span className="h-1.5 w-1.5 rounded-full bg-[#8cc1a8]" />Live workspace</div>
         </div>
         <nav className="nav-scrollbar mt-8 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1" aria-label="Main navigation">
@@ -135,8 +158,10 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
              return <Link href={href} key={href} onClick={() => setOpen(false)} data-active={active} className={`studio-sidebar-link group relative flex items-center gap-3 rounded-[10px] px-3 py-3 text-[13px] font-bold`} data-testid={`link-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon className="h-[17px] w-[17px]" /><span className="flex-1">{label}</span>{active && <ChevronRight className="h-4 w-4" />}</Link>;
           })}
         </nav>
-         <div className="mt-auto space-y-1 border-t border-sidebar-border pt-4">
+          <div className="mt-auto space-y-1 border-t border-sidebar-border pt-4">
+            {isAdminPreview && <button className="studio-sidebar-link flex w-full items-center gap-3 rounded-[10px] px-3 py-3 text-left text-[13px] font-bold" onClick={returnToAdmin} data-testid="button-return-to-admin"><ArrowLeft className="h-[17px] w-[17px]" />Return to admin</button>}
            <Link href="/" className="studio-sidebar-link flex items-center gap-3 rounded-[10px] px-3 py-3 text-[13px] font-bold" data-testid="link-home"><Building2 className="h-[17px] w-[17px]" />Public site</Link>
+            <button className="studio-sidebar-link flex w-full items-center gap-3 rounded-[10px] px-3 py-3 text-left text-[13px] font-bold" onClick={switchAccount} data-testid="button-switch-account"><Users className="h-[17px] w-[17px]" />Switch account</button>
            <button className="studio-sidebar-link flex w-full items-center gap-3 rounded-[10px] px-3 py-3 text-left text-[13px] font-bold" onClick={() => signOut({ redirectUrl: '/' })} data-testid="button-sign-out"><LogOut className="h-[17px] w-[17px]" />Sign out</button>
         </div>
       </aside>

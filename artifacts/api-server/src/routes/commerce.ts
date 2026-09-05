@@ -331,7 +331,7 @@ import {
   validateTsPayReplay,
   validateTsPayTransfer,
 } from "../lib/ts-pay-ledger";
-import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, TenantAuthorizationError, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
+import { ensureTenantOwnerMembership, getTenantAccess, permissionKeys, requireLocationScope, requirePermission, TenantAuthorizationError, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
 import {
   importPublicSupplierProduct,
   SUPPORTED_SUPPLIER_CURRENCIES,
@@ -749,9 +749,23 @@ async function requireAdmin(req: Request, res: Response) {
   return identity;
 }
 
+function isAdminPreviewRequest(identity: Identity) {
+  return identity.isAdmin && workspaceContext.getStore()?.requestedMerchantId != null;
+}
+
 /** Converts durable authorization failures into an API 403, not an Express 500. */
 async function requireTenantPermission(identity: Identity, merchantId: number, permission: Parameters<typeof requirePermission>[2], res: Response) {
   try {
+    const context = workspaceContext.getStore();
+    if (identity.isAdmin && context?.requestedMerchantId === merchantId) {
+      return {
+        merchantId,
+        membershipId: "admin-preview",
+        roleKey: "master_admin",
+        permissions: new Set<string>(permissionKeys),
+        locationIds: null,
+      } satisfies TenantAccess;
+    }
     return await requirePermission(identity.clerkUserId, merchantId, permission);
   } catch (error) {
     if (error instanceof TenantAuthorizationError) {
@@ -787,21 +801,30 @@ async function resolveOrderLocation(
 }
 
 async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
-  if (identity.isAdmin) {
-    throw new CommerceAuthorizationError("Master admin accounts cannot use merchant workspaces");
-  }
   const context = workspaceContext.getStore();
   const requestedMerchantId = context?.requestedMerchantId ?? null;
+  const isAdminPreview = identity.isAdmin && requestedMerchantId !== null;
+  if (identity.isAdmin && !isAdminPreview) {
+    throw new CommerceAuthorizationError("Master admin accounts cannot use merchant workspaces");
+  }
   const memberships = await db.select({ merchantId: merchantMembershipsTable.merchantId })
     .from(merchantMembershipsTable)
     .where(and(eq(merchantMembershipsTable.clerkUserId, identity.clerkUserId), eq(merchantMembershipsTable.status, "active")));
   const selectedMerchantId = requestedMerchantId ?? (memberships.length === 1 ? memberships[0]!.merchantId : null);
   if (requestedMerchantId && !memberships.some((membership) => membership.merchantId === requestedMerchantId)) {
-    throw new CommerceAuthorizationError("Selected workspace is not an active membership");
+    if (!isAdminPreview) {
+      throw new CommerceAuthorizationError("Selected workspace is not an active membership");
+    }
   }
   if (selectedMerchantId) {
     const selected = (await db.select().from(merchantsTable).where(eq(merchantsTable.id, selectedMerchantId)).limit(1))[0];
     if (!selected) throw new CommerceAuthorizationError("Selected workspace no longer exists");
+    if (isAdminPreview) {
+      if (!context?.requiredPermission && !context?.explicitAuthorization) {
+        throw new CommerceAuthorizationError("This merchant route has no authorization policy");
+      }
+      return selected;
+    }
     const access = await getTenantAccess(identity.clerkUserId, selected.id);
     if (!access) throw new CommerceAuthorizationError("Active workspace membership required");
     if (context?.requiredPermission && !access.permissions.has(context.requiredPermission)) {
@@ -2878,10 +2901,11 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   const currentSubscription = await getSubscriptionForMerchant(
     merchant,
-    identity.isAdmin,
+    identity.isAdmin && !isAdminPreviewRequest(identity),
   );
   const shouldReprice =
     !identity.isAdmin &&
+    !isAdminPreviewRequest(identity) &&
     currentSubscription.currency !== currency &&
     toNumber(currentSubscription.amountPaid) === 0 &&
     toNumber(currentSubscription.earningsHeld) === 0;
@@ -3228,11 +3252,11 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
   const subscription = serializeSubscription(
     enforced.merchant,
     enforced.subscription,
-    identity.isAdmin,
+    identity.isAdmin && !isAdminPreviewRequest(identity),
   );
   const now = new Date();
   const currentPeriodStart = new Date(now.getTime() - 7 * 86400000);
@@ -6434,7 +6458,7 @@ router.post("/orders", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   const access = await requireTenantPermission(identity, merchant.id, "orders.manage", res); if (!access) return;
   const location = await resolveOrderLocation(merchant.id, access, (parsed.data as { locationId?: string }).locationId);
-  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
   if (enforced.merchant.status === "suspended" || enforced.merchant.status === "banned") {
     res.status(403).json({ error: "New orders are paused for this account" });
     return;
@@ -8884,13 +8908,13 @@ router.get("/subscription", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
   res.json(
     GetSubscriptionResponse.parse(
       serializeSubscription(
         enforced.merchant,
         enforced.subscription,
-        identity.isAdmin,
+        identity.isAdmin && !isAdminPreviewRequest(identity),
       ),
     ),
   );
@@ -8905,16 +8929,16 @@ router.post("/subscription", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  if (identity.isAdmin) {
+  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
     const subscription = await getSubscriptionForMerchant(
       merchant,
-      identity.isAdmin,
+      identity.isAdmin && !isAdminPreviewRequest(identity),
     );
     res
       .status(201)
       .json(
         CreateSubscriptionResponse.parse(
-          serializeSubscription(merchant, subscription, identity.isAdmin),
+          serializeSubscription(merchant, subscription, identity.isAdmin && !isAdminPreviewRequest(identity)),
         ),
       );
     return;
@@ -8938,7 +8962,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
   }
   const subscription = await getSubscriptionForMerchant(
     merchant,
-    identity.isAdmin,
+    identity.isAdmin && !isAdminPreviewRequest(identity),
   );
   const [updated] = await db
     .update(subscriptionsTable)
@@ -8957,7 +8981,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
 router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  if (identity.isAdmin) {
+  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
@@ -8981,7 +9005,7 @@ router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
 router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  if (identity.isAdmin) {
+  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
@@ -8995,7 +9019,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Banned accounts cannot submit subscription payments" });
     return;
   }
-  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
   const amount = Number(parsed.data.amount.toFixed(2));
   if (!Number.isFinite(amount) || amount <= 0) {
     res.status(400).json({ error: "Enter a valid payment amount" });
@@ -9142,7 +9166,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
 router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  if (identity.isAdmin) {
+  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
@@ -9155,7 +9179,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
     res.status(403).json({ error: "Banned accounts cannot submit subscription payments" });
     return;
   }
-  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
   const outstanding = Number(Math.max(
     0,
     toNumber(enforced.subscription.amountDue) - toNumber(enforced.subscription.amountPaid),
@@ -9233,7 +9257,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
 router.post("/subscription/flutterwave-verify", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  if (identity.isAdmin) {
+  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
@@ -9245,7 +9269,7 @@ router.post("/subscription/flutterwave-verify", async (req, res): Promise<void> 
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const enforced = await enforceSubscription(merchant, identity.isAdmin);
+  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
   try {
     const transaction = await verifyFlutterwaveTransaction(transactionId);
     const providerStatus = flutterwaveStatus(transaction);
