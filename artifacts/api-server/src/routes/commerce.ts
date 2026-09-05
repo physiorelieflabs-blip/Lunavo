@@ -3814,9 +3814,12 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
     res.status(201).json({ asset: publicMediaRecord(asset), model: generated.model });
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
-    const message = error instanceof Error && error.message === "OPENAI_API_KEY is not configured"
+    const providerMessage = error instanceof Error ? error.message : "";
+    const message = providerMessage === "OPENAI_API_KEY is not configured"
       ? "The AI image provider is not configured on the server."
-      : "The image could not be generated right now. Try a more specific prompt.";
+      : /no credits|insufficient_quota|quota exceeded/i.test(providerMessage)
+        ? "OpenAI image generation is unavailable because the configured API account has no remaining credits. Update OPENAI_API_KEY in Replit Secrets with a key that has image-generation access."
+        : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
 });

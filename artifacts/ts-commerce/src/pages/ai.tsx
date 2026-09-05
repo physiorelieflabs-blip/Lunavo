@@ -363,8 +363,10 @@ export default function AiControlRoom() {
       });
       setGeneratedImage(result);
       setMessage('Image generated and saved to your public media library.');
-    } catch {
-      setMessage('The image could not be generated right now. Try a more specific prompt.');
+    } catch (error) {
+      setMessage(error instanceof Error && error.message && !error.message.includes('Failed to fetch')
+        ? error.message
+        : 'The image could not be generated right now. Try a more specific prompt.');
     } finally {
       setImagePending(false);
     }
