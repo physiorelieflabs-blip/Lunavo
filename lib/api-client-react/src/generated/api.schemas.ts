@@ -678,6 +678,15 @@ export interface ActivityItem {
   tone: string;
 }
 
+export type CustomerRecordSpendByCurrencyItem = {
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+  totalSpent: number;
+};
+
 export interface CustomerRecord {
   id: number;
   name: string;
@@ -696,7 +705,18 @@ export interface CustomerRecord {
   /** @nullable */
   consentCapturedAt: string | null;
   orderCount: number;
-  totalSpent: number;
+  /**
+     * Only populated when all paid and fulfilled spend is in one currency.
+     * @nullable
+     */
+  totalSpent: number | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     * @nullable
+     */
+  totalSpentCurrency: string | null;
+  spendByCurrency: CustomerRecordSpendByCurrencyItem[];
   createdAt: string;
 }
 

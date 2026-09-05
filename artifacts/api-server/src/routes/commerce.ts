@@ -334,6 +334,7 @@ import {
 import { ensureTenantOwnerMembership, getTenantAccess, requireLocationScope, requirePermission, TenantAuthorizationError, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
 import {
   importPublicSupplierProduct,
+  SUPPORTED_SUPPLIER_CURRENCIES,
   type ImportedSupplierProduct,
 } from "../lib/public-supplier";
 import { canonicalInvoiceLine, canonicalMoneyMinor, invoiceStatusForDueDate } from "../lib/invoice-logic";
@@ -1417,6 +1418,44 @@ type ImportedProductOptions = {
   duplicateAction?: string;
 };
 
+const MAX_SUPPLIER_PRICE = 100_000_000;
+
+function validateSupplierCurrency(value: string): string {
+  const currency = value.trim().toUpperCase();
+  if (!SUPPORTED_SUPPLIER_CURRENCIES.includes(currency as (typeof SUPPORTED_SUPPLIER_CURRENCIES)[number])) {
+    throw new Error(`Supplier product currency is not supported (${SUPPORTED_SUPPLIER_CURRENCIES.join(", ")})`);
+  }
+  return currency;
+}
+
+function validateSupplierPrice(value: string | number | null, label: string): number | null {
+  if (value === null) return null;
+  const amount = typeof value === "number" ? value : Number(value);
+  if (
+    !Number.isFinite(amount) ||
+    amount < 0 ||
+    amount > MAX_SUPPLIER_PRICE ||
+    Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-8
+  ) {
+    throw new Error(`${label} must be a finite non-negative amount with at most two decimal places`);
+  }
+  return Number(amount.toFixed(2));
+}
+
+function validateSupplierImportSnapshot(imported: ImportedSupplierProduct): void {
+  validateSupplierCurrency(imported.currency);
+  validateSupplierPrice(imported.price, "Supplier price");
+  validateSupplierPrice(imported.salePrice, "Supplier sale price");
+  if (
+    imported.availabilityQuantity !== null &&
+    (!Number.isInteger(imported.availabilityQuantity) ||
+      imported.availabilityQuantity < 0 ||
+      imported.availabilityQuantity > MAX_SUPPLIER_PRICE)
+  ) {
+    throw new Error("Supplier availability quantity is outside the supported range");
+  }
+}
+
 function normalizedSupplierUrl(sourceUrl: string, supplierUrl?: string | null): {
   url: string;
   domain: string;
@@ -1472,18 +1511,26 @@ function importedProductValues(
   options: ImportedProductOptions,
   supplierId: number,
 ) {
+  validateSupplierImportSnapshot(imported);
   const cost = options.costPrice === undefined ? imported.price : options.costPrice;
+  const costAmount = validateSupplierPrice(cost, "Supplier cost price");
+  const salePriceAmount = validateSupplierPrice(
+    options.salePrice === undefined ? imported.salePrice : options.salePrice,
+    "Supplier sale price",
+  );
+  const sellingPriceAmount = validateSupplierPrice(options.sellingPrice ?? null, "Selling price");
+  const currency = validateSupplierCurrency(options.currency ?? imported.currency);
   const profitType = options.profitType ?? "fixed";
   const profitValue = options.profitValue ?? 0;
   const pricingMode =
     options.pricingMode ??
     (profitType === "percentage" ? "percentage_markup" : "fixed_markup");
   const sellingPrice = calculateSellingPrice(
-    cost,
+    costAmount,
     profitType,
     profitValue,
     pricingMode,
-    options.sellingPrice,
+    sellingPriceAmount,
   );
   const visibility = options.visibility ?? "active";
   return {
@@ -1497,14 +1544,9 @@ function importedProductValues(
     imageUrl: options.imageUrl === undefined ? imported.imageUrl : options.imageUrl,
     imageUrls: options.imageUrls ?? imported.imageUrls,
     videoUrls: imported.videoUrls,
-    price: cost === null ? null : Number(cost).toFixed(2),
-    salePrice:
-      options.salePrice === undefined
-        ? imported.salePrice
-        : options.salePrice === null
-          ? null
-          : Number(options.salePrice).toFixed(2),
-    currency: (options.currency ?? imported.currency).toUpperCase(),
+    price: costAmount === null ? null : costAmount.toFixed(2),
+    salePrice: salePriceAmount === null ? null : salePriceAmount.toFixed(2),
+    currency,
     sku: options.sku === undefined ? imported.sku : options.sku,
     variants: options.variants ?? imported.variants,
     attributes: options.attributes ?? imported.attributes,
@@ -1956,7 +1998,7 @@ async function verifyPublicFlutterwaveOrder(
               eq(inventoryReservationsTable.status, "reserved"),
             ),
           );
-        throw new Error("Inventory reservation has expired");
+        return { expired: true as const };
       }
       if (reservation.status === "reserved" && reservation.expiresAt > new Date()) {
         await tx
@@ -2124,6 +2166,9 @@ async function verifyPublicFlutterwaveOrder(
     });
     return updatedOrder;
   });
+  if ("expired" in settled) {
+    throw new Error("Inventory reservation has expired");
+  }
   return {
     order: settled,
     status: "paid" as const,
@@ -5581,6 +5626,7 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
   }
   try {
     const imported = await importPublicSupplierProduct(product.sourceUrl);
+    validateSupplierImportSnapshot(imported);
     const accepted = new Set(parsed.data.fields);
     const updates: Record<string, unknown> = {
       importStatus: "imported",
@@ -5592,12 +5638,15 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
       description: imported.description,
       imageUrl: imported.imageUrl,
       imageUrls: imported.imageUrls,
-      price: imported.price === null ? null : Number(imported.price).toFixed(2),
-      salePrice:
-        imported.salePrice === null
-          ? null
-          : Number(imported.salePrice).toFixed(2),
-      currency: imported.currency,
+       price: (() => {
+         const value = validateSupplierPrice(imported.price, "Supplier price");
+         return value === null ? null : value.toFixed(2);
+       })(),
+       salePrice: (() => {
+         const value = validateSupplierPrice(imported.salePrice, "Supplier sale price");
+         return value === null ? null : value.toFixed(2);
+       })(),
+       currency: validateSupplierCurrency(imported.currency),
       sku: imported.sku,
       sourceProductId: imported.sourceProductId,
       variants: imported.variants,
@@ -5722,6 +5771,23 @@ function minorFromDecimal(value: string | number | null | undefined) {
   return Math.round(toNumber(value) * 100);
 }
 
+function summarizeCustomerSpend(orders: Array<typeof ordersTable.$inferSelect>) {
+  const totals = new Map<string, number>();
+  for (const order of orders) {
+    if (!["paid", "fulfilled"].includes(order.status)) continue;
+    const currency = order.currency.trim().toUpperCase();
+    totals.set(currency, (totals.get(currency) ?? 0) + toNumber(order.total));
+  }
+  const spendByCurrency = [...totals.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, totalSpent]) => ({ currency, totalSpent }));
+  return {
+    totalSpent: spendByCurrency.length === 1 ? spendByCurrency[0]!.totalSpent : null,
+    totalSpentCurrency: spendByCurrency.length === 1 ? spendByCurrency[0]!.currency : null,
+    spendByCurrency,
+  };
+}
+
 function contextImpact(
   currency: string | null,
   orderTotalMinor: number,
@@ -5759,20 +5825,28 @@ router.get("/customers", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
-  const customers = await db
+  const rows = await db
     .select({
       customer: customersTable,
-      orderCount: sql<string>`count(${ordersTable.id}) filter (where ${ordersTable.status} <> 'cancelled')`,
-      totalSpent: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${inArray(ordersTable.status, ["paid", "fulfilled"])}), 0)`,
+      order: ordersTable,
     })
     .from(customersTable)
     .leftJoin(ordersTable, eq(ordersTable.customerId, customersTable.id))
     .where(eq(customersTable.merchantId, merchant.id))
-    .groupBy(customersTable.id)
-    .orderBy(desc(customersTable.createdAt));
+    .orderBy(desc(customersTable.createdAt), desc(ordersTable.createdAt));
+  const grouped = new Map<number, { customer: typeof customersTable.$inferSelect; orders: Array<typeof ordersTable.$inferSelect> }>();
+  for (const row of rows) {
+    const existing = grouped.get(row.customer.id);
+    if (existing) {
+      if (row.order) existing.orders.push(row.order);
+    } else {
+      grouped.set(row.customer.id, { customer: row.customer, orders: row.order ? [row.order] : [] });
+    }
+  }
   res.json(
     ListCustomersResponse.parse(
-      customers.map(({ customer, orderCount, totalSpent }) => ({
+      [...grouped.values()].map(({ customer, orders }) => ({
+        ...summarizeCustomerSpend(orders),
         id: customer.id,
         name: customer.name,
         email: customer.email,
@@ -5781,8 +5855,7 @@ router.get("/customers", async (req, res): Promise<void> => {
         tags: Array.isArray(customer.tags) ? customer.tags : [],
         marketingConsent: customer.marketingConsent,
         consentCapturedAt: customer.consentCapturedAt,
-        orderCount: Number(orderCount),
-        totalSpent: toNumber(totalSpent),
+        orderCount: orders.filter((order) => order.status !== "cancelled").length,
         createdAt: customer.createdAt,
       })),
     ),
@@ -5872,11 +5945,12 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
     description: `Notes, tags, or consent updated for ${updated.name}.`,
     tone: "neutral",
   });
-  const [{ orderCount, totalSpent }] = await db.select({
-    orderCount: sql<string>`count(${ordersTable.id}) filter (where ${ordersTable.status} <> 'cancelled')`,
-    totalSpent: sql<string>`coalesce(sum(${ordersTable.total}) filter (where ${inArray(ordersTable.status, ["paid", "fulfilled"])}), 0)`,
-  }).from(ordersTable).where(eq(ordersTable.customerId, updated.id));
+  const customerOrders = await db
+    .select()
+    .from(ordersTable)
+    .where(and(eq(ordersTable.customerId, updated.id), eq(ordersTable.merchantId, merchant.id)));
   res.json(UpdateCustomerResponse.parse({
+    ...summarizeCustomerSpend(customerOrders),
     id: updated.id,
     name: updated.name,
     email: updated.email,
@@ -5885,8 +5959,7 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
     tags: Array.isArray(updated.tags) ? updated.tags : [],
     marketingConsent: updated.marketingConsent,
     consentCapturedAt: updated.consentCapturedAt,
-    orderCount: Number(orderCount),
-    totalSpent: toNumber(totalSpent),
+    orderCount: customerOrders.filter((order) => order.status !== "cancelled").length,
     createdAt: updated.createdAt,
   }));
 });

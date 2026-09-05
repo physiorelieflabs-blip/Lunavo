@@ -901,6 +901,12 @@ export const listCustomersResponseTagsItemMax = 40;
 
 export const listCustomersResponseTagsMax = 20;
 
+export const listCustomersResponseTotalSpentCurrencyMin = 3;
+export const listCustomersResponseTotalSpentCurrencyMax = 3;
+
+export const listCustomersResponseSpendByCurrencyItemCurrencyMin = 3;
+export const listCustomersResponseSpendByCurrencyItemCurrencyMax = 3;
+
 
 
 export const ListCustomersResponseItem = zod.object({
@@ -913,7 +919,12 @@ export const ListCustomersResponseItem = zod.object({
   "marketingConsent": zod.boolean(),
   "consentCapturedAt": zod.coerce.date().nullable(),
   "orderCount": zod.int(),
-  "totalSpent": zod.number(),
+  "totalSpent": zod.number().nullable().describe('Only populated when all paid and fulfilled spend is in one currency.'),
+  "totalSpentCurrency": zod.string().min(listCustomersResponseTotalSpentCurrencyMin).max(listCustomersResponseTotalSpentCurrencyMax).nullable(),
+  "spendByCurrency": zod.array(zod.object({
+  "currency": zod.string().min(listCustomersResponseSpendByCurrencyItemCurrencyMin).max(listCustomersResponseSpendByCurrencyItemCurrencyMax),
+  "totalSpent": zod.number()
+})),
   "createdAt": zod.coerce.date()
 })
 export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
@@ -944,6 +955,12 @@ export const updateCustomerResponseTagsItemMax = 40;
 
 export const updateCustomerResponseTagsMax = 20;
 
+export const updateCustomerResponseTotalSpentCurrencyMin = 3;
+export const updateCustomerResponseTotalSpentCurrencyMax = 3;
+
+export const updateCustomerResponseSpendByCurrencyItemCurrencyMin = 3;
+export const updateCustomerResponseSpendByCurrencyItemCurrencyMax = 3;
+
 
 
 export const UpdateCustomerResponse = zod.object({
@@ -956,7 +973,12 @@ export const UpdateCustomerResponse = zod.object({
   "marketingConsent": zod.boolean(),
   "consentCapturedAt": zod.coerce.date().nullable(),
   "orderCount": zod.int(),
-  "totalSpent": zod.number(),
+  "totalSpent": zod.number().nullable().describe('Only populated when all paid and fulfilled spend is in one currency.'),
+  "totalSpentCurrency": zod.string().min(updateCustomerResponseTotalSpentCurrencyMin).max(updateCustomerResponseTotalSpentCurrencyMax).nullable(),
+  "spendByCurrency": zod.array(zod.object({
+  "currency": zod.string().min(updateCustomerResponseSpendByCurrencyItemCurrencyMin).max(updateCustomerResponseSpendByCurrencyItemCurrencyMax),
+  "totalSpent": zod.number()
+})),
   "createdAt": zod.coerce.date()
 })
 

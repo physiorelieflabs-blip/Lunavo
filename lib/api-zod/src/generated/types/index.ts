@@ -59,6 +59,7 @@ export * from './currencySettings';
 export * from './currencySettingsInput';
 export * from './customerContext';
 export * from './customerRecord';
+export * from './customerRecordSpendByCurrencyItem';
 export * from './customerUpdate';
 export * from './dashboardOverview';
 export * from './dashboardOverviewStoreAddress';

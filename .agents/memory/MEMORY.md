@@ -23,3 +23,4 @@
 - [Media persistence boundary](media-persistence-boundary.md) — picture uploads need durable tenant ownership and byte validation; use App Storage when provisioned, never browser-only files.
 - [Supplier versus customer pricing](supplier-customer-pricing.md) — supplier source prices are costs; only merchant selling prices may be exposed or charged to shoppers.
 - [Consumer guide boundary](consumer-guide-boundary.md) — shopper AI may use public storefront context and answer freely, but never mutate orders, payments, stock, or merchant data.
+- [Supplier ingestion boundary](supplier-ingestion-boundary.md) — public supplier fetches must pin validated public DNS addresses and reject unsupported or unsafe financial data.

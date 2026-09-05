@@ -1,10 +1,25 @@
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 
 const MAX_HTML_BYTES = 1_000_000;
+const MAX_IMPORTED_NUMBER = 100_000_000;
+const DNS_LOOKUP_TIMEOUT_MS = 3_000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MIN_HOST_REQUEST_GAP_MS = 250;
+export const SUPPORTED_SUPPLIER_CURRENCIES = [
+  "USD",
+  "NGN",
+  "GHS",
+  "KES",
+  "ZAR",
+  "GBP",
+  "EUR",
+  "CAD",
+  "AUD",
+] as const;
 const pageCache = new Map<string, { expiresAt: number; value: { url: URL; html: string } }>();
 const inFlightPages = new Map<string, Promise<{ url: URL; html: string }>>();
 const lastHostRequest = new Map<string, number>();
@@ -46,6 +61,9 @@ function blockedAddress(address: string): boolean {
     );
   }
   const normalized = address.toLowerCase();
+  if (normalized.startsWith("::ffff:")) {
+    return blockedAddress(normalized.slice("::ffff:".length));
+  }
   return (
     normalized === "::1" ||
     normalized.startsWith("fc") ||
@@ -54,7 +72,25 @@ function blockedAddress(address: string): boolean {
   );
 }
 
-async function assertPublicUrl(value: string): Promise<URL> {
+async function resolvePublicAddress(hostname: string): Promise<string> {
+  const resolution = isIP(hostname)
+    ? Promise.resolve([hostname])
+    : lookup(hostname, { all: true, verbatim: true }).then((entries) =>
+        entries.map((entry) => entry.address),
+      );
+  const addresses = await Promise.race([
+    resolution,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS),
+    ),
+  ]);
+  if (!addresses.length || addresses.some(blockedAddress)) {
+    throw new Error("Private and internal supplier addresses are not allowed");
+  }
+  return addresses[0]!;
+}
+
+async function assertPublicUrl(value: string): Promise<{ url: URL; address: string }> {
   let url: URL;
   try {
     url = new URL(value);
@@ -73,50 +109,65 @@ async function assertPublicUrl(value: string): Promise<URL> {
   ) {
     throw new Error("Private and internal supplier addresses are not allowed");
   }
-  const addresses = isIP(hostname)
-    ? [hostname]
-    : (await lookup(hostname, { all: true, verbatim: true })).map(
-        (entry) => entry.address,
-      );
-  if (!addresses.length || addresses.some(blockedAddress)) {
-    throw new Error("Private and internal supplier addresses are not allowed");
-  }
-  return url;
+  return { url, address: await resolvePublicAddress(hostname) };
 }
 
-async function readLimitedBody(response: Response): Promise<string> {
-  if (response.body === null) return "";
-  const reader = response.body.getReader();
+function headerValue(headers: Record<string, string | string[] | undefined>, key: string): string | null {
+  const value = headers[key.toLowerCase()];
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+async function requestPinnedPage(
+  url: URL,
+  address: string,
+): Promise<{ statusCode: number; location: string | null; contentType: string; html: string }> {
+  return new Promise((resolve, reject) => {
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)({
+      hostname: address,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      servername: isIP(url.hostname) ? undefined : url.hostname,
+      rejectUnauthorized: true,
+      headers: {
+        accept: "text/html,application/xhtml+xml",
+        host: url.host,
+        "user-agent": "TS-Commerce-Product-Importer/1.0",
+      },
+      timeout: 8_000,
+    }, (response) => {
   const chunks: Uint8Array[] = [];
   let size = 0;
-  while (true) {
-    const next = await reader.read();
-    if (next.done) break;
-    size += next.value.byteLength;
-    if (size > MAX_HTML_BYTES) {
-      await reader.cancel();
-      throw new Error("Supplier page is too large to import safely");
-    }
-    chunks.push(next.value);
-  }
-  return new TextDecoder().decode(
-    chunks.reduce((all, chunk) => {
-      const combined = new Uint8Array(all.length + chunk.length);
-      combined.set(all);
-      combined.set(chunk, all.length);
-      return combined;
-    }, new Uint8Array()),
-  );
+      response.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_HTML_BYTES) {
+          request.destroy(new Error("Supplier page is too large to import safely"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on("end", () => resolve({
+        statusCode: response.statusCode ?? 0,
+        location: headerValue(response.headers, "location"),
+        contentType: headerValue(response.headers, "content-type") ?? "",
+        html: Buffer.concat(chunks).toString("utf8"),
+      }));
+      response.on("error", reject);
+    });
+    request.on("timeout", () => request.destroy(new Error("Supplier page request timed out")));
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 async function fetchPublicPage(initialUrl: string): Promise<{ url: URL; html: string }> {
-  let url = await assertPublicUrl(initialUrl);
+  const resolved = await assertPublicUrl(initialUrl);
+  let url = resolved.url;
   const cacheKey = url.toString();
   const cached = pageCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const pending = inFlightPages.get(cacheKey);
   if (pending) return pending;
-  const request = fetchPublicPageUncached(url);
+  const request = fetchPublicPageUncached(url, resolved.address);
   inFlightPages.set(cacheKey, request);
   try {
     const value = await request;
@@ -127,37 +178,33 @@ async function fetchPublicPage(initialUrl: string): Promise<{ url: URL; html: st
   }
 }
 
-async function fetchPublicPageUncached(initialUrl: URL): Promise<{ url: URL; html: string }> {
+async function fetchPublicPageUncached(initialUrl: URL, initialAddress: string): Promise<{ url: URL; html: string }> {
   let url = initialUrl;
+  let address = initialAddress;
   for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
     const previousRequest = lastHostRequest.get(url.hostname) ?? 0;
     const waitMs = MIN_HOST_REQUEST_GAP_MS - (Date.now() - previousRequest);
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
     lastHostRequest.set(url.hostname, Date.now());
-    const response = await fetch(url, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-        "user-agent": "TS-Commerce-Product-Importer/1.0",
-      },
-      redirect: "manual",
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
+    const response = await requestPinnedPage(url, address);
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      const location = response.location;
       if (!location || attempt === MAX_REDIRECTS) {
         throw new Error("Supplier page redirected too many times");
       }
-      url = await assertPublicUrl(new URL(location, url).toString());
+      const next = await assertPublicUrl(new URL(location, url).toString());
+      url = next.url;
+      address = next.address;
       continue;
     }
-    if (!response.ok) {
-      throw new Error(`Supplier page could not be read (HTTP ${response.status})`);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`Supplier page could not be read (HTTP ${response.statusCode})`);
     }
-    const contentType = response.headers.get("content-type") ?? "";
+    const contentType = response.contentType;
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
       throw new Error("Supplier link must point to a public HTML product page");
     }
-    return { url, html: await readLimitedBody(response) };
+    return { url, html: response.html };
   }
   throw new Error("Supplier page could not be read");
 }
@@ -220,11 +267,21 @@ function textValue(value: unknown): string | null {
 }
 
 function numberValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_IMPORTED_NUMBER) return value;
   if (typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value.trim())) {
-    return Number(value);
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= MAX_IMPORTED_NUMBER ? parsed : null;
   }
   return null;
+}
+
+function moneyValue(value: unknown): string | null {
+  const raw = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= MAX_IMPORTED_NUMBER
+    ? parsed.toFixed(2)
+    : null;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {
@@ -304,22 +361,23 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
     textValue(offer.lowPrice) ??
     meta(html, "product:price:amount") ??
     meta(html, "og:price:amount");
-  const parsedPrice = rawPrice && /^\d+(?:\.\d{1,2})?$/.test(rawPrice) ? Number(rawPrice).toFixed(2) : null;
+  const parsedPrice = moneyValue(rawPrice);
   const rawSalePrice =
     meta(html, "product:sale_price:amount") ??
     textValue(offer.salePrice) ??
     (textValue(offer.lowPrice) && textValue(offer.price) !== textValue(offer.lowPrice)
       ? textValue(offer.lowPrice)
       : null);
-  const parsedSalePrice =
-    rawSalePrice && /^\d+(?:\.\d{1,2})?$/.test(rawSalePrice)
-      ? Number(rawSalePrice).toFixed(2)
-      : null;
+  const parsedSalePrice = moneyValue(rawSalePrice);
   const currency =
     textValue(offer.priceCurrency) ??
     meta(html, "product:price:currency") ??
     meta(html, "og:price:currency") ??
     "USD";
+  const normalizedCurrency = currency.trim().toUpperCase();
+  if (!SUPPORTED_SUPPLIER_CURRENCIES.includes(normalizedCurrency as (typeof SUPPORTED_SUPPLIER_CURRENCIES)[number])) {
+    throw new Error(`Supplier product currency is not supported (${SUPPORTED_SUPPLIER_CURRENCIES.join(", ")})`);
+  }
   const imageUrls = [
     ...stringList(product?.image),
     ...stringList(product?.associatedMedia),
@@ -373,7 +431,7 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
     videoUrls,
     price: parsedPrice,
     salePrice: parsedSalePrice,
-    currency: currency.toUpperCase().slice(0, 3),
+    currency: normalizedCurrency,
     sku,
     sourceProductId,
     variants,

@@ -5,6 +5,7 @@
  * TS Commerce Plattform merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { CustomerRecordSpendByCurrencyItem } from './customerRecordSpendByCurrencyItem';
 
 export interface CustomerRecord {
   id: number;
@@ -24,6 +25,17 @@ export interface CustomerRecord {
   /** @nullable */
   consentCapturedAt: Date | null;
   orderCount: number;
-  totalSpent: number;
+  /**
+     * Only populated when all paid and fulfilled spend is in one currency.
+     * @nullable
+     */
+  totalSpent: number | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     * @nullable
+     */
+  totalSpentCurrency: string | null;
+  spendByCurrency: CustomerRecordSpendByCurrencyItem[];
   createdAt: Date;
 }
