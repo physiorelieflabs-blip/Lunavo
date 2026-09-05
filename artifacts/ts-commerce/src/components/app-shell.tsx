@@ -103,59 +103,59 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
   };
 
   if (!isLoaded || (!admin && !workspaces.isFetched)) {
-    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><LoadingState label="Loading workspace" /></div>;
+    return <div className="min-h-[100dvh] bg-background p-6 md:pl-[312px] md:pt-10"><LoadingState label="Loading workspace" /></div>;
   }
   if (!admin && workspaces.isError) {
-    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><ErrorState onRetry={() => { void workspaces.refetch(); }} /></div>;
+    return <div className="min-h-[100dvh] bg-background p-6 md:pl-[312px] md:pt-10"><ErrorState onRetry={() => { void workspaces.refetch(); }} /></div>;
   }
   if (!admin && currentWorkspace.isError) {
-    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><ErrorState onRetry={() => { void currentWorkspace.refetch(); }} /></div>;
+    return <div className="min-h-[100dvh] bg-background p-6 md:pl-[312px] md:pt-10"><ErrorState onRetry={() => { void currentWorkspace.refetch(); }} /></div>;
   }
   if (!admin && (!currentWorkspace.isFetched || !currentWorkspace.data)) {
-    return <div className="min-h-[100dvh] bg-[#f1eee7] p-6 md:pl-[312px] md:pt-10"><LoadingState label="Opening workspace" /></div>;
+    return <div className="min-h-[100dvh] bg-background p-6 md:pl-[312px] md:pt-10"><LoadingState label="Opening workspace" /></div>;
   }
 
   return (
-    <div className="noise min-h-[100dvh] bg-[#f1eee7] text-[#182333]">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col bg-[#1f2b38] px-5 py-6 text-[#f8f3e8] shadow-[16px_0_40px_rgba(24,35,51,.12)] transition-transform duration-300 md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+    <div className="noise min-h-[100dvh] bg-background text-foreground">
+      <aside className={`studio-sidebar fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col px-5 py-6 text-sidebar-foreground shadow-[16px_0_40px_rgba(24,35,51,.12)] transition-transform duration-300 md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center justify-between px-1">
           <Logo inverse />
-          <button className="grid h-9 w-9 place-items-center rounded-lg text-[#9aa7b5] hover:bg-[#2b3a4e] hover:text-[#f8f3e8] md:hidden" onClick={() => setOpen(false)} aria-label="Close navigation" data-testid="button-close-menu"><X className="h-5 w-5" /></button>
+          <button className="grid h-9 w-9 place-items-center rounded-lg text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setOpen(false)} aria-label="Close navigation" data-testid="button-close-menu"><X className="h-5 w-5" /></button>
         </div>
-        <div className="mt-12 rounded-[14px] border border-[#3c4b5a] bg-[#263644] px-4 py-3.5" data-testid="panel-workspace">
-          <p className="font-mono text-[9px] uppercase tracking-[.18em] text-[#9aa7b5]">{admin ? 'Master admin' : 'Merchant workspace'}</p>
-          <p className="mt-2 truncate text-sm font-bold text-[#ece3cf]" title={displayName}>{displayName}</p>
-           {!admin && (workspaces.data?.length ?? 0) > 1 && <select aria-label="Switch workspace" value={currentWorkspace.data?.id ?? ''} onChange={(event) => switchWorkspace(Number(event.target.value))} className="mt-3 w-full rounded bg-[#1f2b38] px-2 py-1.5 text-xs font-bold text-[#ece3cf] ring-1 ring-[#536174]"><option value="" disabled>Choose workspace</option>{workspaces.data?.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.storeName}</option>)}</select>}
-          <div className="mt-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.1em] text-[#7cae98]"><span className="h-1.5 w-1.5 rounded-full bg-[#7cae98]" />Live workspace</div>
+        <div className="studio-sidebar-panel mt-12 rounded-[14px] px-4 py-3.5" data-testid="panel-workspace">
+          <p className="studio-nav-label">{admin ? 'Master admin' : 'Merchant workspace'}</p>
+          <p className="mt-2 truncate text-sm font-bold text-sidebar-foreground" title={displayName}>{displayName}</p>
+            {!admin && (workspaces.data?.length ?? 0) > 1 && <select aria-label="Switch workspace" value={currentWorkspace.data?.id ?? ''} onChange={(event) => switchWorkspace(Number(event.target.value))} className="mt-3 w-full rounded-lg bg-sidebar px-2 py-1.5 text-xs font-bold text-sidebar-foreground ring-1 ring-sidebar-border"><option value="" disabled>Choose workspace</option>{workspaces.data?.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.storeName}</option>)}</select>}
+           <div className="mt-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.1em] text-[#8cc1a8]"><span className="h-1.5 w-1.5 rounded-full bg-[#8cc1a8]" />Live workspace</div>
         </div>
         <nav className="nav-scrollbar mt-8 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1" aria-label="Main navigation">
-          <p className="mb-3 px-3 font-mono text-[9px] uppercase tracking-[.18em] text-[#718095]">Navigate</p>
+           <p className="studio-nav-label mb-3 px-3">Navigate</p>
           {links.map(({ href, label, icon: Icon }) => {
             const active = location === href;
-            return <Link href={href} key={href} onClick={() => setOpen(false)} className={`group relative flex items-center gap-3 rounded-[10px] px-3 py-3 text-[13px] font-bold ${active ? 'bg-[#c85d3f] text-[#fff6ed] shadow-[0_8px_18px_rgba(200,93,63,.2)]' : 'text-[#aab6c2] hover:bg-[#304151] hover:text-[#f8f3e8]'}`} data-testid={`link-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon className="h-[17px] w-[17px]" /><span className="flex-1">{label}</span>{active && <ChevronRight className="h-4 w-4" />}</Link>;
+             return <Link href={href} key={href} onClick={() => setOpen(false)} data-active={active} className={`studio-sidebar-link group relative flex items-center gap-3 rounded-[10px] px-3 py-3 text-[13px] font-bold`} data-testid={`link-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon className="h-[17px] w-[17px]" /><span className="flex-1">{label}</span>{active && <ChevronRight className="h-4 w-4" />}</Link>;
           })}
         </nav>
-        <div className="mt-auto space-y-1 border-t border-[#3c4b5a] pt-4">
-          <Link href="/" className="flex items-center gap-3 rounded-[10px] px-3 py-3 text-[13px] font-bold text-[#aab6c2] hover:bg-[#304151] hover:text-[#f8f3e8]" data-testid="link-home"><Building2 className="h-[17px] w-[17px]" />Public site</Link>
-          <button className="flex w-full items-center gap-3 rounded-[10px] px-3 py-3 text-left text-[13px] font-bold text-[#aab6c2] hover:bg-[#304151] hover:text-[#f8f3e8]" onClick={() => signOut({ redirectUrl: '/' })} data-testid="button-sign-out"><LogOut className="h-[17px] w-[17px]" />Sign out</button>
+         <div className="mt-auto space-y-1 border-t border-sidebar-border pt-4">
+           <Link href="/" className="studio-sidebar-link flex items-center gap-3 rounded-[10px] px-3 py-3 text-[13px] font-bold" data-testid="link-home"><Building2 className="h-[17px] w-[17px]" />Public site</Link>
+           <button className="studio-sidebar-link flex w-full items-center gap-3 rounded-[10px] px-3 py-3 text-left text-[13px] font-bold" onClick={() => signOut({ redirectUrl: '/' })} data-testid="button-sign-out"><LogOut className="h-[17px] w-[17px]" />Sign out</button>
         </div>
       </aside>
       {open && <button className="fixed inset-0 z-30 bg-[#182333]/55 backdrop-blur-sm md:hidden" onClick={() => setOpen(false)} aria-label="Close navigation" data-testid="button-overlay" />}
-      <main className="min-h-[100dvh] md:pl-[272px]">
-        <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-[#ddd7cb] bg-[#f1eee7]/95 px-5 backdrop-blur-xl md:px-10">
+       <main className="min-h-[100dvh] md:pl-[272px]">
+         <header className="studio-header sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-border px-5 md:px-10">
           <div className="flex items-center gap-3">
-            <button className="grid h-10 w-10 place-items-center rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] hover:bg-[#e7e2d8] md:hidden" onClick={() => setOpen(true)} aria-label="Open navigation" data-testid="button-open-menu"><Menu className="h-5 w-5" /></button>
+             <button className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card hover:bg-muted md:hidden" onClick={() => setOpen(true)} aria-label="Open navigation" data-testid="button-open-menu"><Menu className="h-5 w-5" /></button>
             <div className="hidden items-center gap-3 md:flex">
-              <button type="button" onClick={goBack} className="inline-flex items-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-3 py-2 text-xs font-extrabold text-[#536174] transition hover:border-[#bca26a] hover:text-[#182333]" data-testid="button-back"><ArrowLeft className="h-4 w-4" />Back</button>
-              <div className="flex items-center gap-2 text-xs text-[#697687]"><span className="h-2 w-2 rounded-full bg-[#c85d3f] shadow-[0_0_0_4px_rgba(200,93,63,.12)]" />Authenticated workspace <span className="mx-1 text-[#b7ad9d]">/</span> {activeLabel}</div>
+               <button type="button" onClick={goBack} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-extrabold text-muted-foreground transition hover:border-accent hover:text-foreground" data-testid="button-back"><ArrowLeft className="h-4 w-4" />Back</button>
+               <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_0_4px_hsl(var(--accent)/.12)]" />Authenticated workspace <span className="mx-1 text-muted-foreground/50">/</span> {activeLabel}</div>
             </div>
-            <button type="button" onClick={goBack} className="grid h-10 w-10 place-items-center rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] hover:bg-[#e7e2d8] md:hidden" aria-label="Back" data-testid="button-back-mobile"><ArrowLeft className="h-5 w-5" /></button>
-            <p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#697687] md:hidden">{activeLabel}</p>
+             <button type="button" onClick={goBack} className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card hover:bg-muted md:hidden" aria-label="Back" data-testid="button-back-mobile"><ArrowLeft className="h-5 w-5" /></button>
+             <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted-foreground md:hidden">{activeLabel}</p>
           </div>
           <div className="flex items-center gap-3">
-            {!admin && <button type="button" onClick={switchToCustomerProfile} className="inline-flex rounded-lg border border-[#d9d2c4] bg-[#fbfaf6] px-2 py-2 text-xs font-extrabold text-[#536174] transition hover:border-[#bca26a] hover:text-[#182333] sm:px-3" data-testid="button-switch-customer-profile"><ShoppingCart className="h-3.5 w-3.5 sm:mr-2" /><span className="hidden sm:inline">Customer profile</span></button>}
-            <div className="hidden border-l border-[#d9d2c4] pl-4 text-right sm:block"><p className="text-xs font-extrabold">{user?.firstName || 'Merchant'}</p><p className="mt-0.5 text-[10px] text-[#697687]">{admin ? 'Administrator' : 'Store operator'}</p></div>
-            <div className="grid h-10 w-10 place-items-center rounded-full border-2 border-[#fbfaf6] bg-[#d8e1e3] font-mono text-xs font-bold text-[#315e6c] shadow-[0_0_0_1px_#c4d0d1]" data-testid="text-user-avatar">{initials(user?.fullName || user?.primaryEmailAddress?.emailAddress)}</div>
+             {!admin && <button type="button" onClick={switchToCustomerProfile} className="inline-flex rounded-lg border border-border bg-card px-2 py-2 text-xs font-extrabold text-muted-foreground transition hover:border-accent hover:text-foreground sm:px-3" data-testid="button-switch-customer-profile"><ShoppingCart className="h-3.5 w-3.5 sm:mr-2" /><span className="hidden sm:inline">Customer profile</span></button>}
+             <div className="hidden border-l border-border pl-4 text-right sm:block"><p className="text-xs font-extrabold">{user?.firstName || 'Merchant'}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{admin ? 'Administrator' : 'Store operator'}</p></div>
+             <div className="studio-avatar grid h-10 w-10 place-items-center rounded-full border-2 border-card font-mono text-xs font-bold" data-testid="text-user-avatar">{initials(user?.fullName || user?.primaryEmailAddress?.emailAddress)}</div>
           </div>
         </header>
         <div className="page-enter px-5 py-8 md:px-10 md:py-10">{children}</div>
@@ -169,5 +169,5 @@ export function PublicHeader() {
   const chooseMerchantProfile = () => {
     window.localStorage.setItem('ts-commerce-role', 'merchant');
   };
-  return <header className="flex items-center justify-between px-5 py-5 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/general-store" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/dashboard" onClick={chooseMerchantProfile} className="rounded-lg px-3 py-2 text-sm font-extrabold text-[#536174] hover:bg-[#e7e2d8]" data-testid="link-merchant-workspace">Merchant workspace</Link><Link href="/sign-in" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-[#536174] hover:bg-[#e7e2d8] sm:inline-flex" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-xl bg-[#c85d3f] px-4 py-2.5 text-sm font-extrabold text-[#fffaf3] shadow-[0_8px_18px_rgba(200,93,63,.2)] transition hover:-translate-y-0.5 hover:bg-[#b84f36]" data-testid="link-sign-up">Open an account</Link></div></header>;
+  return <header className="studio-header sticky top-0 z-30 flex items-center justify-between border-b border-border px-5 py-4 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/general-store" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/dashboard" onClick={chooseMerchantProfile} className="rounded-lg px-3 py-2 text-sm font-extrabold text-muted-foreground hover:bg-muted" data-testid="link-merchant-workspace">Merchant workspace</Link><Link href="/sign-in" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted sm:inline-flex" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-[11px] bg-accent px-4 py-2.5 text-sm font-extrabold text-accent-foreground shadow-[0_8px_18px_hsl(var(--accent)/.2)] transition hover:-translate-y-0.5 hover:bg-[hsl(14_63%_47%)]" data-testid="link-sign-up">Open an account</Link></div></header>;
 }

@@ -76,16 +76,16 @@ function AuthRoleChooser() {
     window.localStorage.setItem('ts-commerce-role', value);
     setRole(value);
   };
-  return <div className="mb-5 w-full max-w-[440px] rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-4 shadow-[0_10px_25px_rgba(31,39,48,.04)]"><p className="text-center text-[10px] font-extrabold uppercase tracking-[.14em] text-[#a2772e]">Optional sign-in path</p><p className="mt-1 text-center text-sm font-bold text-[#182333]">What are you here to do?</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => choose('merchant')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'merchant' ? 'border-[#c85d3f] bg-[#fae8df]' : 'border-[#d9d2c4] bg-[#f7f4ed] hover:border-[#c85d3f]'}`}><span className="block font-extrabold">Run a store</span><span className="mt-1 block text-xs text-[#697687]">Merchant workspace</span></button><button type="button" onClick={() => choose('customer')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'customer' ? 'border-[#c85d3f] bg-[#fae8df]' : 'border-[#d9d2c4] bg-[#f7f4ed] hover:border-[#c85d3f]'}`}><span className="block font-extrabold">Shop & bid</span><span className="mt-1 block text-xs text-[#697687]">Customer experience</span></button></div><p className="mt-3 text-center text-[11px] text-[#697687]">Optional — skip this and we’ll keep the standard merchant path.</p></div>;
+  return <div className="studio-card mb-5 w-full max-w-[440px] rounded-[17px] p-4"><p className="studio-kicker text-center">Optional sign-in path</p><p className="mt-1 text-center text-sm font-bold text-foreground">What are you here to do?</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => choose('merchant')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'merchant' ? 'border-accent bg-[hsl(var(--accent)/.1)]' : 'border-border bg-muted hover:border-accent'}`}><span className="block font-extrabold">Run a store</span><span className="mt-1 block text-xs text-muted-foreground">Merchant workspace</span></button><button type="button" onClick={() => choose('customer')} className={`rounded-xl border px-3 py-3 text-left text-sm transition ${role === 'customer' ? 'border-accent bg-[hsl(var(--accent)/.1)]' : 'border-border bg-muted hover:border-accent'}`}><span className="block font-extrabold">Shop & bid</span><span className="mt-1 block text-xs text-muted-foreground">Customer experience</span></button></div><p className="mt-3 text-center text-[11px] text-muted-foreground">Optional — skip this and we’ll keep the standard merchant path.</p></div>;
 }
 
 function AuthPageFrame({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
-  return <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-[#f5f1e8] px-4 py-8">
+  return <div className="noise flex min-h-[100dvh] flex-col items-center justify-center bg-background px-4 py-8">
     <div className="mb-7 text-center">
       <Link href="/" className="inline-flex" data-testid="link-auth-logo">
         <span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span>
       </Link>
-      <p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p>
+       <p className="studio-kicker mt-3 text-center">A clearer way to run your commerce</p>
     </div>
     {children}
     {footer}

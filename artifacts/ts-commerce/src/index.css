@@ -433,77 +433,77 @@
   }
 }
 
-/* TS Commerce visual system: ink, paper, and a single oxide signal. */
+/* TS Commerce visual system: quiet editorial operations studio. */
 :root {
-  --background: 39 33% 94%;
-  --foreground: 216 28% 17%;
-  --border: 39 18% 82%;
-  --input: 39 18% 82%;
-  --ring: 12 60% 52%;
-  --card: 40 40% 98%;
-  --card-foreground: 216 28% 17%;
-  --card-border: 39 18% 82%;
-  --popover: 40 40% 98%;
-  --popover-foreground: 216 28% 17%;
-  --popover-border: 39 18% 82%;
-  --primary: 216 28% 17%;
-  --primary-foreground: 40 40% 98%;
-  --secondary: 194 20% 88%;
-  --secondary-foreground: 216 28% 17%;
-  --muted: 39 19% 89%;
-  --muted-foreground: 215 13% 43%;
-  --accent: 12 60% 52%;
-  --accent-foreground: 40 40% 98%;
+  --background: 38 27% 93%;
+  --foreground: 207 25% 18%;
+  --border: 38 17% 80%;
+  --input: 38 17% 80%;
+  --ring: 14 63% 53%;
+  --card: 42 35% 97%;
+  --card-foreground: 207 25% 18%;
+  --card-border: 38 17% 80%;
+  --popover: 42 35% 97%;
+  --popover-foreground: 207 25% 18%;
+  --popover-border: 38 17% 80%;
+  --primary: 207 25% 18%;
+  --primary-foreground: 42 35% 97%;
+  --secondary: 192 20% 87%;
+  --secondary-foreground: 207 25% 18%;
+  --muted: 38 18% 88%;
+  --muted-foreground: 207 12% 43%;
+  --accent: 14 63% 53%;
+  --accent-foreground: 42 35% 97%;
   --destructive: 4 58% 47%;
-  --destructive-foreground: 40 40% 98%;
-  --chart-1: 12 60% 52%;
-  --chart-2: 166 30% 38%;
-  --chart-3: 216 28% 17%;
-  --chart-4: 31 56% 52%;
+  --destructive-foreground: 42 35% 97%;
+  --chart-1: 14 63% 53%;
+  --chart-2: 164 28% 38%;
+  --chart-3: 207 25% 18%;
+  --chart-4: 31 54% 51%;
   --chart-5: 4 58% 47%;
-  --sidebar: 216 28% 17%;
-  --sidebar-foreground: 39 33% 94%;
-  --sidebar-border: 216 20% 26%;
-  --sidebar-primary: 12 60% 52%;
-  --sidebar-primary-foreground: 40 40% 98%;
-  --sidebar-accent: 216 22% 24%;
-  --sidebar-accent-foreground: 39 33% 94%;
-  --sidebar-ring: 12 60% 52%;
+  --sidebar: 207 25% 18%;
+  --sidebar-foreground: 38 27% 93%;
+  --sidebar-border: 207 17% 28%;
+  --sidebar-primary: 14 63% 53%;
+  --sidebar-primary-foreground: 42 35% 97%;
+  --sidebar-accent: 207 21% 25%;
+  --sidebar-accent-foreground: 38 27% 93%;
+  --sidebar-ring: 14 63% 53%;
   --app-font-sans: 'Manrope', sans-serif;
   --app-font-mono: 'DM Mono', monospace;
   --radius: 0.625rem;
 }
 
 .dark {
-  --background: 216 25% 11%;
-  --foreground: 39 33% 94%;
-  --border: 216 18% 24%;
-  --input: 216 18% 24%;
-  --ring: 12 60% 57%;
-  --card: 216 24% 15%;
-  --card-foreground: 39 33% 94%;
-  --card-border: 216 18% 24%;
-  --popover: 216 24% 15%;
-  --popover-foreground: 39 33% 94%;
-  --popover-border: 216 18% 24%;
-  --primary: 12 60% 57%;
-  --primary-foreground: 216 28% 17%;
-  --secondary: 216 19% 22%;
-  --secondary-foreground: 39 33% 94%;
-  --muted: 216 19% 22%;
-  --muted-foreground: 215 14% 68%;
-  --accent: 12 60% 57%;
-  --accent-foreground: 216 28% 17%;
+  --background: 207 24% 11%;
+  --foreground: 38 27% 93%;
+  --border: 207 17% 25%;
+  --input: 207 17% 25%;
+  --ring: 14 63% 57%;
+  --card: 207 22% 15%;
+  --card-foreground: 38 27% 93%;
+  --card-border: 207 17% 25%;
+  --popover: 207 22% 15%;
+  --popover-foreground: 38 27% 93%;
+  --popover-border: 207 17% 25%;
+  --primary: 14 63% 57%;
+  --primary-foreground: 207 25% 18%;
+  --secondary: 207 18% 22%;
+  --secondary-foreground: 38 27% 93%;
+  --muted: 207 18% 22%;
+  --muted-foreground: 207 14% 68%;
+  --accent: 14 63% 57%;
+  --accent-foreground: 207 25% 18%;
   --destructive: 4 58% 54%;
   --destructive-foreground: 39 33% 94%;
-  --sidebar: 216 30% 9%;
-  --sidebar-foreground: 39 33% 94%;
-  --sidebar-border: 216 19% 21%;
-  --sidebar-primary: 12 60% 57%;
-  --sidebar-primary-foreground: 216 28% 17%;
-  --sidebar-accent: 216 23% 16%;
-  --sidebar-accent-foreground: 39 33% 94%;
-  --sidebar-ring: 12 60% 57%;
+  --sidebar: 207 28% 9%;
+  --sidebar-foreground: 38 27% 93%;
+  --sidebar-border: 207 17% 22%;
+  --sidebar-primary: 14 63% 57%;
+  --sidebar-primary-foreground: 207 25% 18%;
+  --sidebar-accent: 207 21% 16%;
+  --sidebar-accent-foreground: 38 27% 93%;
+  --sidebar-ring: 14 63% 57%;
 }
 
 /* The app uses a crafted palette in component classes. These small bridges
@@ -531,8 +531,8 @@
 .dark [class~="bg-[#182333]"] { background-color: #0e161d; }
 .dark .noise::after { opacity: .02; background-image: radial-gradient(rgba(248,243,232,.32) .6px, transparent .6px); }
 
-html { background: hsl(var(--background)); }
-body { min-width: 320px; font-feature-settings: "cv11", "ss01"; }
+html { background: hsl(var(--background)); scroll-behavior: smooth; }
+body { min-width: 320px; font-feature-settings: "cv11", "ss01"; letter-spacing: -0.01em; }
 button, a, input, select, textarea { transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease; }
 button:active:not(:disabled) { transform: translateY(1px); }
 .font-mono { font-family: var(--app-font-mono); }
@@ -558,6 +558,19 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .signal-text { color: hsl(var(--accent)); }
 .signal-fill { background-color: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
 .control-ring:focus-visible { outline: 2px solid hsl(var(--accent)); outline-offset: 3px; }
+.studio-header { background: color-mix(in srgb, hsl(var(--background)) 88%, transparent); backdrop-filter: blur(18px); }
+.studio-card { border: 1px solid hsl(var(--border)); background: hsl(var(--card)); box-shadow: 0 18px 42px rgba(32, 43, 50, .055); }
+.studio-card:hover { border-color: hsl(var(--accent) / .42); }
+.studio-kicker { color: hsl(var(--accent)); font-family: var(--app-font-mono); font-size: 10px; font-weight: 500; letter-spacing: .17em; text-transform: uppercase; }
+.studio-display { font-family: var(--app-font-serif); font-weight: 400; letter-spacing: -.055em; }
+.studio-display em { color: hsl(var(--accent)); font-style: italic; }
+.studio-nav-label { color: hsl(var(--sidebar-foreground) / .48); font-family: var(--app-font-mono); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; }
+.studio-sidebar { background: linear-gradient(160deg, hsl(var(--sidebar)) 0%, hsl(207 25% 15%) 100%); }
+.studio-sidebar-panel { background: hsl(var(--sidebar-accent) / .78); border: 1px solid hsl(var(--sidebar-border)); }
+.studio-sidebar-link { color: hsl(var(--sidebar-foreground) / .7); }
+.studio-sidebar-link:hover { background: hsl(var(--sidebar-accent)); color: hsl(var(--sidebar-foreground)); }
+.studio-sidebar-link[data-active="true"] { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); box-shadow: 0 10px 22px hsl(var(--accent) / .16); }
+.studio-avatar { background: hsl(192 25% 86%); color: hsl(192 38% 31%); box-shadow: 0 0 0 1px hsl(192 18% 75%); }
 .nav-scrollbar { scrollbar-width: thin; scrollbar-color: hsl(var(--sidebar-border)) transparent; }
 .nav-scrollbar::-webkit-scrollbar { width: 5px; }
 .nav-scrollbar::-webkit-scrollbar-thumb { background: hsl(var(--sidebar-border)); border-radius: 10px; }

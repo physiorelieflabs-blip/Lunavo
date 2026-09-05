@@ -2,16 +2,16 @@ import { type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { ArrowUpRight, Check, CircleAlert, CircleCheck, LoaderCircle, RefreshCw } from 'lucide-react';
 
 export function Logo({ inverse = false }: { inverse?: boolean }) {
-  return <span className="inline-flex items-center gap-3" data-testid="brand-logo"><span className="relative grid h-8 w-8 place-items-center rounded-[9px] bg-[#c85d3f] shadow-[0_5px_14px_rgba(200,93,63,.2)]"><span className="absolute h-4 w-[2px] rotate-45 bg-[#f8f3e8]" /><span className="absolute h-4 w-[2px] -rotate-45 bg-[#f8f3e8]" /><span className="absolute h-[2px] w-4 bg-[#f8f3e8]" /></span><span className={`font-mono text-[12px] font-medium leading-4 tracking-[.02em] ${inverse ? 'text-[#f8f3e8]' : 'text-[#182333]'}`}>TS COMMERCE<br />PLATTFORM</span></span>;
+  return <span className="inline-flex items-center gap-3" data-testid="brand-logo"><span className="relative grid h-9 w-9 place-items-center rounded-[11px] bg-accent shadow-[0_7px_17px_hsl(var(--accent)/.23)]"><span className="absolute h-4 w-[2px] rotate-45 bg-[#f8f3e8]" /><span className="absolute h-4 w-[2px] -rotate-45 bg-[#f8f3e8]" /><span className="absolute h-[2px] w-4 bg-[#f8f3e8]" /></span><span className={`font-mono text-[11px] font-medium leading-4 tracking-[.07em] ${inverse ? 'text-sidebar-foreground' : 'text-foreground'}`}>TS COMMERCE<br />PLATTFORM</span></span>;
 }
 
 export function Button({ children, variant = 'primary', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }) {
-  const styles = { primary: 'bg-[#c85d3f] text-[#fffaf3] shadow-[0_8px_20px_rgba(200,93,63,.2)] hover:-translate-y-0.5 hover:bg-[#b84f36] active:translate-y-0', secondary: 'border border-[#d5cdbd] bg-[#fcfaf5] text-[#1f2b38] hover:-translate-y-0.5 hover:border-[#c85d3f] hover:bg-[#fae8df]', ghost: 'text-[#536174] hover:bg-[#ebe5db] hover:text-[#1f2b38]', danger: 'border border-[#e2b9b3] bg-[#fff8f5] text-[#a33e38] hover:bg-[#fbedeb]' };
-  return <button {...props} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-extrabold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 ${styles[variant]} ${className}`}>{children}</button>;
+  const styles = { primary: 'bg-accent text-accent-foreground shadow-[0_8px_20px_hsl(var(--accent)/.2)] hover:-translate-y-0.5 hover:bg-[hsl(14_63%_47%)] active:translate-y-0', secondary: 'border border-border bg-card text-foreground hover:-translate-y-0.5 hover:border-accent hover:bg-[hsl(var(--accent)/.08)]', ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground', danger: 'border border-[#e2b9b3] bg-[#fff8f5] text-[#a33e38] hover:bg-[#fbedeb]' };
+  return <button {...props} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-[11px] px-4 text-sm font-extrabold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 ${styles[variant]} ${className}`}>{children}</button>;
 }
 
 export function IconButton({ children, label, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return <button {...props} aria-label={label} title={label} className={`grid h-9 w-9 place-items-center rounded-xl text-[#536174] transition hover:-translate-y-0.5 hover:bg-[#fae8df] hover:text-[#c85d3f] ${className}`}>{children}</button>;
+  return <button {...props} aria-label={label} title={label} className={`grid h-9 w-9 place-items-center rounded-[11px] text-muted-foreground transition hover:-translate-y-0.5 hover:bg-[hsl(var(--accent)/.1)] hover:text-accent ${className}`}>{children}</button>;
 }
 
 export function Badge({ children, tone = 'neutral', className = '' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'brass' | 'info'; className?: string }) {
@@ -20,11 +20,11 @@ export function Badge({ children, tone = 'neutral', className = '' }: { children
 }
 
 export function MetricCard({ label, value, detail, icon, accent = false }: { label: string; value: string; detail?: ReactNode; icon?: ReactNode; accent?: boolean }) {
-  return <section className={`group rounded-[15px] border p-5 shadow-[0_10px_24px_rgba(31,39,48,.045)] transition-transform duration-300 hover:-translate-y-0.5 ${accent ? 'border-[#d88c75] bg-[#fae8df]' : 'border-[#d5cdbd] bg-[#fcfaf5]'}`} data-testid={`metric-${label.toLowerCase().replaceAll(' ', '-')}`}><div className="flex items-start justify-between gap-3"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-[#697687]">{label}</p><span className="text-[#c85d3f]">{icon}</span></div><p className="mt-4 font-mono text-[clamp(1.65rem,3vw,2.3rem)] tracking-[-.08em] text-[#1f2b38]" data-testid={`value-${label.toLowerCase().replaceAll(' ', '-')}`}>{value}</p>{detail && <div className="mt-2 text-xs text-[#697687]">{detail}</div>}</section>;
+  return <section className={`group rounded-[17px] border p-5 shadow-[0_12px_28px_rgba(31,39,48,.045)] transition-transform duration-300 hover:-translate-y-0.5 ${accent ? 'border-[hsl(var(--accent)/.42)] bg-[hsl(var(--accent)/.1)]' : 'border-border bg-card'}`} data-testid={`metric-${label.toLowerCase().replaceAll(' ', '-')}`}><div className="flex items-start justify-between gap-3"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-muted-foreground">{label}</p><span className="text-accent">{icon}</span></div><p className="mt-4 font-mono text-[clamp(1.65rem,3vw,2.3rem)] tracking-[-.08em] text-foreground" data-testid={`value-${label.toLowerCase().replaceAll(' ', '-')}`}>{value}</p>{detail && <div className="mt-2 text-xs text-muted-foreground">{detail}</div>}</section>;
 }
 
 export function SectionHeading({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
-  return <div className="mb-5 flex items-end justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">{eyebrow}</p><h2 className="mt-1 text-xl font-extrabold tracking-[-.04em] text-[#182333]">{title}</h2>{description && <p className="mt-1 max-w-xl text-sm text-[#697687]">{description}</p>}</div>{action}</div>;
+  return <div className="mb-5 flex items-end justify-between gap-4"><div><p className="studio-kicker">{eyebrow}</p><h2 className="mt-1 text-xl font-extrabold tracking-[-.04em] text-foreground">{title}</h2>{description && <p className="mt-1 max-w-xl text-sm text-muted-foreground">{description}</p>}</div>{action}</div>;
 }
 
 export function Notice({ tone = 'warning', title, children, onDismiss }: { tone?: 'warning' | 'danger' | 'success' | 'info'; title: string; children: ReactNode; onDismiss?: () => void }) {
