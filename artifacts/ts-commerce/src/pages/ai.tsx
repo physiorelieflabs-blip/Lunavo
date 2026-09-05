@@ -401,7 +401,7 @@ export default function AiControlRoom() {
 
        <section className="mt-8 rounded-xl border border-[#526b8a] bg-[#eef3f8] p-6 md:p-7">
          <div className="flex flex-wrap items-start justify-between gap-5">
-           <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#315e6c]">Provider-backed copilot</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Ask about the whole business.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[#536174]">OpenAI reads a fresh, tenant-scoped snapshot of your commerce evidence for each question. It can explain what is happening and prepare next steps, but it cannot publish, message customers, change permissions, move money, approve payouts, or change stock.</p></div>
+          <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#315e6c]">Gemini-backed copilot</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Ask about the whole business.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[#536174]">Gemini reads a fresh, tenant-scoped snapshot of your commerce evidence for each question. It can explain what is happening and prepare next steps, but it cannot publish, message customers, change permissions, move money, approve payouts, or change stock.</p></div>
            <BrainCircuit className="h-6 w-6 text-[#315e6c]" />
          </div>
          <div className="mt-6 flex flex-col gap-3 md:flex-row"><textarea value={copilotMessage} onChange={(event) => setCopilotMessage(event.target.value)} maxLength={2000} rows={3} placeholder="e.g. What is the safest way to improve sales this month without risking cash flow?" className="min-w-0 flex-1 rounded-lg border border-[#bfd6dc] bg-white px-4 py-3 text-sm font-bold outline-none placeholder:text-[#8997a8] focus:border-[#315e6c]" data-testid="input-ai-copilot" /><Button onClick={() => void askCopilot()} disabled={copilotPending || copilotMessage.trim().length < 3} className="h-12 shrink-0 self-start bg-[#315e6c] text-white hover:bg-[#274d59]"><Sparkles className="h-4 w-4" />{copilotPending ? 'Thinking…' : 'Ask copilot'}</Button></div>
@@ -411,7 +411,7 @@ export default function AiControlRoom() {
         <section className="mt-8 overflow-hidden rounded-xl border border-[#526b8a] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="max-w-2xl">
-              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">OpenAI image studio</p>
+              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">Gemini image studio</p>
               <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Create a storefront image.</h2>
               <p className="mt-3 text-sm leading-6 text-[#b8c2cc]">Describe a product shot, hero scene, or campaign visual. The generated PNG is saved as a public asset in your tenant-owned media library and can be reused in your storefront.</p>
             </div>
