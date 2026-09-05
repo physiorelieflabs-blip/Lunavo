@@ -111,6 +111,7 @@ import {
   GetPublicStoreParams,
   GetPublicStoreResponse,
   GetSubscriptionResponse,
+  GetSubscriptionBankDestinationResponse,
   GetWithdrawalSecurityResponse,
   ImportSupplierProductBody,
   ImportSupplierProductResponse,
@@ -8920,6 +8921,66 @@ router.get("/subscription", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/subscription/bank-destination", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const adminMerchant = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.email, ADMIN_EMAIL))
+      .limit(1)
+  )[0];
+  const currency = adminMerchant?.currency ?? "USD";
+  if (!adminMerchant) {
+    res.json(
+      GetSubscriptionBankDestinationResponse.parse({
+        configured: false,
+        beneficiaryName: null,
+        bankName: null,
+        bankCode: null,
+        accountNumber: null,
+        currency,
+      }),
+    );
+    return;
+  }
+  const account = (
+    await db
+      .select()
+      .from(merchantBankAccountsTable)
+      .where(eq(merchantBankAccountsTable.merchantId, adminMerchant.id))
+      .limit(1)
+  )[0];
+  if (!account) {
+    res.json(
+      GetSubscriptionBankDestinationResponse.parse({
+        configured: false,
+        beneficiaryName: null,
+        bankName: null,
+        bankCode: null,
+        accountNumber: null,
+        currency,
+      }),
+    );
+    return;
+  }
+  try {
+    res.json(
+      GetSubscriptionBankDestinationResponse.parse({
+        configured: true,
+        beneficiaryName: account.beneficiaryName,
+        bankName: account.bankName,
+        bankCode: account.bankCode,
+        accountNumber: decryptSecret(account.accountNumberCiphertext),
+        currency,
+      }),
+    );
+  } catch {
+    res.status(500).json({ error: "The subscription bank destination could not be read" });
+  }
+});
+
 router.post("/subscription", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -9996,6 +10057,10 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
   }
 
   try {
+    const adminLedgerMerchant =
+      body.data.status === "confirmed"
+        ? await getOrCreateAdminLedgerMerchant(identity)
+        : null;
     const reviewed = await db.transaction(async (tx) => {
       await tx.execute(
         sql`select id from ${subscriptionsTable} where ${subscriptionsTable.merchantId} = ${existing.merchant.id} for update`,
@@ -10087,6 +10152,19 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
             .update(merchantsTable)
             .set({ status: "active" })
             .where(eq(merchantsTable.id, existing.merchant.id));
+        }
+        if (adminLedgerMerchant && payment.currency === adminLedgerMerchant.currency) {
+          await tx
+            .insert(ledgerEntriesTable)
+            .values({
+              merchantId: adminLedgerMerchant.id,
+              paymentRecordId: payment.id,
+              amountMinor: Math.round(toNumber(payment.amount) * 100),
+              currency: payment.currency,
+              entryType: "subscription",
+              referenceKey: `subscription-bank:${payment.id}`,
+            })
+            .onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
         }
       }
 

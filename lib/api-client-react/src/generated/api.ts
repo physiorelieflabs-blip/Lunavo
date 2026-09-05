@@ -119,6 +119,7 @@ import type {
   Store,
   StoreInput,
   Subscription,
+  SubscriptionBankDestination,
   SubscriptionInput,
   SupplierAnalyzeInput,
   SupplierAnalyzeResponse,
@@ -6692,6 +6693,83 @@ export const useCreateSubscription = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateSubscriptionMutationOptions(options));
     }
+
+export const getGetSubscriptionBankDestinationUrl = () => {
+
+
+
+
+  return `/api/subscription/bank-destination`
+}
+
+/**
+ * @summary Get the configured admin bank destination for subscription payments
+ */
+export const getSubscriptionBankDestination = async ( options?: Parameters<typeof customFetch>[1]): Promise<SubscriptionBankDestination> => {
+
+  return customFetch<SubscriptionBankDestination>(getGetSubscriptionBankDestinationUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSubscriptionBankDestinationQueryKey = () => {
+    return [
+    `/api/subscription/bank-destination`
+    ] as const;
+    }
+
+
+export const getGetSubscriptionBankDestinationQueryOptions = <TData = Awaited<ReturnType<typeof getSubscriptionBankDestination>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionBankDestination>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSubscriptionBankDestinationQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSubscriptionBankDestination>>> = ({ signal }) => getSubscriptionBankDestination({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionBankDestination>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSubscriptionBankDestinationQueryResult = NonNullable<Awaited<ReturnType<typeof getSubscriptionBankDestination>>>
+export type GetSubscriptionBankDestinationQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the configured admin bank destination for subscription payments
+ */
+
+export function useGetSubscriptionBankDestination<TData = Awaited<ReturnType<typeof getSubscriptionBankDestination>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionBankDestination>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSubscriptionBankDestinationQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getSubmitBankTransferUrl = () => {
 

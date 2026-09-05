@@ -174,6 +174,7 @@ export * from './storeInput';
 export * from './storeInputStoreAddress';
 export * from './storeStoreAddress';
 export * from './subscription';
+export * from './subscriptionBankDestination';
 export * from './subscriptionInput';
 export * from './subscriptionInputMethod';
 export * from './supplierAnalyzeInput';

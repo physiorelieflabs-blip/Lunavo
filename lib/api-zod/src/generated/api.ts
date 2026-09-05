@@ -3561,7 +3561,23 @@ export const CreateSubscriptionResponse = zod.object({
   "serverNow": zod.coerce.date(),
   "trialEndsAt": zod.coerce.date(),
   "daysElapsed": zod.int(),
-  "daysRemaining": zod.int()
+  "daysRemaining": zod.int(),
+  "accessLocked": zod.boolean(),
+  "gracePeriodHours": zod.int(),
+  "paymentRecoveryAvailable": zod.boolean()
+})
+
+
+/**
+ * @summary Get the configured admin bank destination for subscription payments
+ */
+export const GetSubscriptionBankDestinationResponse = zod.object({
+  "configured": zod.boolean(),
+  "beneficiaryName": zod.string().nullable(),
+  "bankName": zod.string().nullable(),
+  "bankCode": zod.string().nullable(),
+  "accountNumber": zod.string().nullable(),
+  "currency": zod.string()
 })
 
 

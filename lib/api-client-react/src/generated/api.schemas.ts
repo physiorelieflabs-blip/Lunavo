@@ -1262,6 +1262,19 @@ export interface BankTransferInput {
   senderName: string;
 }
 
+export interface SubscriptionBankDestination {
+  configured: boolean;
+  /** @nullable */
+  beneficiaryName: string | null;
+  /** @nullable */
+  bankName: string | null;
+  /** @nullable */
+  bankCode: string | null;
+  /** @nullable */
+  accountNumber: string | null;
+  currency: string;
+}
+
 export type MerchantStatusInputStatus = typeof MerchantStatusInputStatus[keyof typeof MerchantStatusInputStatus];
 
 

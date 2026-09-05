@@ -1461,6 +1461,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Subscription"
+  /subscription/bank-destination:
+    get:
+      operationId: getSubscriptionBankDestination
+      tags: [billing]
+      summary: Get the configured admin bank destination for subscription payments
+      responses:
+        "200":
+          description: Admin bank destination
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionBankDestination"
   /subscription/bank-transfer:
     post:
       operationId: submitBankTransfer
@@ -2974,6 +2986,16 @@ components:
         reference: { type: string, minLength: 3 }
         senderName: { type: string, minLength: 2 }
       required: [amount, reference, senderName]
+    SubscriptionBankDestination:
+      type: object
+      properties:
+        configured: { type: boolean }
+        beneficiaryName: { type: ["string", "null"] }
+        bankName: { type: ["string", "null"] }
+        bankCode: { type: ["string", "null"] }
+        accountNumber: { type: ["string", "null"] }
+        currency: { type: string }
+      required: [configured, beneficiaryName, bankName, bankCode, accountNumber, currency]
     MerchantStatusInput:
       type: object
       properties:
