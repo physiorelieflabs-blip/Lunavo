@@ -1006,11 +1006,17 @@ async function getSubscriptionForMerchant(
       .returning();
   }
   }
+  const [subscriptionPaymentActivity] = await db
+    .select({ id: paymentsTable.id })
+    .from(paymentsTable)
+    .where(eq(paymentsTable.merchantId, merchant.id))
+    .limit(1);
   const shouldReprice =
     !isAdmin &&
     subscription.currency !== merchant.currency &&
     toNumber(subscription.amountPaid) === 0 &&
-    toNumber(subscription.earningsHeld) === 0;
+    toNumber(subscription.earningsHeld) === 0 &&
+    !subscriptionPaymentActivity;
   if (shouldReprice) {
     const quote = await getSubscriptionQuote(merchant.currency);
     [subscription] = await db
@@ -1904,6 +1910,7 @@ async function verifyPublicFlutterwaveOrder(
   )[0];
   if (!order) throw new Error("Payment session not found");
   if (order.status === "cancelled") throw new Error("This order has been cancelled");
+  if (order.status !== "pending") throw new Error("Order is not awaiting payment");
   const intent = (
     await db
       .select()
@@ -1973,7 +1980,7 @@ async function verifyPublicFlutterwaveOrder(
           )
           .limit(1)
       )[0];
-      const product = (
+         let product = (
         await tx
           .select()
           .from(supplierProductsTable)
@@ -2103,6 +2110,9 @@ async function verifyPublicFlutterwaveOrder(
       .where(eq(subscriptionsTable.merchantId, order.merchantId))
       .limit(1);
     if (subscription) {
+      if (subscription.currency !== currentIntent.currency) {
+        throw new Error("Payment currency does not match the active subscription currency");
+      }
       const outstanding = Math.max(
         0,
         toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
@@ -2877,6 +2887,18 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
           .update(tsPayAccountsTable)
           .set({ currency })
           .where(eq(tsPayAccountsTable.id, tsPayAccount.id));
+      }
+      if (quote) {
+        const [paymentActivity] = await tx
+          .select({ id: paymentsTable.id })
+          .from(paymentsTable)
+          .where(eq(paymentsTable.merchantId, merchant.id))
+          .limit(1);
+        if (paymentActivity) {
+          throw new Error(
+            "Currency change blocked: subscription payment activity already exists",
+          );
+        }
       }
       const [nextMerchant] = await tx
         .update(merchantsTable)
@@ -5290,6 +5312,9 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
   }
   const merchant = await getOrCreateMerchant(identity);
   try {
+    if (parsed.data.currency.toUpperCase() !== merchant.currency) {
+      throw new Error("Active products must use the merchant settlement currency");
+    }
     const supplierUrl = normalizedSupplierUrl(
       parsed.data.supplierUrl ?? "https://manual.local",
       parsed.data.supplierUrl,
@@ -5352,7 +5377,7 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const product = (
+         let product = (
     await db
       .select()
       .from(supplierProductsTable)
@@ -5369,7 +5394,7 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const input = parsed.data;
+   const input = parsed.data;
   const has = (key: keyof typeof input) =>
     Object.prototype.hasOwnProperty.call(input, key);
   const nextVisibility = input.visibility ?? product.visibility;
@@ -5379,6 +5404,13 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
         ? null
         : toNumber(product.sellingPrice)
       : input.sellingPrice;
+  const nextCurrency = input.currency?.toUpperCase() ?? product.currency;
+  if (nextVisibility === "active" && nextCurrency !== merchant.currency) {
+    res.status(422).json({
+      error: "Active products must use the merchant settlement currency",
+    });
+    return;
+  }
   if (nextVisibility === "active" && (!nextSellingPrice || nextSellingPrice <= 0)) {
     res.status(422).json({
       error: "An active product must have a selling price greater than zero",
@@ -5542,7 +5574,7 @@ router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> =>
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  const product = (
+         let product = (
       await db
         .select()
         .from(supplierProductsTable)
@@ -7724,13 +7756,13 @@ router.post(
            return existing;
          }
 
-        const product = (
-          await tx
-            .select()
-            .from(supplierProductsTable)
-            .where(
-              and(
-                eq(supplierProductsTable.id, parsed.data.supplierProductId),
+         let product = (
+           await tx
+             .select()
+             .from(supplierProductsTable)
+             .where(
+               and(
+                 eq(supplierProductsTable.id, parsed.data.supplierProductId),
                 eq(supplierProductsTable.merchantId, merchant.id),
                 eq(supplierProductsTable.status, "active"),
                 eq(supplierProductsTable.visibility, "active"),
@@ -7745,6 +7777,29 @@ router.post(
         await tx.execute(
           sql`select id from ${supplierProductsTable} where id=${product.id} and merchant_id=${merchant.id} for update`,
         );
+         product = (
+           await tx
+             .select()
+             .from(supplierProductsTable)
+             .where(
+               and(
+                 eq(supplierProductsTable.id, product.id),
+                 eq(supplierProductsTable.merchantId, merchant.id),
+               ),
+             )
+             .limit(1)
+         )[0];
+         if (
+           !product ||
+           product.status !== "active" ||
+           product.visibility !== "active" ||
+           product.sellingPrice === null
+         ) {
+           throw new Error("That product is no longer available");
+         }
+         if (product.currency !== merchant.currency) {
+           throw new Error("This product is not available in the store's settlement currency");
+         }
         await tx
           .update(inventoryReservationsTable)
           .set({ status: "expired", updatedAt: new Date() })
@@ -7935,12 +7990,12 @@ router.get("/public/payment-links/:token", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid payment link" });
     return;
   }
-  const link = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
-  if (!link || link.status !== "active" || (link.expiresAt !== null && link.expiresAt <= new Date())) {
+  const initialLink = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
+  if (!initialLink || initialLink.status !== "active" || (initialLink.expiresAt !== null && initialLink.expiresAt <= new Date())) {
     res.status(404).json({ error: "Payment link is unavailable" });
     return;
   }
-  res.json(GetPublicPaymentLinkResponse.parse(serializePublicPaymentLink(link)));
+  res.json(GetPublicPaymentLinkResponse.parse(serializePublicPaymentLink(initialLink)));
 });
 
 router.post("/public/payment-links/:token/checkout", async (req, res): Promise<void> => {
@@ -7950,14 +8005,36 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
     res.status(400).json({ error: "Enter valid customer and shipping details" });
     return;
   }
-  const link = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
-  if (!link || link.status !== "active" || (link.expiresAt !== null && link.expiresAt <= new Date())) {
+  const initialLink = (await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, params.data.token)).limit(1))[0];
+  if (!initialLink || initialLink.status !== "active" || (initialLink.expiresAt !== null && initialLink.expiresAt <= new Date())) {
     res.status(404).json({ error: "Payment link is unavailable" });
     return;
   }
-  const location = await resolveOrderLocation(link.merchantId, null, null, true);
+  const location = await resolveOrderLocation(initialLink.merchantId, null, null, true);
   try {
     const result = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select id from ${paymentLinksTable} where id=${initialLink.id} and merchant_id=${initialLink.merchantId} for update`,
+        );
+        const link = (
+          await tx
+            .select()
+            .from(paymentLinksTable)
+            .where(
+              and(
+                eq(paymentLinksTable.id, initialLink.id),
+                eq(paymentLinksTable.merchantId, initialLink.merchantId),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (
+          !link ||
+          link.status !== "active" ||
+          (link.expiresAt !== null && link.expiresAt <= new Date())
+        ) {
+          throw new Error("Payment link is unavailable");
+        }
        const replay = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
        if (replay) {
          if (
@@ -8049,7 +8126,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
     try {
       const payment = await ensurePublicFlutterwaveCheckout(
         result,
-        link.title,
+        initialLink.title,
         requestOrigin(req),
       );
       paymentIntentId = payment.paymentIntentId;
@@ -8066,7 +8143,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
     }
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
-      title: link.title,
+      title: initialLink.title,
       subtotal: toNumber(result.subtotal),
       tax: toNumber(result.taxAmount),
       shipping: toNumber(result.shippingAmount),
@@ -8394,8 +8471,9 @@ router.post("/public/invoices/:token/payment-reference", async (req, res): Promi
   let invoice = (await db.select().from(invoicesTable).where(eq(invoicesTable.publicToken, params.data.token)).limit(1))[0];
   if (invoice) invoice = await refreshInvoiceOverdue(invoice);
   if (!invoice || !["sent", "viewed", "partially_paid", "overdue"].includes(invoice.status)) { res.status(404).json({ error: "Invoice is not accepting payment references" }); return; }
+  const amountMinor = canonicalMoneyMinor(body.data.amount, "Payment amount");
   const outstanding = toNumber(invoice.total) - toNumber(invoice.amountPaid);
-  if (body.data.amount > outstanding) { res.status(400).json({ error: "Submitted amount exceeds the outstanding balance" }); return; }
+  if (amountMinor > Math.round(outstanding * 100)) { res.status(400).json({ error: "Submitted amount exceeds the outstanding balance" }); return; }
   try {
     const submission = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${invoicesTable} where id=${invoice.id} for update`);
@@ -8404,9 +8482,9 @@ router.post("/public/invoices/:token/payment-reference", async (req, res): Promi
         throw new Error("Invoice is not accepting payment references");
       }
       const lockedOutstanding = toNumber(lockedInvoice.total) - toNumber(lockedInvoice.amountPaid);
-      if (body.data.amount > lockedOutstanding) throw new Error("Submitted amount exceeds the outstanding balance");
+      if (amountMinor > Math.round(lockedOutstanding * 100)) throw new Error("Submitted amount exceeds the outstanding balance");
       const [created] = await tx.insert(invoicePaymentSubmissionsTable).values({
-        invoiceId: lockedInvoice.id, merchantId: lockedInvoice.merchantId, amount: body.data.amount.toFixed(2), currency: lockedInvoice.currency,
+        invoiceId: lockedInvoice.id, merchantId: lockedInvoice.merchantId, amount: (amountMinor / 100).toFixed(2), currency: lockedInvoice.currency,
         paymentReference: body.data.paymentReference.trim(), senderName: body.data.senderName?.trim() || null,
       }).returning();
       if (!created) throw new Error("Payment reference could not be saved");
@@ -8457,6 +8535,9 @@ router.post("/invoices/:id/payments/:paymentId/verify", async (req, res): Promis
       await tx.execute(sql`select id from ${subscriptionsTable} where merchant_id=${merchant.id} for update`);
       const subscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1))[0];
       if (subscription) {
+        if (subscription.currency !== current.currency) {
+          throw new Error("Payment currency does not match the active subscription currency");
+        }
         const outstanding = Math.max(0, toNumber(subscription.amountDue) - toNumber(subscription.amountPaid));
         const hold = Math.min(toNumber(payment.amount), Math.max(0, outstanding - toNumber(subscription.earningsHeld)));
         if (hold > 0) {
@@ -9859,6 +9940,9 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
       if (!subscription) throw new Error("Subscription not found");
 
       if (body.data.status === "confirmed") {
+        if (currentPayment.currency !== subscription.currency) {
+          throw new Error("Transfer currency does not match the active subscription currency");
+        }
         const outstanding = Math.max(
           0,
           toNumber(subscription.amountDue) -
@@ -10235,6 +10319,7 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
       if (!payment) throw new Error("Payment record not found");
        const order = (await tx.select().from(ordersTable).where(and(eq(ordersTable.id, current.orderId), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
        if (!order) throw new Error("Order not found");
+       if (order.status !== "pending") throw new Error("Order is not awaiting payment");
        if (order.supplierProductId) {
          await tx.execute(sql`select id from ${supplierProductsTable} where id=${order.supplierProductId} and merchant_id=${merchant.id} for update`);
          await tx.execute(sql`select id from ${inventoryReservationsTable} where order_id=${order.id} and merchant_id=${merchant.id} for update`);
@@ -10264,6 +10349,9 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
       await tx.execute(sql`select id from ${subscriptionsTable} where merchant_id=${merchant.id} for update`);
       const subscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1))[0];
       if (subscription) {
+         if (subscription.currency !== current.currency) {
+           throw new Error("Payment currency does not match the active subscription currency");
+         }
         const outstanding = Math.max(0, toNumber(subscription.amountDue) - toNumber(subscription.amountPaid));
         const availableToHold = Math.max(0, outstanding - toNumber(subscription.earningsHeld));
         const holdAmount = Math.min(Number(current.amountMinor) / 100, availableToHold);
@@ -10825,7 +10913,11 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
            providerRefundId: providerRefund?.id ?? current.providerRefundId,
            providerStatus: providerRefund?.status ?? current.providerStatus,
            providerFailureReason: null,
-       }).where(eq(refundRecordsTable.id, id)).returning();
+        }).where(and(
+          eq(refundRecordsTable.id, id),
+          inArray(refundRecordsTable.status, ["requested", "approved"]),
+        )).returning();
+       if (!updated) throw new Error("Refund changed while processing");
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: current.paymentRecordId, refundId: id, amountMinor: -current.amountMinor, currency: current.currency, entryType: "refund", referenceKey: `refund:${id}` });
       if (current.inventoryRestock && order?.supplierProductId) {
         await tx.execute(sql`select id from ${supplierProductsTable} where id=${order.supplierProductId} and merchant_id=${merchant.id} for update`);
@@ -10935,7 +11027,21 @@ router.patch("/reconciliation/:id", async (req, res): Promise<void> => {
   const body = UpdateReconciliationBody.safeParse(req.body); const id = Number(req.params.id);
   if (!body.success || !Number.isInteger(id)) { res.status(400).json({ error: "Invalid reconciliation update" }); return; }
   const merchant = await getOrCreateMerchant(identity);
-  const [record] = await db.update(reconciliationRecordsTable).set({ status: body.data.status, note: body.data.note ?? null, ...(body.data.status === "resolved" ? { resolvedBy: identity.clerkUserId, resolvedAt: new Date() } : {}) }).where(and(eq(reconciliationRecordsTable.id, id), eq(reconciliationRecordsTable.merchantId, merchant.id))).returning();
+   const record = await db.transaction(async (tx) => {
+     await tx.execute(sql`select id from ${reconciliationRecordsTable} where id=${id} and merchant_id=${merchant.id} for update`);
+     const current = (await tx.select().from(reconciliationRecordsTable).where(and(eq(reconciliationRecordsTable.id, id), eq(reconciliationRecordsTable.merchantId, merchant.id))).limit(1))[0];
+     if (!current) return null;
+     if (["resolved", "void"].includes(current.status) && body.data.status !== current.status) {
+       throw new Error("Finalized reconciliation records cannot be reopened or changed");
+     }
+     const [updated] = await tx.update(reconciliationRecordsTable).set({
+       status: body.data.status,
+       note: body.data.note ?? null,
+       resolvedBy: body.data.status === "resolved" ? identity.clerkUserId : null,
+       resolvedAt: body.data.status === "resolved" ? new Date() : null,
+     }).where(and(eq(reconciliationRecordsTable.id, id), eq(reconciliationRecordsTable.merchantId, merchant.id), eq(reconciliationRecordsTable.status, current.status))).returning();
+     return updated ?? null;
+   });
   if (!record) { res.status(404).json({ error: "Reconciliation record not found" }); return; }
   res.json(UpdateReconciliationResponse.parse(record));
 });

@@ -7,4 +7,4 @@ The merchant currency preference must never silently relabel or convert historic
 
 **Why:** Automatic conversion could misstate balances and create unsafe withdrawals; a live FX rate can also drift between invoice display and payment unless the cycle quote is persisted.
 
-**How to apply:** For new subscription cycles, persist the USD base, converted amount, currency, rate, source, and timestamp. Reprice only before payment/holds exist; if activity exists, keep the historical subscription quote even when the merchant changes their display currency.
+**How to apply:** For new subscription cycles, persist the USD base, converted amount, currency, rate, source, and timestamp. Reprice only before payment/holds exist; if activity exists, keep the historical subscription quote even when the merchant changes their display currency. Public products must also use the merchant settlement currency before they can be active.
