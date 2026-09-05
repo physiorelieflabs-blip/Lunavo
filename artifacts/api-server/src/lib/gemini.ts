@@ -5,10 +5,6 @@ type GeminiMessage = {
 
 type GeminiPart = {
   text?: string;
-  inlineData?: {
-    mimeType?: string;
-    data?: string;
-  };
 };
 
 type GeminiResponse = {
@@ -23,12 +19,11 @@ type GeminiResponse = {
 };
 
 const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
-const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-function geminiKey(secretName: "GEMINI_API_KEY" | "GEMINI_IMAGE_API_KEY" = "GEMINI_API_KEY"): string {
-  const key = process.env[secretName]?.trim();
-  if (!key) throw new Error(`${secretName} is not configured`);
+function geminiKey(): string {
+  const key = process.env.GEMINI_API_KEY?.trim();
+  if (!key) throw new Error("GEMINI_API_KEY is not configured");
   return key;
 }
 
@@ -36,9 +31,8 @@ async function generateContent(
   model: string,
   body: Record<string, unknown>,
   timeoutMs: number,
-  secretName: "GEMINI_API_KEY" | "GEMINI_IMAGE_API_KEY" = "GEMINI_API_KEY",
 ): Promise<GeminiResponse> {
-  const response = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(geminiKey(secretName))}`, {
+  const response = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(geminiKey())}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -76,30 +70,4 @@ export async function completeGeminiChat(messages: GeminiMessage[]): Promise<{
     .trim();
   if (!content) throw new Error("Gemini returned an empty response");
   return { model: GEMINI_CHAT_MODEL, content };
-}
-
-export async function generateGeminiImage(prompt: string): Promise<{
-  model: string;
-  mimeType: string;
-  data: string;
-  bytes: Buffer;
-}> {
-  const payload = await generateContent(GEMINI_IMAGE_MODEL, {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { responseModalities: ["IMAGE"] },
-  }, 120_000, "GEMINI_IMAGE_API_KEY");
-  const imagePart = payload.candidates?.[0]?.content?.parts?.find(
-    (part) => part.inlineData?.data,
-  );
-  const encoded = imagePart?.inlineData?.data;
-  const mimeType = imagePart?.inlineData?.mimeType || "image/png";
-  if (!encoded) throw new Error("Gemini returned no image data");
-  const bytes = Buffer.from(encoded, "base64");
-  if (!bytes.length) throw new Error("Gemini returned an empty image");
-  return {
-    model: GEMINI_IMAGE_MODEL,
-    mimeType,
-    data: `data:${mimeType};base64,${encoded}`,
-    bytes,
-  };
 }
