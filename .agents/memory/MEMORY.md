@@ -24,3 +24,4 @@
 - [Supplier versus customer pricing](supplier-customer-pricing.md) — supplier source prices are costs; only merchant selling prices may be exposed or charged to shoppers.
 - [Consumer guide boundary](consumer-guide-boundary.md) — shopper AI may use public storefront context and answer freely, but never mutate orders, payments, stock, or merchant data.
 - [Supplier ingestion boundary](supplier-ingestion-boundary.md) — public supplier fetches must pin validated public DNS addresses and reject unsupported or unsafe financial data.
+- [Customer bank payment destination](customer-bank-payment-destination.md) — published stores use their linked bank account for direct customer transfers; evidence stays unverified until merchant approval.

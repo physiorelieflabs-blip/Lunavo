@@ -108,8 +108,10 @@ import {
   CreateStoreBody,
   CreateStoreResponse,
   GetLinkedBankAccountResponse,
+  GetPublicStorePaymentDestinationParams,
   GetPublicStoreParams,
   GetPublicStoreResponse,
+  GetPublicStorePaymentDestinationResponse,
   GetSubscriptionResponse,
   GetSubscriptionBankDestinationResponse,
   GetWithdrawalSecurityResponse,
@@ -1376,6 +1378,7 @@ function serializeOrder(
   order: Order,
   customer: Customer,
   product?: typeof supplierProductsTable.$inferSelect | null,
+  payment?: typeof paymentIntentsTable.$inferSelect | null,
 ) {
   return {
     id: order.id,
@@ -1394,6 +1397,9 @@ function serializeOrder(
     supplierPaymentReference: order.supplierPaymentReference,
     supplierPaymentAmountMinor: order.supplierPaymentAmountMinor,
     supplierPaidAt: order.supplierPaidAt,
+    paymentIntentId: payment?.id ?? null,
+    paymentStatus: payment?.status ?? null,
+    paymentEvidenceReference: payment?.evidenceReference ?? null,
     createdAt: order.createdAt,
   };
 }
@@ -1716,10 +1722,7 @@ function serializePublicCheckoutOrder(
   order: Order,
   product: typeof supplierProductsTable.$inferSelect,
   payment?: {
-    paymentToken: string;
     paymentIntentId: number;
-    checkoutId: string | null;
-    purchaseUrl: string | null;
     status: string;
   } | null,
 ) {
@@ -1732,12 +1735,12 @@ function serializePublicCheckoutOrder(
     total: toNumber(order.total),
     currency: order.currency,
     status: "pending" as const,
-    paymentMessage: "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.",
+    paymentMessage: "Your order is reserved. Transfer the exact total to the merchant bank account shown at checkout, then submit the transfer reference and sender name for merchant verification.",
     paymentToken: order.publicPaymentToken,
     paymentIntentId: payment?.paymentIntentId ?? null,
-    paymentProvider: "flutterwave" as const,
-    paymentUrl: payment?.purchaseUrl ?? null,
-    paymentStatus: payment?.status ?? "created",
+    paymentProvider: "ts_pay" as const,
+    paymentUrl: null,
+    paymentStatus: payment?.status === "created" ? "manual" : payment?.status ?? "manual",
   };
 }
 
@@ -3111,6 +3114,21 @@ router.post("/store", async (req, res): Promise<void> => {
       if (!["http:", "https:"].includes(url.protocol)) throw new Error("invalid");
     } catch {
       res.status(400).json({ error: "Enter a valid http or https store website" });
+      return;
+    }
+  }
+  if (parsed.data.storefrontPublished === true) {
+    const paymentDestination = (
+      await db
+        .select({ id: merchantBankAccountsTable.id })
+        .from(merchantBankAccountsTable)
+        .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
+        .limit(1)
+    )[0];
+    if (!paymentDestination) {
+      res.status(409).json({
+        error: "Configure a merchant bank account before publishing your storefront",
+      });
       return;
     }
   }
@@ -6130,10 +6148,27 @@ router.get("/orders", async (req, res): Promise<void> => {
     .where(and(eq(ordersTable.merchantId, merchant.id), access.locationIds ? inArray(ordersTable.locationId, [...access.locationIds]) : undefined))
     .orderBy(desc(ordersTable.createdAt))
     .limit(100);
+  const orderIds = orders.map(({ order }) => order.id);
+  const paymentIntents = orderIds.length
+    ? await db
+        .select()
+        .from(paymentIntentsTable)
+        .where(
+          and(
+            eq(paymentIntentsTable.merchantId, merchant.id),
+            inArray(paymentIntentsTable.orderId, orderIds),
+          ),
+        )
+    : [];
+  const paymentByOrderId = new Map(
+    paymentIntents
+      .filter((payment): payment is typeof payment & { orderId: number } => payment.orderId !== null)
+      .map((payment) => [payment.orderId, payment]),
+  );
   res.json(
     ListOrdersResponse.parse(
       orders.map(({ order, customer, product }) =>
-        serializeOrder(order, customer, product),
+        serializeOrder(order, customer, product, paymentByOrderId.get(order.id)),
       ),
     ),
   );
@@ -7765,6 +7800,59 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/public/store/:merchantKey/payment-destination", async (req, res): Promise<void> => {
+  const parsed = GetPublicStorePaymentDestinationParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid store link" });
+    return;
+  }
+  const merchant = (
+    await db
+      .select()
+      .from(merchantsTable)
+      .where(eq(merchantsTable.publicStoreKey, parsed.data.merchantKey))
+      .limit(1)
+  )[0];
+  if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
+    res.status(404).json({ error: "Store not found" });
+    return;
+  }
+  const account = (
+    await db
+      .select()
+      .from(merchantBankAccountsTable)
+      .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
+      .limit(1)
+  )[0];
+  if (!account) {
+    res.json(
+      GetPublicStorePaymentDestinationResponse.parse({
+        configured: false,
+        beneficiaryName: null,
+        bankName: null,
+        bankCode: null,
+        accountNumber: null,
+        currency: merchant.currency,
+      }),
+    );
+    return;
+  }
+  try {
+    res.json(
+      GetPublicStorePaymentDestinationResponse.parse({
+        configured: true,
+        beneficiaryName: account.beneficiaryName,
+        bankName: account.bankName,
+        bankCode: account.bankCode,
+        accountNumber: decryptSecret(account.accountNumberCiphertext),
+        currency: merchant.currency,
+      }),
+    );
+  } catch {
+    res.status(500).json({ error: "The merchant payment destination could not be read" });
+  }
+});
+
 router.post(
   "/public/store/:merchantKey/checkout",
   async (req, res): Promise<void> => {
@@ -7786,6 +7874,19 @@ router.post(
     )[0];
     if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
       res.status(404).json({ error: "Store not found" });
+      return;
+    }
+    const paymentDestination = (
+      await db
+        .select({ id: merchantBankAccountsTable.id })
+        .from(merchantBankAccountsTable)
+        .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
+        .limit(1)
+    )[0];
+    if (!paymentDestination) {
+      res.status(409).json({
+        error: "This store is not accepting orders until the merchant configures bank payment details",
+      });
       return;
     }
     try {
@@ -8038,14 +8139,13 @@ router.post(
         });
         return { order, product };
       });
-      const payment = await ensurePublicFlutterwaveCheckout(
-        result.order,
-        result.product.title,
-        requestOrigin(req),
-      );
+      const payment = await ensurePublicManualPaymentIntent(result.order);
       res.status(201).json(
         CreatePublicCheckoutResponse.parse(
-          serializePublicCheckoutOrder(result.order, result.product, payment),
+          serializePublicCheckoutOrder(result.order, result.product, {
+            paymentIntentId: payment.id,
+            status: payment.status,
+          }),
         ),
       );
     } catch (error) {
@@ -8257,22 +8357,15 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
     return;
   }
   try {
-    const product = order.supplierProductId
-      ? (await db.select().from(supplierProductsTable).where(eq(supplierProductsTable.id, order.supplierProductId)).limit(1))[0]
-      : null;
-    const payment = await ensurePublicFlutterwaveCheckout(
-      order,
-      product?.title ?? "TS Commerce payment",
-      requestOrigin(req),
-    );
+    const payment = await ensurePublicManualPaymentIntent(order);
     res.status(201).json({
       orderNumber: order.orderNumber,
       status: order.status,
       paymentToken,
-      paymentIntentId: payment.paymentIntentId,
-      paymentProvider: "flutterwave",
-      paymentUrl: payment.purchaseUrl,
-      paymentStatus: "submitted",
+      paymentIntentId: payment.id,
+      paymentProvider: "ts_pay",
+      paymentUrl: null,
+      paymentStatus: payment.status === "created" ? "manual" : payment.status,
     });
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : "Payment session could not be reopened" });

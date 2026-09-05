@@ -1,7 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { CheckCircle2, ExternalLink, ShoppingBag } from 'lucide-react';
 import { useRoute } from 'wouter';
-import { useCreatePublicCheckout, useGetPublicStore, useSubmitPublicPaymentReference } from '@workspace/api-client-react';
+import { useCreatePublicCheckout, useGetPublicStore, useGetPublicStorePaymentDestination, useSubmitPublicPaymentReference } from '@workspace/api-client-react';
 import { Logo, PublicHeader } from '@/components/app-shell';
 import { Button, EmptyState, ErrorState, LoadingState, Notice, SubmitButton } from '@/components/primitives';
 import { money } from '@/lib/format';
@@ -10,6 +10,7 @@ export default function Checkout() {
   const [, params] = useRoute('/checkout/:merchantKey');
   const merchantKey = params?.merchantKey ?? '';
   const store = useGetPublicStore(merchantKey);
+  const paymentDestination = useGetPublicStorePaymentDestination(merchantKey);
   const checkout = useCreatePublicCheckout();
   const submitEvidence = useSubmitPublicPaymentReference();
   const [selectedId, setSelectedId] = useState<number | null>(() => {
@@ -40,6 +41,10 @@ export default function Checkout() {
       setMessage('Choose a product before checking out.');
       return;
     }
+    if (!paymentDestination.data?.configured) {
+      setMessage('This store is not ready to accept bank payments yet.');
+      return;
+    }
     setMessage('');
     checkout.mutate({
       merchantKey,
@@ -67,7 +72,7 @@ export default function Checkout() {
     if (!receipt?.paymentToken) return;
     submitEvidence.mutate({
       paymentToken: receipt.paymentToken,
-      data: { paymentReference: paymentReference.trim(), senderName: senderName.trim() || undefined },
+      data: { paymentReference: paymentReference.trim(), senderName: senderName.trim() },
     }, {
       onSuccess: (result) => {
         setMessage(result.paymentMessage);
@@ -93,6 +98,16 @@ export default function Checkout() {
           <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Order details</p><h2 className="mt-2 text-xl font-extrabold">Complete your order</h2>
             {selected ? <div className="mt-5 flex items-start justify-between gap-4 rounded-xl bg-[#f3efe5] p-4"><div><p className="text-sm font-extrabold">{selected.title}</p><p className="mt-1 text-xs text-[#697687]">Unit price {money(selected.price, selected.currency)}</p></div><a href={selected.id ? undefined : '#'} onClick={(event) => event.preventDefault()} className="text-[#8a6826]" aria-label="Selected product"><ExternalLink className="h-4 w-4" /></a></div> : <div className="mt-5 rounded-xl border border-dashed border-[#cfc7b8] p-4 text-sm text-[#697687]">Select a product to continue.</div>}
           {message && <div className="mt-5"><Notice tone="danger" title="Checkout not completed">{message}</Notice></div>}
+          <div className="mt-6 rounded-xl border border-[#bfd6dc] bg-[#eef7f8] p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#315e6c]">Required bank transfer</p>
+            {paymentDestination.isLoading ? <p className="mt-2 text-sm text-[#315e6c]">Loading the merchant payment destination…</p> : paymentDestination.data?.configured ? <div className="mt-3 grid gap-2 text-sm text-[#234c58] sm:grid-cols-2">
+              <p><span className="text-xs text-[#477563]">Beneficiary</span><br /><strong>{paymentDestination.data.beneficiaryName}</strong></p>
+              <p><span className="text-xs text-[#477563]">Bank</span><br /><strong>{paymentDestination.data.bankName}</strong></p>
+              <p><span className="text-xs text-[#477563]">Account number</span><br /><strong className="font-mono">{paymentDestination.data.accountNumber}</strong></p>
+              <p><span className="text-xs text-[#477563]">Bank code · currency</span><br /><strong className="font-mono">{paymentDestination.data.bankCode} · {paymentDestination.data.currency}</strong></p>
+              <p className="sm:col-span-2 text-xs leading-5 text-[#315e6c]">Transfer the exact order total after submitting your details. Keep the bank reference and sender name ready for the next step.</p>
+            </div> : <p className="mt-2 text-sm leading-5 text-[#9b463d]">This store has not configured its customer payment bank account, so checkout is temporarily unavailable.</p>}
+          </div>
           <form onSubmit={submit} className="mt-6 space-y-4">
             <label className="block text-sm font-bold">Quantity<input type="number" min="1" max="100" required value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm outline-none focus:border-[#bca26a]" /></label>
             <label className="block text-sm font-bold">Full name<input required minLength={2} maxLength={160} value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" /></label>
@@ -100,8 +115,8 @@ export default function Checkout() {
             <label className="block text-sm font-bold">Phone <span className="font-normal text-[#697687]">(optional)</span><input value={customerPhone} maxLength={40} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" /></label>
             <label className="block text-sm font-bold">Shipping address<textarea required minLength={8} maxLength={500} value={shippingAddress} onChange={(event) => setShippingAddress(event.target.value)} className="mt-2 min-h-24 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-3 text-sm outline-none focus:border-[#bca26a]" /></label>
              <label className="flex items-start gap-3 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-3 text-xs leading-5 text-[#536174]"><input type="checkbox" checked={marketingConsent} onChange={(event) => setMarketingConsent(event.target.checked)} className="mt-1 accent-[#a2772e]" data-testid="input-marketing-consent" /><span>I agree to receive relevant product and store updates from this merchant. I can withdraw consent later.</span></label>
-            <div className="rounded-lg bg-[#eef7f8] px-3 py-3 text-xs leading-5 text-[#315e6c]">This checkout submits an order request. The merchant confirms payment before the order enters fulfillment.</div>
-            <SubmitButton loading={checkout.isPending}><ShoppingBag className="h-4 w-4" />Submit order</SubmitButton>
+            <div className="rounded-lg bg-[#eef7f8] px-3 py-3 text-xs leading-5 text-[#315e6c]">This checkout submits an order request. The merchant confirms your bank transfer before the order enters fulfillment.</div>
+            <SubmitButton loading={checkout.isPending} disabled={!paymentDestination.data?.configured}><ShoppingBag className="h-4 w-4" />Submit order</SubmitButton>
           </form>
         </section>
       </div>}

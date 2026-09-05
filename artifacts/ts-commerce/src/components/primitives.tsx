@@ -41,8 +41,8 @@ export function ErrorState({ onRetry }: { onRetry: () => void }) {
   return <div className="rounded-2xl border border-[#e2b9b3] bg-[#fff3f0] p-8 text-center" data-testid="state-error"><CircleAlert className="mx-auto h-7 w-7 text-[#a33e38]" /><h3 className="mt-3 font-extrabold text-[#182333]">The ledger is taking a moment</h3><p className="mt-1 text-sm text-[#697687]">We could not load this view. Your account is safe.</p><Button variant="secondary" className="mt-4" onClick={onRetry} data-testid="button-retry"><RefreshCw className="h-4 w-4" />Try again</Button></div>;
 }
 
-export function SubmitButton({ loading, children }: { loading?: boolean; children: ReactNode }) {
-  return <Button type="submit" disabled={loading} data-testid="button-submit">{loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{loading ? 'Saving…' : children}</Button>;
+export function SubmitButton({ loading, disabled, children }: { loading?: boolean; disabled?: boolean; children: ReactNode }) {
+  return <Button type="submit" disabled={loading || disabled} data-testid="button-submit">{loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{loading ? 'Saving…' : children}</Button>;
 }
 
 export function EmptyState({ title, description }: { title: string; description: string }) {

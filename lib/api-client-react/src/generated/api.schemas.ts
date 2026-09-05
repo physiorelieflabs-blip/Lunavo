@@ -752,6 +752,12 @@ export interface OrderRecord {
   /** @nullable */
   shippingAddress: string | null;
   fulfillmentStatus: string;
+  /** @nullable */
+  paymentIntentId: number | null;
+  /** @nullable */
+  paymentStatus: string | null;
+  /** @nullable */
+  paymentEvidenceReference: string | null;
   createdAt: string;
 }
 
@@ -2413,6 +2419,23 @@ export interface PublicStore {
   products: PublicStoreProduct[];
 }
 
+export interface PublicStorePaymentDestination {
+  configured: boolean;
+  /** @nullable */
+  beneficiaryName: string | null;
+  /** @nullable */
+  bankName: string | null;
+  /** @nullable */
+  bankCode: string | null;
+  /** @nullable */
+  accountNumber: string | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+}
+
 export interface MarketplaceProduct {
   id: number;
   merchantKey: string;
@@ -3209,9 +3232,8 @@ export interface PublicPaymentReferenceInput {
   /**
      * @minLength 2
      * @maxLength 160
-     * @nullable
      */
-  senderName?: string | null;
+  senderName: string;
 }
 
 export type PublicPaymentReferenceResponseStatus = typeof PublicPaymentReferenceResponseStatus[keyof typeof PublicPaymentReferenceResponseStatus];

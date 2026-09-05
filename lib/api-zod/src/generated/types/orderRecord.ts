@@ -23,5 +23,11 @@ export interface OrderRecord {
   /** @nullable */
   shippingAddress: string | null;
   fulfillmentStatus: string;
+  /** @nullable */
+  paymentIntentId: number | null;
+  /** @nullable */
+  paymentStatus: string | null;
+  /** @nullable */
+  paymentEvidenceReference: string | null;
   createdAt: Date;
 }

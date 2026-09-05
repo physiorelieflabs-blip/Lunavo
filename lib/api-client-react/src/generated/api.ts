@@ -111,6 +111,7 @@ import type {
   PublicPaymentReferenceInput,
   PublicPaymentReferenceResponse,
   PublicStore,
+  PublicStorePaymentDestination,
   ReconciliationInput,
   ReconciliationRecord,
   ReconciliationUpdateInput,
@@ -4598,6 +4599,83 @@ export function useGetPublicStore<TData = Awaited<ReturnType<typeof getPublicSto
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetPublicStoreQueryOptions(merchantKey,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPublicStorePaymentDestinationUrl = (merchantKey: string,) => {
+
+
+
+
+  return `/api/public/store/${merchantKey}/payment-destination`
+}
+
+/**
+ * @summary View the merchant bank destination for customer checkout
+ */
+export const getPublicStorePaymentDestination = async (merchantKey: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicStorePaymentDestination> => {
+
+  return customFetch<PublicStorePaymentDestination>(getGetPublicStorePaymentDestinationUrl(merchantKey),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicStorePaymentDestinationQueryKey = (merchantKey: string,) => {
+    return [
+    `/api/public/store/${merchantKey}/payment-destination`
+    ] as const;
+    }
+
+
+export const getGetPublicStorePaymentDestinationQueryOptions = <TData = Awaited<ReturnType<typeof getPublicStorePaymentDestination>>, TError = ErrorType<unknown>>(merchantKey: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStorePaymentDestination>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicStorePaymentDestinationQueryKey(merchantKey);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicStorePaymentDestination>>> = ({ signal }) => getPublicStorePaymentDestination(merchantKey, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: merchantKey !== null && merchantKey !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicStorePaymentDestination>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicStorePaymentDestinationQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicStorePaymentDestination>>>
+export type GetPublicStorePaymentDestinationQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary View the merchant bank destination for customer checkout
+ */
+
+export function useGetPublicStorePaymentDestination<TData = Awaited<ReturnType<typeof getPublicStorePaymentDestination>>, TError = ErrorType<unknown>>(
+ merchantKey: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStorePaymentDestination>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicStorePaymentDestinationQueryOptions(merchantKey,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

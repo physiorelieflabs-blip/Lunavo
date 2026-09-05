@@ -153,6 +153,7 @@ export * from './publicPaymentReferenceResponsePaymentProvider';
 export * from './publicPaymentReferenceResponsePaymentStatus';
 export * from './publicPaymentReferenceResponseStatus';
 export * from './publicStore';
+export * from './publicStorePaymentDestination';
 export * from './publicStoreProduct';
 export * from './publicStoreProductVariantsItem';
 export * from './publicStoreStoreAddress';

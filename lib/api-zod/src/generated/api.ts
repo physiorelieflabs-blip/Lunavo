@@ -1075,6 +1075,9 @@ export const ListOrdersResponseItem = zod.object({
   "productTitle": zod.string().nullable(),
   "shippingAddress": zod.string().nullable(),
   "fulfillmentStatus": zod.string(),
+  "paymentIntentId": zod.int().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paymentEvidenceReference": zod.string().nullable(),
   "createdAt": zod.coerce.date()
 })
 export const ListOrdersResponse = zod.array(ListOrdersResponseItem)
@@ -1133,6 +1136,9 @@ export const CreateOrderResponse = zod.object({
   "productTitle": zod.string().nullable(),
   "shippingAddress": zod.string().nullable(),
   "fulfillmentStatus": zod.string(),
+  "paymentIntentId": zod.int().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paymentEvidenceReference": zod.string().nullable(),
   "createdAt": zod.coerce.date()
 })
 
@@ -1164,6 +1170,9 @@ export const UpdateOrderStatusResponse = zod.object({
   "productTitle": zod.string().nullable(),
   "shippingAddress": zod.string().nullable(),
   "fulfillmentStatus": zod.string(),
+  "paymentIntentId": zod.int().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paymentEvidenceReference": zod.string().nullable(),
   "createdAt": zod.coerce.date()
 })
 
@@ -2443,6 +2452,32 @@ export const GetPublicStoreResponse = zod.object({
 
 
 /**
+ * @summary View the merchant bank destination for customer checkout
+ */
+export const getPublicStorePaymentDestinationPathMerchantKeyMax = 128;
+
+
+
+export const GetPublicStorePaymentDestinationParams = zod.object({
+  "merchantKey": zod.coerce.string().min(1).max(getPublicStorePaymentDestinationPathMerchantKeyMax)
+})
+
+export const getPublicStorePaymentDestinationResponseCurrencyMin = 3;
+export const getPublicStorePaymentDestinationResponseCurrencyMax = 3;
+
+
+
+export const GetPublicStorePaymentDestinationResponse = zod.object({
+  "configured": zod.boolean(),
+  "beneficiaryName": zod.string().nullable(),
+  "bankName": zod.string().nullable(),
+  "bankCode": zod.string().nullable(),
+  "accountNumber": zod.string().nullable(),
+  "currency": zod.string().min(getPublicStorePaymentDestinationResponseCurrencyMin).max(getPublicStorePaymentDestinationResponseCurrencyMax)
+})
+
+
+/**
  * @summary Create a customer order and native TS Commerce payment intent from a public catalog
  */
 export const createPublicCheckoutPathMerchantKeyMax = 128;
@@ -2648,7 +2683,7 @@ export const submitPublicPaymentReferenceBodySenderNameMax = 160;
 
 export const SubmitPublicPaymentReferenceBody = zod.object({
   "paymentReference": zod.string().min(submitPublicPaymentReferenceBodyPaymentReferenceMin).max(submitPublicPaymentReferenceBodyPaymentReferenceMax),
-  "senderName": zod.string().min(submitPublicPaymentReferenceBodySenderNameMin).max(submitPublicPaymentReferenceBodySenderNameMax).nullish()
+  "senderName": zod.string().min(submitPublicPaymentReferenceBodySenderNameMin).max(submitPublicPaymentReferenceBodySenderNameMax)
 })
 
 export const SubmitPublicPaymentReferenceResponse = zod.object({
