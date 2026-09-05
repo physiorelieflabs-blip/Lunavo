@@ -347,7 +347,7 @@ import {
   trainMerchantAiModel,
   simulateMerchantScenario,
 } from "../lib/ai";
-import { completeOpenAiChat } from "../lib/openai";
+import { completeOpenAiChat, generateOpenAiImage } from "../lib/openai";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
@@ -3680,6 +3680,55 @@ router.post("/ai/copilot", async (req, res): Promise<void> => {
       error instanceof Error && error.message === "OPENAI_API_KEY is not configured"
         ? "The AI provider is not configured on the server."
         : "The AI copilot is temporarily unavailable. No commerce data was changed.";
+    res.status(503).json({ error: message });
+  }
+});
+
+router.post("/ai/generate-image", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  const altText = typeof req.body?.altText === "string" ? req.body.altText.trim().slice(0, 160) : "";
+  const caption = typeof req.body?.caption === "string" ? req.body.caption.trim().slice(0, 500) : "";
+  if (prompt.length < 10 || prompt.length > 1800) {
+    res.status(400).json({ error: "Image prompts must be between 10 and 1800 characters." });
+    return;
+  }
+  try {
+    const merchant = await getOrCreateMerchant(identity);
+    if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+    const generated = await generateOpenAiImage([
+      "Create a polished ecommerce image for a merchant storefront.",
+      "Do not render words, logos, labels, watermarks, or fake brand marks in the image.",
+      "Keep the product faithful to the merchant's prompt and use a clean, customer-safe composition.",
+      prompt,
+    ].join("\n"));
+    if (generated.bytes.length > MEDIA_MAX_BYTES) {
+      res.status(502).json({ error: "The generated image was too large to save. Try a simpler prompt." });
+      return;
+    }
+    const baseName = prompt.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "generated-store-image";
+    const [asset] = await db.insert(mediaAssetsTable).values({
+      merchantId: merchant.id,
+      uploadedByClerkUserId: identity.clerkUserId,
+      filename: `${baseName}.png`,
+      mimeType: generated.mimeType,
+      byteSize: generated.bytes.length,
+      imageData: generated.data,
+      altText: altText || `AI-generated store image for ${merchant.storeName}`,
+      caption: caption || "Generated with the TS Commerce image studio.",
+      visibility: "public",
+    }).returning();
+    if (!asset) {
+      res.status(500).json({ error: "The generated image could not be saved." });
+      return;
+    }
+    res.status(201).json({ asset: publicMediaRecord(asset), model: generated.model });
+  } catch (error) {
+    req.log.error({ err: error }, "Store image generation failed");
+    const message = error instanceof Error && error.message === "OPENAI_API_KEY is not configured"
+      ? "The AI image provider is not configured on the server."
+      : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
 });

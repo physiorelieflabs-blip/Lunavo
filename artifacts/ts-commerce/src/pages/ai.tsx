@@ -8,6 +8,7 @@ import {
   Command,
   Gauge,
   History,
+  ImagePlus,
   Megaphone,
   RotateCcw,
   Search,
@@ -165,6 +166,14 @@ export default function AiControlRoom() {
     evidence: { storeName: string; currency: string; healthScore: number };
   } | null>(null);
   const [copilotPending, setCopilotPending] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [imageAltText, setImageAltText] = useState('');
+  const [imageCaption, setImageCaption] = useState('');
+  const [generatedImage, setGeneratedImage] = useState<{
+    model: string;
+    asset: { id: number; filename: string; altText: string | null; caption: string | null; url: string };
+  } | null>(null);
+  const [imagePending, setImagePending] = useState(false);
 
   if (overview.isLoading || settings.isLoading || actions.isLoading) {
     return <AppShell><LoadingState label="Loading AI control room" /></AppShell>;
@@ -333,6 +342,33 @@ export default function AiControlRoom() {
       setCopilotPending(false);
     }
   };
+  const generateStoreImage = async () => {
+    const prompt = imagePrompt.trim();
+    if (prompt.length < 10) {
+      setMessage('Describe the product or storefront scene in at least 10 characters.');
+      return;
+    }
+    setImagePending(true);
+    setGeneratedImage(null);
+    setMessage('');
+    try {
+      const result = await customFetch<NonNullable<typeof generatedImage>>('/api/ai/generate-image', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          altText: imageAltText.trim() || undefined,
+          caption: imageCaption.trim() || undefined,
+        }),
+      });
+      setGeneratedImage(result);
+      setMessage('Image generated and saved to your public media library.');
+    } catch {
+      setMessage('The image could not be generated right now. Try a more specific prompt.');
+    } finally {
+      setImagePending(false);
+    }
+  };
   const errorMessage = message.includes('not') || message.includes('could') || message.includes('requires');
 
   return <AppShell>
@@ -369,6 +405,36 @@ export default function AiControlRoom() {
          <div className="mt-6 flex flex-col gap-3 md:flex-row"><textarea value={copilotMessage} onChange={(event) => setCopilotMessage(event.target.value)} maxLength={2000} rows={3} placeholder="e.g. What is the safest way to improve sales this month without risking cash flow?" className="min-w-0 flex-1 rounded-lg border border-[#bfd6dc] bg-white px-4 py-3 text-sm font-bold outline-none placeholder:text-[#8997a8] focus:border-[#315e6c]" data-testid="input-ai-copilot" /><Button onClick={() => void askCopilot()} disabled={copilotPending || copilotMessage.trim().length < 3} className="h-12 shrink-0 self-start bg-[#315e6c] text-white hover:bg-[#274d59]"><Sparkles className="h-4 w-4" />{copilotPending ? 'Thinking…' : 'Ask copilot'}</Button></div>
          {copilotReply && <div className="mt-5 rounded-xl border border-[#bfd6dc] bg-white p-5"><div className="whitespace-pre-wrap text-sm leading-7 text-[#263644]">{copilotReply.reply}</div><p className="mt-4 border-t border-[#e1e8eb] pt-3 text-[11px] text-[#697687]">Grounded in {copilotReply.evidence.storeName} · {copilotReply.evidence.currency} · health {copilotReply.evidence.healthScore}/100 · {new Date(copilotReply.groundedAt).toLocaleString()}</p></div>}
        </section>
+
+        <section className="mt-8 overflow-hidden rounded-xl border border-[#526b8a] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="max-w-2xl">
+              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">OpenAI image studio</p>
+              <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Create a storefront image.</h2>
+              <p className="mt-3 text-sm leading-6 text-[#b8c2cc]">Describe a product shot, hero scene, or campaign visual. The generated PNG is saved as a public asset in your tenant-owned media library and can be reused in your storefront.</p>
+            </div>
+            <ImagePlus className="h-6 w-6 shrink-0 text-[#d6aa46]" />
+          </div>
+          <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_280px]">
+            <div className="space-y-4">
+              <label className="block text-sm font-bold">Image brief
+                <textarea value={imagePrompt} onChange={(event) => setImagePrompt(event.target.value)} maxLength={1800} rows={4} placeholder="A bright editorial product photo of a handmade blue ceramic mug on a linen table, warm morning light, clean space around the product" className="mt-2 w-full rounded-lg border border-[#536174] bg-[#263644] px-4 py-3 text-sm font-bold text-[#f8f3e8] outline-none placeholder:text-[#9aa7b5] focus:border-[#d6aa46]" />
+              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm font-bold">Alt text <span className="font-normal text-[#b8c2cc]">(optional)</span>
+                  <input value={imageAltText} onChange={(event) => setImageAltText(event.target.value)} maxLength={160} placeholder="Blue ceramic mug on linen table" className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#263644] px-3 text-sm text-[#f8f3e8] outline-none placeholder:text-[#9aa7b5] focus:border-[#d6aa46]" />
+                </label>
+                <label className="block text-sm font-bold">Caption <span className="font-normal text-[#b8c2cc]">(optional)</span>
+                  <input value={imageCaption} onChange={(event) => setImageCaption(event.target.value)} maxLength={500} placeholder="A considered start to your morning" className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#263644] px-3 text-sm text-[#f8f3e8] outline-none placeholder:text-[#9aa7b5] focus:border-[#d6aa46]" />
+                </label>
+              </div>
+              <Button onClick={() => void generateStoreImage()} disabled={imagePending || imagePrompt.trim().length < 10} className="bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]"><ImagePlus className="h-4 w-4" />{imagePending ? 'Generating…' : 'Generate and save image'}</Button>
+            </div>
+            <div className="min-h-[220px] overflow-hidden rounded-xl border border-[#536174] bg-[#263644]">
+              {generatedImage ? <><img src={generatedImage.asset.url} alt={generatedImage.asset.altText ?? 'Generated storefront asset'} className="aspect-square w-full object-cover" /><div className="p-3"><p className="truncate text-xs font-bold text-[#d8e1e3]">{generatedImage.asset.filename}</p><button type="button" onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}${generatedImage.asset.url}`); setMessage('Generated image URL copied.'); }} className="mt-2 text-xs font-extrabold text-[#d6aa46] underline">Copy public image URL</button></div></> : <div className="grid min-h-[220px] place-items-center p-6 text-center text-xs leading-5 text-[#9aa7b5]">Your generated image preview will appear here.</div>}
+            </div>
+          </div>
+        </section>
 
       <section className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
         <div className="rounded-xl border border-[#182333] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
