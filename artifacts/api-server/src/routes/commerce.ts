@@ -347,7 +347,8 @@ import {
   trainMerchantAiModel,
   simulateMerchantScenario,
 } from "../lib/ai";
-import { completeGeminiChat, generateGeminiImage } from "../lib/gemini";
+import { completeGeminiChat } from "../lib/gemini";
+import { generateModelsLabImage } from "../lib/modelslab";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
@@ -3791,7 +3792,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   try {
     const merchant = await getOrCreateMerchant(identity);
     if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
-     const generated = await generateGeminiImage([
+     const generated = await generateModelsLabImage([
       "Create a polished ecommerce image for a merchant storefront.",
       "Do not render words, logos, labels, watermarks, or fake brand marks in the image.",
       "Keep the product faithful to the merchant's prompt and use a clean, customer-safe composition.",
@@ -3821,12 +3822,10 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
-     const message = providerMessage === "GEMINI_IMAGE_API_KEY is not configured"
-       ? "The AI image provider is not configured on the server. Add GEMINI_IMAGE_API_KEY to enable image generation."
-      : /limit:\s*0|free_tier/i.test(providerMessage)
-        ? "Gemini image generation is unavailable because this API key currently has zero image-generation quota. Text AI can work separately, but image generation requires image access for the Gemini project."
-        : /quota|resource exhausted|billing|api key|permission|unauthorized/i.test(providerMessage)
-          ? `Gemini image generation is unavailable: ${providerMessage}`
+    const message = providerMessage === "STABLE_DIFFUSION_API_KEY is not configured"
+      ? "The Stable Diffusion image provider is not configured on the server. Add STABLE_DIFFUSION_API_KEY to enable image generation."
+      : providerMessage
+        ? `ModelsLab image generation is unavailable: ${providerMessage}`
         : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
