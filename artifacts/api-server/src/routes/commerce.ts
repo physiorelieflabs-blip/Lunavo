@@ -3676,10 +3676,13 @@ router.post("/ai/copilot", async (req, res): Promise<void> => {
     });
   } catch (error) {
     req.log.error({ err: error }, "AI copilot request failed");
+    const providerMessage = error instanceof Error ? error.message : "";
     const message =
-       error instanceof Error && error.message === "GEMINI_API_KEY is not configured"
+      providerMessage === "GEMINI_API_KEY is not configured"
         ? "The AI provider is not configured on the server."
-        : "The AI copilot is temporarily unavailable. No commerce data was changed.";
+        : /model .*no longer available|not found|quota|resource exhausted|api key|permission|unauthorized/i.test(providerMessage)
+          ? `Gemini copilot is unavailable: ${providerMessage}`
+          : "The AI copilot is temporarily unavailable. No commerce data was changed.";
     res.status(503).json({ error: message });
   }
 });
@@ -3765,9 +3768,12 @@ router.post("/ai/guide", async (req, res): Promise<void> => {
     res.json({ reply: response.content, model: response.model });
   } catch (error) {
     req.log.error({ err: error }, "TS Guide AI request failed");
-     const errorMessage = error instanceof Error && error.message === "GEMINI_API_KEY is not configured"
+    const providerMessage = error instanceof Error ? error.message : "";
+    const errorMessage = providerMessage === "GEMINI_API_KEY is not configured"
       ? "TS Guide AI is not configured on the server."
-      : "TS Guide AI is temporarily unavailable. Please try again.";
+      : /model .*no longer available|not found|quota|resource exhausted|api key|permission|unauthorized/i.test(providerMessage)
+        ? `TS Guide AI is unavailable: ${providerMessage}`
+        : "TS Guide AI is temporarily unavailable. Please try again.";
     res.status(503).json({ error: errorMessage });
   }
 });
@@ -3815,10 +3821,12 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
-     const message = providerMessage === "GEMINI_API_KEY is not configured"
+    const message = providerMessage === "GEMINI_API_KEY is not configured"
       ? "The AI image provider is not configured on the server."
-      : /quota|resource exhausted|billing|api key|permission|unauthorized/i.test(providerMessage)
-        ? `Gemini image generation is unavailable: ${providerMessage}`
+      : /limit:\s*0|free_tier/i.test(providerMessage)
+        ? "Gemini image generation is unavailable because this API key currently has zero image-generation quota. Text AI can work separately, but image generation requires image access for the Gemini project."
+        : /quota|resource exhausted|billing|api key|permission|unauthorized/i.test(providerMessage)
+          ? `Gemini image generation is unavailable: ${providerMessage}`
         : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
