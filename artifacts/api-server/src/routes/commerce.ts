@@ -347,7 +347,7 @@ import {
   trainMerchantAiModel,
   simulateMerchantScenario,
 } from "../lib/ai";
-import { completeOpenAiChat, generateOpenAiImage } from "../lib/openai";
+import { completeGeminiChat, generateGeminiImage } from "../lib/gemini";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
@@ -3646,7 +3646,7 @@ router.post("/ai/copilot", async (req, res): Promise<void> => {
       }),
       getAiSettingsForMerchant(merchant.id),
     ]);
-    const response = await completeOpenAiChat([
+     const response = await completeGeminiChat([
       {
         role: "system",
         content: [
@@ -3677,7 +3677,7 @@ router.post("/ai/copilot", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "AI copilot request failed");
     const message =
-      error instanceof Error && error.message === "OPENAI_API_KEY is not configured"
+       error instanceof Error && error.message === "GEMINI_API_KEY is not configured"
         ? "The AI provider is not configured on the server."
         : "The AI copilot is temporarily unavailable. No commerce data was changed.";
     res.status(503).json({ error: message });
@@ -3743,7 +3743,7 @@ router.post("/ai/guide", async (req, res): Promise<void> => {
         });
       }
     }
-    const response = await completeOpenAiChat([
+     const response = await completeGeminiChat([
       {
         role: "system",
         content: [
@@ -3765,7 +3765,7 @@ router.post("/ai/guide", async (req, res): Promise<void> => {
     res.json({ reply: response.content, model: response.model });
   } catch (error) {
     req.log.error({ err: error }, "TS Guide AI request failed");
-    const errorMessage = error instanceof Error && error.message === "OPENAI_API_KEY is not configured"
+     const errorMessage = error instanceof Error && error.message === "GEMINI_API_KEY is not configured"
       ? "TS Guide AI is not configured on the server."
       : "TS Guide AI is temporarily unavailable. Please try again.";
     res.status(503).json({ error: errorMessage });
@@ -3785,7 +3785,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   try {
     const merchant = await getOrCreateMerchant(identity);
     if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
-    const generated = await generateOpenAiImage([
+     const generated = await generateGeminiImage([
       "Create a polished ecommerce image for a merchant storefront.",
       "Do not render words, logos, labels, watermarks, or fake brand marks in the image.",
       "Keep the product faithful to the merchant's prompt and use a clean, customer-safe composition.",
@@ -3815,10 +3815,10 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
-    const message = providerMessage === "OPENAI_API_KEY is not configured"
+     const message = providerMessage === "GEMINI_API_KEY is not configured"
       ? "The AI image provider is not configured on the server."
-      : /no credits|insufficient_quota|quota exceeded/i.test(providerMessage)
-        ? "OpenAI image generation is unavailable because the configured API account has no remaining credits. Update OPENAI_API_KEY in Replit Secrets with a key that has image-generation access."
+      : /quota|resource exhausted|billing|api key|permission|unauthorized/i.test(providerMessage)
+        ? `Gemini image generation is unavailable: ${providerMessage}`
         : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
