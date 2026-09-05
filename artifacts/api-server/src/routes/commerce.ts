@@ -348,7 +348,7 @@ import {
   simulateMerchantScenario,
 } from "../lib/ai";
 import { completeGeminiChat } from "../lib/gemini";
-import { generateModelsLabImage } from "../lib/modelslab";
+import { generatePollinationsImage } from "../lib/pollinations";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
@@ -3792,7 +3792,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   try {
     const merchant = await getOrCreateMerchant(identity);
     if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
-     const generated = await generateModelsLabImage([
+     const generated = await generatePollinationsImage([
       "Create a polished ecommerce image for a merchant storefront.",
       "Do not render words, logos, labels, watermarks, or fake brand marks in the image.",
       "Keep the product faithful to the merchant's prompt and use a clean, customer-safe composition.",
@@ -3822,10 +3822,8 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
-    const message = providerMessage === "STABLE_DIFFUSION_API_KEY is not configured"
-      ? "The Stable Diffusion image provider is not configured on the server. Add STABLE_DIFFUSION_API_KEY to enable image generation."
-      : providerMessage
-        ? `ModelsLab image generation is unavailable: ${providerMessage}`
+    const message = providerMessage
+      ? `Pollinations image generation is unavailable: ${providerMessage}`
         : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
