@@ -3821,8 +3821,8 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
-    const message = providerMessage === "GEMINI_API_KEY is not configured"
-      ? "The AI image provider is not configured on the server."
+     const message = providerMessage === "GEMINI_IMAGE_API_KEY is not configured"
+       ? "The AI image provider is not configured on the server. Add GEMINI_IMAGE_API_KEY to enable image generation."
       : /limit:\s*0|free_tier/i.test(providerMessage)
         ? "Gemini image generation is unavailable because this API key currently has zero image-generation quota. Text AI can work separately, but image generation requires image access for the Gemini project."
         : /quota|resource exhausted|billing|api key|permission|unauthorized/i.test(providerMessage)

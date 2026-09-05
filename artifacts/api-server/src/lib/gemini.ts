@@ -26,9 +26,9 @@ const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
 const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-function geminiKey(): string {
-  const key = process.env.GEMINI_API_KEY?.trim();
-  if (!key) throw new Error("GEMINI_API_KEY is not configured");
+function geminiKey(secretName: "GEMINI_API_KEY" | "GEMINI_IMAGE_API_KEY" = "GEMINI_API_KEY"): string {
+  const key = process.env[secretName]?.trim();
+  if (!key) throw new Error(`${secretName} is not configured`);
   return key;
 }
 
@@ -36,8 +36,9 @@ async function generateContent(
   model: string,
   body: Record<string, unknown>,
   timeoutMs: number,
+  secretName: "GEMINI_API_KEY" | "GEMINI_IMAGE_API_KEY" = "GEMINI_API_KEY",
 ): Promise<GeminiResponse> {
-  const response = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(geminiKey())}`, {
+  const response = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(geminiKey(secretName))}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -86,7 +87,7 @@ export async function generateGeminiImage(prompt: string): Promise<{
   const payload = await generateContent(GEMINI_IMAGE_MODEL, {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: { responseModalities: ["IMAGE"] },
-  }, 120_000);
+  }, 120_000, "GEMINI_IMAGE_API_KEY");
   const imagePart = payload.candidates?.[0]?.content?.parts?.find(
     (part) => part.inlineData?.data,
   );
