@@ -111,17 +111,23 @@ export default function Settings() {
       const changed: string[] = [];
       const failures: string[] = [];
 
-      if (nextFirstName !== currentFirstName || nextLastName !== currentLastName) {
+       if (nextFirstName !== currentFirstName) {
         try {
-          const updatedUser = await user.update({
-            ...(nextFirstName !== currentFirstName ? { firstName: nextFirstName || null } : {}),
-            ...(nextLastName !== currentLastName ? { lastName: nextLastName || null } : {}),
-          });
+           const updatedUser = await user.update({ firstName: nextFirstName });
           setFirstName(updatedUser.firstName ?? '');
-          setLastName(updatedUser.lastName ?? '');
-          changed.push('name');
+           changed.push('first name');
         } catch (error) {
-          failures.push(`Your name could not be changed. ${getApiErrorMessage(error, 'Name changes may be disabled for this account.')}`);
+           failures.push(`Your first name could not be changed. ${getApiErrorMessage(error, 'The first-name profile attribute may be disabled for this account.')}`);
+         }
+       }
+
+       if (nextLastName !== currentLastName) {
+         try {
+           const updatedUser = await user.update({ lastName: nextLastName });
+           setLastName(updatedUser.lastName ?? '');
+           changed.push('last name');
+         } catch (error) {
+           failures.push(`Your last name could not be changed. ${getApiErrorMessage(error, 'The last-name profile attribute may be disabled for this account.')}`);
         }
       }
 
@@ -131,7 +137,7 @@ export default function Settings() {
           setUsername(updatedUser.username ?? '');
           changed.push('username');
         } catch (error) {
-          failures.push(`Your username could not be changed. ${getApiErrorMessage(error, 'Usernames may be disabled for this account or already taken.')}`);
+         failures.push(`Your username could not be changed. ${getApiErrorMessage(error, 'Usernames may be disabled for this account or already taken.')}`);
         }
       }
 
@@ -369,6 +375,21 @@ export default function Settings() {
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20';
 
 function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error && typeof error === 'object' && 'errors' in error && Array.isArray(error.errors)) {
+    const details = error.errors
+      .map((item: unknown) => {
+        if (!item || typeof item !== 'object') return '';
+        const candidate = item as { longMessage?: unknown; message?: unknown };
+        return typeof candidate.longMessage === 'string'
+          ? candidate.longMessage
+          : typeof candidate.message === 'string'
+            ? candidate.message
+            : '';
+      })
+      .filter(Boolean)
+      .join(' ');
+    if (details) return details;
+  }
   if (error instanceof Error && error.message && !error.message.includes('Failed to fetch')) {
     return error.message;
   }
