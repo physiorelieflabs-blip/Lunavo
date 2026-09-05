@@ -102,33 +102,54 @@ export default function Settings() {
     setMessageIsError(false);
     setSaving(true);
     try {
-      const updatedUser = await user.update({
-        firstName: firstName.trim() || null,
-        lastName: lastName.trim() || null,
-      });
-      setFirstName(updatedUser.firstName ?? '');
-      setLastName(updatedUser.lastName ?? '');
+      const nextFirstName = firstName.trim();
+      const nextLastName = lastName.trim();
       const nextUsername = username.trim();
+      const currentFirstName = user.firstName ?? '';
+      const currentLastName = user.lastName ?? '';
       const currentUsername = user.username ?? '';
-      if (nextUsername !== currentUsername) {
+      const changed: string[] = [];
+      const failures: string[] = [];
+
+      if (nextFirstName !== currentFirstName || nextLastName !== currentLastName) {
         try {
-          const usernameUser = await user.update({ username: nextUsername || null });
-          setUsername(usernameUser.username ?? '');
+          const updatedUser = await user.update({
+            ...(nextFirstName !== currentFirstName ? { firstName: nextFirstName || null } : {}),
+            ...(nextLastName !== currentLastName ? { lastName: nextLastName || null } : {}),
+          });
+          setFirstName(updatedUser.firstName ?? '');
+          setLastName(updatedUser.lastName ?? '');
+          changed.push('name');
         } catch (error) {
-          setUsername(user.username ?? '');
-          setMessageIsError(true);
-          setMessage(`Your name was saved, but the username could not be changed. ${getApiErrorMessage(error, 'Usernames may be disabled for this workspace.')}`);
-          return;
+          failures.push(`Your name could not be changed. ${getApiErrorMessage(error, 'Name changes may be disabled for this account.')}`);
         }
       }
+
+      if (nextUsername !== currentUsername) {
+        try {
+          const updatedUser = await user.update({ username: nextUsername || null });
+          setUsername(updatedUser.username ?? '');
+          changed.push('username');
+        } catch (error) {
+          failures.push(`Your username could not be changed. ${getApiErrorMessage(error, 'Usernames may be disabled for this account or already taken.')}`);
+        }
+      }
+
       const reloadedUser = await user.reload();
       setFirstName(reloadedUser.firstName ?? '');
       setLastName(reloadedUser.lastName ?? '');
       setUsername(reloadedUser.username ?? '');
-      setMessage('Your account details have been updated.');
+      if (failures.length) {
+        setMessageIsError(true);
+        setMessage(`${changed.length ? `${changed.join(' and ')} saved. ` : ''}${failures.join(' ')}`);
+      } else if (changed.length) {
+        setMessage('Your account details have been updated.');
+      } else {
+        setMessage('No account details were changed.');
+      }
     } catch (error) {
       setMessageIsError(true);
-      setMessage(error instanceof Error ? error.message : 'Your account details could not be updated.');
+      setMessage(getApiErrorMessage(error, 'Your account details could not be updated.'));
     } finally {
       setSaving(false);
     }
