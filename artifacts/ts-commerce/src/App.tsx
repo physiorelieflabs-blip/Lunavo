@@ -107,14 +107,60 @@ function SignInPage() {
 }
 
 function SignUpPage() {
+  const [details, setDetails] = useState({ firstName: '', lastName: '', username: '' });
+  const [showSignUp, setShowSignUp] = useState(false);
+  const [error, setError] = useState('');
+
+  const continueToSignUp = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const firstName = details.firstName.trim();
+    const lastName = details.lastName.trim();
+    const username = details.username.trim().replace(/^@+/, '');
+    if (!firstName || !lastName || !username) {
+      setError('First name, last name, and username are required.');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(username)) {
+      setError('Use 3–64 letters, numbers, dots, dashes, or underscores for your username.');
+      return;
+    }
+    setError('');
+    setDetails({ firstName, lastName, username });
+    setShowSignUp(true);
+  };
+
   return <AuthPageFrame>
     <AuthRoleChooser />
-    <SignUp
-      routing="path"
-      path={`${basePath}/sign-up`}
-      signInUrl={`${basePath}/sign-in`}
-      fallbackRedirectUrl={`${basePath}/dashboard`}
-    />
+    {!showSignUp ? (
+      <form onSubmit={continueToSignUp} className="w-full max-w-[440px] rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 shadow-[0_18px_38px_rgba(31,43,56,.07)] sm:p-8">
+        <p className="font-mono text-[10px] font-bold uppercase tracking-[.16em] text-[#a2772e]">Create your identity</p>
+        <h1 className="mt-2 text-2xl font-extrabold tracking-[-.05em] text-[#182333]">Tell us who you are</h1>
+        <p className="mt-3 text-sm leading-6 text-[#697687]">First name, last name, and username are required before you create your TS Commerce account.</p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-bold text-[#182333]">First name
+            <input required autoFocus value={details.firstName} onChange={(event) => setDetails((current) => ({ ...current, firstName: event.target.value }))} autoComplete="given-name" maxLength={64} className="mt-2 h-11 w-full rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none focus:border-[#b14f36] focus:ring-2 focus:ring-[#b14f36]/15" />
+          </label>
+          <label className="text-sm font-bold text-[#182333]">Last name
+            <input required value={details.lastName} onChange={(event) => setDetails((current) => ({ ...current, lastName: event.target.value }))} autoComplete="family-name" maxLength={64} className="mt-2 h-11 w-full rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none focus:border-[#b14f36] focus:ring-2 focus:ring-[#b14f36]/15" />
+          </label>
+        </div>
+        <label className="mt-4 block text-sm font-bold text-[#182333]">Username
+          <input required value={details.username} onChange={(event) => setDetails((current) => ({ ...current, username: event.target.value }))} autoComplete="username" minLength={3} maxLength={64} pattern="[a-zA-Z0-9_.-]{3,64}" className="mt-2 h-11 w-full rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none focus:border-[#b14f36] focus:ring-2 focus:ring-[#b14f36]/15" placeholder="your-name" />
+          <span className="mt-1 block text-xs font-normal text-[#697687]">Use letters, numbers, dots, dashes, or underscores.</span>
+        </label>
+        {error && <p className="mt-4 rounded-xl bg-[#fff0ed] px-3 py-3 text-sm leading-5 text-[#943b35]" role="alert">{error}</p>}
+        <button type="submit" className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#182333] px-4 text-sm font-extrabold text-[#f8f3e8] transition hover:bg-[#25354a]">Continue to account creation</button>
+        <p className="mt-5 text-center text-xs text-[#697687]">Already have an account? <Link href="/sign-in" className="font-extrabold text-[#b14f36] underline">Sign in</Link></p>
+      </form>
+    ) : (
+      <SignUp
+        routing="path"
+        path={`${basePath}/sign-up`}
+        signInUrl={`${basePath}/sign-in`}
+        fallbackRedirectUrl={`${basePath}/dashboard`}
+        initialValues={details}
+      />
+    )}
   </AuthPageFrame>;
 }
 
