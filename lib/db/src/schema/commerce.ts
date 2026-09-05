@@ -625,6 +625,7 @@ export const ordersTable = pgTable(
     supplierPaymentAmountMinor: integer("supplier_payment_amount_minor"),
     supplierPaidAt: timestamp("supplier_paid_at", { withTimezone: true }),
     publicPaymentToken: text("public_payment_token").unique(),
+    paymentLinkId: integer("payment_link_id").references(() => paymentLinksTable.id),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -643,6 +644,7 @@ export const ordersTable = pgTable(
       table.merchantId,
       table.idempotencyKey,
     ),
+    index("orders_payment_link_idx").on(table.paymentLinkId),
     index("orders_merchant_location_created_idx").on(table.merchantId, table.locationId, table.createdAt),
   ],
 );
@@ -1073,6 +1075,7 @@ export const paymentIntentsTable = pgTable(
     status: text("status").notNull().default("created"),
     idempotencyKey: text("idempotency_key").notNull(),
     evidenceReference: text("evidence_reference"),
+    checkoutUrl: text("checkout_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   },

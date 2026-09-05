@@ -26,12 +26,15 @@ export default function PublicPaymentReturn() {
     }
     setLoading(true);
     setError('');
-    try {
-      const response = await fetch(`${apiBasePath}/api/public/checkout/${encodeURIComponent(token)}/verify`, {
+     try {
+       const transactionId = new URLSearchParams(window.location.search).get('transaction_id')
+         ?? new URLSearchParams(window.location.search).get('tx_ref')
+         ?? '';
+       const response = await fetch(`${apiBasePath}/api/public/checkout/${encodeURIComponent(token)}/verify`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+         body: JSON.stringify(transactionId ? { transaction_id: transactionId } : {}),
       });
       const payload = await response.json() as Verification & { error?: string };
       if (!response.ok) throw new Error(payload.error || 'Payment verification could not be completed.');
@@ -54,8 +57,12 @@ export default function PublicPaymentReturn() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-       const payload = await response.json() as { paymentStatus?: string; error?: string };
+        const payload = await response.json() as { paymentStatus?: string; paymentUrl?: string | null; error?: string };
        if (!response.ok) throw new Error(payload.error || 'The TS Commerce payment session could not be reopened.');
+        if (payload.paymentUrl) {
+          window.location.assign(payload.paymentUrl);
+          return;
+        }
        setError(payload.paymentStatus === 'submitted'
          ? 'Payment evidence is already awaiting merchant approval.'
          : 'The native payment session is ready. Submit your payment reference from the order page.');

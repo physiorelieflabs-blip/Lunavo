@@ -48,6 +48,8 @@ const migrations = [
   "0037_flutterwave_webhook_events",
   "0038_storefront_builder",
   "0039_media_assets",
+  "0040_transfer_entry_types_and_payment_link_orders",
+  "0041_payment_intent_checkout_urls",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

@@ -629,7 +629,10 @@ function storefrontSections(value: unknown) {
 }
 
 function publicStoreKeyFor(merchant: MerchantRecord): string {
-  return merchant.publicStoreKey ?? merchant.clerkUserId ?? String(merchant.id);
+  if (!merchant.publicStoreKey) {
+    throw new Error("Merchant does not have a public store key");
+  }
+  return merchant.publicStoreKey;
 }
 
 function isSupportedCurrency(value: string): boolean {
@@ -872,6 +875,7 @@ async function getOrCreateMerchant(identity: Identity): Promise<Merchant> {
         name: identity.name,
         email: identity.email,
         storeName: identity.isAdmin ? "TS Commerce" : `${identity.name}'s Store`,
+        publicStoreKey: randomUUID(),
       })
       .onConflictDoNothing()
       .returning();
@@ -918,6 +922,7 @@ async function getOrCreateAdminLedgerMerchant(identity: Identity): Promise<Merch
       name: identity.name,
       email: identity.email,
       storeName: "TS Commerce",
+      publicStoreKey: randomUUID(),
     })
     .onConflictDoNothing()
     .returning();
@@ -1725,77 +1730,103 @@ async function ensurePublicFlutterwaveCheckout(
     throw new Error("This order has already been paid");
   }
 
-  let intent = (
-    await db
-      .select()
-      .from(paymentIntentsTable)
-      .where(eq(paymentIntentsTable.orderId, order.id))
-      .limit(1)
-  )[0];
-  if (!intent) {
-    [intent] = await db
-      .insert(paymentIntentsTable)
-      .values({
-        merchantId: order.merchantId,
-        orderId: order.id,
-        amountMinor: Math.round(toNumber(order.total) * 100),
-        currency: order.currency,
-        method: "flutterwave",
-        idempotencyKey: `public-order:${order.id}`,
-        status: "created",
-      })
-      .onConflictDoNothing({ target: paymentIntentsTable.orderId })
-      .returning();
-    if (!intent) {
-      intent = (
-        await db
-          .select()
-          .from(paymentIntentsTable)
-          .where(eq(paymentIntentsTable.orderId, order.id))
-          .limit(1)
-      )[0];
-    }
-  }
-  if (!intent) throw new Error("Payment attempt could not be prepared");
-  if (intent.status === "verified") {
-    throw new Error("This order has already been paid");
-  }
-
   if (!origin) throw new Error("The checkout return address could not be determined");
-  const customer = order.customerId
-    ? (await db.select().from(customersTable).where(eq(customersTable.id, order.customerId)).limit(1))[0]
-    : null;
-  if (!customer) throw new Error("Checkout customer could not be found");
-  const txRef = `TSO-${order.id}-${intent.id}`;
-  const checkout = await initializeFlutterwavePayment({
-    txRef,
-    amount: toNumber(order.total),
-    currency: order.currency,
-    redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(order.publicPaymentToken)}`,
-    customer: { email: customer.email, name: customer.name, phonenumber: customer.phone ?? undefined },
-    title,
-    meta: {
-      provider: "flutterwave",
-      merchant_id: order.merchantId,
-      order_id: order.id,
-      order_number: order.orderNumber,
-      payment_intent_id: intent.id,
-      payment_token: order.publicPaymentToken,
-    },
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from ${ordersTable} where id=${order.id} and merchant_id=${order.merchantId} for update`,
+    );
+    const currentOrder = (
+      await tx
+        .select()
+        .from(ordersTable)
+        .where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, order.merchantId)))
+        .limit(1)
+    )[0];
+    if (!currentOrder) throw new Error("Payment order could not be found");
+    if (currentOrder.status === "paid") throw new Error("This order has already been paid");
+
+    let intent = (
+      await tx
+        .select()
+        .from(paymentIntentsTable)
+        .where(eq(paymentIntentsTable.orderId, currentOrder.id))
+        .limit(1)
+    )[0];
+    if (!intent) {
+      [intent] = await tx
+        .insert(paymentIntentsTable)
+        .values({
+          merchantId: currentOrder.merchantId,
+          orderId: currentOrder.id,
+          amountMinor: Math.round(toNumber(currentOrder.total) * 100),
+          currency: currentOrder.currency,
+          method: "flutterwave",
+          idempotencyKey: `public-order:${currentOrder.id}`,
+          status: "created",
+        })
+        .onConflictDoNothing({ target: paymentIntentsTable.orderId })
+        .returning();
+      if (!intent) {
+        intent = (
+          await tx
+            .select()
+            .from(paymentIntentsTable)
+            .where(eq(paymentIntentsTable.orderId, currentOrder.id))
+            .limit(1)
+        )[0];
+      }
+    }
+    if (!intent) throw new Error("Payment attempt could not be prepared");
+    if (intent.status === "verified") throw new Error("This order has already been paid");
+    if (intent.status === "submitted" && intent.evidenceReference && intent.checkoutUrl) {
+      return {
+        paymentToken: currentOrder.publicPaymentToken!,
+        paymentIntentId: intent.id,
+        checkoutId: intent.evidenceReference,
+        purchaseUrl: intent.checkoutUrl,
+        status: "submitted" as const,
+      };
+    }
+
+    const customer = (
+      await tx
+        .select()
+        .from(customersTable)
+        .where(eq(customersTable.id, currentOrder.customerId))
+        .limit(1)
+    )[0];
+    if (!customer) throw new Error("Checkout customer could not be found");
+    const txRef = `TSO-${currentOrder.id}-${intent.id}`;
+    const checkout = await initializeFlutterwavePayment({
+      txRef,
+      amount: toNumber(currentOrder.total),
+      currency: currentOrder.currency,
+      redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(currentOrder.publicPaymentToken!)}`,
+      customer: { email: customer.email, name: customer.name, phonenumber: customer.phone ?? undefined },
+      title,
+      meta: {
+        provider: "flutterwave",
+        merchant_id: currentOrder.merchantId,
+        order_id: currentOrder.id,
+        order_number: currentOrder.orderNumber,
+        payment_intent_id: intent.id,
+        payment_token: currentOrder.publicPaymentToken!,
+      },
+    });
+    const [updated] = await tx
+      .update(paymentIntentsTable)
+      .set({ status: "submitted", evidenceReference: checkout.txRef, checkoutUrl: checkout.link })
+      .where(eq(paymentIntentsTable.id, intent.id))
+      .returning();
+    if (!updated) throw new Error("Could not save the customer checkout reference");
+    return {
+      paymentToken: currentOrder.publicPaymentToken!,
+      paymentIntentId: intent.id,
+      checkoutId: checkout.txRef,
+      purchaseUrl: checkout.link,
+      status: "submitted" as const,
+    };
   });
-  const [updated] = await db
-    .update(paymentIntentsTable)
-    .set({ status: "submitted", evidenceReference: checkout.txRef })
-    .where(eq(paymentIntentsTable.id, intent.id))
-    .returning();
-  if (!updated) throw new Error("Could not save the customer checkout reference");
-  return {
-    paymentToken: order.publicPaymentToken,
-    paymentIntentId: intent.id,
-    checkoutId: checkout.txRef,
-    purchaseUrl: checkout.link,
-    status: "submitted",
-  };
 }
 
 async function findFlutterwaveCustomerPayment(
@@ -1912,7 +1943,22 @@ async function verifyPublicFlutterwaveOrder(
           )
           .limit(1)
       )[0];
-      if (reservation?.status === "reserved" && reservation.expiresAt > new Date()) {
+      if (!reservation || reservation.status !== "reserved") {
+        throw new Error("Inventory reservation is missing or no longer active");
+      }
+      if (reservation.expiresAt <= new Date()) {
+        await tx
+          .update(inventoryReservationsTable)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(
+            and(
+              eq(inventoryReservationsTable.id, reservation.id),
+              eq(inventoryReservationsTable.status, "reserved"),
+            ),
+          );
+        throw new Error("Inventory reservation has expired");
+      }
+      if (reservation.status === "reserved" && reservation.expiresAt > new Date()) {
         await tx
           .update(inventoryReservationsTable)
           .set({ status: "consumed", updatedAt: new Date() })
@@ -1950,11 +1996,6 @@ async function verifyPublicFlutterwaveOrder(
             referenceKey: `sale:${currentIntent.id}`,
           })
           .onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
-      } else if (reservation?.status === "reserved") {
-        await tx
-          .update(inventoryReservationsTable)
-          .set({ status: "expired", updatedAt: new Date() })
-          .where(eq(inventoryReservationsTable.id, reservation.id));
       }
     }
 
@@ -5854,10 +5895,16 @@ router.get("/exports/:resource", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const resource = req.params.resource;
+  if (!["customers", "orders", "products", "transactions"].includes(resource)) {
+    res.status(404).json({ error: "Unknown export resource" });
+    return;
+  }
   const merchant = await getOrCreateMerchant(identity);
+  const access = await requireTenantPermission(identity, merchant.id, "customers.export", res);
+  if (!access) return;
   const today = new Date().toISOString().slice(0, 10);
-  let document: string;
-  let filename: string;
+  let document = "";
+  let filename = "";
 
   if (resource === "customers") {
     const customers = await db.select().from(customersTable).where(eq(customersTable.merchantId, merchant.id)).orderBy(asc(customersTable.createdAt));
@@ -5875,9 +5922,6 @@ router.get("/exports/:resource", async (req, res): Promise<void> => {
     const entries = await db.select().from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).orderBy(asc(ledgerEntriesTable.createdAt));
     document = csvDocument(["id", "order_id", "amount_minor", "currency", "entry_type", "reference_key", "created_at"], entries.map((entry) => [entry.id, entry.orderId, entry.amountMinor, entry.currency, entry.entryType, entry.referenceKey, entry.createdAt.toISOString()]));
     filename = `ts-commerce-transactions-${today}.csv`;
-  } else {
-    res.status(404).json({ error: "Unknown export resource" });
-    return;
   }
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -7487,10 +7531,7 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     await db
       .select()
       .from(merchantsTable)
-      .where(or(
-        eq(merchantsTable.publicStoreKey, parsed.data.merchantKey),
-        eq(merchantsTable.clerkUserId, parsed.data.merchantKey),
-      ))
+      .where(eq(merchantsTable.publicStoreKey, parsed.data.merchantKey))
       .limit(1)
   )[0];
   if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
@@ -7559,10 +7600,7 @@ router.post(
       await db
         .select()
         .from(merchantsTable)
-        .where(or(
-          eq(merchantsTable.publicStoreKey, params.data.merchantKey),
-          eq(merchantsTable.clerkUserId, params.data.merchantKey),
-        ))
+        .where(eq(merchantsTable.publicStoreKey, params.data.merchantKey))
         .limit(1)
     )[0];
     if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
@@ -7847,8 +7885,17 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
   const location = await resolveOrderLocation(link.merchantId, null, null, true);
   try {
     const result = await db.transaction(async (tx) => {
-      const replay = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
-      if (replay) return replay.order;
+       const replay = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
+       if (replay) {
+         if (
+           replay.order.paymentLinkId !== link.id
+           || replay.order.currency !== link.currency
+           || toNumber(replay.order.total) !== toNumber(link.amount)
+         ) {
+           throw new Error("This idempotency key was already used for a different payment link order");
+         }
+         return replay.order;
+       }
       const email = parsed.data.customerEmail.trim().toLowerCase();
       let customer = (await tx.select().from(customersTable).where(and(eq(customersTable.merchantId, link.merchantId), eq(customersTable.email, email))).limit(1))[0];
       if (customer) {
@@ -7888,11 +7935,21 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
         shippingAddress: parsed.data.shippingAddress.trim(),
         fulfillmentStatus: "not_required",
         publicPaymentToken: randomUUID(),
+         paymentLinkId: link.id,
         idempotencyKey: parsed.data.idempotencyKey,
       }).onConflictDoNothing({ target: [ordersTable.merchantId, ordersTable.idempotencyKey] }).returning();
       if (!order) {
         const existing = (await tx.select({ order: ordersTable }).from(ordersTable).where(and(eq(ordersTable.merchantId, link.merchantId), eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey))).limit(1))[0];
-        if (existing) return existing.order;
+        if (existing) {
+          if (
+            existing.order.paymentLinkId !== link.id
+            || existing.order.currency !== link.currency
+            || toNumber(existing.order.total) !== toNumber(link.amount)
+          ) {
+            throw new Error("This idempotency key was already used for a different payment link order");
+          }
+          return existing.order;
+        }
         throw new Error("Payment link order could not be created");
       }
       await tx.insert(activityTable).values({

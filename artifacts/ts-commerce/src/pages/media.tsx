@@ -35,7 +35,7 @@ export default function Media() {
   const load = async () => {
     setLoading(true);
     try {
-      setAssets(await customFetch<MediaAsset[]>('/media', { responseType: 'json' }));
+       setAssets(await customFetch<MediaAsset[]>('/api/media', { responseType: 'json' }));
       setError('');
     } catch {
       setError('Your picture library could not be loaded. Refresh and try again.');
@@ -72,7 +72,7 @@ export default function Media() {
     setError('');
     setMessage('');
     try {
-      await customFetch<MediaAsset>('/media', {
+       await customFetch<MediaAsset>('/api/media', {
         method: 'POST',
         body: JSON.stringify({
           filename: file.name,
@@ -102,7 +102,7 @@ export default function Media() {
   const remove = async (id: number) => {
     if (!window.confirm('Delete this picture from the library?')) return;
     try {
-      await customFetch(`/media/${id}`, { method: 'DELETE', responseType: 'text' });
+       await customFetch(`/api/media/${id}`, { method: 'DELETE', responseType: 'text' });
       setAssets((current) => current.filter((asset) => asset.id !== id));
       setMessage('Picture deleted.');
     } catch {
