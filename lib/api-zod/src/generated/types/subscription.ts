@@ -30,4 +30,7 @@ export interface Subscription {
   trialEndsAt: Date;
   daysElapsed: number;
   daysRemaining: number;
+  accessLocked: boolean;
+  gracePeriodHours: number;
+  paymentRecoveryAvailable: boolean;
 }

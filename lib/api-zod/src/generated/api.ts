@@ -99,7 +99,10 @@ export const GetDashboardOverviewResponse = zod.object({
   "serverNow": zod.coerce.date(),
   "trialEndsAt": zod.coerce.date(),
   "daysElapsed": zod.int(),
-  "daysRemaining": zod.int()
+  "daysRemaining": zod.int(),
+  "accessLocked": zod.boolean(),
+  "gracePeriodHours": zod.int(),
+  "paymentRecoveryAvailable": zod.boolean()
 }),
   "revenueSeries": zod.array(zod.object({
   "label": zod.string(),
@@ -3523,7 +3526,10 @@ export const GetSubscriptionResponse = zod.object({
   "serverNow": zod.coerce.date(),
   "trialEndsAt": zod.coerce.date(),
   "daysElapsed": zod.int(),
-  "daysRemaining": zod.int()
+  "daysRemaining": zod.int(),
+  "accessLocked": zod.boolean(),
+  "gracePeriodHours": zod.int(),
+  "paymentRecoveryAvailable": zod.boolean()
 })
 
 

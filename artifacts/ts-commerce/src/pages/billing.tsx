@@ -62,6 +62,13 @@ export default function Billing() {
     return () => { active = false; };
   }, [queryClient]);
 
+  useEffect(() => {
+    const savedMethod = subscription.data?.paymentMethod;
+    if (savedMethod === 'Pay from dashboard' || savedMethod === 'earnings') setMethod('earnings');
+    if (savedMethod === 'Pay from bank' || savedMethod === 'bank') setMethod('bank');
+    if (savedMethod === 'flutterwave' || savedMethod === 'Pay with Flutterwave') setMethod('flutterwave');
+  }, [subscription.data?.paymentMethod]);
+
   if (subscription.isLoading || currencySettings.isLoading) return <AppShell><LoadingState /></AppShell>;
   if (subscription.isError || currencySettings.isError || !subscription.data) return <AppShell><ErrorState onRetry={() => { void subscription.refetch(); void currencySettings.refetch(); }} /></AppShell>;
 
@@ -76,6 +83,9 @@ export default function Billing() {
   const countdownMinutes = Math.floor((countdownTotalSeconds % 3600) / 60);
   const countdownSeconds = countdownTotalSeconds % 60;
   const suspended = data.status === 'suspended';
+  const locked = data.accessLocked || suspended;
+  const selectedMethod = data.paymentMethod ?? 'No payment method selected';
+  const graceCopy = data.gracePeriodHours === 24 ? '24-hour payment-selection window' : '15-day payment grace period';
 
   function refreshBilling() {
     return Promise.all([
@@ -148,17 +158,17 @@ export default function Billing() {
       </div>
 
       {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Action not completed' : 'Update received'}>{message}</Notice></div>}
-      {suspended ? <div className="mt-8"><Notice tone="danger" title="Your account is currently suspended">New orders and transfers are paused. Settle the outstanding subscription to restore access.</Notice></div> : data.daysRemaining <= 7 && <div className="mt-8"><Notice title={`Action needed within ${data.daysRemaining || 1} days`}>Held earnings cover part of your subscription. Settle the remaining balance before day {data.suspensionDay} to avoid interruption.</Notice></div>}
+       {locked ? <div className="mt-8"><Notice tone="danger" title="Billing access is locked">New orders are paused until the subscription is settled. Retry the declined payment, switch to dashboard earnings, or submit a bank payment to restore access after verification.</Notice></div> : data.daysRemaining <= 7 && <div className="mt-8"><Notice title={`Action needed within ${data.daysRemaining || 1} day${data.daysRemaining === 1 ? '' : 's'}`}>{data.paymentMethod ? `Your selected payment method has a ${graceCopy}. ` : 'Select a payment method within 24 hours. '}Settle the outstanding balance before the window closes.</Notice></div>}
 
       <div className="mt-8 grid gap-4 md:grid-cols-[1.1fr_.9fr]">
         <section className="rounded-xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-8">
           <div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[#d6aa46]">Outstanding</p><p className="mt-5 font-mono text-5xl tracking-[-.1em]">{money(outstanding, currency)}</p><p className="mt-3 text-sm text-[#aab6c2]">of {money(data.amountDue, currency)} due this cycle</p></div><LockKeyhole className="h-5 w-5 text-[#d6aa46]" /></div>
           <div className="mt-9 h-2 overflow-hidden rounded-full bg-[#3b4b60]"><div className="h-full rounded-full bg-[#d6aa46]" style={{ width: `${data.amountDue > 0 ? Math.min((data.amountPaid / data.amountDue) * 100, 100) : 100}%` }} /></div>
-          <div className="mt-3 flex justify-between text-xs text-[#aab6c2]"><span>{money(data.amountPaid, currency)} paid</span><span>Day {data.daysElapsed} of {data.suspensionDay}</span></div>
+           <div className="mt-3 flex justify-between text-xs text-[#aab6c2]"><span>{money(data.amountPaid, currency)} paid</span><span>{data.paymentMethod ? `Day ${data.daysElapsed} of ${data.suspensionDay}` : 'Select a payment method'}</span></div>
         </section>
         <section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
-          <div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[#a2772e]">Account clock</p><p className="mt-4 text-3xl font-extrabold tracking-[-.06em]">{data.daysRemaining === 0 ? 'Expired' : `${countdownDays}d ${String(countdownHours).padStart(2, '0')}h`}</p><p className="mt-1 text-sm text-[#697687]">{data.daysRemaining === 0 ? '15-day window has ended' : `exact countdown · ${String(countdownMinutes).padStart(2, '0')}m ${String(countdownSeconds).padStart(2, '0')}s remaining`}</p></div><Clock3 className="h-5 w-5 text-[#a2772e]" /></div>
-          <div className="mt-7 space-y-3 text-sm"><div className="flex justify-between"><span className="text-[#697687]">Registered</span><strong>{dateLabel(data.registeredAt)}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Warning day</span><strong>Day {data.warningDay}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Suspension day</span><strong>{dateLabel(data.trialEndsAt)}</strong></div></div>
+           <div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[#a2772e]">Account clock</p><p className="mt-4 text-3xl font-extrabold tracking-[-.06em]">{locked ? 'Locked' : `${countdownDays}d ${String(countdownHours).padStart(2, '0')}h`}</p><p className="mt-1 text-sm text-[#697687]">{locked ? `${graceCopy} has ended` : `${graceCopy} · ${String(countdownMinutes).padStart(2, '0')}m ${String(countdownSeconds).padStart(2, '0')}s remaining`}</p></div><Clock3 className="h-5 w-5 text-[#a2772e]" /></div>
+           <div className="mt-7 space-y-3 text-sm"><div className="flex justify-between"><span className="text-[#697687]">Registered</span><strong>{dateLabel(data.registeredAt)}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Payment method</span><strong>{selectedMethod}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Access deadline</span><strong>{dateLabel(data.trialEndsAt)}</strong></div></div>
         </section>
       </div>
 

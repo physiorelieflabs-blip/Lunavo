@@ -2805,6 +2805,9 @@ components:
         trialEndsAt: { type: string, format: date-time }
         daysElapsed: { type: integer }
         daysRemaining: { type: integer }
+        accessLocked: { type: boolean }
+        gracePeriodHours: { type: integer }
+        paymentRecoveryAvailable: { type: boolean }
       required:
         - id
         - email
@@ -2825,6 +2828,9 @@ components:
         - trialEndsAt
         - daysElapsed
         - daysRemaining
+        - accessLocked
+        - gracePeriodHours
+        - paymentRecoveryAvailable
         - nextAction
         - paymentMethod
     DashboardOverview:

@@ -1152,6 +1152,9 @@ export interface Subscription {
   trialEndsAt: string;
   daysElapsed: number;
   daysRemaining: number;
+  accessLocked: boolean;
+  gracePeriodHours: number;
+  paymentRecoveryAvailable: boolean;
 }
 
 /**

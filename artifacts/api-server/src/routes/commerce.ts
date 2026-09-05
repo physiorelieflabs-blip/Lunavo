@@ -1045,6 +1045,49 @@ async function addActivity(
   await db.insert(activityTable).values({ merchantId, ...values });
 }
 
+function subscriptionAccessWindow(
+  merchant: Merchant,
+  subscription: Subscription,
+  now = new Date(),
+) {
+  const paymentMethod = subscription.paymentMethod;
+  const hasSelectedMethod = Boolean(paymentMethod);
+  const gracePeriodHours = hasSelectedMethod ? 15 * 24 : 24;
+  const deadline = new Date(
+    merchant.registeredAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
+  );
+  const daysElapsed = hasSelectedMethod
+    ? daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC")
+    : Math.max(
+        0,
+        Math.floor(
+          (now.getTime() - merchant.registeredAt.getTime()) /
+            (24 * 60 * 60 * 1000),
+        ),
+      );
+  const gracePeriodDays = hasSelectedMethod ? 15 : 1;
+  const daysRemaining = hasSelectedMethod
+    ? Math.max(0, gracePeriodDays - daysElapsed)
+    : Math.max(
+        0,
+        Math.ceil(
+          (deadline.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+        ),
+      );
+
+  return {
+    paymentMethod,
+    hasSelectedMethod,
+    gracePeriodHours,
+    gracePeriodDays,
+    deadline,
+    daysElapsed,
+    daysRemaining,
+    warningDay: hasSelectedMethod ? 10 : 0,
+    accessLocked: now >= deadline,
+  };
+}
+
 async function enforceSubscription(merchant: Merchant, isAdmin = false) {
   let subscription = await getSubscriptionForMerchant(merchant, isAdmin);
   if (isAdmin) {
@@ -1075,7 +1118,8 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
     0,
     toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
   );
-  const days = daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC");
+  const access = subscriptionAccessWindow(merchant, subscription);
+  const days = access.daysElapsed;
 
   if (remaining === 0 && subscription.status !== "active") {
     [subscription] = await db
@@ -1083,7 +1127,7 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
       .set({ status: "active" })
       .where(eq(subscriptionsTable.id, subscription.id))
       .returning();
-  } else if (remaining > 0 && days >= 15) {
+  } else if (remaining > 0 && access.accessLocked) {
     const wasSuspended = merchant.status === "suspended";
     if (!wasSuspended && merchant.status !== "banned") {
       [merchant] = await db
@@ -1094,8 +1138,9 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
       await addActivity(merchant.id, {
         type: "subscription_suspended",
         title: "Account suspended",
-        description:
-          "The platform fee was not settled by day 15. A verified payment restores access.",
+        description: access.hasSelectedMethod
+          ? "The platform fee was not settled within the 15-day payment grace period. A verified payment restores access."
+          : "No subscription payment method was selected within 24 hours. Choose a payment method and complete a verified payment to restore access.",
         amount: remaining.toFixed(2),
         tone: "negative",
       });
@@ -1109,7 +1154,8 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
     }
   } else if (
     remaining > 0 &&
-    days >= 10 &&
+    access.hasSelectedMethod &&
+    days >= access.warningDay &&
     subscription.status === "pending"
   ) {
     [subscription] = await db
@@ -1120,7 +1166,7 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
     await addActivity(merchant.id, {
       type: "subscription_warning",
       title: "Platform fee reminder",
-      description: `Your platform fee must be settled within ${15 - days} days to avoid suspension.`,
+      description: `Your platform fee must be settled within ${access.daysRemaining} days to avoid suspension.`,
       amount: remaining.toFixed(2),
       tone: "warning",
     });
@@ -1134,11 +1180,7 @@ function serializeSubscription(
   isAdmin = false,
 ) {
   const serverNow = new Date();
-  const days = daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC");
-  const trialEndsAt = new Date(
-    merchant.registeredAt.getTime() + 15 * 24 * 60 * 60 * 1000,
-  );
-  const daysRemaining = Math.max(0, 15 - days);
+  const access = subscriptionAccessWindow(merchant, subscription, serverNow);
   const admin = isAdmin;
   const paid = toNumber(subscription.amountPaid);
   const remaining = Math.max(0, toNumber(subscription.amountDue) - paid);
@@ -1147,12 +1189,18 @@ function serializeSubscription(
     : remaining === 0
       ? "Subscription settled"
       : `Pay ${subscription.currency} ${remaining.toFixed(2)} from dashboard or choose Pay from bank`;
-  if (!admin && days >= 10 && days < 15 && remaining > 0) {
-    nextAction = `Warning: ${15 - days} days left to settle your subscription`;
+  if (
+    !admin &&
+    access.hasSelectedMethod &&
+    access.daysElapsed >= access.warningDay &&
+    !access.accessLocked &&
+    remaining > 0
+  ) {
+    nextAction = `Warning: ${access.daysRemaining} days left to settle your subscription`;
   }
-  if (!admin && days >= 15 && remaining > 0) {
+  if (!admin && access.accessLocked && remaining > 0) {
     nextAction =
-      "Account suspended — choose Pay from bank and submit the payment for admin review to restore access";
+      "Account locked — retry your payment or choose Pay from dashboard to restore access";
   }
   return {
     id: subscription.id,
@@ -1176,13 +1224,16 @@ function serializeSubscription(
           ? "suspended"
           : subscription.status,
     registeredAt: merchant.registeredAt,
-    warningDay: 10,
-    suspensionDay: 15,
+    warningDay: access.warningDay,
+    suspensionDay: access.gracePeriodDays,
     serverNow,
-    trialEndsAt,
-    daysElapsed: days,
-    daysRemaining,
+    trialEndsAt: access.deadline,
+    daysElapsed: access.daysElapsed,
+    daysRemaining: access.daysRemaining,
     nextAction,
+    accessLocked: admin ? false : access.accessLocked && remaining > 0,
+    gracePeriodHours: access.gracePeriodHours,
+    paymentRecoveryAvailable: !admin && remaining > 0,
     paymentMethod:
       subscription.paymentMethod === "earnings"
         ? "Pay from dashboard"
@@ -9005,6 +9056,10 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
           .limit(1)
       )[0];
       if (!currentSubscription) throw new Error("Subscription not found");
+      await tx
+        .update(subscriptionsTable)
+        .set({ paymentMethod: "bank" })
+        .where(eq(subscriptionsTable.id, currentSubscription.id));
       const [pendingTransfers] = await tx
         .select({
           total: sql<string>`coalesce(sum(${paymentsTable.amount}) filter (where ${paymentsTable.status} = 'under_review' and ${paymentsTable.method} = 'bank_transfer'), 0)`,
@@ -9131,6 +9186,10 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
     res.status(409).json({ error: "Could not reserve the Flutterwave payment attempt" });
     return;
   }
+  await db
+    .update(subscriptionsTable)
+    .set({ paymentMethod: "flutterwave" })
+    .where(eq(subscriptionsTable.id, enforced.subscription.id));
   try {
     const checkout = await initializeFlutterwavePayment({
       txRef: reference,
