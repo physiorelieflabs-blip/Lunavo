@@ -174,6 +174,7 @@ export * from './referralAttributionResponseStatus';
 export * from './referralOverview';
 export * from './referralOverviewAttributionsItem';
 export * from './referralOverviewCurrentPeriod';
+export * from './referralOverviewMilestonesItem';
 export * from './referralOverviewRewardsItem';
 export * from './refundInput';
 export * from './refundRecord';

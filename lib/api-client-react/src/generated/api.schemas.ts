@@ -1146,7 +1146,8 @@ export interface Subscription {
   /** @nullable */
   fxAsOf: string | null;
   amountPaid: number;
-  earningsHeld: number;
+  earningsHeld?: number;
+  referralFreeMonths?: number;
   status: string;
   registeredAt: string;
   warningDay: number;
@@ -1195,12 +1196,17 @@ export type ReferralOverviewCurrentPeriod = {
   status: string;
 } | null;
 
+export type ReferralOverviewMilestonesItem = { [key: string]: unknown };
+
 export type ReferralOverviewAttributionsItem = { [key: string]: unknown };
 
 export type ReferralOverviewRewardsItem = { [key: string]: unknown };
 
 export interface ReferralOverview {
   currentPeriod: ReferralOverviewCurrentPeriod;
+  qualifyingReferralCount: number;
+  freeMonthsRemaining: number;
+  milestones: ReferralOverviewMilestonesItem[];
   attributions: ReferralOverviewAttributionsItem[];
   rewards: ReferralOverviewRewardsItem[];
 }

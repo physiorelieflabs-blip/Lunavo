@@ -55,6 +55,7 @@ const migrations = [
   "0044_referral_reward_integrity",
   "0045_payment_settlement_snapshots",
   "0046_payment_destination_attempts",
+  "0047_referral_free_month_milestone",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

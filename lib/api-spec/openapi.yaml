@@ -2900,6 +2900,7 @@ components:
         fxAsOf: { type: ["string", "null"], format: date-time }
         amountPaid: { type: number }
         earningsHeld: { type: number }
+        referralFreeMonths: { type: integer }
         status: { type: string }
         registeredAt: { type: string, format: date-time }
         warningDay: { type: integer }
@@ -2925,6 +2926,7 @@ components:
         - fxAsOf
         - amountPaid
         - earningsHeld
+         - referralFreeMonths
         - status
         - registeredAt
         - warningDay
@@ -2966,13 +2968,18 @@ components:
                 status: { type: string }
               required: [id, periodKey, code, validFrom, validUntil, status]
             - type: "null"
+        qualifyingReferralCount: { type: integer }
+        freeMonthsRemaining: { type: integer }
+        milestones:
+          type: array
+          items: { type: object, additionalProperties: true }
         attributions:
           type: array
           items: { type: object, additionalProperties: true }
         rewards:
           type: array
           items: { type: object, additionalProperties: true }
-      required: [currentPeriod, attributions, rewards]
+      required: [currentPeriod, qualifyingReferralCount, freeMonthsRemaining, milestones, attributions, rewards]
     DashboardOverview:
       type: object
       properties:

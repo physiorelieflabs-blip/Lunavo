@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gt, isNull, isNotNull, lt, lte } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
 import {
   merchantsTable,
   paymentsTable,
   referralAttributionsTable,
+  referralMilestonesTable,
   referralPeriodsTable,
   referralRewardsTable,
   subscriptionsTable,
@@ -12,7 +13,9 @@ import {
 } from "@workspace/db";
 
 type Transaction = any;
-const REFERRAL_DISCOUNT_RATE = 0.30;
+export const REFERRAL_DISCOUNT_RATE = 0.30;
+export const REFERRAL_FREE_REFERRAL_MILESTONE = 150;
+export const REFERRAL_FREE_MONTHS = 12;
 
 export function normalizeReferralCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, "");
@@ -62,6 +65,11 @@ export function referralPeriodForDate(timeZone: string | null | undefined, now =
 function subscriptionGrossMinor(subscription: Subscription): number {
   const gross = Number(subscription.grossAmount || subscription.amountDue);
   return Math.max(0, Math.round(gross * 100));
+}
+
+export function calculateReferralDiscountMinor(grossAmountMinor: number): number {
+  const gross = Math.max(0, Math.round(grossAmountMinor));
+  return Math.min(gross, Math.round(gross * REFERRAL_DISCOUNT_RATE));
 }
 
 export async function ensureReferralPeriodForPaidSubscription(
@@ -288,10 +296,7 @@ export async function qualifyReferralForPayment(
   const grossAmountMinor = referrerSubscription
     ? subscriptionGrossMinor(referrerSubscription)
     : subscriptionGrossMinor(input.subscription);
-  const discountAmountMinor = Math.min(
-    grossAmountMinor,
-    Math.round(grossAmountMinor * REFERRAL_DISCOUNT_RATE),
-  );
+  const discountAmountMinor = calculateReferralDiscountMinor(grossAmountMinor);
   const payableAmountMinor = Math.max(0, grossAmountMinor - discountAmountMinor);
   const [updatedAttribution] = await tx
     .update(referralAttributionsTable)
@@ -322,13 +327,69 @@ export async function qualifyReferralForPayment(
     })
     .onConflictDoNothing()
     .returning();
-  return reward ?? (
+  const qualifyingReward = reward ?? (
     await tx
       .select()
       .from(referralRewardsTable)
       .where(eq(referralRewardsTable.qualifyingPaymentId, payment.id))
       .limit(1)
   )[0] ?? null;
+  if (qualifyingReward?.status === "earned") {
+    await grantReferralFreeMonthsMilestone(tx, attribution.referrerMerchantId, now);
+  }
+  return qualifyingReward;
+}
+
+export async function grantReferralFreeMonthsMilestone(
+  tx: Transaction,
+  merchantId: number,
+  now = new Date(),
+) {
+  const [countRow] = await tx
+    .select({
+      count: sql<number>`count(*)`,
+    })
+    .from(referralRewardsTable)
+    .where(and(
+      eq(referralRewardsTable.merchantId, merchantId),
+      inArray(referralRewardsTable.status, ["earned", "applied"]),
+      isNull(referralRewardsTable.reversedAt),
+    ));
+  const qualifyingReferralCount = Number(countRow?.count ?? 0);
+  if (qualifyingReferralCount < REFERRAL_FREE_REFERRAL_MILESTONE) return null;
+
+  const [created] = await tx
+    .insert(referralMilestonesTable)
+    .values({
+      merchantId,
+      milestoneKey: "150_verified_referrals",
+      qualifyingReferralCount,
+      freeMonths: REFERRAL_FREE_MONTHS,
+      status: "granted",
+      grantedAt: now,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!created) {
+    return (
+      await tx
+        .select()
+        .from(referralMilestonesTable)
+        .where(and(
+          eq(referralMilestonesTable.merchantId, merchantId),
+          eq(referralMilestonesTable.milestoneKey, "150_verified_referrals"),
+        ))
+        .limit(1)
+    )[0] ?? null;
+  }
+
+  await tx
+    .update(subscriptionsTable)
+    .set({
+      referralFreeMonths: sql`${subscriptionsTable.referralFreeMonths} + ${REFERRAL_FREE_MONTHS}`,
+    })
+    .where(eq(subscriptionsTable.merchantId, merchantId));
+  return created;
 }
 
 export async function rollSubscriptionPeriod(
@@ -354,6 +415,8 @@ export async function rollSubscriptionPeriod(
   }
 
   const grossAmountMinor = subscriptionGrossMinor(subscription);
+  const freeMonthsRemaining = Math.max(0, subscription.referralFreeMonths ?? 0);
+  const usesFreeMonth = freeMonthsRemaining > 0;
   const [reward] = await tx
     .select()
     .from(referralRewardsTable)
@@ -365,7 +428,9 @@ export async function rollSubscriptionPeriod(
     ))
     .orderBy(desc(referralRewardsTable.createdAt))
     .limit(1);
-  const discountMinor = reward?.discountAmountMinor ?? 0;
+  const discountMinor = usesFreeMonth
+    ? grossAmountMinor
+    : reward?.discountAmountMinor ?? 0;
   const payableMinor = Math.max(0, grossAmountMinor - discountMinor);
   const [nextSubscription] = await tx
     .update(subscriptionsTable)
@@ -374,7 +439,10 @@ export async function rollSubscriptionPeriod(
       grossAmount: (grossAmountMinor / 100).toFixed(2),
       amountDue: (payableMinor / 100).toFixed(2),
       referralDiscount: (discountMinor / 100).toFixed(2),
-      referralRewardId: reward?.id ?? null,
+      referralRewardId: usesFreeMonth ? null : reward?.id ?? null,
+      referralFreeMonths: usesFreeMonth
+        ? freeMonthsRemaining - 1
+        : freeMonthsRemaining,
       amountPaid: "0",
       earningsHeld: "0",
       paymentMethod: null,
@@ -384,7 +452,7 @@ export async function rollSubscriptionPeriod(
     .where(and(eq(subscriptionsTable.id, subscription.id), eq(subscriptionsTable.billingPeriodKey, subscription.billingPeriodKey)))
     .returning();
   if (!nextSubscription) return subscription;
-  if (reward) {
+  if (reward && !usesFreeMonth) {
     await tx
       .update(referralRewardsTable)
       .set({ status: "applied", appliedSubscriptionId: nextSubscription.id })

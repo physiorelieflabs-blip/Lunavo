@@ -18,7 +18,8 @@ export interface Subscription {
   /** @nullable */
   fxAsOf: Date | null;
   amountPaid: number;
-  earningsHeld: number;
+  earningsHeld?: number;
+  referralFreeMonths?: number;
   status: string;
   registeredAt: Date;
   warningDay: number;

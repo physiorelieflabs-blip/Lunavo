@@ -7,10 +7,14 @@
  */
 import type { ReferralOverviewAttributionsItem } from './referralOverviewAttributionsItem';
 import type { ReferralOverviewCurrentPeriod } from './referralOverviewCurrentPeriod';
+import type { ReferralOverviewMilestonesItem } from './referralOverviewMilestonesItem';
 import type { ReferralOverviewRewardsItem } from './referralOverviewRewardsItem';
 
 export interface ReferralOverview {
   currentPeriod: ReferralOverviewCurrentPeriod;
+  qualifyingReferralCount: number;
+  freeMonthsRemaining: number;
+  milestones: ReferralOverviewMilestonesItem[];
   attributions: ReferralOverviewAttributionsItem[];
   rewards: ReferralOverviewRewardsItem[];
 }

@@ -211,6 +211,7 @@ export const subscriptionsTable = pgTable(
       .notNull()
       .default("0"),
     referralRewardId: integer("referral_reward_id"),
+    referralFreeMonths: integer("referral_free_months").notNull().default(0),
     billingPeriodKey: text("billing_period_key"),
     earningsHeld: numeric("earnings_held", { precision: 12, scale: 2 })
       .notNull()
@@ -1196,6 +1197,24 @@ export const referralRewardsTable = pgTable(
     uniqueIndex("referral_rewards_attribution_unique").on(table.attributionId),
     uniqueIndex("referral_rewards_qualifying_payment_unique").on(table.qualifyingPaymentId),
     index("referral_rewards_merchant_status_idx").on(table.merchantId, table.status),
+  ],
+);
+
+export const referralMilestonesTable = pgTable(
+  "referral_milestones",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    milestoneKey: text("milestone_key").notNull(),
+    qualifyingReferralCount: integer("qualifying_referral_count").notNull(),
+    freeMonths: integer("free_months").notNull(),
+    status: text("status").notNull().default("granted"),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("referral_milestones_merchant_key_unique").on(table.merchantId, table.milestoneKey),
+    index("referral_milestones_merchant_idx").on(table.merchantId, table.createdAt),
   ],
 );
 

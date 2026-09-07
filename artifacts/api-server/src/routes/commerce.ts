@@ -59,6 +59,7 @@ import {
   domainEventConsumptionsTable,
   notificationsTable,
   referralAttributionsTable,
+  referralMilestonesTable,
   referralPeriodsTable,
   referralRewardsTable,
   merchantLocationsTable,
@@ -373,6 +374,7 @@ import {
 import {
   attributeReferral,
   ensureReferralPeriodForPaidSubscription,
+  grantReferralFreeMonthsMilestone,
   qualifyReferralForPayment,
   referralPeriodForDate,
   reverseReferralReward,
@@ -1288,6 +1290,7 @@ function serializeSubscription(
         : null,
     amountPaid: paid,
     earningsHeld: toNumber(subscription.earningsHeld),
+    referralFreeMonths: subscription.referralFreeMonths,
     status:
       admin || remaining === 0
         ? "active"
@@ -9252,6 +9255,19 @@ router.get("/referrals", async (req, res): Promise<void> => {
     .where(eq(referralRewardsTable.merchantId, merchant.id))
     .orderBy(desc(referralRewardsTable.createdAt))
     .limit(100);
+  const [qualifiedCountRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(referralRewardsTable)
+    .where(and(
+      eq(referralRewardsTable.merchantId, merchant.id),
+      inArray(referralRewardsTable.status, ["earned", "applied"]),
+      isNull(referralRewardsTable.reversedAt),
+    ));
+  const milestones = await db
+    .select()
+    .from(referralMilestonesTable)
+    .where(eq(referralMilestonesTable.merchantId, merchant.id))
+    .orderBy(desc(referralMilestonesTable.createdAt));
   res.json({
     currentPeriod: period
       ? {
@@ -9263,6 +9279,16 @@ router.get("/referrals", async (req, res): Promise<void> => {
           status: period.status,
         }
       : null,
+    qualifyingReferralCount: Number(qualifiedCountRow?.count ?? 0),
+    freeMonthsRemaining: subscription.referralFreeMonths,
+    milestones: milestones.map((milestone) => ({
+      id: milestone.id,
+      milestoneKey: milestone.milestoneKey,
+      qualifyingReferralCount: milestone.qualifyingReferralCount,
+      freeMonths: milestone.freeMonths,
+      status: milestone.status,
+      grantedAt: milestone.grantedAt,
+    })),
     attributions: attributions.map((attribution) => ({
       id: attribution.id,
       referredMerchantId: attribution.referredMerchantId,
@@ -9333,15 +9359,21 @@ router.post("/referrals/rewards/:id/approve", async (req, res): Promise<void> =>
     res.status(400).json({ error: "Invalid referral reward" });
     return;
   }
-  const [reward] = await db
-    .update(referralRewardsTable)
-    .set({ status: "earned" })
-    .where(and(eq(referralRewardsTable.id, id), eq(referralRewardsTable.status, "review")))
-    .returning();
-  if (!reward) {
+  const result = await db.transaction(async (tx) => {
+    const [reward] = await tx
+      .update(referralRewardsTable)
+      .set({ status: "earned" })
+      .where(and(eq(referralRewardsTable.id, id), eq(referralRewardsTable.status, "review")))
+      .returning();
+    if (!reward) return null;
+    const milestone = await grantReferralFreeMonthsMilestone(tx, reward.merchantId);
+    return { reward, milestone };
+  });
+  if (!result) {
     res.status(404).json({ error: "Referral review reward was not found" });
     return;
   }
+  const { reward } = result;
   res.json({ id: reward.id, status: reward.status });
 });
 
