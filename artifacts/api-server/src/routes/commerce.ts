@@ -3173,15 +3173,50 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
           .where(eq(tsPayAccountsTable.id, tsPayAccount.id));
       }
       if (quote) {
-        const [paymentActivity] = await tx
+        const subscriptionPayments = await tx
           .select({ id: paymentsTable.id })
           .from(paymentsTable)
-          .where(eq(paymentsTable.merchantId, merchant.id))
+          .where(and(
+            eq(paymentsTable.merchantId, merchant.id),
+            sql`${paymentsTable.reference} like ${`FLW-SUB-${currentSubscription.id}-%`}`,
+          ));
+        const [confirmedPayment] = await tx
+          .select({ id: paymentsTable.id })
+          .from(paymentsTable)
+          .where(and(
+            eq(paymentsTable.merchantId, merchant.id),
+            sql`${paymentsTable.reference} like ${`FLW-SUB-${currentSubscription.id}-%`}`,
+            eq(paymentsTable.status, "confirmed"),
+          ))
           .limit(1);
-        if (paymentActivity) {
+        if (confirmedPayment) {
           throw new Error(
-            "Currency change blocked: subscription payment activity already exists",
+            "Currency change blocked: this subscription already has a confirmed payment",
           );
+        }
+        if (subscriptionPayments.length) {
+          const paymentIds = subscriptionPayments.map((payment) => payment.id);
+          await tx
+            .update(paymentsTable)
+            .set({
+              status: "failed",
+              reviewNote: "Payment attempt superseded by an explicit subscription currency change",
+              reviewedBy: "currency_change",
+              reviewedAt: new Date(),
+            })
+            .where(and(
+              eq(paymentsTable.merchantId, merchant.id),
+              inArray(paymentsTable.id, paymentIds),
+              inArray(paymentsTable.status, ["pending", "under_review"]),
+            ));
+          await tx
+            .update(paymentDestinationsTable)
+            .set({ status: "expired" })
+            .where(and(
+              eq(paymentDestinationsTable.merchantId, merchant.id),
+              inArray(paymentDestinationsTable.paymentId, paymentIds),
+              eq(paymentDestinationsTable.status, "active"),
+            ));
         }
       }
       const [nextMerchant] = await tx
