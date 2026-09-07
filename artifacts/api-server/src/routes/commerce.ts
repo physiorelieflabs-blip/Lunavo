@@ -1155,7 +1155,7 @@ function subscriptionAccessWindow(
     daysElapsed,
     daysRemaining,
     warningDay: hasSelectedMethod ? 10 : 0,
-    accessLocked: !hasSelectedMethod || now >= deadline,
+    accessLocked: paymentMethod === "earnings" ? now >= deadline : true,
   };
 }
 
