@@ -12,7 +12,7 @@ import {
 } from "@workspace/db";
 
 type Transaction = any;
-const REFERRAL_DISCOUNT_USD = 30;
+const REFERRAL_DISCOUNT_RATE = 0.30;
 
 export function normalizeReferralCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, "");
@@ -285,13 +285,12 @@ export async function qualifyReferralForPayment(
       .limit(1)
   )[0];
   const rewardCurrency = referrerSubscription?.currency ?? input.currency;
-  const rewardFxRate = Number(referrerSubscription?.fxRate ?? 1);
   const grossAmountMinor = referrerSubscription
     ? subscriptionGrossMinor(referrerSubscription)
-    : Math.round(REFERRAL_DISCOUNT_USD * 100);
+    : subscriptionGrossMinor(input.subscription);
   const discountAmountMinor = Math.min(
     grossAmountMinor,
-    Math.round(REFERRAL_DISCOUNT_USD * Math.max(rewardFxRate, 0) * 100),
+    Math.round(grossAmountMinor * REFERRAL_DISCOUNT_RATE),
   );
   const payableAmountMinor = Math.max(0, grossAmountMinor - discountAmountMinor);
   const [updatedAttribution] = await tx
