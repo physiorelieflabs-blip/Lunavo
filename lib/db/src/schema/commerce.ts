@@ -1198,6 +1198,7 @@ export const referralRewardsTable = pgTable(
     attributionId: integer("attribution_id").notNull().references(() => referralAttributionsTable.id),
     qualifyingPaymentId: integer("qualifying_payment_id").notNull().references(() => paymentsTable.id),
     grossAmountMinor: integer("gross_amount_minor").notNull(),
+    discountRateBps: integer("discount_rate_bps").notNull().default(3000),
     discountAmountMinor: integer("discount_amount_minor").notNull().default(0),
     payableAmountMinor: integer("payable_amount_minor").notNull(),
     currency: text("currency").notNull(),
