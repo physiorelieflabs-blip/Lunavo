@@ -110,7 +110,7 @@ export default function Billing() {
   const suspended = data.status === 'suspended';
   const locked = data.accessLocked || suspended;
   const selectedMethod = data.paymentMethod ?? 'No payment method selected';
-  const graceCopy = data.gracePeriodHours === 24 ? '24-hour payment-selection window' : '15-day payment grace period';
+  const graceCopy = data.gracePeriodHours === 24 ? '24-hour payment-selection window' : '14-day payment window after method selection';
 
   function refreshBilling() {
     return Promise.all([
@@ -143,8 +143,31 @@ export default function Billing() {
         setSenderName('');
         void refreshBilling();
       },
-      onError: () => setMessage('We could not submit the Pay from bank payment. The amount may exceed the outstanding balance, the reference may already exist, or the details may be invalid.'),
+       onError: () => setMessage('The bank payment could not be submitted. Retry with a new reference, or choose another payment method above.'),
     });
+  };
+
+  const chooseMethod = async (value: PaymentMethod) => {
+    setMethod(value);
+    if (value === 'flutterwave') return;
+    setMessage('');
+    try {
+      const result = await customFetch<{ paymentMethod?: string; amountPaid?: number }>('/api/subscription', {
+        method: 'POST',
+        body: JSON.stringify({ method: value === 'earnings' ? 'earnings' : 'bank' }),
+        responseType: 'json',
+      });
+      setMessage(
+        result.amountPaid && result.amountPaid >= data.amountDue
+          ? 'Your dashboard payment was applied and access is restored.'
+          : value === 'earnings'
+            ? 'Dashboard selected. You have 14 days from this choice to gather the money and settle the subscription.'
+            : 'Bank selected. Send the amount below, then submit the transfer reference for verification.',
+      );
+      void refreshBilling();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The payment method could not be selected. Retry or choose another method.');
+    }
   };
 
   const startFlutterwaveCheckout = async () => {
@@ -188,7 +211,7 @@ export default function Billing() {
   };
 
   const routeButton = (value: PaymentMethod, icon: ReactNode, title: string, description: string, testId: string) => (
-    <button onClick={() => setMethod(value)} className={`rounded-xl border p-5 text-left ${method === value ? 'border-[#bca26a] bg-[#f7edd2]' : 'border-[#d9d2c4] bg-[#fbfaf6] hover:border-[#bca26a]'}`} data-testid={testId}>
+    <button onClick={() => void chooseMethod(value)} className={`rounded-xl border p-5 text-left ${method === value ? 'border-[#bca26a] bg-[#f7edd2]' : 'border-[#d9d2c4] bg-[#fbfaf6] hover:border-[#bca26a]'}`} data-testid={testId}>
       <div className="flex items-center justify-between">{icon}{method === value && <CheckCircle2 className="h-5 w-5 text-[#a2772e]" />}</div>
       <p className="mt-6 font-extrabold">{title}</p>
       <p className="mt-1 text-sm text-[#697687]">{description}</p>
@@ -209,8 +232,8 @@ export default function Billing() {
         <Badge tone={suspended ? 'danger' : data.status === 'active' ? 'success' : 'warning'}>{data.status.replaceAll('_', ' ')}</Badge>
       </div>
 
-      {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Action not completed' : 'Update received'}>{message}</Notice></div>}
-       {locked ? <div className="mt-8"><Notice tone="danger" title="Billing access is locked">New orders are paused until the subscription is settled. Retry the declined payment, switch to dashboard earnings, or submit a bank payment to restore access after verification.</Notice></div> : data.daysRemaining <= 7 && <div className="mt-8"><Notice title={`Action needed within ${data.daysRemaining || 1} day${data.daysRemaining === 1 ? '' : 's'}`}>{data.paymentMethod ? `Your selected payment method has a ${graceCopy}. ` : 'Select a payment method within 24 hours. '}Settle the outstanding balance before the window closes.</Notice></div>}
+       {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Action not completed' : 'Update received'}>{message}</Notice></div>}
+        {locked ? <div className="mt-8"><Notice tone="danger" title="Billing access is locked">The workspace is locked. Retry the bank or Flutterwave payment, or choose dashboard earnings to restore access after a verified payment.</Notice></div> : data.daysRemaining <= 7 && <div className="mt-8"><Notice title={`Action needed within ${data.daysRemaining || 1} day${data.daysRemaining === 1 ? '' : 's'}`}>{data.paymentMethod ? `Your selected method has ${data.daysRemaining} day${data.daysRemaining === 1 ? '' : 's'} left. ` : 'Select a payment method within 24 hours. '}Settle the outstanding balance before the window closes.</Notice></div>}
 
       <div className="mt-8 grid gap-4 md:grid-cols-[1.1fr_.9fr]">
         <section className="rounded-xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-8">
@@ -220,12 +243,12 @@ export default function Billing() {
         </section>
         <section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
            <div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[#a2772e]">Account clock</p><p className="mt-4 text-3xl font-extrabold tracking-[-.06em]">{locked ? 'Locked' : `${countdownDays}d ${String(countdownHours).padStart(2, '0')}h`}</p><p className="mt-1 text-sm text-[#697687]">{locked ? `${graceCopy} has ended` : `${graceCopy} · ${String(countdownMinutes).padStart(2, '0')}m ${String(countdownSeconds).padStart(2, '0')}s remaining`}</p></div><Clock3 className="h-5 w-5 text-[#a2772e]" /></div>
-           <div className="mt-7 space-y-3 text-sm"><div className="flex justify-between"><span className="text-[#697687]">Registered</span><strong>{dateLabel(data.registeredAt)}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Payment method</span><strong>{selectedMethod}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Access deadline</span><strong>{dateLabel(data.trialEndsAt)}</strong></div></div>
+            <div className="mt-7 space-y-3 text-sm"><div className="flex justify-between"><span className="text-[#697687]">Registered</span><strong>{dateLabel(data.registeredAt)}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Payment method</span><strong>{selectedMethod}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Access deadline</span><strong>{dateLabel(data.trialEndsAt)}</strong></div></div>
         </section>
       </div>
 
       <section className="mt-10">
-        <SectionHeading eyebrow="Choose a route" title="Settle the subscription" description="Choose dashboard earnings, hosted Flutterwave checkout, or a manual bank transfer." />
+         <SectionHeading eyebrow="Choose a route" title="Settle the subscription" description="You have 24 hours to choose a method. After choosing one, the payment window is 14 days. If a bank payment fails, retry it or choose another method." />
         <div className="grid gap-4 md:grid-cols-3">
           {routeButton('earnings', <Banknote className="h-5 w-5 text-[#a2772e]" />, 'Pay from dashboard', 'Use earnings already available in your TS Commerce dashboard.', 'button-method-earnings')}
           {routeButton('flutterwave', <ExternalLink className="h-5 w-5 text-[#a2772e]" />, 'Pay with Flutterwave', 'Open secure hosted checkout and return here for verification.', 'button-method-flutterwave')}
@@ -244,7 +267,7 @@ export default function Billing() {
       <section className="mt-4 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         {method === 'earnings' ? <div className="flex flex-wrap items-center justify-between gap-5"><div><h3 className="font-extrabold">Pay from dashboard: {money(outstanding, currency)}</h3><p className="mt-1 text-sm text-[#697687]">Available in your dashboard: {money(data.earningsHeld, currency)}. The fee settles only when the full outstanding amount is available.</p></div><Button onClick={onEarnings} disabled={earningsPayment.isPending || outstanding === 0 || data.earningsHeld < outstanding} data-testid="button-pay-earnings">{earningsPayment.isPending ? 'Applying…' : outstanding === 0 ? 'Already settled' : data.earningsHeld < outstanding ? 'Insufficient dashboard balance' : 'Pay from dashboard'} <ArrowRight className="h-4 w-4" /></Button></div>
           : method === 'flutterwave' ? <div className="flex flex-wrap items-center justify-between gap-5"><div><h3 className="font-extrabold">Pay securely with Flutterwave: {money(outstanding, currency)}</h3><p className="mt-1 text-sm text-[#697687]">You will be redirected to Flutterwave’s hosted checkout. TS Commerce verifies the returned transaction before crediting your subscription.</p></div><Button onClick={() => void startFlutterwaveCheckout()} disabled={flutterwavePending || outstanding === 0} data-testid="button-pay-flutterwave">{flutterwavePending ? 'Opening checkout…' : outstanding === 0 ? 'Already settled' : 'Open Flutterwave checkout'} <ExternalLink className="h-4 w-4" /></Button></div>
-           : <form onSubmit={submitTransfer} className="grid gap-5 md:grid-cols-2"><div className="md:col-span-2"><h3 className="font-extrabold">Pay from bank: transfer to TS Commerce</h3><p className="mt-1 text-sm text-[#697687]">Send the exact amount to the configured TS Commerce bank destination below, then submit the transfer reference. The admin dashboard updates after the transfer is verified.</p></div><div className="rounded-lg border border-[#dfc27a] bg-[#fff7df] p-4 md:col-span-2">{bankDestination.data.configured ? <div className="grid gap-3 text-sm sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Beneficiary</p><p className="mt-1 font-extrabold text-[#182333]">{bankDestination.data.beneficiaryName}</p></div><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Bank</p><p className="mt-1 font-extrabold text-[#182333]">{bankDestination.data.bankName} · {bankDestination.data.bankCode}</p></div><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Account number</p><p className="mt-1 font-mono font-extrabold text-[#182333]">{bankDestination.data.accountNumber}</p></div><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Send in</p><p className="mt-1 font-extrabold text-[#182333]">{bankDestination.data.currency}</p></div></div> : <p className="text-sm font-bold text-[#765817]">The master admin has not configured a bank destination yet. Return after it is added in Admin → Withdrawals.</p>}</div><label className="text-sm font-bold">Amount sent<input type="number" min="0.01" max={outstanding} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder={outstanding.toFixed(2)} data-testid="input-transfer-amount" /></label><label className="text-sm font-bold">Sender name<input value={senderName} onChange={(event) => setSenderName(event.target.value)} required minLength={2} autoComplete="name" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="Name on the account" /></label><label className="text-sm font-bold md:col-span-2">Bank payment reference<input value={reference} onChange={(event) => setReference(event.target.value)} required minLength={3} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm uppercase outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="e.g. TRX-48291" data-testid="input-transfer-reference" /></label><div className="flex flex-wrap items-center gap-3 md:col-span-2"><SubmitButton loading={transfer.isPending}>Submit bank payment</SubmitButton><span className="text-xs text-[#697687]">The master admin verifies the bank payment before it updates the admin balance and your subscription.</span></div></form>}
+            : <form onSubmit={submitTransfer} className="grid gap-5 md:grid-cols-2"><div className="md:col-span-2"><h3 className="font-extrabold">Pay from bank: transfer to TS Commerce</h3><p className="mt-1 text-sm text-[#697687]">Send the exact amount to the configured TS Commerce bank destination below, then submit the payment reference. If it is rejected, use a new reference to retry or choose another method above.</p></div><div className="rounded-lg border border-[#dfc27a] bg-[#fff7df] p-4 md:col-span-2">{bankDestination.data.configured ? <div className="grid gap-3 text-sm sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Beneficiary</p><p className="mt-1 font-extrabold text-[#182333]">{bankDestination.data.beneficiaryName}</p></div><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Bank</p><p className="mt-1 font-extrabold text-[#182333]">{bankDestination.data.bankName} · {bankDestination.data.bankCode}</p></div><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Account number</p><p className="mt-1 font-mono font-extrabold text-[#182333]">{bankDestination.data.accountNumber}</p></div><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Send in</p><p className="mt-1 font-extrabold text-[#182333]">{bankDestination.data.currency}</p></div></div> : <p className="text-sm font-bold text-[#765817]">The master admin has not configured a bank destination yet. Return after it is added in Admin → Withdrawals.</p>}</div><label className="text-sm font-bold">Amount sent<input type="number" min="0.01" max={outstanding} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder={outstanding.toFixed(2)} data-testid="input-transfer-amount" /></label><label className="text-sm font-bold">Sender name<input value={senderName} onChange={(event) => setSenderName(event.target.value)} required minLength={2} autoComplete="name" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="Name on the account" /></label><label className="text-sm font-bold md:col-span-2">Bank payment reference<input value={reference} onChange={(event) => setReference(event.target.value)} required minLength={3} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm uppercase outline-none focus:border-[#bca26a] focus:ring-2 focus:ring-[#d6aa46]/20" placeholder="e.g. TRX-48291" data-testid="input-transfer-reference" /></label><div className="flex flex-wrap items-center gap-3 md:col-span-2"><SubmitButton loading={transfer.isPending}>Submit bank payment</SubmitButton><span className="text-xs text-[#697687]">The master admin verifies the bank payment before it updates the admin balance and your subscription.</span></div></form>}
       </section>
 
       <p className="mt-6 flex items-center gap-2 text-xs text-[#697687]"><TriangleAlert className="h-4 w-4 text-[#a2772e]" /> Flutterwave payments are verified server-side before they update your subscription. Manual bank submissions are reviewed by the TS Commerce team.</p>

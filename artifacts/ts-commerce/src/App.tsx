@@ -45,7 +45,7 @@ import TsPay from '@/pages/ts-pay';
 import Invite from '@/pages/invite';
 import PasswordReset from '@/pages/password-reset';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
-import { setSelectedWorkspaceId } from '@workspace/api-client-react';
+import { setSelectedWorkspaceId, useGetSubscription } from '@workspace/api-client-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 const queryClient = new QueryClient();
@@ -168,7 +168,24 @@ function Protected({ children, admin = false }: { children: ReactNode; admin?: b
   const { isLoaded, isSignedIn } = useAuth();
   if (!isLoaded) return <Landing />;
   if (!isSignedIn) return <Redirect to="/sign-in" />;
-  return admin ? <AdminGate>{children}</AdminGate> : <>{children}</>;
+  return admin ? <AdminGate>{children}</AdminGate> : <SubscriptionGate>{children}</SubscriptionGate>;
+}
+
+function SubscriptionGate({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  const subscription = useGetSubscription();
+  const billingRoute = location === '/billing';
+
+  if (billingRoute) return <>{children}</>;
+  if (subscription.isLoading) {
+    return <main className="grid min-h-[100dvh] place-items-center bg-[#f7f4ed] px-6"><p className="text-sm font-bold text-[#697687]">Checking account access…</p></main>;
+  }
+  if (subscription.isError || !subscription.data) {
+    return <main className="grid min-h-[100dvh] place-items-center bg-[#f7f4ed] px-6"><section className="w-full max-w-xl rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-8 text-center shadow-[0_18px_38px_rgba(31,43,56,.08)]"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a33e38]">Access check unavailable</p><h1 className="mt-3 text-3xl font-extrabold tracking-[-.06em] text-[#182333]">We could not confirm your billing status.</h1><p className="mt-3 text-sm leading-6 text-[#697687]">Open Billing to retry the account check and choose a payment method if needed.</p><Link href="/billing" className="mt-6 inline-flex rounded-xl bg-[#182333] px-5 py-3 text-sm font-extrabold text-[#f8f3e8]">Open Billing</Link></section></main>;
+  }
+  if (!subscription.data.accessLocked) return <>{children}</>;
+
+  return <main className="grid min-h-[100dvh] place-items-center bg-[#182333] px-5 py-10 text-[#f8f3e8]"><section className="w-full max-w-2xl rounded-2xl border border-[#516176] bg-[#223247] p-7 shadow-[0_24px_70px_rgba(0,0,0,.25)] md:p-10"><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]">Workspace paused</p><h1 className="mt-3 text-4xl font-extrabold tracking-[-.07em]">Choose how you want to pay.</h1><p className="mt-4 max-w-xl text-sm leading-6 text-[#c5ced8]">Your 24-hour payment-selection window or your payment window has ended. The workspace stays locked until you choose a payment method and complete a verified payment.</p><div className="mt-7 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-[#516176] bg-[#2b3b50] p-4"><p className="font-extrabold">Dashboard</p><p className="mt-1 text-xs leading-5 text-[#b4c0cc]">Use earnings when they are available.</p></div><div className="rounded-xl border border-[#516176] bg-[#2b3b50] p-4"><p className="font-extrabold">Bank</p><p className="mt-1 text-xs leading-5 text-[#b4c0cc]">Send the exact amount and submit your reference.</p></div><div className="rounded-xl border border-[#516176] bg-[#2b3b50] p-4"><p className="font-extrabold">Retry</p><p className="mt-1 text-xs leading-5 text-[#b4c0cc]">Retry a failed payment or choose another method.</p></div></div><Link href="/billing" className="mt-8 inline-flex rounded-xl bg-[#d6aa46] px-5 py-3 text-sm font-extrabold text-[#182333]">Choose payment method</Link></section></main>;
 }
 
 function AdminGate({ children }: { children: ReactNode }) {

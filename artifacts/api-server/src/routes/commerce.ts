@@ -1100,12 +1100,14 @@ function subscriptionAccessWindow(
 ) {
   const paymentMethod = subscription.paymentMethod;
   const hasSelectedMethod = Boolean(paymentMethod);
-  const gracePeriodHours = hasSelectedMethod ? 15 * 24 : 24;
+  const selectionStartedAt =
+    subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
+  const gracePeriodHours = hasSelectedMethod ? 14 * 24 : 24;
   const deadline = new Date(
-    merchant.registeredAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
+    selectionStartedAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
   );
   const daysElapsed = hasSelectedMethod
-    ? daysSince(merchant.registeredAt, subscription.billingTimezone ?? "UTC")
+    ? daysSince(selectionStartedAt, subscription.billingTimezone ?? "UTC")
     : Math.max(
         0,
         Math.floor(
@@ -1113,7 +1115,7 @@ function subscriptionAccessWindow(
             (24 * 60 * 60 * 1000),
         ),
       );
-  const gracePeriodDays = hasSelectedMethod ? 15 : 1;
+  const gracePeriodDays = hasSelectedMethod ? 14 : 1;
   const daysRemaining = hasSelectedMethod
     ? Math.max(0, gracePeriodDays - daysElapsed)
     : Math.max(
@@ -1125,6 +1127,7 @@ function subscriptionAccessWindow(
 
   return {
     paymentMethod,
+    paymentMethodSelectedAt: subscription.paymentMethodSelectedAt,
     hasSelectedMethod,
     gracePeriodHours,
     gracePeriodDays,
@@ -1187,7 +1190,7 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
         type: "subscription_suspended",
         title: "Account suspended",
         description: access.hasSelectedMethod
-          ? "The platform fee was not settled within the 15-day payment grace period. A verified payment restores access."
+          ? "The platform fee was not settled within 14 days of choosing a payment method. A verified payment restores access."
           : "No subscription payment method was selected within 24 hours. Choose a payment method and complete a verified payment to restore access.",
         amount: remaining.toFixed(2),
         tone: "negative",
@@ -1248,7 +1251,7 @@ function serializeSubscription(
   }
   if (!admin && access.accessLocked && remaining > 0) {
     nextAction =
-      "Account locked — retry your payment or choose Pay from dashboard to restore access";
+      "Account locked — choose a payment method to restore access";
   }
   return {
     id: subscription.id,
@@ -1282,6 +1285,7 @@ function serializeSubscription(
     accessLocked: admin ? false : access.accessLocked && remaining > 0,
     gracePeriodHours: access.gracePeriodHours,
     paymentRecoveryAvailable: !admin && remaining > 0,
+    paymentMethodSelectedAt: access.paymentMethodSelectedAt,
     paymentMethod:
       subscription.paymentMethod === "earnings"
         ? "Pay from dashboard"
@@ -2993,6 +2997,8 @@ async function payFromEarnings(merchant: Merchant) {
           toNumber(subscription.earningsHeld) - remaining
         ).toFixed(2),
         paymentMethod: "earnings",
+        paymentMethodSelectedAt:
+          subscription.paymentMethodSelectedAt ?? new Date(),
         status: "active",
       })
       .where(
@@ -9428,12 +9434,42 @@ router.post("/subscription", async (req, res): Promise<void> => {
   }
   if (parsed.data.method === "earnings") {
     try {
-      const result = await payFromEarnings(merchant);
+      const subscription = await getSubscriptionForMerchant(merchant);
+      const [selected] = await db
+        .update(subscriptionsTable)
+        .set({
+          paymentMethod: "earnings",
+          paymentMethodSelectedAt:
+            subscription.paymentMethodSelectedAt ?? new Date(),
+        })
+        .where(eq(subscriptionsTable.id, subscription.id))
+        .returning();
+      if (merchant.status === "suspended") {
+        await db
+          .update(merchantsTable)
+          .set({ status: "active" })
+          .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
+      }
+      const remaining = Math.max(
+        0,
+        toNumber(selected.amountDue) - toNumber(selected.amountPaid),
+      );
+      if (remaining > 0 && toNumber(selected.earningsHeld) >= remaining) {
+        const result = await payFromEarnings(merchant);
+        res
+          .status(201)
+          .json(
+            CreateSubscriptionResponse.parse(
+              serializeSubscription(merchant, result.subscription),
+            ),
+          );
+        return;
+      }
       res
         .status(201)
         .json(
           CreateSubscriptionResponse.parse(
-            serializeSubscription(merchant, result.subscription),
+            serializeSubscription(merchant, selected),
           ),
         );
     } catch (error) {
@@ -9449,9 +9485,19 @@ router.post("/subscription", async (req, res): Promise<void> => {
   );
   const [updated] = await db
     .update(subscriptionsTable)
-    .set({ paymentMethod: "bank" })
+    .set({
+      paymentMethod: "bank",
+      paymentMethodSelectedAt:
+        subscription.paymentMethodSelectedAt ?? new Date(),
+    })
     .where(eq(subscriptionsTable.id, subscription.id))
     .returning();
+  if (merchant.status === "suspended") {
+    await db
+      .update(merchantsTable)
+      .set({ status: "active" })
+      .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
+  }
   res
     .status(201)
     .json(
@@ -9565,8 +9611,18 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
       if (!currentSubscription) throw new Error("Subscription not found");
       await tx
         .update(subscriptionsTable)
-        .set({ paymentMethod: "bank" })
+        .set({
+          paymentMethod: "bank",
+          paymentMethodSelectedAt:
+            currentSubscription.paymentMethodSelectedAt ?? new Date(),
+        })
         .where(eq(subscriptionsTable.id, currentSubscription.id));
+      if (merchant.status === "suspended") {
+        await tx
+          .update(merchantsTable)
+          .set({ status: "active" })
+          .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
+      }
       const [pendingTransfers] = await tx
         .select({
           total: sql<string>`coalesce(sum(${paymentsTable.amount}) filter (where ${paymentsTable.status} = 'under_review' and ${paymentsTable.method} = 'bank_transfer'), 0)`,
@@ -9695,8 +9751,18 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
   }
   await db
     .update(subscriptionsTable)
-    .set({ paymentMethod: "flutterwave" })
+    .set({
+      paymentMethod: "flutterwave",
+      paymentMethodSelectedAt:
+        enforced.subscription.paymentMethodSelectedAt ?? new Date(),
+    })
     .where(eq(subscriptionsTable.id, enforced.subscription.id));
+  if (merchant.status === "suspended") {
+    await db
+      .update(merchantsTable)
+      .set({ status: "active" })
+      .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
+  }
   try {
     const meta = {
       provider: "flutterwave",
