@@ -502,5 +502,42 @@ export async function reverseReferralReward(
     })
     .where(and(eq(referralRewardsTable.id, reward.id), isNull(referralRewardsTable.reversedAt)))
     .returning();
-  return updated ?? reward;
+  if (!updated) return reward;
+
+  const [countRow] = await tx
+    .select({ count: sql<number>`count(*)` })
+    .from(referralRewardsTable)
+    .where(and(
+      eq(referralRewardsTable.merchantId, reward.merchantId),
+      inArray(referralRewardsTable.status, ["earned", "applied"]),
+      isNull(referralRewardsTable.reversedAt),
+    ));
+  const remainingQualifying = Number(countRow?.count ?? 0);
+  if (remainingQualifying < REFERRAL_FREE_REFERRAL_MILESTONE) {
+    const [milestone] = await tx
+      .select()
+      .from(referralMilestonesTable)
+      .where(and(
+        eq(referralMilestonesTable.merchantId, reward.merchantId),
+        eq(referralMilestonesTable.milestoneKey, "150_verified_referrals"),
+        eq(referralMilestonesTable.status, "granted"),
+      ))
+      .limit(1);
+    if (milestone) {
+      await tx
+        .update(referralMilestonesTable)
+        .set({ status: "reversed" })
+        .where(eq(referralMilestonesTable.id, milestone.id));
+      await tx
+        .update(subscriptionsTable)
+        .set({
+          referralFreeMonths: sql`GREATEST(0, ${subscriptionsTable.referralFreeMonths} - ${REFERRAL_FREE_MONTHS})`,
+        })
+        .where(and(
+          eq(subscriptionsTable.merchantId, reward.merchantId),
+          sql`${subscriptionsTable.referralFreeMonths} > 0`,
+        ));
+    }
+  }
+  return updated;
 }
