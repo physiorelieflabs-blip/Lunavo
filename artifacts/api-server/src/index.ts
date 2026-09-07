@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startDomainEventOutbox } from "./lib/domain-events";
+import { startPendingFlutterwaveReconciliation } from "./lib/flutterwave-reconciliation";
 
 const rawPort = process.env["PORT"];
 
@@ -17,6 +18,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 startDomainEventOutbox();
+startPendingFlutterwaveReconciliation();
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
