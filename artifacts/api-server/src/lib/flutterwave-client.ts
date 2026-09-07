@@ -259,6 +259,23 @@ export async function initializeFlutterwaveVirtualAccount(input: {
   };
 }
 
+export async function findFlutterwaveTransactionsByReference(
+  txRef: string,
+  from: string,
+  to: string,
+): Promise<FlutterwaveTransaction[]> {
+  const params = new URLSearchParams({
+    tx_ref: txRef,
+    from,
+    to,
+    page: "1",
+  });
+  const response = await flutterwaveRequest<FlutterwaveResponse<FlutterwaveTransaction[]>>(
+    `/transactions?${params.toString()}`,
+  );
+  return Array.isArray(response.data) ? response.data : [];
+}
+
 export async function verifyFlutterwaveTransaction(transactionId: string): Promise<FlutterwaveTransaction> {
   const response = await flutterwaveRequest<FlutterwaveResponse<FlutterwaveTransaction>>(
     `/transactions/${encodeURIComponent(transactionId)}/verify`,
