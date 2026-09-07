@@ -268,13 +268,25 @@ export async function refundFlutterwaveTransaction(
   return { id: response.data?.id == null ? null : String(response.data.id), status: String(response.data?.status ?? response.status ?? "pending") };
 }
 
-export function verifyFlutterwaveWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
-  const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim();
+export function verifyFlutterwaveWebhookSignature(rawBody: Buffer, signature: string | undefined, legacySecretHash?: string | undefined): boolean {
+  const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim() || legacySecretHash?.trim();
   if (!secret || !signature) return false;
-  const supplied = Buffer.from(signature.trim());
+
+  // Current Flutterwave webhooks use HMAC-SHA256 over the exact raw request body
+  // and return the digest as base64 in the flutterwave-signature header.
+  const suppliedText = signature.trim();
+  const expectedBase64 = createHmac("sha256", secret).update(rawBody).digest("base64");
+  const suppliedBase64 = Buffer.from(suppliedText);
+  const expectedBase64Buffer = Buffer.from(expectedBase64);
+  if (
+    suppliedBase64.length === expectedBase64Buffer.length &&
+    timingSafeEqual(suppliedBase64, expectedBase64Buffer)
+  ) {
+    return true;
+  }
+
+  // Backward compatibility for older Flutterwave configurations that use the
+  // configured verif-hash secret directly. Never accept an arbitrary value.
   const direct = Buffer.from(secret);
-  if (supplied.length === direct.length && timingSafeEqual(supplied, direct)) return true;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const hmac = Buffer.from(expected);
-  return supplied.length === hmac.length && timingSafeEqual(supplied, hmac);
+  return direct.length === suppliedBase64.length && timingSafeEqual(direct, suppliedBase64);
 }
