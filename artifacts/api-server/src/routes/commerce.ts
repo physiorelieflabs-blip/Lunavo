@@ -1133,28 +1133,17 @@ function subscriptionAccessWindow(
   const hasSelectedMethod = Boolean(paymentMethod);
   const selectionStartedAt =
     subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
-  const gracePeriodHours = hasSelectedMethod ? 15 * 24 : 24;
+  const gracePeriodHours = hasSelectedMethod ? 15 * 24 : 0;
   const deadline = new Date(
     selectionStartedAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
   );
   const daysElapsed = hasSelectedMethod
     ? daysSince(selectionStartedAt, subscription.billingTimezone ?? "UTC")
-    : Math.max(
-        0,
-        Math.floor(
-          (now.getTime() - merchant.registeredAt.getTime()) /
-            (24 * 60 * 60 * 1000),
-        ),
-      );
-  const gracePeriodDays = hasSelectedMethod ? 15 : 1;
+    : 0;
+  const gracePeriodDays = hasSelectedMethod ? 15 : 0;
   const daysRemaining = hasSelectedMethod
     ? Math.max(0, gracePeriodDays - daysElapsed)
-    : Math.max(
-        0,
-        Math.ceil(
-          (deadline.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
-        ),
-      );
+    : 0;
 
   return {
     paymentMethod,
@@ -1166,7 +1155,7 @@ function subscriptionAccessWindow(
     daysElapsed,
     daysRemaining,
     warningDay: hasSelectedMethod ? 10 : 0,
-    accessLocked: now >= deadline,
+    accessLocked: !hasSelectedMethod || now >= deadline,
   };
 }
 
@@ -9468,9 +9457,22 @@ router.post("/subscription", async (req, res): Promise<void> => {
           paymentMethod: "earnings",
           paymentMethodSelectedAt:
             subscription.paymentMethodSelectedAt ?? new Date(),
+          status: "pending",
         })
         .where(eq(subscriptionsTable.id, subscription.id))
         .returning();
+      let responseMerchant = merchant;
+      if (merchant.status === "suspended") {
+        const [reopened] = await db
+          .update(merchantsTable)
+          .set({ status: "active" })
+          .where(and(
+            eq(merchantsTable.id, merchant.id),
+            eq(merchantsTable.status, "suspended"),
+          ))
+          .returning();
+        responseMerchant = reopened ?? merchant;
+      }
       const remaining = Math.max(
         0,
         toNumber(selected.amountDue) - toNumber(selected.amountPaid),
@@ -9486,7 +9488,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
           .status(201)
           .json(
             CreateSubscriptionResponse.parse(
-              serializeSubscription(paidMerchant ?? merchant, result.subscription),
+              serializeSubscription(paidMerchant ?? responseMerchant, result.subscription),
             ),
           );
         return;
@@ -9495,7 +9497,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
         .status(201)
         .json(
           CreateSubscriptionResponse.parse(
-            serializeSubscription(merchant, selected),
+              serializeSubscription(responseMerchant, selected),
           ),
         );
     } catch (error) {
