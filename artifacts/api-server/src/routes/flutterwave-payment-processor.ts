@@ -29,29 +29,56 @@ import {
 
 type ProviderTransaction = Record<string, unknown>;
 
-function txRef(value: ProviderTransaction): string {
-  return typeof value.tx_ref === "string" ? value.tx_ref.trim() : "";
-}
+type OrderIntent = NonNullable<Awaited<ReturnType<typeof findIntentByReference>>>;
+type SubscriptionPayment = NonNullable<Awaited<ReturnType<typeof findSubscriptionPaymentByReference>>>;
 
+function text(value: unknown): string { return typeof value === "string" ? value.trim() : ""; }
+function txRef(value: ProviderTransaction): string { return text(value.tx_ref); }
 function customerEmail(value: ProviderTransaction): string | null {
   const customer = value.customer;
   if (!customer || typeof customer !== "object" || Array.isArray(customer)) return null;
   const email = (customer as ProviderTransaction).email;
   return typeof email === "string" ? email.trim().toLowerCase() : null;
 }
-
 function meta(value: ProviderTransaction): ProviderTransaction {
   const metadata = value.meta;
   return metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? (metadata as ProviderTransaction)
+    ? metadata as ProviderTransaction
     : {};
 }
-
+function metaNumber(value: ProviderTransaction, key: string): string | null {
+  const raw = value[key];
+  return raw === undefined || raw === null ? null : String(raw);
+}
 function providerFeeMinor(value: ProviderTransaction): number | null {
   const raw = value.app_fee;
   if (raw === undefined || raw === null || raw === "") return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+}
+function providerSettlementMinor(value: ProviderTransaction): number | null {
+  for (const key of ["settlement_amount", "settled_amount", "settlementAmount", "settledAmount"]) {
+    const raw = value[key];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.round(n * 100);
+  }
+  return null;
+}
+function providerSettlementCurrency(value: ProviderTransaction, fallback: string): string | null {
+  for (const key of ["settlement_currency", "settled_currency", "settlementCurrency", "settledCurrency"]) {
+    const raw = text(value[key]);
+    if (raw) return raw.toUpperCase();
+  }
+  return fallback || null;
+}
+function providerReversal(value: ProviderTransaction): "refunded" | "charged_back" | "disputed" | null {
+  const refund = text(value.refund_status).toLowerCase();
+  if (["successful", "processed", "refunded", "completed"].includes(refund)) return "refunded";
+  const dispute = text(value.dispute_status).toLowerCase();
+  if (["chargeback", "charged_back", "reversed"].includes(dispute)) return "charged_back";
+  if (["open", "active", "disputed"].includes(dispute)) return "disputed";
+  return null;
 }
 
 async function recordReconciliationException(input: {
@@ -99,63 +126,13 @@ async function findSubscriptionPaymentByReference(reference: string) {
   )).limit(1))[0] ?? null;
 }
 
-async function applyProviderFeeAccounting(input: {
-  paymentIntentId: number;
-  merchantId: number;
-  orderId: number;
-  grossMinor: number;
-  currency: string;
-  providerFeeMinor: number | null;
-  providerTransactionId: string | null;
-  providerEventId: string;
-}) {
-  const tsFeeMinor = calculateTsCommerceFeeMinor(input.grossMinor);
-  const merchantNetMinor = calculateMerchantNetMinor(input.grossMinor, input.providerFeeMinor);
-  await db.execute(sql`
-    UPDATE payment_intents
-    SET provider_transaction_id=${input.providerTransactionId},
-        provider_event_id=${input.providerEventId},
-        provider_fee_minor=${input.providerFeeMinor},
-        ts_commerce_fee_minor=${tsFeeMinor},
-        merchant_net_minor=${merchantNetMinor}
-    WHERE id=${input.paymentIntentId}
-  `);
-  if (input.providerFeeMinor !== null && input.providerFeeMinor > 0) {
-    await db.insert(ledgerEntriesTable).values({
-      merchantId: input.merchantId,
-      orderId: input.orderId,
-      amountMinor: -input.providerFeeMinor,
-      currency: input.currency,
-      entryType: "fee",
-      referenceKey: `payment:${input.paymentIntentId}:provider-fee`,
-    }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-  }
-  await db.insert(ledgerEntriesTable).values({
-    merchantId: input.merchantId,
-    orderId: input.orderId,
-    amountMinor: -tsFeeMinor,
-    currency: input.currency,
-    entryType: "fee",
-    referenceKey: `payment:${input.paymentIntentId}:ts-fee`,
-  }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-}
-
-function providerReversal(value: ProviderTransaction): "refunded" | "charged_back" | "disputed" | null {
-  const refund = String(value.refund_status ?? "").trim().toLowerCase();
-  if (["successful", "processed", "refunded", "completed"].includes(refund)) return "refunded";
-  const dispute = String(value.dispute_status ?? "").trim().toLowerCase();
-  if (["chargeback", "charged_back", "reversed"].includes(dispute)) return "charged_back";
-  if (["open", "active", "disputed"].includes(dispute)) return "disputed";
-  return null;
-}
-
 async function reverseOrderPayment(input: {
   intentId: number;
   merchantId: number;
   orderId: number;
   amountMinor: number;
   currency: string;
-  status: "refunded" | "charged_back" | "disputed";
+  status: "refunded" | "charged_back";
   reason: string;
   providerTransactionId: string | null;
 }) {
@@ -165,11 +142,15 @@ async function reverseOrderPayment(input: {
     if (!intent) throw new Error("Payment intent not found during provider reversal");
     if (["refunded", "charged_back"].includes(intent.status)) return "duplicate" as const;
     if (!["successful", "verified"].includes(intent.status)) return "pending" as const;
-
     await tx.update(paymentIntentsTable).set({ status: input.status }).where(eq(paymentIntentsTable.id, intent.id));
     const [record] = await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1);
     if (record) {
-      await tx.update(paymentRecordsTable).set({ status: input.status, verifiedBy: "flutterwave_reversal", verifiedAt: new Date(), evidenceReference: input.providerTransactionId ?? record.evidenceReference }).where(eq(paymentRecordsTable.id, record.id));
+      await tx.update(paymentRecordsTable).set({
+        status: input.status,
+        verifiedBy: "flutterwave_reversal",
+        verifiedAt: new Date(),
+        evidenceReference: input.providerTransactionId ?? record.evidenceReference,
+      }).where(eq(paymentRecordsTable.id, record.id));
     }
     await tx.insert(ledgerEntriesTable).values({
       merchantId: input.merchantId,
@@ -180,14 +161,54 @@ async function reverseOrderPayment(input: {
       entryType: "refund",
       referenceKey: `payment:${input.intentId}:${input.status}`,
     }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-    await tx.update(ordersTable).set({ status: "pending" }).where(and(eq(ordersTable.id, input.orderId), eq(ordersTable.merchantId, input.merchantId), eq(ordersTable.status, "paid")));
-    await tx.insert(commerceTransitionHistoryTable).values({ merchantId: input.merchantId, orderId: input.orderId, paymentIntentId: input.intentId, entityType: "payment_intent", fromStatus: intent.status, toStatus: input.status, actorId: "flutterwave_webhook", note: input.reason });
-    await tx.insert(activityTable).values({ merchantId: input.merchantId, type: "payment_reversed", title: `Payment ${input.status.replaceAll("_", " ")}`, description: input.reason, amount: (input.amountMinor / 100).toFixed(2), currency: input.currency, tone: "negative" });
+    await tx.update(ordersTable).set({ status: "pending" }).where(and(
+      eq(ordersTable.id, input.orderId),
+      eq(ordersTable.merchantId, input.merchantId),
+      eq(ordersTable.status, "paid"),
+    ));
+    await tx.insert(commerceTransitionHistoryTable).values({
+      merchantId: input.merchantId,
+      orderId: input.orderId,
+      paymentIntentId: input.intentId,
+      entityType: "payment_intent",
+      fromStatus: intent.status,
+      toStatus: input.status,
+      actorId: "flutterwave_webhook",
+      note: input.reason,
+    });
+    await tx.insert(activityTable).values({
+      merchantId: input.merchantId,
+      type: "payment_reversed",
+      title: `Payment ${input.status.replaceAll("_", " ")}`,
+      description: input.reason,
+      amount: (input.amountMinor / 100).toFixed(2),
+      currency: input.currency,
+      tone: "negative",
+    });
     return input.status;
   });
 }
 
-async function processOrderPayment(transaction: ProviderTransaction, eventId: string, rawPayload: ProviderTransaction, intent: NonNullable<Awaited<ReturnType<typeof findIntentByReference>>>) {
+async function markOrderPaymentDisputed(input: {
+  intentId: number;
+  merchantId: number;
+  orderId: number;
+  providerTransactionId: string | null;
+  reason: string;
+}) {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${input.intentId} AND merchant_id=${input.merchantId} FOR UPDATE`);
+    const intent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, input.intentId)).limit(1))[0];
+    if (!intent || intent.status === "disputed") return;
+    await tx.update(paymentIntentsTable).set({ status: "disputed" }).where(eq(paymentIntentsTable.id, intent.id));
+    const [record] = await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1);
+    if (record) await tx.update(paymentRecordsTable).set({ status: "disputed", verifiedBy: "flutterwave_dispute", verifiedAt: new Date(), evidenceReference: input.providerTransactionId ?? record.evidenceReference }).where(eq(paymentRecordsTable.id, record.id));
+    await tx.insert(commerceTransitionHistoryTable).values({ merchantId: input.merchantId, orderId: input.orderId, paymentIntentId: input.intentId, entityType: "payment_intent", fromStatus: intent.status, toStatus: "disputed", actorId: "flutterwave_webhook", note: input.reason });
+  });
+  return "disputed" as const;
+}
+
+async function processOrderPayment(transaction: ProviderTransaction, eventId: string, rawPayload: ProviderTransaction, intent: OrderIntent) {
   const providerId = flutterwaveTransactionId(transaction as any);
   const reference = txRef(transaction);
   const [order] = intent.orderId === null ? [] : await db.select().from(ordersTable).where(and(eq(ordersTable.id, intent.orderId), eq(ordersTable.merchantId, intent.merchantId))).limit(1);
@@ -200,23 +221,22 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
   }
 
   const metadata = meta(transaction);
-  if (metadata.merchant_id !== undefined && String(metadata.merchant_id) !== String(merchant.id)) {
-    await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, orderId: order.id, paymentIntentId: intent.id, reason: "Flutterwave metadata merchant does not match the TS Pay merchant", payload: rawPayload });
-    return "reconciliation_required" as const;
-  }
-  if (metadata.order_id !== undefined && String(metadata.order_id) !== String(order.id)) {
-    await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, orderId: order.id, paymentIntentId: intent.id, reason: "Flutterwave metadata order does not match the TS Pay order", payload: rawPayload });
-    return "reconciliation_required" as const;
+  for (const [key, expected] of [["merchant_id", merchant.id], ["order_id", order.id], ["customer_id", customer.id]] as const) {
+    const observed = metaNumber(metadata, key);
+    if (observed !== null && observed !== String(expected)) {
+      await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, orderId: order.id, paymentIntentId: intent.id, reason: `Flutterwave metadata ${key} does not match TS Commerce`, payload: rawPayload });
+      return "reconciliation_required" as const;
+    }
   }
   const email = customerEmail(transaction);
-  if (email && email !== customer.email.trim().toLowerCase()) {
+  if (!email || email !== customer.email.trim().toLowerCase()) {
     await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, orderId: order.id, paymentIntentId: intent.id, reason: "Flutterwave customer email does not match the TS Commerce customer", payload: rawPayload });
     return "reconciliation_required" as const;
   }
 
   const amount = flutterwaveAmount(transaction as any);
   const observedMinor = Number.isFinite(amount) ? Math.round(amount * 100) : null;
-  const currency = String(transaction.currency ?? "").trim().toUpperCase();
+  const currency = text(transaction.currency).toUpperCase();
   if (observedMinor === null || observedMinor !== intent.amountMinor || currency !== intent.currency.toUpperCase()) {
     await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, orderId: order.id, paymentIntentId: intent.id, expectedAmountMinor: intent.amountMinor, observedAmountMinor: observedMinor, expectedCurrency: intent.currency, observedCurrency: currency || null, reason: "Flutterwave amount or currency does not match the server payment session", payload: rawPayload });
     await db.update(paymentIntentsTable).set({ status: "reconciliation_required" }).where(eq(paymentIntentsTable.id, intent.id));
@@ -229,21 +249,26 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
   }
 
   const reversal = providerReversal(transaction);
-  if (reversal) {
+  if (reversal === "refunded" || reversal === "charged_back") {
     return reverseOrderPayment({ intentId: intent.id, merchantId: merchant.id, orderId: order.id, amountMinor: intent.amountMinor, currency: intent.currency, status: reversal, reason: `Flutterwave reported ${reversal} for the transaction`, providerTransactionId: providerId });
+  }
+  if (reversal === "disputed") {
+    return markOrderPaymentDisputed({ intentId: intent.id, merchantId: merchant.id, orderId: order.id, providerTransactionId: providerId, reason: "Flutterwave reported an active dispute; no merchant balance debit was made" });
   }
 
   const providerState = flutterwaveStatus(transaction as any);
   if (providerState === "failed") {
     await db.transaction(async (tx) => {
       await tx.update(paymentIntentsTable).set({ status: "failed", evidenceReference: reference || intent.evidenceReference }).where(eq(paymentIntentsTable.id, intent.id));
-      await tx.update(paymentRecordsTable).set({ status: "failed", evidenceReference: reference || undefined }).where(eq(paymentRecordsTable.intentId, intent.id));
+      await tx.update(paymentRecordsTable).set({ status: "failed", evidenceReference: reference || undefined, verifiedBy: "flutterwave_webhook", verifiedAt: new Date() }).where(eq(paymentRecordsTable.intentId, intent.id));
     });
     return "failed" as const;
   }
   if (providerState !== "paid") return "pending" as const;
 
   const providerFee = providerFeeMinor(transaction);
+  const settlementMinor = providerSettlementMinor(transaction);
+  const settlementCurrency = providerSettlementCurrency(transaction, currency);
   const result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${intent.id} AND merchant_id=${merchant.id} FOR UPDATE`);
     await tx.execute(sql`SELECT id FROM payment_records WHERE intent_id=${intent.id} AND merchant_id=${merchant.id} FOR UPDATE`);
@@ -252,27 +277,29 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     if (!currentIntent || !currentRecord) throw new Error("TS Pay payment records are unavailable");
     if (["successful", "verified"].includes(currentIntent.status)) return "duplicate" as const;
 
-    const duplicateProvider = await tx.execute(sql`SELECT id FROM payment_intents WHERE provider_transaction_id=${providerId} AND id <> ${currentIntent.id} LIMIT 1`);
-    if (providerId && duplicateProvider.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Pay payment");
+    const duplicateProvider = providerId
+      ? await tx.execute(sql`SELECT id FROM payment_intents WHERE provider_transaction_id=${providerId} AND id <> ${currentIntent.id} LIMIT 1`)
+      : null;
+    if (duplicateProvider?.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Pay payment");
 
     await tx.update(paymentIntentsTable).set({ status: "successful", evidenceReference: providerId ?? reference }).where(eq(paymentIntentsTable.id, currentIntent.id));
     await tx.update(paymentRecordsTable).set({ status: "successful", evidenceReference: providerId ?? reference, verifiedBy: "flutterwave_webhook", verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, currentRecord.id));
-    await tx.execute(sql`UPDATE payment_intents SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(intent.amountMinor)}, merchant_net_minor=${calculateMerchantNetMinor(intent.amountMinor, providerFee)}, settlement_amount_minor=${intent.amountMinor}, settlement_currency=${currency} WHERE id=${currentIntent.id}`);
+    await tx.execute(sql`UPDATE payment_intents SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(intent.amountMinor)}, merchant_net_minor=${calculateMerchantNetMinor(intent.amountMinor, providerFee)}, settlement_amount_minor=${settlementMinor}, settlement_currency=${settlementMinor === null ? null : settlementCurrency} WHERE id=${currentIntent.id}`);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: intent.amountMinor, currency, entryType: "sale", referenceKey: `payment:${currentIntent.id}` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-    const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     if (providerFee !== null && providerFee > 0) {
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -providerFee, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:provider-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     }
+    const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: order.id, paymentIntentId: currentIntent.id, entityType: "payment_intent", fromStatus: currentIntent.status, toStatus: "successful", actorId: "flutterwave_webhook", note: "Provider-verified Flutterwave payment" });
-    await tx.insert(activityTable).values({ merchantId: merchant.id, type: "payment_verified", title: "Payment verified", description: "Flutterwave payment was re-queried and verified server-side. Gross sale, provider fee and TS Commerce fee were posted separately.", amount: (intent.amountMinor / 100).toFixed(2), currency, tone: "positive" });
+    await tx.insert(activityTable).values({ merchantId: merchant.id, type: "payment_verified", title: "Payment verified", description: "Flutterwave payment was re-queried and verified server-side. Gross sale, actual provider fee (when returned), and TS Commerce 1% fee were recorded separately.", amount: (intent.amountMinor / 100).toFixed(2), currency, tone: "positive" });
     return "successful" as const;
   });
   return result;
 }
 
-async function processSubscriptionPayment(transaction: ProviderTransaction, eventId: string, rawPayload: ProviderTransaction, payment: NonNullable<Awaited<ReturnType<typeof findSubscriptionPaymentByReference>>>) {
+async function processSubscriptionPayment(transaction: ProviderTransaction, eventId: string, rawPayload: ProviderTransaction, payment: SubscriptionPayment) {
   const providerId = flutterwaveTransactionId(transaction as any);
   const reference = txRef(transaction);
   const [merchant] = await db.select().from(merchantsTable).where(eq(merchantsTable.id, payment.merchantId)).limit(1);
@@ -282,32 +309,36 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
     return "reconciliation_required" as const;
   }
   const metadata = meta(transaction);
-  if (metadata.merchant_id !== undefined && String(metadata.merchant_id) !== String(merchant.id)) {
-    await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, reason: "Flutterwave metadata merchant does not match subscription merchant", payload: rawPayload });
-    return "reconciliation_required" as const;
+  for (const [key, expected] of [["merchant_id", merchant.id], ["subscription_id", subscription.id]] as const) {
+    const observed = metaNumber(metadata, key);
+    if (observed !== null && observed !== String(expected)) {
+      await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, reason: `Flutterwave metadata ${key} does not match TS Commerce`, payload: rawPayload });
+      return "reconciliation_required" as const;
+    }
   }
-  if (metadata.subscription_id !== undefined && String(metadata.subscription_id) !== String(subscription.id)) {
-    await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, reason: "Flutterwave metadata subscription does not match the TS Commerce subscription", payload: rawPayload });
+  const email = customerEmail(transaction);
+  if (!email || email !== merchant.email.trim().toLowerCase()) {
+    await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, reason: "Flutterwave subscription payment customer does not match the merchant", payload: rawPayload });
     return "reconciliation_required" as const;
   }
   const amount = flutterwaveAmount(transaction as any);
   const amountMinor = Number.isFinite(amount) ? Math.round(amount * 100) : null;
   const expectedMinor = Math.round(Number(payment.amount) * 100);
-  const currency = String(transaction.currency ?? "").trim().toUpperCase();
+  const currency = text(transaction.currency).toUpperCase();
   if (amountMinor === null || amountMinor !== expectedMinor || currency !== payment.currency.toUpperCase()) {
     await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, expectedAmountMinor: expectedMinor, observedAmountMinor: amountMinor, expectedCurrency: payment.currency, observedCurrency: currency || null, reason: "Flutterwave subscription amount or currency mismatch", payload: rawPayload });
     await db.update(paymentsTable).set({ status: "reconciliation_required", reviewNote: "Flutterwave webhook amount/currency mismatch", reviewedBy: "flutterwave_webhook", reviewedAt: new Date() }).where(eq(paymentsTable.id, payment.id));
     return "reconciliation_required" as const;
   }
-  if (providerReversal(transaction)) {
-    const reason = `Flutterwave reported ${providerReversal(transaction)} for the subscription payment`;
+  const reversal = providerReversal(transaction);
+  if (reversal === "refunded" || reversal === "charged_back") {
+    const reason = `Flutterwave reported ${reversal} for the subscription payment`;
     await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT id FROM payments WHERE id=${payment.id} AND merchant_id=${merchant.id} FOR UPDATE`);
-      const current = (await tx.select().from(paymentsTable).where(eq(paymentsTable.id, payment.id)).limit(1))[0];
-      if (!current || current.status !== "confirmed") return;
       await tx.execute(sql`SELECT id FROM subscriptions WHERE id=${subscription.id} AND merchant_id=${merchant.id} FOR UPDATE`);
+      const current = (await tx.select().from(paymentsTable).where(eq(paymentsTable.id, payment.id)).limit(1))[0];
       const locked = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.id, subscription.id)).limit(1))[0];
-      if (!locked) return;
+      if (!current || !locked || current.status !== "confirmed") return;
       const nextPaid = Math.max(0, Number(locked.amountPaid) - Number(current.amount));
       await tx.update(subscriptionsTable).set({ amountPaid: nextPaid.toFixed(2), status: nextPaid + 0.005 >= Number(locked.amountDue) ? "active" : "past_due" }).where(eq(subscriptionsTable.id, locked.id));
       await tx.update(paymentsTable).set({ status: "refunded", evidenceReference: providerId ?? reference, reviewedBy: "flutterwave_webhook", reviewedAt: new Date(), reviewNote: reason }).where(eq(paymentsTable.id, current.id));
@@ -320,7 +351,10 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
     await db.update(paymentsTable).set({ status: "failed", reviewNote: "Flutterwave reported payment failure", reviewedBy: "flutterwave_webhook", reviewedAt: new Date() }).where(eq(paymentsTable.id, payment.id));
     return "failed" as const;
   }
-  if (state !== "paid") return "pending" as const;
+  if (state !== "paid") {
+    await db.update(paymentsTable).set({ status: "pending" }).where(eq(paymentsTable.id, payment.id));
+    return "pending" as const;
+  }
 
   const result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM payments WHERE id=${payment.id} AND merchant_id=${merchant.id} FOR UPDATE`);
@@ -329,18 +363,19 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
     const currentSubscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.id, subscription.id)).limit(1))[0];
     if (!currentPayment || !currentSubscription) throw new Error("Subscription payment state unavailable");
     if (currentPayment.status === "confirmed") return "duplicate" as const;
-    const duplicateProvider = await tx.execute(sql`SELECT id FROM payments WHERE provider_transaction_id=${providerId} AND id <> ${currentPayment.id} LIMIT 1`);
-    if (providerId && duplicateProvider.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Commerce payment");
+    const duplicateProvider = providerId ? await tx.execute(sql`SELECT id FROM payments WHERE provider_transaction_id=${providerId} AND id <> ${currentPayment.id} LIMIT 1`) : null;
+    if (duplicateProvider?.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Commerce payment");
     const remaining = Math.max(0, Number(currentSubscription.amountDue) - Number(currentSubscription.amountPaid));
     if (remaining <= 0 || Number(currentPayment.amount) > remaining) throw new Error("Flutterwave subscription payment exceeds the outstanding obligation");
-    const settled = Number(currentSubscription.amountPaid) + Number(currentPayment.amount) + 0.005 >= Number(currentSubscription.amountDue);
-    await tx.update(paymentsTable).set({ status: "confirmed", evidenceReference: providerId ?? reference, reviewedBy: "flutterwave_webhook", reviewedAt: new Date(), reviewNote: "Verified by Flutterwave webhook and transaction re-query" }).where(eq(paymentsTable.id, currentPayment.id));
+
     const nextPaid = Number(currentSubscription.amountPaid) + Number(currentPayment.amount);
+    const settled = nextPaid + 0.005 >= Number(currentSubscription.amountDue);
+    await tx.update(paymentsTable).set({ status: "confirmed", evidenceReference: providerId ?? reference, reviewedBy: "flutterwave_webhook", reviewedAt: new Date(), reviewNote: "Verified by Flutterwave webhook and transaction re-query" }).where(eq(paymentsTable.id, currentPayment.id));
     const [updatedSubscription] = await tx.update(subscriptionsTable).set({ amountPaid: nextPaid.toFixed(2), paymentMethod: "flutterwave", status: settled ? "active" : "past_due" }).where(and(eq(subscriptionsTable.id, currentSubscription.id), eq(subscriptionsTable.amountPaid, currentSubscription.amountPaid))).returning();
     if (!updatedSubscription) throw new Error("Subscription changed while payment was processing");
     const providerFee = providerFeeMinor(transaction);
     await tx.execute(sql`UPDATE payments SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(expectedMinor)}, merchant_net_minor=${calculateMerchantNetMinor(expectedMinor, providerFee)} WHERE id=${currentPayment.id}`);
-    await qualifyReferralForPayment(tx, { referredMerchantId: merchant.id, paymentId: currentPayment.id, subscription: updatedSubscription, amountMinor, currency: currentPayment.currency });
+    await qualifyReferralForPayment(tx, { referredMerchantId: merchant.id, paymentId: currentPayment.id, subscription: updatedSubscription, amountMinor: amountMinor!, currency: currentPayment.currency });
     if (settled) await ensureReferralPeriodForPaidSubscription(tx, merchant.id, updatedSubscription);
     if (settled && merchant.status === "suspended") await tx.update(merchantsTable).set({ status: "active" }).where(eq(merchantsTable.id, merchant.id));
     return "successful" as const;
@@ -362,8 +397,8 @@ export async function processVerifiedFlutterwaveTransaction(
       providerTransactionId: flutterwaveTransactionId(transaction as any),
       paymentReference: reference || null,
       observedAmountMinor: Number.isFinite(flutterwaveAmount(transaction as any)) ? Math.round(flutterwaveAmount(transaction as any) * 100) : null,
-      observedCurrency: String(transaction.currency ?? "").toUpperCase() || null,
-      reason: "Flutterwave transaction has no matching TS Pay payment session",
+      observedCurrency: text(transaction.currency).toUpperCase() || null,
+      reason: "Flutterwave transaction has no matching TS Pay payment session or subscription payment",
       payload: rawPayload,
     });
     return "reconciliation_required" as const;
