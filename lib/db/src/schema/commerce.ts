@@ -204,6 +204,14 @@ export const subscriptionsTable = pgTable(
     amountPaid: numeric("amount_paid", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),
+    grossAmount: numeric("gross_amount", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    referralDiscount: numeric("referral_discount", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    referralRewardId: integer("referral_reward_id"),
+    billingPeriodKey: text("billing_period_key"),
     earningsHeld: numeric("earnings_held", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),
@@ -1086,6 +1094,107 @@ export const paymentIntentsTable = pgTable(
   ],
 );
 
+export const paymentDestinationsTable = pgTable(
+  "payment_destinations",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    paymentIntentId: integer("payment_intent_id").references(() => paymentIntentsTable.id),
+    paymentId: integer("payment_id").references(() => paymentsTable.id),
+    orderId: integer("order_id").references(() => ordersTable.id),
+    provider: text("provider").notNull(),
+    bankName: text("bank_name").notNull(),
+    accountName: text("account_name").notNull(),
+    accountNumber: text("account_number").notNull(),
+    amountMinor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    providerReference: text("provider_reference"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    status: text("status").notNull().default("active"),
+    rawProviderMetadata: jsonb("raw_provider_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("payment_destinations_intent_unique").on(table.paymentIntentId),
+    uniqueIndex("payment_destinations_payment_unique").on(table.paymentId),
+    uniqueIndex("payment_destinations_order_unique").on(table.orderId),
+    index("payment_destinations_merchant_status_idx").on(table.merchantId, table.status),
+  ],
+);
+
+export const referralPeriodsTable = pgTable(
+  "referral_periods",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    periodKey: text("period_key").notNull(),
+    code: text("code").notNull(),
+    codeHash: text("code_hash").notNull(),
+    validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
+    validUntil: timestamp("valid_until", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("referral_periods_merchant_period_unique").on(table.merchantId, table.periodKey),
+    uniqueIndex("referral_periods_code_hash_unique").on(table.codeHash),
+    index("referral_periods_merchant_status_idx").on(table.merchantId, table.status),
+  ],
+);
+
+export const referralAttributionsTable = pgTable(
+  "referral_attributions",
+  {
+    id: serial("id").primaryKey(),
+    referrerMerchantId: integer("referrer_merchant_id").notNull().references(() => merchantsTable.id),
+    referredMerchantId: integer("referred_merchant_id").notNull().references(() => merchantsTable.id),
+    referralPeriodId: integer("referral_period_id").notNull().references(() => referralPeriodsTable.id),
+    referralCodeHash: text("referral_code_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    qualifyingPaymentId: integer("qualifying_payment_id").references(() => paymentsTable.id),
+    qualifyingPaymentStatus: text("qualifying_payment_status"),
+    qualifyingAmountMinor: integer("qualifying_amount_minor"),
+    qualifyingCurrency: text("qualifying_currency"),
+    riskScore: integer("risk_score").notNull().default(0),
+    riskStatus: text("risk_status").notNull().default("clear"),
+    riskSignals: jsonb("risk_signals").$type<string[]>().notNull().default([]),
+  },
+  (table) => [
+    uniqueIndex("referral_attributions_referred_period_unique").on(table.referredMerchantId, table.referralPeriodId),
+    uniqueIndex("referral_attributions_qualifying_payment_unique").on(table.qualifyingPaymentId),
+    index("referral_attributions_referrer_created_idx").on(table.referrerMerchantId, table.createdAt),
+    index("referral_attributions_referred_status_idx").on(table.referredMerchantId, table.usedAt),
+  ],
+);
+
+export const referralRewardsTable = pgTable(
+  "referral_rewards",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id),
+    attributionId: integer("attribution_id").notNull().references(() => referralAttributionsTable.id),
+    qualifyingPaymentId: integer("qualifying_payment_id").notNull().references(() => paymentsTable.id),
+    grossAmountMinor: integer("gross_amount_minor").notNull(),
+    discountAmountMinor: integer("discount_amount_minor").notNull().default(0),
+    payableAmountMinor: integer("payable_amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    status: text("status").notNull().default("pending"),
+    appliedSubscriptionId: integer("applied_subscription_id").references(() => subscriptionsTable.id),
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversalReason: text("reversal_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("referral_rewards_attribution_unique").on(table.attributionId),
+    uniqueIndex("referral_rewards_qualifying_payment_unique").on(table.qualifyingPaymentId),
+    index("referral_rewards_merchant_status_idx").on(table.merchantId, table.status),
+  ],
+);
+
 export const paymentRecordsTable = pgTable("payment_records", {
   id: serial("id").primaryKey(),
   intentId: integer("intent_id").notNull().references(() => paymentIntentsTable.id),
@@ -1310,6 +1419,10 @@ export const insertWithdrawalSchema = createInsertSchema(withdrawalsTable).omit(
   updatedAt: true,
 });
 export const insertPaymentIntentSchema = createInsertSchema(paymentIntentsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPaymentDestinationSchema = createInsertSchema(paymentDestinationsTable).omit({ id: true, createdAt: true });
+export const insertReferralPeriodSchema = createInsertSchema(referralPeriodsTable).omit({ id: true, createdAt: true });
+export const insertReferralAttributionSchema = createInsertSchema(referralAttributionsTable).omit({ id: true, createdAt: true });
+export const insertReferralRewardSchema = createInsertSchema(referralRewardsTable).omit({ id: true, createdAt: true });
 export const insertPaymentRecordSchema = createInsertSchema(paymentRecordsTable).omit({ id: true, createdAt: true });
 export const insertLedgerEntrySchema = createInsertSchema(ledgerEntriesTable).omit({ id: true, createdAt: true });
 export const insertRefundRecordSchema = createInsertSchema(refundRecordsTable).omit({ id: true, createdAt: true });
@@ -1386,6 +1499,10 @@ export type InsertWithdrawalSecurity = z.infer<
 >;
 export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
 export type PaymentIntent = typeof paymentIntentsTable.$inferSelect;
+export type PaymentDestination = typeof paymentDestinationsTable.$inferSelect;
+export type ReferralPeriod = typeof referralPeriodsTable.$inferSelect;
+export type ReferralAttribution = typeof referralAttributionsTable.$inferSelect;
+export type ReferralReward = typeof referralRewardsTable.$inferSelect;
 export type PaymentRecord = typeof paymentRecordsTable.$inferSelect;
 export type LedgerEntry = typeof ledgerEntriesTable.$inferSelect;
 export type RefundRecord = typeof refundRecordsTable.$inferSelect;
@@ -1395,6 +1512,10 @@ export type TsPayAccount = typeof tsPayAccountsTable.$inferSelect;
 export type TsPayTransfer = typeof tsPayTransfersTable.$inferSelect;
 export type ReconciliationRecord = typeof reconciliationRecordsTable.$inferSelect;
 export type InsertPaymentIntent = z.infer<typeof insertPaymentIntentSchema>;
+export type InsertPaymentDestination = z.infer<typeof insertPaymentDestinationSchema>;
+export type InsertReferralPeriod = z.infer<typeof insertReferralPeriodSchema>;
+export type InsertReferralAttribution = z.infer<typeof insertReferralAttributionSchema>;
+export type InsertReferralReward = z.infer<typeof insertReferralRewardSchema>;
 export type InsertPaymentRecord = z.infer<typeof insertPaymentRecordSchema>;
 export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
 export type InsertRefundRecord = z.infer<typeof insertRefundRecordSchema>;

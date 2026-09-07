@@ -2699,6 +2699,19 @@ export const PublicCheckoutOrderPaymentStatus = {
   manual: 'manual',
 } as const;
 
+export interface PublicPaymentDestination {
+  provider: 'flutterwave';
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  amount: number;
+  currency: string;
+  /** @nullable */
+  providerReference: string | null;
+  /** @nullable */
+  expiresAt: string | null;
+}
+
 export interface PublicCheckoutOrder {
   orderNumber: string;
   title: string;
@@ -2716,6 +2729,8 @@ export interface PublicCheckoutOrder {
   paymentProvider: PublicCheckoutOrderPaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  /** @nullable */
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutOrderPaymentStatus;
 }
 
@@ -3174,6 +3189,8 @@ export interface PublicCheckoutPaymentSession {
   paymentProvider: PublicCheckoutPaymentSessionPaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  /** @nullable */
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutPaymentSessionPaymentStatus;
 }
 
@@ -3218,6 +3235,8 @@ export interface PublicCheckoutVerificationResponse {
   paymentProvider: PublicCheckoutVerificationResponsePaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  /** @nullable */
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutVerificationResponsePaymentStatus;
   /** @nullable */
   providerPaymentId: string | null;

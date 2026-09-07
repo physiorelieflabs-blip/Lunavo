@@ -33,6 +33,12 @@ export default function Billing() {
   const [message, setMessage] = useState('');
   const [flutterwavePending, setFlutterwavePending] = useState(false);
   const [tick, setTick] = useState(() => Date.now());
+  const [referral, setReferral] = useState<{
+    currentPeriod: { code: string; validUntil: string } | null;
+    rewards: Array<{ id: number; discountAmountMinor: number; currency: string; status: string }>;
+  } | null>(null);
+  const [referralCode, setReferralCode] = useState('');
+  const [referralMessage, setReferralMessage] = useState('');
 
   useEffect(() => {
     const timer = window.setInterval(() => setTick(Date.now()), 1000);
@@ -70,6 +76,12 @@ export default function Billing() {
     if (savedMethod === 'Pay from bank' || savedMethod === 'bank') setMethod('bank');
     if (savedMethod === 'flutterwave' || savedMethod === 'Pay with Flutterwave') setMethod('flutterwave');
   }, [subscription.data?.paymentMethod]);
+
+  useEffect(() => {
+    void customFetch<typeof referral>('/api/referrals', { responseType: 'json' })
+      .then(setReferral)
+      .catch(() => undefined);
+  }, []);
 
   if (subscription.isLoading || currencySettings.isLoading || bankDestinationQuery.isLoading) return <AppShell><LoadingState /></AppShell>;
   if (subscription.isError || currencySettings.isError || bankDestinationQuery.isError || !subscription.data) return <AppShell><ErrorState onRetry={() => { void subscription.refetch(); void currencySettings.refetch(); void bankDestinationQuery.refetch(); }} /></AppShell>;
@@ -139,16 +151,39 @@ export default function Billing() {
     setMessage('');
     setFlutterwavePending(true);
     try {
-      const result = await customFetch<{ purchaseUrl: string }>('/api/subscription/flutterwave-checkout', {
+      const result = await customFetch<{ purchaseUrl: string | null; paymentDestination?: { bankName: string; accountName: string; accountNumber: string; amount: number; currency: string } | null }>('/api/subscription/flutterwave-checkout', {
         method: 'POST',
         body: JSON.stringify({}),
         responseType: 'json',
       });
-      if (!result.purchaseUrl) throw new Error('Flutterwave did not return a hosted checkout URL.');
-      window.location.assign(result.purchaseUrl);
+      if (result.paymentDestination) {
+        setMessage(`Transfer ${money(result.paymentDestination.amount, result.paymentDestination.currency)} to ${result.paymentDestination.bankName}, ${result.paymentDestination.accountNumber}. Then return here with the Flutterwave transaction ID for verification.`);
+      } else if (result.purchaseUrl) {
+        window.location.assign(result.purchaseUrl);
+      } else {
+        throw new Error('Flutterwave did not return a payment destination.');
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Flutterwave checkout could not be started.');
       setFlutterwavePending(false);
+    }
+  };
+
+  const submitReferral = async (event: FormEvent) => {
+    event.preventDefault();
+    setReferralMessage('');
+    try {
+      const result = await customFetch<{ message: string }>('/api/referrals/attribute', {
+        method: 'POST',
+        body: JSON.stringify({ code: referralCode }),
+        responseType: 'json',
+      });
+      setReferralMessage(result.message);
+      setReferralCode('');
+      const latest = await customFetch<typeof referral>('/api/referrals', { responseType: 'json' });
+      setReferral(latest);
+    } catch (error) {
+      setReferralMessage(error instanceof Error ? error.message : 'Referral code could not be recorded.');
     }
   };
 
@@ -197,6 +232,14 @@ export default function Billing() {
           {routeButton('bank', <CreditCard className="h-5 w-5 text-[#a2772e]" />, 'Pay from bank', 'Send money from your bank and submit the payment reference.', 'button-method-bank')}
         </div>
       </section>
+
+       <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+         <SectionHeading eyebrow="Merchant referrals" title="Invite another merchant" description="Your referral code is created after a verified subscription payment. A qualifying referred merchant earns 30% off their next monthly subscription." />
+         {referral?.currentPeriod ? <div className="mt-5 rounded-lg border border-[#b8d6ca] bg-[#eff8f3] p-4"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#2f6958]">Current code</p><p className="mt-2 font-mono text-xl font-extrabold tracking-[.08em]">{referral.currentPeriod.code}</p><p className="mt-1 text-xs text-[#477563]">Valid until {dateLabel(referral.currentPeriod.validUntil)}</p></div> : <p className="mt-4 text-sm text-[#697687]">Complete and verify your current subscription payment to unlock a monthly referral code.</p>}
+         <form onSubmit={submitReferral} className="mt-5 flex flex-wrap gap-3"><input value={referralCode} onChange={(event) => setReferralCode(event.target.value)} className="h-11 min-w-[220px] flex-1 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm uppercase outline-none focus:border-[#bca26a]" placeholder="Enter a merchant referral code" /><Button type="submit" disabled={!referralCode.trim()}>Apply referral code</Button></form>
+         {referralMessage && <p className="mt-3 text-sm text-[#315e6c]">{referralMessage}</p>}
+         {!!referral?.rewards.length && <div className="mt-5 text-sm text-[#697687]">{referral.rewards.slice(0, 3).map((reward) => <p key={reward.id}>Reward: {money(reward.discountAmountMinor / 100, reward.currency)} · {reward.status}</p>)}</div>}
+       </section>
 
       <section className="mt-4 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
         {method === 'earnings' ? <div className="flex flex-wrap items-center justify-between gap-5"><div><h3 className="font-extrabold">Pay from dashboard: {money(outstanding, currency)}</h3><p className="mt-1 text-sm text-[#697687]">Available in your dashboard: {money(data.earningsHeld, currency)}. The fee settles only when the full outstanding amount is available.</p></div><Button onClick={onEarnings} disabled={earningsPayment.isPending || outstanding === 0 || data.earningsHeld < outstanding} data-testid="button-pay-earnings">{earningsPayment.isPending ? 'Applying…' : outstanding === 0 ? 'Already settled' : data.earningsHeld < outstanding ? 'Insufficient dashboard balance' : 'Pay from dashboard'} <ArrowRight className="h-4 w-4" /></Button></div>

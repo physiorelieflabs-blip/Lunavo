@@ -36,6 +36,7 @@ import {
   advertisingPaymentsTable,
   paymentsTable,
   paymentIntentsTable,
+  paymentDestinationsTable,
   paymentRecordsTable,
   paymentWebhookEventsTable,
   ledgerEntriesTable,
@@ -57,6 +58,9 @@ import {
   domainEventsTable,
   domainEventConsumptionsTable,
   notificationsTable,
+  referralAttributionsTable,
+  referralPeriodsTable,
+  referralRewardsTable,
   merchantLocationsTable,
   merchantRolesTable,
   merchantRolePermissionsTable,
@@ -359,12 +363,21 @@ import {
   flutterwaveStatus,
   flutterwaveTransactionId,
   initializeFlutterwavePayment,
+  initializeFlutterwaveVirtualAccount,
   isFlutterwaveConfigured,
   refundFlutterwaveTransaction,
   verifyFlutterwaveTransaction,
   verifyFlutterwaveWebhookSignature,
   type FlutterwaveTransaction,
 } from "../lib/flutterwave-client";
+import {
+  attributeReferral,
+  ensureReferralPeriodForPaidSubscription,
+  qualifyReferralForPayment,
+  referralPeriodForDate,
+  reverseReferralReward,
+  rollSubscriptionPeriod,
+} from "../lib/referrals";
 
 const router: IRouter = Router();
 class CommerceAuthorizationError extends Error {
@@ -998,6 +1011,7 @@ async function getSubscriptionForMerchant(
       .values({
         merchantId: merchant.id,
         amountDue: quote.amountDue.toFixed(2),
+        grossAmount: quote.amountDue.toFixed(2),
         baseAmountUsd: quote.baseAmountUsd.toFixed(2),
         currency: quote.currency,
         fxRate: quote.fxRate.toFixed(8),
@@ -1049,6 +1063,9 @@ async function getSubscriptionForMerchant(
       .update(subscriptionsTable)
       .set({
         amountDue: quote.amountDue.toFixed(2),
+        grossAmount: quote.amountDue.toFixed(2),
+        referralDiscount: "0",
+        referralRewardId: null,
         baseAmountUsd: quote.baseAmountUsd.toFixed(2),
         currency: quote.currency,
         fxRate: quote.fxRate.toFixed(8),
@@ -1057,6 +1074,11 @@ async function getSubscriptionForMerchant(
       })
       .where(eq(subscriptionsTable.id, subscription.id))
       .returning();
+  }
+  if (!isAdmin) {
+    subscription = await db.transaction((tx) =>
+      rollSubscriptionPeriod(tx, merchant.id, subscription),
+    );
   }
   return subscription;
 }
@@ -1724,6 +1746,10 @@ function serializePublicCheckoutOrder(
   payment?: {
     paymentIntentId: number;
     status: string;
+    provider: "flutterwave" | "ts_pay";
+    paymentUrl: string | null;
+    paymentDestination: PublicFlutterwaveCheckout["destination"];
+    paymentMessage: string;
   } | null,
 ) {
   return {
@@ -1735,11 +1761,14 @@ function serializePublicCheckoutOrder(
     total: toNumber(order.total),
     currency: order.currency,
     status: "pending" as const,
-    paymentMessage: "Your order is reserved. Transfer the exact total to the merchant bank account shown at checkout, then submit the transfer reference and sender name for merchant verification.",
+    paymentMessage:
+      payment?.paymentMessage ??
+      "Your order is reserved. Complete the payment instructions shown at checkout, then wait for server verification before fulfillment.",
     paymentToken: order.publicPaymentToken,
     paymentIntentId: payment?.paymentIntentId ?? null,
-    paymentProvider: "ts_pay" as const,
-    paymentUrl: null,
+    paymentProvider: payment?.provider ?? ("ts_pay" as const),
+    paymentUrl: payment?.paymentUrl ?? null,
+    paymentDestination: payment?.paymentDestination ?? null,
     paymentStatus: payment?.status === "created" ? "manual" : payment?.status ?? "manual",
   };
 }
@@ -1782,7 +1811,17 @@ type PublicFlutterwaveCheckout = {
   paymentToken: string;
   paymentIntentId: number;
   checkoutId: string;
-  purchaseUrl: string;
+  purchaseUrl: string | null;
+  destination: {
+    provider: string;
+    bankName: string;
+    accountName: string;
+    accountNumber: string;
+    amount: number;
+    currency: string;
+    providerReference: string | null;
+    expiresAt: string | null;
+  } | null;
   status: "submitted";
 };
 
@@ -1904,12 +1943,31 @@ async function ensurePublicFlutterwaveCheckout(
     }
     if (!intent) throw new Error("Payment attempt could not be prepared");
     if (intent.status === "verified") throw new Error("This order has already been paid");
-    if (intent.status === "submitted" && intent.evidenceReference && intent.checkoutUrl) {
+    const existingDestination = (
+      await tx
+        .select()
+        .from(paymentDestinationsTable)
+        .where(eq(paymentDestinationsTable.paymentIntentId, intent.id))
+        .limit(1)
+    )[0];
+    if (intent.status === "submitted" && intent.evidenceReference && (intent.checkoutUrl || existingDestination)) {
       return {
         paymentToken: currentOrder.publicPaymentToken!,
         paymentIntentId: intent.id,
         checkoutId: intent.evidenceReference,
         purchaseUrl: intent.checkoutUrl,
+        destination: existingDestination
+          ? {
+              provider: existingDestination.provider,
+              bankName: existingDestination.bankName,
+              accountName: existingDestination.accountName,
+              accountNumber: existingDestination.accountNumber,
+              amount: existingDestination.amountMinor / 100,
+              currency: existingDestination.currency,
+              providerReference: existingDestination.providerReference,
+              expiresAt: existingDestination.expiresAt?.toISOString() ?? null,
+            }
+          : null,
         status: "submitted" as const,
       };
     }
@@ -1923,33 +1981,80 @@ async function ensurePublicFlutterwaveCheckout(
     )[0];
     if (!customer) throw new Error("Checkout customer could not be found");
     const txRef = `TSO-${currentOrder.id}-${intent.id}`;
-    const checkout = await initializeFlutterwavePayment({
-      txRef,
-      amount: toNumber(currentOrder.total),
-      currency: currentOrder.currency,
-      redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(currentOrder.publicPaymentToken!)}`,
-      customer: { email: customer.email, name: customer.name, phonenumber: customer.phone ?? undefined },
-      title,
-      meta: {
-        provider: "flutterwave",
-        merchant_id: currentOrder.merchantId,
-        order_id: currentOrder.id,
-        order_number: currentOrder.orderNumber,
-        payment_intent_id: intent.id,
-        payment_token: currentOrder.publicPaymentToken!,
-      },
-    });
+    const customerDetails = { email: customer.email, name: customer.name, phonenumber: customer.phone ?? undefined };
+    const meta = {
+      provider: "flutterwave",
+      merchant_id: currentOrder.merchantId,
+      order_id: currentOrder.id,
+      order_number: currentOrder.orderNumber,
+      payment_intent_id: intent.id,
+      payment_token: currentOrder.publicPaymentToken!,
+    };
+    let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
+    try {
+      destination = await initializeFlutterwaveVirtualAccount({
+        txRef,
+        amount: toNumber(currentOrder.total),
+        currency: currentOrder.currency,
+        customer: customerDetails,
+        narration: `TS Commerce order ${currentOrder.orderNumber}`,
+        meta,
+      });
+    } catch {
+      // Some Flutterwave accounts/rails do not expose dynamic virtual accounts.
+      // Fall back only to the provider-hosted rail, never to a merchant payout account.
+    }
+    const checkout = destination
+      ? null
+      : await initializeFlutterwavePayment({
+          txRef,
+          amount: toNumber(currentOrder.total),
+          currency: currentOrder.currency,
+          redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(currentOrder.publicPaymentToken!)}`,
+          customer: customerDetails,
+          title,
+          meta,
+        });
     const [updated] = await tx
       .update(paymentIntentsTable)
-      .set({ status: "submitted", evidenceReference: checkout.txRef, checkoutUrl: checkout.link })
+      .set({ status: "submitted", evidenceReference: txRef, checkoutUrl: checkout?.link ?? null })
       .where(eq(paymentIntentsTable.id, intent.id))
       .returning();
     if (!updated) throw new Error("Could not save the customer checkout reference");
+    if (destination) {
+      await tx.insert(paymentDestinationsTable).values({
+        merchantId: currentOrder.merchantId,
+        paymentIntentId: intent.id,
+        orderId: currentOrder.id,
+        provider: "flutterwave",
+        bankName: destination.bankName,
+        accountName: destination.accountName,
+        accountNumber: destination.accountNumber,
+        amountMinor: Math.round(destination.amount * 100),
+        currency: destination.currency,
+        providerReference: destination.providerReference,
+        expiresAt: destination.expiresAt,
+        status: "active",
+        rawProviderMetadata: destination.raw,
+      });
+    }
     return {
       paymentToken: currentOrder.publicPaymentToken!,
       paymentIntentId: intent.id,
-      checkoutId: checkout.txRef,
-      purchaseUrl: checkout.link,
+      checkoutId: txRef,
+      purchaseUrl: checkout?.link ?? null,
+      destination: destination
+        ? {
+            provider: "flutterwave",
+            bankName: destination.bankName,
+            accountName: destination.accountName,
+            accountNumber: destination.accountNumber,
+            amount: destination.amount,
+            currency: destination.currency,
+            providerReference: destination.providerReference,
+            expiresAt: destination.expiresAt?.toISOString() ?? null,
+          }
+        : null,
       status: "submitted" as const,
     };
   });
@@ -1965,13 +2070,71 @@ async function findFlutterwaveCustomerPayment(
   if (transaction.tx_ref !== intent.evidenceReference) {
     throw new Error("Flutterwave transaction does not belong to this order");
   }
+  const destination = (
+    await db
+      .select()
+      .from(paymentDestinationsTable)
+      .where(eq(paymentDestinationsTable.paymentIntentId, intent.id))
+      .limit(1)
+  )[0];
+  if (destination?.expiresAt && destination.expiresAt.getTime() < Date.now()) {
+    throw new Error("This Flutterwave payment destination has expired");
+  }
+  const meta = transaction.meta ?? {};
+  for (const [key, expected] of [
+    ["payment_intent_id", intent.id],
+    ["order_id", order.id],
+    ["merchant_id", order.merchantId],
+    ["payment_token", order.publicPaymentToken],
+  ] as const) {
+    if (meta[key] !== undefined && String(meta[key]) !== String(expected)) {
+      throw new Error(`Flutterwave transaction metadata does not match ${key.replaceAll("_", " ")}`);
+    }
+  }
+  const customer = (
+    await db
+      .select({ email: customersTable.email })
+      .from(customersTable)
+      .where(and(eq(customersTable.id, order.customerId), eq(customersTable.merchantId, order.merchantId)))
+      .limit(1)
+  )[0];
+  if (customer?.email && transaction.customer?.email && customer.email.toLowerCase() !== transaction.customer.email.toLowerCase()) {
+    throw new Error("Flutterwave transaction customer does not match this order");
+  }
   const amount = flutterwaveAmount(transaction);
   const currency = String(transaction.currency ?? "").toUpperCase();
   if (!Number.isFinite(amount) || Math.abs(amount - toNumber(order.total)) >= 0.01 || currency !== order.currency) {
     throw new Error("Flutterwave payment amount or currency does not match this order");
   }
   const status = flutterwaveStatus(transaction);
+  if (
+    transaction.refund_status &&
+    !["none", "not_refunded", "successful"].includes(String(transaction.refund_status).toLowerCase())
+  ) {
+    throw new Error("Flutterwave reported a refund state for this transaction");
+  }
+  if (
+    transaction.dispute_status &&
+    !["none", "resolved", "closed"].includes(String(transaction.dispute_status).toLowerCase())
+  ) {
+    throw new Error("Flutterwave reported an unresolved dispute for this transaction");
+  }
   const providerPaymentId = flutterwaveTransactionId(transaction) ?? undefined;
+  if (providerPaymentId) {
+    const duplicate = (
+      await db
+        .select({ intentId: paymentRecordsTable.intentId })
+        .from(paymentRecordsTable)
+        .where(and(
+          eq(paymentRecordsTable.evidenceReference, providerPaymentId),
+          eq(paymentRecordsTable.status, "verified"),
+        ))
+        .limit(1)
+    )[0];
+    if (duplicate && duplicate.intentId !== intent.id) {
+      throw new Error("This Flutterwave transaction has already been applied to another payment");
+    }
+  }
   return { status, providerPaymentId };
 }
 
@@ -2856,6 +3019,14 @@ async function payFromEarnings(merchant: Merchant) {
         reviewedAt: new Date(),
       })
       .returning();
+    await qualifyReferralForPayment(tx, {
+      referredMerchantId: merchant.id,
+      paymentId: payment.id,
+      subscription: updatedSubscription,
+      amountMinor: Math.round(remaining * 100),
+      currency: payment.currency,
+    });
+    await ensureReferralPeriodForPaidSubscription(tx, merchant.id, updatedSubscription);
     if (merchant.status !== "banned") {
       await tx
         .update(merchantsTable)
@@ -8134,13 +8305,38 @@ router.post(
         });
         return { order, product };
       });
-      const payment = await ensurePublicManualPaymentIntent(result.order);
+      let paymentDetails: Parameters<typeof serializePublicCheckoutOrder>[2];
+      try {
+        const payment = await ensurePublicFlutterwaveCheckout(
+          result.order,
+          result.product.title,
+          requestOrigin(req),
+        );
+        paymentDetails = {
+          paymentIntentId: payment.paymentIntentId,
+          status: payment.status,
+          provider: "flutterwave",
+          paymentUrl: payment.purchaseUrl,
+          paymentDestination: payment.destination,
+          paymentMessage: payment.destination
+            ? "Your order is reserved. Transfer the exact amount to the Flutterwave bank account shown below. TS Commerce will verify the provider payment before fulfillment."
+            : "Your order is reserved. Complete the secure Flutterwave checkout; TS Commerce verifies the provider payment before fulfillment.",
+        };
+      } catch (error) {
+        req.log.warn({ err: error, orderId: result.order.id }, "Falling back to manual customer payment evidence");
+        const payment = await ensurePublicManualPaymentIntent(result.order);
+        paymentDetails = {
+          paymentIntentId: payment.id,
+          status: payment.status,
+          provider: "ts_pay",
+          paymentUrl: null,
+          paymentDestination: null,
+          paymentMessage: "Your order is reserved. Transfer the exact total to the merchant bank account shown at checkout, then submit the transfer reference and sender name for merchant verification.",
+        };
+      }
       res.status(201).json(
         CreatePublicCheckoutResponse.parse(
-          serializePublicCheckoutOrder(result.order, result.product, {
-            paymentIntentId: payment.id,
-            status: payment.status,
-          }),
+          serializePublicCheckoutOrder(result.order, result.product, paymentDetails),
         ),
       );
     } catch (error) {
@@ -8292,6 +8488,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
     let paymentProvider: "flutterwave" | "ts_pay" = "flutterwave";
     let paymentUrl: string | null = null;
     let paymentIntentId: number | null = null;
+    let paymentDestination: PublicFlutterwaveCheckout["destination"] = null;
     let paymentStatus: "submitted" | "manual" = "submitted";
     let paymentMessage = "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.";
     try {
@@ -8302,6 +8499,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       );
       paymentIntentId = payment.paymentIntentId;
       paymentUrl = payment.purchaseUrl;
+      paymentDestination = payment.destination;
     } catch (error) {
       // A payment-link order must remain usable when the hosted provider is
       // unavailable. The merchant can review manual evidence from Finance.
@@ -8326,6 +8524,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
        paymentIntentId,
        paymentProvider,
        paymentUrl,
+       paymentDestination,
        paymentStatus,
     }));
   } catch (error) {
@@ -8352,18 +8551,37 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
     return;
   }
   try {
-    const payment = await ensurePublicManualPaymentIntent(order);
+    const payment = await ensurePublicFlutterwaveCheckout(
+      order,
+      "TS Commerce payment",
+      requestOrigin(req),
+    );
     res.status(201).json({
       orderNumber: order.orderNumber,
       status: order.status,
       paymentToken,
-      paymentIntentId: payment.id,
-      paymentProvider: "ts_pay",
-      paymentUrl: null,
-      paymentStatus: payment.status === "created" ? "manual" : payment.status,
+      paymentIntentId: payment.paymentIntentId,
+      paymentProvider: "flutterwave",
+      paymentUrl: payment.purchaseUrl,
+      paymentDestination: payment.destination,
+      paymentStatus: payment.status,
     });
   } catch (error) {
-    res.status(409).json({ error: error instanceof Error ? error.message : "Payment session could not be reopened" });
+    try {
+      const payment = await ensurePublicManualPaymentIntent(order);
+      res.status(201).json({
+        orderNumber: order.orderNumber,
+        status: order.status,
+        paymentToken,
+        paymentIntentId: payment.id,
+        paymentProvider: "ts_pay",
+        paymentUrl: null,
+        paymentDestination: null,
+        paymentStatus: payment.status === "created" ? "manual" : payment.status,
+      });
+    } catch (fallbackError) {
+      res.status(409).json({ error: fallbackError instanceof Error ? fallbackError.message : error instanceof Error ? error.message : "Payment session could not be reopened" });
+    }
   }
 });
 
@@ -8993,6 +9211,122 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
   );
 });
 
+router.get("/referrals", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const subscription = await getSubscriptionForMerchant(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
+  const periodWindow = referralPeriodForDate(subscription.billingTimezone);
+  const period = (
+    await db
+      .select()
+      .from(referralPeriodsTable)
+      .where(and(
+        eq(referralPeriodsTable.merchantId, merchant.id),
+        eq(referralPeriodsTable.periodKey, periodWindow.periodKey),
+      ))
+      .limit(1)
+  )[0];
+  const attributions = await db
+    .select()
+    .from(referralAttributionsTable)
+    .where(eq(referralAttributionsTable.referrerMerchantId, merchant.id))
+    .orderBy(desc(referralAttributionsTable.createdAt))
+    .limit(100);
+  const rewards = await db
+    .select()
+    .from(referralRewardsTable)
+    .where(eq(referralRewardsTable.merchantId, merchant.id))
+    .orderBy(desc(referralRewardsTable.createdAt))
+    .limit(100);
+  res.json({
+    currentPeriod: period
+      ? {
+          id: period.id,
+          periodKey: period.periodKey,
+          code: period.code,
+          validFrom: period.validFrom,
+          validUntil: period.validUntil,
+          status: period.status,
+        }
+      : null,
+    attributions: attributions.map((attribution) => ({
+      id: attribution.id,
+      referredMerchantId: attribution.referredMerchantId,
+      createdAt: attribution.createdAt,
+      usedAt: attribution.usedAt,
+      qualifyingPaymentId: attribution.qualifyingPaymentId,
+      qualifyingPaymentStatus: attribution.qualifyingPaymentStatus,
+      riskStatus: attribution.riskStatus,
+      riskScore: attribution.riskScore,
+      riskSignals: attribution.riskSignals,
+    })),
+    rewards: rewards.map((reward) => ({
+      id: reward.id,
+      referredMerchantAttributionId: reward.attributionId,
+      grossAmountMinor: reward.grossAmountMinor,
+      discountAmountMinor: reward.discountAmountMinor,
+      payableAmountMinor: reward.payableAmountMinor,
+      currency: reward.currency,
+      status: reward.status,
+      appliedSubscriptionId: reward.appliedSubscriptionId,
+      reversedAt: reward.reversedAt,
+      reversalReason: reward.reversalReason,
+      createdAt: reward.createdAt,
+    })),
+  });
+});
+
+router.post("/referrals/attribute", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  if (!code.trim()) {
+    res.status(400).json({ error: "A referral code is required" });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  try {
+    const attribution = await db.transaction((tx) =>
+      attributeReferral(tx, { code, referredMerchantId: merchant.id }),
+    );
+    res.status(201).json({
+      id: attribution.id,
+      status: attribution.riskStatus === "review" ? "review" : "attributed",
+      riskStatus: attribution.riskStatus,
+      message: attribution.riskStatus === "review"
+        ? "Referral recorded and queued for review before any discount is applied."
+        : "Referral recorded. The reward is created after your first verified subscription payment.",
+    });
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "Referral could not be recorded" });
+  }
+});
+
+router.post("/referrals/rewards/:id/approve", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (!identity.isAdmin || isAdminPreviewRequest(identity)) {
+    res.status(403).json({ error: "Only the master admin can approve referral review flags" });
+    return;
+  }
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: "Invalid referral reward" });
+    return;
+  }
+  const [reward] = await db
+    .update(referralRewardsTable)
+    .set({ status: "earned" })
+    .where(and(eq(referralRewardsTable.id, id), eq(referralRewardsTable.status, "review")))
+    .returning();
+  if (!reward) {
+    res.status(404).json({ error: "Referral review reward was not found" });
+    return;
+  }
+  res.json({ id: reward.id, status: reward.status });
+});
+
 router.get("/subscription", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -9364,30 +9698,75 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
     .set({ paymentMethod: "flutterwave" })
     .where(eq(subscriptionsTable.id, enforced.subscription.id));
   try {
-    const checkout = await initializeFlutterwavePayment({
-      txRef: reference,
-      amount: outstanding,
-      currency: enforced.subscription.currency,
-      redirectUrl: `${requestOrigin(req)}/billing?flutterwave=return`,
-      customer: { email: merchant.email, name: merchant.name },
-      title: "TS Commerce subscription",
-      meta: {
-        provider: "flutterwave",
-        merchant_id: merchant.id,
-        subscription_id: enforced.subscription.id,
-        payment_reference: reference,
-      },
-    });
+    const meta = {
+      provider: "flutterwave",
+      merchant_id: merchant.id,
+      subscription_id: enforced.subscription.id,
+      payment_reference: reference,
+    };
+    let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
+    try {
+      destination = await initializeFlutterwaveVirtualAccount({
+        txRef: reference,
+        amount: outstanding,
+        currency: enforced.subscription.currency,
+        customer: { email: merchant.email, name: merchant.name },
+        narration: "TS Commerce subscription",
+        meta,
+      });
+    } catch {
+      // Account capability varies by Flutterwave rail; hosted checkout remains
+      // the provider-backed fallback, never a merchant payout destination.
+    }
+    const checkout = destination
+      ? null
+      : await initializeFlutterwavePayment({
+          txRef: reference,
+          amount: outstanding,
+          currency: enforced.subscription.currency,
+          redirectUrl: `${requestOrigin(req)}/billing?flutterwave=return`,
+          customer: { email: merchant.email, name: merchant.name },
+          title: "TS Commerce subscription",
+          meta,
+        });
     const [updatedPayment] = await db.update(paymentsTable).set({
-      evidenceReference: checkout.txRef,
+      evidenceReference: reference,
       status: "under_review",
       reviewNote: "Awaiting server-side Flutterwave payment verification",
     }).where(eq(paymentsTable.id, payment.id)).returning();
     if (!updatedPayment) throw new Error("Could not save the Flutterwave checkout reference");
+    if (destination) {
+      await db.insert(paymentDestinationsTable).values({
+        merchantId: merchant.id,
+        paymentId: payment.id,
+        provider: "flutterwave",
+        bankName: destination.bankName,
+        accountName: destination.accountName,
+        accountNumber: destination.accountNumber,
+        amountMinor: Math.round(destination.amount * 100),
+        currency: destination.currency,
+        providerReference: destination.providerReference,
+        expiresAt: destination.expiresAt,
+        status: "active",
+        rawProviderMetadata: destination.raw,
+      });
+    }
     res.status(201).json({
       provider: "flutterwave",
-      checkoutId: checkout.txRef,
-      purchaseUrl: checkout.link,
+      checkoutId: reference,
+      purchaseUrl: checkout?.link ?? null,
+      paymentDestination: destination
+        ? {
+            provider: "flutterwave",
+            bankName: destination.bankName,
+            accountName: destination.accountName,
+            accountNumber: destination.accountNumber,
+            amount: destination.amount,
+            currency: destination.currency,
+            providerReference: destination.providerReference,
+            expiresAt: destination.expiresAt?.toISOString() ?? null,
+          }
+        : null,
       status: updatedPayment.status,
       amount: outstanding,
       currency: enforced.subscription.currency,
@@ -9432,13 +9811,71 @@ router.post("/subscription/flutterwave-verify", async (req, res): Promise<void> 
       res.status(404).json({ error: "Flutterwave transaction is not associated with this account" });
       return;
     }
-    if (payment.status === "confirmed") {
-      res.json({ status: "confirmed", paymentId: transactionId, message: "Flutterwave payment was already verified.", subscription: serializeSubscription(merchant, enforced.subscription) });
+    const destination = (
+      await db
+        .select()
+        .from(paymentDestinationsTable)
+        .where(eq(paymentDestinationsTable.paymentId, payment.id))
+        .limit(1)
+    )[0];
+    if (destination?.expiresAt && destination.expiresAt.getTime() < Date.now()) {
+      res.status(409).json({ error: "This Flutterwave subscription payment destination has expired" });
+      return;
+    }
+    const metadata = transaction.meta ?? {};
+    if (metadata.merchant_id !== undefined && String(metadata.merchant_id) !== String(merchant.id)) {
+      res.status(409).json({ error: "Flutterwave transaction does not belong to this merchant" });
+      return;
+    }
+    if (metadata.subscription_id !== undefined && String(metadata.subscription_id) !== String(enforced.subscription.id)) {
+      res.status(409).json({ error: "Flutterwave transaction does not belong to this subscription" });
       return;
     }
     const amount = flutterwaveAmount(transaction);
     if (!Number.isFinite(amount) || Math.abs(amount - toNumber(payment.amount)) >= 0.01 || String(transaction.currency ?? "").toUpperCase() !== payment.currency) {
       res.status(409).json({ error: "The verified Flutterwave amount or currency does not match the subscription" });
+      return;
+    }
+    const reversalReason =
+      transaction.refund_status &&
+      !["none", "not_refunded", "successful"].includes(String(transaction.refund_status).toLowerCase())
+        ? "Flutterwave refund reported"
+        : transaction.dispute_status &&
+            !["none", "resolved", "closed"].includes(String(transaction.dispute_status).toLowerCase())
+          ? "Flutterwave dispute reported"
+          : null;
+    if (reversalReason) {
+      const reversed = await db.transaction(async (tx) => {
+        await tx.execute(sql`select id from ${subscriptionsTable} where id=${enforced.subscription.id} and merchant_id=${merchant.id} for update`);
+        await tx.execute(sql`select id from ${paymentsTable} where id=${payment.id} and merchant_id=${merchant.id} for update`);
+        const currentPayment = (await tx.select().from(paymentsTable).where(eq(paymentsTable.id, payment.id)).limit(1))[0];
+        if (!currentPayment || currentPayment.status !== "confirmed") return false;
+        const currentSubscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.id, enforced.subscription.id)).limit(1))[0];
+        if (!currentSubscription) throw new Error("Subscription not found");
+        const amountPaid = Math.max(0, toNumber(currentSubscription.amountPaid) - toNumber(currentPayment.amount));
+        await tx.update(subscriptionsTable).set({
+          amountPaid: amountPaid.toFixed(2),
+          status: amountPaid >= toNumber(currentSubscription.amountDue) ? "active" : "past_due",
+        }).where(eq(subscriptionsTable.id, currentSubscription.id));
+        await tx.update(paymentsTable).set({
+          status: "refunded",
+          reviewNote: reversalReason,
+          reviewedBy: "flutterwave",
+          reviewedAt: new Date(),
+        }).where(and(eq(paymentsTable.id, currentPayment.id), eq(paymentsTable.status, "confirmed")));
+        await reverseReferralReward(tx, currentPayment.id, reversalReason);
+        return true;
+      });
+      if (reversed) {
+        const refreshed = await getSubscriptionForMerchant(merchant);
+        res.json({ status: "reversed", paymentId: transactionId, message: `${reversalReason}. Subscription credit and referral reward state were reversed.`, subscription: serializeSubscription(merchant, refreshed) });
+      } else {
+        res.json({ status: "pending", paymentId: transactionId, message: "The provider reversal was recorded; no confirmed local payment was found to reverse.", subscription: serializeSubscription(merchant, enforced.subscription) });
+      }
+      return;
+    }
+    if (payment.status === "confirmed") {
+      res.json({ status: "confirmed", paymentId: transactionId, message: "Flutterwave payment was already verified.", subscription: serializeSubscription(merchant, enforced.subscription) });
       return;
     }
     if (providerStatus === "failed") {
@@ -9476,6 +9913,14 @@ router.post("/subscription/flutterwave-verify", async (req, res): Promise<void> 
         reviewedBy: "flutterwave",
         reviewedAt: new Date(),
       }).where(and(eq(paymentsTable.id, currentPayment.id), eq(paymentsTable.status, currentPayment.status)));
+      await qualifyReferralForPayment(tx, {
+        referredMerchantId: merchant.id,
+        paymentId: currentPayment.id,
+        subscription: updatedSubscription,
+        amountMinor: Math.round(amount * 100),
+        currency: currentPayment.currency,
+      });
+      await ensureReferralPeriodForPaidSubscription(tx, merchant.id, updatedSubscription);
       if (merchant.status !== "banned") {
         await tx.update(merchantsTable).set({ status: "active" }).where(eq(merchantsTable.id, merchant.id));
       }
@@ -10253,6 +10698,23 @@ router.patch("/admin/payments/:id/review", async (req, res): Promise<void> => {
               referenceKey: `subscription-bank:${payment.id}`,
             })
             .onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+        }
+        const updatedSubscription = (
+          await tx
+            .select()
+            .from(subscriptionsTable)
+            .where(eq(subscriptionsTable.id, subscription.id))
+            .limit(1)
+        )[0];
+        if (updatedSubscription) {
+          await qualifyReferralForPayment(tx, {
+            referredMerchantId: existing.merchant.id,
+            paymentId: payment.id,
+            subscription: updatedSubscription,
+            amountMinor: Math.round(toNumber(payment.amount) * 100),
+            currency: payment.currency,
+          });
+          await ensureReferralPeriodForPaidSubscription(tx, existing.merchant.id, updatedSubscription);
         }
       }
 

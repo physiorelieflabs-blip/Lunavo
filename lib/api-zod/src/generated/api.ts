@@ -2515,6 +2515,17 @@ export const CreatePublicCheckoutBody = zod.object({
   "idempotencyKey": zod.string().min(createPublicCheckoutBodyIdempotencyKeyMin).max(createPublicCheckoutBodyIdempotencyKeyMax)
 })
 
+export const PublicPaymentDestination = zod.object({
+  "provider": zod.literal("flutterwave"),
+  "bankName": zod.string(),
+  "accountName": zod.string(),
+  "accountNumber": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "providerReference": zod.string().nullable(),
+  "expiresAt": zod.iso.datetime().nullable(),
+})
+
 export const CreatePublicCheckoutResponse = zod.object({
   "orderNumber": zod.string(),
   "title": zod.string(),
@@ -2529,6 +2540,7 @@ export const CreatePublicCheckoutResponse = zod.object({
   "paymentIntentId": zod.int().nullable(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
+  "paymentDestination": PublicPaymentDestination.nullable(),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
@@ -2603,6 +2615,7 @@ export const CreatePaymentLinkCheckoutResponse = zod.object({
   "paymentIntentId": zod.int().nullable(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
+  "paymentDestination": PublicPaymentDestination.nullable(),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
@@ -2626,6 +2639,7 @@ export const RetryPublicPaymentSessionResponse = zod.object({
   "paymentIntentId": zod.int(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
+  "paymentDestination": PublicPaymentDestination.nullable(),
   "paymentStatus": zod.enum(['submitted', 'manual'])
 })
 
@@ -2656,6 +2670,7 @@ export const VerifyPublicPaymentSessionResponse = zod.object({
   "paymentIntentId": zod.int(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
+  "paymentDestination": PublicPaymentDestination.nullable(),
   "paymentStatus": zod.enum(['verified', 'pending', 'failed']),
   "providerPaymentId": zod.string().nullable()
 })

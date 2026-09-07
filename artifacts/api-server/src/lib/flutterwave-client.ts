@@ -18,6 +18,19 @@ export type FlutterwaveTransaction = {
   app_fee?: number | string;
   customer?: FlutterwaveCustomer;
   meta?: Record<string, unknown>;
+  refund_status?: string;
+  dispute_status?: string;
+};
+
+export type FlutterwaveVirtualAccountDestination = {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  amount: number;
+  currency: string;
+  providerReference: string | null;
+  expiresAt: Date | null;
+  raw: Record<string, unknown>;
 };
 
 type FlutterwaveResponse<T> = {
@@ -123,6 +136,100 @@ export async function initializeFlutterwavePayment(input: {
   const link = response.data?.link;
   if (!link) throw new Error("Flutterwave returned an incomplete hosted checkout");
   return { link, txRef: input.txRef };
+}
+
+function recordValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && String(value).trim()) return value;
+  }
+  return undefined;
+}
+
+function nestedAccountRecord(data: Record<string, unknown>): Record<string, unknown> {
+  for (const key of ["virtual_account", "virtualAccount", "account", "account_details"]) {
+    const value = data[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+  return data;
+}
+
+function parseProviderExpiry(value: unknown): Date | null {
+  if (value === undefined || value === null || value === "") return null;
+  const date = typeof value === "number"
+    ? new Date(value > 10_000_000_000 ? value : value * 1000)
+    : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Requests a short-lived Flutterwave virtual account for one payment session.
+ * The provider response is intentionally parsed defensively because Flutterwave
+ * has returned both flat and nested account payloads across rails.
+ */
+export async function initializeFlutterwaveVirtualAccount(input: {
+  txRef: string;
+  amount: number;
+  currency: string;
+  customer: FlutterwaveCustomer;
+  narration: string;
+  meta: Record<string, string | number>;
+}): Promise<FlutterwaveVirtualAccountDestination> {
+  const [firstName, ...rest] = (input.customer.name ?? "TS Commerce Customer").trim().split(/\s+/);
+  const response = await flutterwaveRequest<FlutterwaveResponse<Record<string, unknown>>>(
+    "/virtual-account-numbers",
+    {
+      method: "POST",
+      idempotencyKey: input.txRef,
+      body: {
+        email: input.customer.email,
+        tx_ref: input.txRef,
+        amount: Number(input.amount.toFixed(2)),
+        currency: input.currency.toUpperCase(),
+        firstname: firstName || "TS",
+        lastname: rest.join(" ") || "Customer",
+        phonenumber: input.customer.phonenumber,
+        narration: input.narration.slice(0, 120),
+        is_permanent: false,
+        duration: 30,
+        meta: input.meta,
+      },
+    },
+  );
+  const data = response.data;
+  if (!data || typeof data !== "object") {
+    throw new Error("Flutterwave returned no virtual-account details");
+  }
+  const account = nestedAccountRecord(data);
+  const bankName = String(recordValue(account, ["bank_name", "bankName", "bank"]) ?? "").trim();
+  const accountName = String(recordValue(account, ["account_name", "accountName", "name"]) ?? "").trim();
+  const accountNumber = String(
+    recordValue(account, ["account_number", "accountNumber", "virtual_account_number", "virtualAccountNumber"]) ?? "",
+  ).trim();
+  if (!bankName || !accountName || !accountNumber) {
+    throw new Error("Flutterwave did not return a complete virtual-account destination");
+  }
+  const amount = Number(recordValue(account, ["amount", "expected_amount", "expectedAmount"]) ?? input.amount);
+  const currency = String(recordValue(account, ["currency"]) ?? input.currency).toUpperCase();
+  if (!Number.isFinite(amount) || amount <= 0 || currency !== input.currency.toUpperCase()) {
+    throw new Error("Flutterwave returned an invalid virtual-account amount or currency");
+  }
+  const providerReference = recordValue(account, ["id", "reference", "account_id", "accountId", "tx_ref"]);
+  const expiresAt = parseProviderExpiry(
+    recordValue(account, ["expires_at", "expiresAt", "expiry", "expiration", "expires_on"]),
+  );
+  return {
+    bankName,
+    accountName,
+    accountNumber,
+    amount,
+    currency,
+    providerReference: providerReference == null ? null : String(providerReference),
+    expiresAt,
+    raw: data,
+  };
 }
 
 export async function verifyFlutterwaveTransaction(transactionId: string): Promise<FlutterwaveTransaction> {

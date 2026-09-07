@@ -1481,6 +1481,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Subscription"
+  /referrals:
+    get:
+      operationId: getReferralOverview
+      tags: [billing]
+      summary: Get the merchant referral code and reward history
+      security:
+        - clerkBearer: []
+      responses:
+        "200":
+          description: Referral overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralOverview"
+    post:
+      operationId: attributeReferral
+      tags: [billing]
+      summary: Attribute the current merchant to a referral code
+      security:
+        - clerkBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReferralAttributionInput"
+      responses:
+        "201":
+          description: Referral attributed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralAttributionResponse"
+  /referrals/rewards/{id}/approve:
+    post:
+      operationId: approveReferralReward
+      tags: [admin]
+      summary: Approve a flagged referral reward
+      security:
+        - clerkBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Reward approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  status: { type: string, enum: [earned] }
+                required: [id, status]
   /subscription/bank-destination:
     get:
       operationId: getSubscriptionBankDestination
@@ -2868,6 +2924,41 @@ components:
         - paymentRecoveryAvailable
         - nextAction
         - paymentMethod
+    ReferralAttributionInput:
+      type: object
+      properties:
+        code: { type: string, minLength: 8, maxLength: 40 }
+      required: [code]
+    ReferralAttributionResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        status: { type: string, enum: [attributed, review] }
+        riskStatus: { type: string }
+        message: { type: string }
+      required: [id, status, riskStatus, message]
+    ReferralOverview:
+      type: object
+      properties:
+        currentPeriod:
+          oneOf:
+            - type: object
+              properties:
+                id: { type: integer }
+                periodKey: { type: string }
+                code: { type: string }
+                validFrom: { type: string, format: date-time }
+                validUntil: { type: string, format: date-time }
+                status: { type: string }
+              required: [id, periodKey, code, validFrom, validUntil, status]
+            - type: "null"
+        attributions:
+          type: array
+          items: { type: object, additionalProperties: true }
+        rewards:
+          type: array
+          items: { type: object, additionalProperties: true }
+      required: [currentPeriod, attributions, rewards]
     DashboardOverview:
       type: object
       properties:
@@ -3757,6 +3848,18 @@ components:
         marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [supplierProductId, customerName, customerEmail, shippingAddress, quantity, idempotencyKey]
+    PublicPaymentDestination:
+      type: object
+      properties:
+        provider: { type: string, enum: [flutterwave] }
+        bankName: { type: string }
+        accountName: { type: string }
+        accountNumber: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        providerReference: { type: ["string", "null"] }
+        expiresAt: { type: ["string", "null"], format: date-time }
+      required: [provider, bankName, accountName, accountNumber, amount, currency, providerReference, expiresAt]
     PublicCheckoutOrder:
       type: object
       properties:
@@ -3773,8 +3876,12 @@ components:
         paymentIntentId: { type: ["integer", "null"] }
         paymentProvider: { type: string, enum: [flutterwave, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
+        paymentDestination:
+          oneOf:
+            - $ref: "#/components/schemas/PublicPaymentDestination"
+            - type: "null"
         paymentStatus: { type: string, enum: [created, submitted, verified, failed, manual] }
-      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
+      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentDestination, paymentStatus]
     PaymentLinkInput:
       type: object
       properties:
@@ -4050,8 +4157,12 @@ components:
         paymentIntentId: { type: integer }
         paymentProvider: { type: string, enum: [flutterwave, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
+        paymentDestination:
+          oneOf:
+            - $ref: "#/components/schemas/PublicPaymentDestination"
+            - type: "null"
         paymentStatus: { type: string, enum: [submitted, manual] }
-      required: [orderNumber, status, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
+      required: [orderNumber, status, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentDestination, paymentStatus]
     PublicCheckoutVerificationResponse:
       type: object
       properties:
@@ -4068,9 +4179,13 @@ components:
         paymentIntentId: { type: integer }
         paymentProvider: { type: string, enum: [flutterwave, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
+        paymentDestination:
+          oneOf:
+            - $ref: "#/components/schemas/PublicPaymentDestination"
+            - type: "null"
         paymentStatus: { type: string, enum: [verified, pending, failed] }
         providerPaymentId: { type: ["string", "null"] }
-      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus, providerPaymentId]
+      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentDestination, paymentStatus, providerPaymentId]
     PublicPaymentReferenceInput:
       type: object
       properties:
@@ -4087,5 +4202,9 @@ components:
         paymentIntentId: { type: integer }
         paymentProvider: { type: string, enum: [flutterwave, ts_pay] }
         paymentUrl: { type: ["string", "null"], format: uri }
+        paymentDestination:
+          oneOf:
+            - $ref: "#/components/schemas/PublicPaymentDestination"
+            - type: "null"
         paymentStatus: { type: string, enum: [submitted, verified] }
-      required: [orderNumber, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentStatus]
+      required: [orderNumber, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentDestination, paymentStatus]

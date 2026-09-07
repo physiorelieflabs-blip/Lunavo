@@ -50,6 +50,7 @@ const migrations = [
   "0039_media_assets",
   "0040_transfer_entry_types_and_payment_link_orders",
   "0041_payment_intent_checkout_urls",
+  "0042_referrals_and_payment_destinations",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();
