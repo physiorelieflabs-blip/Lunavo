@@ -457,6 +457,52 @@ const REFERRAL_ATTRIBUTE_WINDOW_MS = 10 * 60 * 1000;
 const REFERRAL_ATTRIBUTE_LIMIT = 8;
 const referralAttributeQuota = new Map<string, { startedAt: number; count: number }>();
 
+const ACCESS_BYPASS_ROUTES = [
+  /^\/public(?:\/|$)/,
+  /^\/healthz$/,
+  /^\/settings\/currency$/,
+  /^\/subscription(?:\/|$)/,
+  /^\/payments\/[^/]+\/verify$/,
+];
+
+router.use(async (req, res, next) => {
+  try {
+    const identity = await requireIdentity(req, res);
+    if (!identity) return;
+    if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
+      next();
+      return;
+    }
+    if (ACCESS_BYPASS_ROUTES.some((route) => route.test(req.path))) {
+      next();
+      return;
+    }
+
+    const merchant = await getOrCreateMerchant(identity);
+    const subscription = await getSubscriptionForMerchant(merchant);
+    const remaining = Math.max(
+      0,
+      toNumber(subscription.amountDue) - toNumber(subscription.amountPaid),
+    );
+    const access = subscriptionAccessWindow(merchant, subscription);
+    if (remaining > 0 && access.accessLocked) {
+      res.status(402).json({
+        error: "Merchant workspace access is locked.",
+        code: "SUBSCRIPTION_ACCESS_LOCKED",
+        billingPath: "/billing",
+      });
+      return;
+    }
+    next();
+  } catch (error) {
+    if (error instanceof CommerceAuthorizationError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    next(error);
+  }
+});
+
 function paymentBypassSignals(values: unknown[]): string[] {
   const text = values
     .filter((value): value is string => typeof value === "string")
@@ -1117,6 +1163,28 @@ async function getSubscriptionForMerchant(
     subscription = await db.transaction((tx) =>
       rollSubscriptionPeriod(tx, merchant.id, subscription),
     );
+    if (
+      subscription.paymentMethod === "earnings" &&
+      subscription.billingPeriodKey &&
+      !subscription.dashboardAccessStartedAt
+    ) {
+      const startedAt = subscription.paymentMethodSelectedAt ?? new Date();
+      const expiresAt = new Date(startedAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+      const [backfilled] = await db
+        .update(subscriptionsTable)
+        .set({
+          dashboardWindowBillingPeriod: subscription.billingPeriodKey,
+          dashboardAccessStartedAt: startedAt,
+          dashboardAccessExpiresAt: expiresAt,
+          dashboardWindowUsed: true,
+        })
+        .where(and(
+          eq(subscriptionsTable.id, subscription.id),
+          isNull(subscriptionsTable.dashboardAccessStartedAt),
+        ))
+        .returning();
+      if (backfilled) subscription = backfilled;
+    }
   }
   return subscription;
 }
@@ -1139,28 +1207,39 @@ function subscriptionAccessWindow(
   const paymentMethod = subscription.paymentMethod;
   const dashboardMode = paymentMethod === "earnings";
   const hasSelectedMethod = Boolean(paymentMethod);
-  const selectionStartedAt =
-    subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
-  const gracePeriodHours = dashboardMode ? 15 * 24 : 0;
-  const calendarDaysElapsed = dashboardMode
-    ? daysSince(selectionStartedAt, subscription.billingTimezone ?? "UTC")
-    : 0;
-  const daysElapsed = Math.min(15, Math.max(0, calendarDaysElapsed));
-  const gracePeriodDays = dashboardMode ? 15 : 0;
-  const daysRemaining = dashboardMode
-    ? Math.max(0, gracePeriodDays - calendarDaysElapsed)
-    : 0;
-  const deadline = new Date(
-    selectionStartedAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
+  const sameBillingPeriod =
+    !!subscription.billingPeriodKey &&
+    subscription.dashboardWindowBillingPeriod === subscription.billingPeriodKey;
+  const storedStart = subscription.dashboardAccessStartedAt;
+  const storedExpiry = subscription.dashboardAccessExpiresAt;
+  const durableWindow =
+    dashboardMode && sameBillingPeriod && !!storedStart && !!storedExpiry;
+  const selectionStartedAt = durableWindow
+    ? storedStart!
+    : subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
+  const deadline = durableWindow
+    ? storedExpiry!
+    : new Date(selectionStartedAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+  const elapsedDays = Math.floor(
+    Math.max(0, now.getTime() - selectionStartedAt.getTime()) / 86_400_000,
   );
+  const daysElapsed = dashboardMode ? Math.min(15, elapsedDays) : 0;
+  const daysRemaining =
+    dashboardMode && now < deadline
+      ? Math.max(
+          0,
+          Math.ceil((deadline.getTime() - now.getTime()) / 86_400_000),
+        )
+      : 0;
 
   return {
     paymentMethod,
     paymentMethodSelectedAt: subscription.paymentMethodSelectedAt,
     hasSelectedMethod,
     dashboardMode,
-    gracePeriodHours,
-    gracePeriodDays,
+    dashboardWindowUsed: Boolean(subscription.dashboardWindowUsed),
+    gracePeriodHours: dashboardMode ? 15 * 24 : 0,
+    gracePeriodDays: dashboardMode ? 15 : 0,
     deadline,
     daysElapsed,
     daysRemaining,
@@ -9541,11 +9620,28 @@ router.post("/subscription", async (req, res): Promise<void> => {
         subscription.paymentMethod === "earnings" && subscription.paymentMethodSelectedAt
           ? subscription.paymentMethodSelectedAt
           : new Date();
+      const billingPeriodKey =
+        subscription.billingPeriodKey ??
+        referralPeriodForDate(subscription.billingTimezone, selectedAt).periodKey;
+      const reusableWindow =
+        subscription.dashboardWindowBillingPeriod === billingPeriodKey &&
+        !!subscription.dashboardAccessStartedAt &&
+        !!subscription.dashboardAccessExpiresAt;
+      const dashboardStartedAt = reusableWindow
+        ? subscription.dashboardAccessStartedAt!
+        : selectedAt;
+      const dashboardExpiresAt = reusableWindow
+        ? subscription.dashboardAccessExpiresAt!
+        : new Date(dashboardStartedAt.getTime() + 15 * 24 * 60 * 60 * 1000);
       const [selected] = await db
         .update(subscriptionsTable)
         .set({
           paymentMethod: "earnings",
           paymentMethodSelectedAt: selectedAt,
+          dashboardWindowBillingPeriod: billingPeriodKey,
+          dashboardAccessStartedAt: dashboardStartedAt,
+          dashboardAccessExpiresAt: dashboardExpiresAt,
+          dashboardWindowUsed: true,
           status: "pending",
         })
         .where(eq(subscriptionsTable.id, subscription.id))
