@@ -1,14 +1,16 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import paymentBoundaryRouter from "./payment-boundary";
 import flutterwaveWebhookRouter from "./flutterwave-webhook";
 import commerceRouter from "./commerce";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-// Must run before commerce JSON-backed routes because app.ts preserves the raw
-// webhook bytes for signature verification. Provider verification is therefore
-// the only path allowed to finalize Flutterwave payments.
+// Provider-backed verification and internal earnings application must run
+// before the legacy commerce handlers so frontend claims can never create
+// provider payment success or bypass the partial-earnings rules.
+router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
 router.use(commerceRouter);
 
