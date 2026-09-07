@@ -40,6 +40,18 @@ type FlutterwaveResponse<T> = {
   data?: T;
 };
 
+class FlutterwaveRequestError extends Error {
+  readonly statusCode: number;
+  readonly providerMessage: string;
+
+  constructor(statusCode: number, providerMessage: string) {
+    super(`Flutterwave ${statusCode}: ${providerMessage}`);
+    this.name = "FlutterwaveRequestError";
+    this.statusCode = statusCode;
+    this.providerMessage = providerMessage;
+  }
+}
+
 function secretKey(): string {
   const value = process.env.FLUTTERWAVE_SECRET_KEY?.trim();
   if (!value) throw new Error("Flutterwave online payments are not configured");
@@ -75,7 +87,9 @@ async function flutterwaveRequest<T>(
   } catch {
     payload = null;
   }
-  if (!response.ok) throw new Error(providerError(payload));
+  if (!response.ok) {
+    throw new FlutterwaveRequestError(response.status, providerError(payload));
+  }
   return payload as T;
 }
 
@@ -119,6 +133,7 @@ export async function initializeFlutterwavePayment(input: {
   customer: FlutterwaveCustomer;
   title: string;
   meta: Record<string, string | number>;
+  paymentOptions?: string;
 }): Promise<{ link: string; txRef: string }> {
   const response = await flutterwaveRequest<FlutterwaveResponse<{ link?: string }>>("/payments", {
     method: "POST",
@@ -128,7 +143,7 @@ export async function initializeFlutterwavePayment(input: {
       amount: Number(input.amount.toFixed(2)),
       currency: input.currency.toUpperCase(),
       redirect_url: input.redirectUrl,
-      payment_options: "card,banktransfer,ussd,mobilemoney",
+       payment_options: input.paymentOptions ?? "card,banktransfer,ussd,mobilemoney",
       customer: input.customer,
       customizations: { title: input.title.slice(0, 120), description: "Secure payment powered by TS Commerce" },
       meta: input.meta,

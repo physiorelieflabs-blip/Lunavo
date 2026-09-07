@@ -9493,6 +9493,9 @@ router.post("/subscription", async (req, res): Promise<void> => {
         })
         .where(eq(subscriptionsTable.id, subscription.id))
         .returning();
+      if (!selected) {
+        throw new Error("Subscription payment window could not be opened");
+      }
       let responseMerchant = merchant;
       if (merchant.status === "suspended") {
         const [reopened] = await db
@@ -9837,6 +9840,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         eq(paymentDestinationsTable.status, "active"),
       ));
     let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
+    let destinationError: unknown = null;
     try {
       destination = await initializeFlutterwaveVirtualAccount({
         txRef: reference,
@@ -9846,10 +9850,51 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         narration: "TS Commerce subscription",
         meta,
       });
-    } catch {
-      throw new Error(
-        "Flutterwave could not generate a temporary bank account for this currency. No card checkout or merchant bank details are accepted.",
-      );
+    } catch (error) {
+      destinationError = error;
+      req.log.warn({
+        err: error,
+        currency: enforced.subscription.currency,
+        paymentReference: reference,
+      }, "Flutterwave temporary account generation failed; opening hosted bank checkout");
+    }
+    if (!destination) {
+      const origin = requestOrigin(req);
+      if (!origin) {
+        throw new Error("Flutterwave could not generate a temporary bank account and the hosted payment page URL could not be built");
+      }
+      const redirectUrl = new URL(
+        `/billing?flutterwave=return&checkout_id=${encodeURIComponent(reference)}`,
+        origin,
+      ).toString();
+      const checkout = await initializeFlutterwavePayment({
+        txRef: reference,
+        amount: outstanding,
+        currency: enforced.subscription.currency,
+        redirectUrl,
+        customer: { email: merchant.email, name: "TS Commerce" },
+        title: "TS Commerce subscription",
+        meta,
+        paymentOptions: "banktransfer",
+      });
+      const [updatedPayment] = await db.update(paymentsTable).set({
+        evidenceReference: reference,
+        status: "under_review",
+        reviewNote: destinationError instanceof Error
+          ? `Awaiting server-side Flutterwave hosted bank verification after temporary account provisioning failed: ${destinationError.message}`
+          : "Awaiting server-side Flutterwave hosted bank verification",
+      }).where(eq(paymentsTable.id, payment.id)).returning();
+      if (!updatedPayment) throw new Error("Could not save the Flutterwave checkout reference");
+      res.status(201).json({
+        provider: "flutterwave",
+        checkoutId: reference,
+        purchaseUrl: checkout.link,
+        paymentDestination: null,
+        status: updatedPayment.status,
+        amount: outstanding,
+        currency: enforced.subscription.currency,
+      });
+      return;
     }
     const [updatedPayment] = await db.update(paymentsTable).set({
       evidenceReference: reference,
