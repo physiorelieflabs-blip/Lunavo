@@ -33,7 +33,9 @@ type OrderIntent = NonNullable<Awaited<ReturnType<typeof findIntentByReference>>
 type SubscriptionPayment = NonNullable<Awaited<ReturnType<typeof findSubscriptionPaymentByReference>>>;
 
 function text(value: unknown): string { return typeof value === "string" ? value.trim() : ""; }
-function txRef(value: ProviderTransaction): string { return text(value.tx_ref); }
+function txRef(value: ProviderTransaction): string {
+  return text(value.tx_ref) || text(value.reference);
+}
 function customerEmail(value: ProviderTransaction): string | null {
   const customer = value.customer;
   if (!customer || typeof customer !== "object" || Array.isArray(customer)) return null;
