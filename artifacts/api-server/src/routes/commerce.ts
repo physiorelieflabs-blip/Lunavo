@@ -9477,11 +9477,16 @@ router.post("/subscription", async (req, res): Promise<void> => {
       );
       if (remaining > 0 && toNumber(selected.earningsHeld) >= remaining) {
         const result = await payFromEarnings(merchant);
+        const [paidMerchant] = await db
+          .select()
+          .from(merchantsTable)
+          .where(eq(merchantsTable.id, merchant.id))
+          .limit(1);
         res
           .status(201)
           .json(
             CreateSubscriptionResponse.parse(
-              serializeSubscription(merchant, result.subscription),
+              serializeSubscription(paidMerchant ?? merchant, result.subscription),
             ),
           );
         return;
