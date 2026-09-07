@@ -1,0 +1,1128 @@
+# TS COMMERCE — PAYMENT SYSTEM + TS AI IMAGE GENERATION
+
+Implement the following requirements as core TS Commerce functionality. Do not omit, simplify, replace, or contradict any requirement below.
+
+---
+
+# PART A — TS PAY PAYMENT INFRASTRUCTURE
+
+## 1. MULTIPLE CUSTOMER PAYMENT METHODS
+
+Do NOT make bank transfer the single customer payment option.
+
+Customers must be able to pay merchants using whatever legitimate payment methods are available for that customer, country, currency and transaction, including where supported:
+
+* Debit card
+* Credit card
+* Bank transfer
+* USSD
+* Mobile money
+* Digital wallets
+* Account-based payments
+* QR payments
+* Other supported local payment methods
+* Other supported international payment methods
+
+The checkout must automatically display the payment methods that are actually available.
+
+A customer must not be forced to use bank transfer when another supported payment method is available.
+
+---
+
+# 2. UNIQUE PAYMENT CODE FOR EVERY STORE
+
+Every TS Commerce store must automatically receive a unique permanent **TS Pay Store Code**.
+
+Example:
+
+`TS-STORE-847291`
+
+The code must uniquely identify that store inside TS Pay.
+
+Every store must have its own code.
+
+The system must never rely only on a merchant's bank account, email address or manually entered information to identify the destination store.
+
+---
+
+# 3. HOW THE STORE CODE WORKS
+
+The customer should normally NOT need to manually type the store code when paying through the store's normal checkout.
+
+The system should automatically attach the correct Store Code to the payment session.
+
+For example:
+
+**ABC Fashion**
+
+Store Code:
+
+`TS-ABC-847291`
+
+Customer opens ABC Fashion's checkout.
+
+They choose:
+
+**Card**
+
+Flutterwave processes the payment.
+
+TS Commerce receives/validates the transaction and identifies:
+
+`TS-ABC-847291`
+
+The payment is then associated with:
+
+**ABC Fashion → Merchant Balance**
+
+The same principle applies when the customer chooses bank transfer, USSD, wallet or another supported payment method.
+
+The payment method can change.
+
+The destination store does not.
+
+---
+
+# 4. CENTRALIZED PAYMENT FLOW
+
+The required architecture is:
+
+**CUSTOMER**
+
+↓
+
+**SELECTS ANY SUPPORTED PAYMENT METHOD**
+
+↓
+
+**FLUTTERWAVE / APPROVED PAYMENT RAIL**
+
+↓
+
+**TS PAY TRANSACTION VERIFICATION**
+
+↓
+
+**TS PAY LEDGER**
+
+↓
+
+**CORRECT STORE'S TS COMMERCE BALANCE**
+
+↓
+
+**MERCHANT WITHDRAWAL REQUEST**
+
+↓
+
+**VERIFIED MERCHANT PAYOUT DESTINATION**
+
+Do NOT design normal TS Commerce checkout as:
+
+**Customer → Merchant's ordinary bank account**
+
+The merchant's ordinary bank account is a payout destination, not the normal checkout destination.
+
+---
+
+# 5. EVERY PENNY MUST BE TRACEABLE
+
+"Every penny must go through the dashboard" means every transaction must be represented inside the TS Commerce financial system and assigned to the correct store.
+
+No successful customer payment may disappear outside the TS Pay transaction and ledger system.
+
+Every financial movement must have a complete record.
+
+Every transaction should include:
+
+* Unique transaction ID
+* Merchant ID
+* Store ID
+* Store Code
+* Order ID
+* Customer/order reference
+* Payment method
+* Amount
+* Currency
+* Gross amount
+* Fees
+* Taxes where applicable
+* Discounts where applicable
+* Payment-processing cost where applicable
+* TS Commerce fee
+* Net merchant amount
+* Transaction status
+* Settlement status
+* Timestamp
+* Related ledger entries
+* Audit history
+
+---
+
+# 6. MERCHANT STORE BALANCE
+
+Every store must have its own financial account/ledger inside TS Commerce.
+
+The merchant dashboard must show:
+
+* Available Balance
+* Pending Balance
+* Reserved Balance
+* Gross Sales
+* Successful Payments
+* Failed Payments
+* Refunds
+* Chargebacks
+* Taxes
+* Shipping collected
+* Discounts
+* Payment costs
+* TS Commerce fees
+* Marketplace fees where applicable
+* Merchant Net Balance
+* Withdrawal Requests
+* Completed Withdrawals
+* Reversed Withdrawals
+* Transaction History
+
+The displayed balance must come from real server-side ledger/accounting records.
+
+The frontend must never be able to directly change a merchant's balance.
+
+---
+
+# 7. FINANCIAL LEDGER
+
+Build TS Pay around a proper auditable financial ledger.
+
+Every financial event must create a corresponding ledger record.
+
+Examples:
+
+* Payment initiated
+* Payment authorized
+* Payment successful
+* Payment failed
+* Payment cancelled
+* Payment expired
+* Refund
+* Partial refund
+* Chargeback
+* Chargeback reversal
+* Fee
+* Tax
+* Reserve
+* Reserve release
+* Merchant withdrawal request
+* Withdrawal approval
+* Withdrawal rejection
+* Withdrawal completion
+* Withdrawal reversal
+* Currency conversion
+* Financial adjustment
+
+Financial history must not be silently overwritten.
+
+Corrections should create new accounting records and an audit trail.
+
+---
+
+# 8. FLUTTERWAVE INTEGRATION
+
+Use **Flutterwave as the initial real payment processor/payment rail** for TS Commerce.
+
+Use the **Flutterwave API credentials previously provided in the conversation/project/session** for this implementation when they are actually available to the development environment.
+
+Do NOT ask for the credentials again when they are already available.
+
+Do NOT invent credentials.
+
+Do NOT create fake payment functionality and pretend it is connected.
+
+If the credentials are not actually available to the development environment, implement the secure configuration structure and clearly leave the integration waiting for the real credential rather than fabricating one.
+
+---
+
+# 9. FLUTTERWAVE SECURITY
+
+The Flutterwave secret/API credentials must:
+
+* Never be exposed in frontend code
+* Never be placed in publicly accessible JavaScript
+* Never be committed to GitHub/source control
+* Never be shown to merchants
+* Never be displayed in logs
+* Never be returned in API responses
+* Be stored in secure backend environment variables/secrets
+* Be used through server-side requests for protected operations
+
+Validate payment status server-side.
+
+Use secure webhook validation/signature verification where applicable.
+
+Use idempotency and duplicate-processing protection.
+
+Never credit a merchant merely because the frontend says a payment succeeded.
+
+---
+
+# 10. FLUTTERWAVE PAYMENT VERIFICATION
+
+When Flutterwave reports a successful payment:
+
+1. Receive the notification securely.
+2. Verify the payment on the backend.
+3. Verify the transaction with Flutterwave where applicable.
+4. Verify the expected amount.
+5. Verify the expected currency.
+6. Verify the expected order/store.
+7. Verify the Store Code.
+8. Prevent duplicate processing.
+9. Mark the payment appropriately.
+10. Create the TS Pay ledger entries.
+11. Credit the correct merchant/store balance.
+12. Update the order.
+13. Update the merchant dashboard.
+
+The system must not credit the merchant solely from untrusted frontend data.
+
+---
+
+# 11. PROVIDER-INDEPENDENT TS PAY ARCHITECTURE
+
+Flutterwave is the initial payment provider.
+
+However, TS Pay must remain an abstraction/orchestration and accounting layer rather than becoming permanently hard-coded around Flutterwave.
+
+Architecture:
+
+**TS Checkout**
+
+↓
+
+**TS Pay Payment Orchestrator**
+
+↓
+
+**Payment Provider Adapter**
+
+↓
+
+**Flutterwave**
+
+↓
+
+**TS Pay Verification**
+
+↓
+
+**TS Pay Ledger**
+
+↓
+
+**Merchant Store Balance**
+
+This must allow additional payment providers/rails to be added later without rebuilding the merchant ledger, balances, transaction history, payouts or dashboards.
+
+---
+
+# 12. MERCHANT WITHDRAWALS
+
+Merchants must NOT automatically receive customer money directly into their bank account after every sale.
+
+Instead:
+
+**Customer pays**
+
+↓
+
+**Payment verified**
+
+↓
+
+**TS Pay ledger updated**
+
+↓
+
+**Merchant balance updated**
+
+↓
+
+**Funds become eligible after applicable settlement/risk rules**
+
+↓
+
+**Merchant requests withdrawal**
+
+↓
+
+**TS Commerce checks eligibility**
+
+↓
+
+**Withdrawal is processed**
+
+↓
+
+**Merchant receives money at verified payout destination**
+
+The merchant dashboard must contain a clear:
+
+**Withdraw Funds**
+
+function.
+
+Support configurable:
+
+* Minimum withdrawal amount
+* Settlement delay
+* Pending period
+* Reserve
+* Risk holds
+* Fraud review
+* Chargeback exposure
+* Refund exposure
+* Daily limits
+* Weekly limits
+* Monthly limits
+* Manual approval
+* Automatic approval
+* KYC requirements
+
+Do not allow withdrawal of funds that remain pending, reserved, disputed or otherwise unavailable.
+
+---
+
+# 13. MERCHANT PAYOUT DESTINATION
+
+Merchants must provide an eligible verified payout destination.
+
+Depending on supported jurisdictions and payment infrastructure, this may be:
+
+* Bank account
+* Other legally supported payout destination
+
+The payout destination must be separate from the normal customer checkout flow.
+
+---
+
+# 14. REFUNDS AND CHARGEBACKS
+
+Refunds and disputes must update the correct merchant ledger.
+
+Example:
+
+Customer pays `$100`.
+
+Later `$40` is refunded.
+
+The system must create a separate refund entry and correctly adjust the merchant's available/settled balance.
+
+Chargebacks must also be reflected in the merchant ledger.
+
+If applicable and legally permitted, the system must handle situations where a merchant has already withdrawn money before a refund or chargeback occurs.
+
+---
+
+# 15. PLATFORM MONEY VS MERCHANT MONEY
+
+Keep completely separate accounting classifications for:
+
+**Merchant Funds**
+
+**TS Commerce Revenue**
+
+**Pending Funds**
+
+**Reserved Funds**
+
+**Payment Costs**
+
+**Refunds**
+
+**Chargebacks**
+
+The system must always be able to determine:
+
+* How much the customer paid
+* Which store received the sale
+* How much belongs to the merchant
+* How much belongs to TS Commerce
+* How much went to processing costs
+* How much was refunded
+* How much is pending
+* How much is reserved
+* How much is currently withdrawable
+* How much the merchant has already withdrawn
+
+---
+
+# 16. MASTER ADMIN FINANCIAL DASHBOARD
+
+The Master Admin must have a complete platform-level financial dashboard.
+
+Include:
+
+* Total Gross Payment Volume
+* Total Merchant Funds
+* Pending Merchant Funds
+* Reserved Funds
+* Platform Revenue
+* Subscription Revenue
+* Transaction Fee Revenue
+* Marketplace Fee Revenue
+* Refunds
+* Chargebacks
+* Payment Costs
+* Pending Merchant Withdrawals
+* Completed Merchant Withdrawals
+* Reversed Withdrawals
+* Platform Withdrawable Balance
+* Reconciliation status
+* Financial discrepancies
+* Currency balances
+* Audit logs
+
+Admin financial controls must not accidentally withdraw or classify merchant-owned funds as platform revenue.
+
+---
+
+# 17. RECONCILIATION
+
+TS Pay must reconcile:
+
+**Flutterwave/payment records**
+
+↔
+
+**TS Pay transactions**
+
+↔
+
+**TS Pay ledger**
+
+↔
+
+**Merchant balances**
+
+↔
+
+**Settlements**
+
+↔
+
+**Withdrawals**
+
+Flag:
+
+* Missing transactions
+* Duplicate transactions
+* Wrong amounts
+* Failed settlements
+* Missing settlements
+* Reversed payments
+* Unmatched transactions
+* Balance discrepancies
+
+Never silently ignore a discrepancy.
+
+---
+
+# 18. MULTI-CURRENCY
+
+Support multiple currencies.
+
+Every transaction must store the appropriate:
+
+* Original amount
+* Original currency
+* Settlement currency
+* Exchange rate where applicable
+* Converted amount
+* FX cost where applicable
+* Ledger currency
+
+Do not assume every merchant uses the same currency.
+
+---
+
+# 19. MERCHANT SUBSCRIPTION PAYMENT
+
+Merchant subscription payments to TS Commerce must also support normal available payment methods.
+
+Do NOT make bank transfer the sole option.
+
+A merchant should be able to pay the TS Commerce subscription through supported methods such as:
+
+* Card
+* Bank transfer
+* Other available payment methods
+
+The subscription payment must be recorded separately as **TS Commerce platform revenue**.
+
+Merchant funds and TS Commerce subscription revenue must never be mixed.
+
+---
+
+# 20. SECURITY
+
+Implement strong financial security, including:
+
+* Secure authentication
+* 2FA for administrators
+* Role-based access
+* Financial-operation permissions
+* Withdrawal verification
+* Rate limiting
+* Fraud/risk controls
+* Session management
+* Audit logs
+* Idempotency
+* Duplicate payment prevention
+* Secure webhook validation
+* Server-side authorization
+* Transaction integrity checks
+* Suspicious withdrawal detection
+* Manual review controls
+
+No financial amount may be changed by a normal frontend request.
+
+---
+
+# 21. NO FAKE MONEY
+
+Do not create fake balances that are only visual numbers.
+
+Build the actual accounting and transaction architecture so real payment providers can feed verified payment events into it.
+
+Do not represent a database number as actual custody of money.
+
+Where regulated payment custody, settlement, acquiring, payout or money-transfer activity requires a licensed financial institution/provider, structure the system accordingly and do not assume the software itself automatically has the legal authority to hold or move customer funds.
+
+---
+
+# PART B — TS AI + IMAGE GENERATION
+
+# 22. TS AI
+
+Create a built-in AI assistant called:
+
+**TS AI**
+
+Use **DeepSeek as the primary AI intelligence/reasoning engine**.
+
+Do NOT use Pollinations as the primary chatbot/reasoning AI.
+
+The architecture is:
+
+**User → TS AI → DeepSeek → Response**
+
+---
+
+# 23. DEEPSEEK WITHOUT REQUIRED API KEY
+
+Where technically feasible, design TS AI to use a **self-hosted/open-weight DeepSeek model** so that TS Commerce's core AI functionality does not require a DeepSeek API key.
+
+Do not confuse "no API key" with "no model/infrastructure."
+
+The application must actually use an AI model/inference engine.
+
+Do not fake intelligence using predefined responses.
+
+Design the AI model layer so the underlying model can be upgraded or replaced later.
+
+---
+
+# 24. CHATGPT-STYLE TS AI EXPERIENCE
+
+Build a polished modern AI interface with:
+
+* Natural conversation
+* Multi-turn context
+* Chat history
+* New conversation
+* Rename conversation
+* Delete conversation
+* Streaming responses
+* Stop generation
+* Regenerate response
+* Copy response
+* Markdown
+* Code blocks
+* Tables
+* File understanding
+* Image understanding
+* Context-aware responses
+* Coding assistance
+* Writing
+* Rewriting
+* Analysis
+* Business assistance
+* Product assistance
+* Marketing assistance
+
+Do not claim TS AI is equivalent to ChatGPT unless its actual capabilities justify that claim.
+
+The objective is to provide the strongest practical AI experience supported by the selected model/infrastructure.
+
+---
+
+# 25. TS AI AND STORE DATA
+
+TS AI may interact with authorized TS Commerce data and tools.
+
+Examples:
+
+* Read products
+* Read inventory
+* Read orders
+* Read analytics
+* Analyze store performance
+* Generate product descriptions
+* Generate marketing copy
+* Create reports
+* Help configure stores
+
+TS AI must respect the logged-in user's authorization.
+
+It must never access another merchant's private data.
+
+Important actions that modify business data should require appropriate confirmation and authorization.
+
+---
+
+# 26. POLLINATIONS FOR IMAGE GENERATION
+
+Use **Pollinations AI specifically as the image-generation engine**.
+
+Do NOT use Pollinations as the main chatbot/reasoning engine.
+
+The architecture should be:
+
+**User Request**
+
+↓
+
+**TS AI**
+
+↓
+
+**DeepSeek understands and reasons**
+
+↓
+
+**DeepSeek creates/refines image-generation instructions**
+
+↓
+
+**Pollinations generates image**
+
+↓
+
+**TS AI displays image**
+
+This keeps the responsibilities separate:
+
+**DeepSeek = intelligence/reasoning**
+
+**Pollinations = image generation**
+
+---
+
+# 27. IMAGE GENERATION FEATURES
+
+Allow users to generate:
+
+* Product images
+* Product mockups
+* Lifestyle product scenes
+* Advertisements
+* Social-media graphics
+* Store banners
+* Hero images
+* Marketing graphics
+* Blog graphics
+* Thumbnails
+* Promotional graphics
+* Backgrounds
+* Brand visuals
+* Creative concepts
+
+Example:
+
+User says:
+
+> "Create a luxury advertisement for my black leather handbag."
+
+TS AI uses DeepSeek to understand the request and improve the visual prompt.
+
+Pollinations then generates the actual image.
+
+---
+
+# 28. IMAGE UNDERSTANDING
+
+Where supported by the configured DeepSeek vision model, allow TS AI to understand uploaded images.
+
+Examples:
+
+* Analyze product photos
+* Understand product appearance
+* Suggest better image concepts
+* Create advertising concepts
+* Generate prompts from an uploaded image
+* Create new scenes based on a product image
+
+DeepSeek handles image understanding.
+
+Pollinations handles image generation.
+
+Do not falsely state that DeepSeek itself generated the image.
+
+---
+
+# 29. IMAGE EDITING / VARIATIONS
+
+Where supported by the configured image-generation system, provide features such as:
+
+* Regenerate
+* Create variation
+* Change background
+* Replace background
+* Remove background
+* Generate a new scene
+* Enhance image
+* Change aspect ratio
+* Generate alternative marketing versions
+
+Keep the original image and generated variations distinguishable.
+
+---
+
+# 30. SAVE IMAGE
+
+Every generated image must have a:
+
+**Save to Media Library**
+
+button.
+
+When saved, the image must be stored in TS Commerce's media system and associated with the appropriate merchant account.
+
+Store metadata including:
+
+* Image ID
+* Merchant ID
+* Store ID where applicable
+* Original prompt
+* Improved prompt
+* Generation provider
+* Creation date
+* Image dimensions
+* File size
+* Image format
+* Related product where applicable
+* Source/generated relationship
+
+The merchant must be able to:
+
+* View
+* Rename
+* Delete
+* Download
+* Reuse
+* Attach to products
+* Attach to storefront sections
+* Attach to marketing campaigns
+* Attach to blog posts
+* Export to another authorized store
+
+---
+
+# 31. DOWNLOAD IMAGE
+
+Every generated or saved image must have a:
+
+**Download Image**
+
+option.
+
+The downloaded file must be the actual generated image, not a screenshot of the TS AI interface.
+
+---
+
+# 32. EXPORT TO ANY AUTHORIZED STORE
+
+Every saved/generated image must have an:
+
+**Export to Store**
+
+option.
+
+When clicked, show all stores that the currently authenticated user is authorized to manage.
+
+Example:
+
+**Export to Store**
+
+* TS Fashion
+* TS Electronics
+* TS Beauty
+* TS Home
+* ABC Store
+
+The user selects the destination store and confirms.
+
+TS Commerce then exports/copies the image into that store's media library.
+
+A user must NEVER be able to export an image into a store they do not have permission to manage.
+
+---
+
+# 33. IMAGE EXPORT DESTINATIONS
+
+When exporting an image, allow the user to select its destination/use where applicable:
+
+* Store Media Library
+* Product Main Image
+* Product Gallery
+* Homepage Hero
+* Store Banner
+* Collection Image
+* Category Image
+* Blog Image
+* Marketing Campaign
+* Advertisement
+* Social-media creative
+
+Allow selection of the specific product, collection or storefront section where the user's permissions allow it.
+
+---
+
+# 34. MULTI-STORE IMAGE MANAGEMENT
+
+A merchant can have multiple stores.
+
+Treat each store as a separate environment.
+
+A generated image can be:
+
+**Generated once → Saved once → Reused/exported to any authorized store**
+
+The merchant should not have to generate the same image again just because they want to use it in another store.
+
+---
+
+# 35. AI MEDIA LIBRARY
+
+Create an AI-generated media area with:
+
+* Generated Images
+* Saved Images
+* Recent Images
+* Favorites
+* Search
+* Filters
+* Sorting
+* Store assignment
+* Product assignment
+* Generation date
+* Provider/model information
+
+Where appropriate, support bulk selection and bulk export to authorized stores.
+
+---
+
+# 36. COMBINED AI + PRODUCT WORKFLOW
+
+Support this complete workflow:
+
+**Merchant uploads product image**
+
+↓
+
+**DeepSeek analyzes the product**
+
+↓
+
+**Merchant asks TS AI to create a professional marketing image**
+
+↓
+
+**DeepSeek creates/refines the image prompt**
+
+↓
+
+**Pollinations generates the image**
+
+↓
+
+**TS AI displays the generated image**
+
+↓
+
+**Merchant chooses Save**
+
+↓
+
+**Image is stored in TS Media Library**
+
+↓
+
+**Merchant selects Export to Store**
+
+↓
+
+**Merchant selects any authorized store**
+
+↓
+
+**Merchant chooses Product / Banner / Media Library / Marketing / etc.**
+
+↓
+
+**TS Commerce exports the image**
+
+This should happen without requiring the merchant to leave TS Commerce.
+
+---
+
+# 37. IMAGE PROVIDER INDEPENDENCE
+
+Pollinations is the initial image-generation provider.
+
+Keep image generation modular so another image model/provider can replace Pollinations later without rebuilding TS AI, the media library or store workflows.
+
+Architecture:
+
+**TS AI Interface**
+
+↓
+
+**AI Orchestration Layer**
+
+↓
+
+**DeepSeek**
+
+↓
+
+**Image Generation Adapter**
+
+↓
+
+**Pollinations**
+
+↓
+
+**TS Media Library**
+
+The provider must be replaceable.
+
+---
+
+# 38. NO FAKE AI
+
+Never:
+
+* Pretend a hard-coded response is AI
+* Pretend an image was generated when generation failed
+* Claim DeepSeek generated an image if Pollinations generated it
+* Claim Pollinations is the chatbot
+* Claim a payment succeeded without verified payment evidence
+* Credit a merchant from unverified frontend information
+* Display fake balances as though they represent real settled money
+
+Always report failures accurately.
+
+---
+
+# 39. PERMISSIONS
+
+For financial operations:
+
+**User → Merchant → Store → Financial Permission → Action**
+
+For AI/store operations:
+
+**User → Merchant → Store → AI/Data Permission → Action**
+
+Never allow TS AI or normal frontend requests to bypass server-side permissions.
+
+---
+
+# 40. FINAL CORE ARCHITECTURE
+
+The finished TS Commerce architecture must support:
+
+### Payments
+
+**Customer**
+
+→ Any supported payment method
+
+→ **Flutterwave**
+
+→ **TS Pay**
+
+→ **Verified transaction**
+
+→ **Correct Store Code**
+
+→ **Correct merchant ledger**
+
+→ **Merchant balance**
+
+→ **Merchant withdrawal**
+
+→ **Verified payout destination**
+
+### AI
+
+**User**
+
+→ **TS AI**
+
+→ **DeepSeek**
+
+→ Intelligent response
+
+### Images
+
+**User**
+
+→ **TS AI**
+
+→ **DeepSeek understands/refines request**
+
+→ **Pollinations generates image**
+
+→ **Save to Media Library**
+
+→ **Download**
+
+→ **Export to any authorized store**
+
+### Fundamental rule
+
+**Every payment must be traceable.**
+
+**Every merchant/store must have its own TS Pay Store Code.**
+
+**Customers can use normal supported payment methods, not bank transfer only.**
+
+**Customer checkout money must flow through the TS Pay/payment infrastructure rather than directly to the merchant's ordinary bank account.**
+
+**Merchant balances must remain separately accounted for.**
+
+**Merchants withdraw eligible funds through TS Commerce.**
+
+**Merchant subscription payments also go through the TS Commerce payment system and are recorded as platform revenue.**
+
+**DeepSeek is the primary TS AI intelligence/reasoning engine.**
+
+**Pollinations is the image-generation engine.**
+
+**Generated images can be saved, downloaded, reused and exported to any store the user is authorized to manage.**
+
+Build these requirements into the core architecture from the beginning rather than adding them as superficial frontend features later.

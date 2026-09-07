@@ -1,0 +1,3940 @@
+# TS COMMERCE — ULTIMATE MASTER BUILD PROMPT
+
+## REPLIT STARTER/FREE • LITE BUILD • RESOURCE-EFFICIENT • PRODUCTION-READY ARCHITECTURE
+
+You are building **TS Commerce**, a global commerce SaaS and marketplace ecosystem.
+
+This is the master specification.
+
+Do not delete, simplify, ignore, contradict or silently replace requirements in this document.
+
+Because the development environment may be limited, build intelligently and incrementally. Prioritize a working, secure architecture and implement the largest practical amount of functionality using the available Replit environment without requiring Max or Power mode for ordinary development.
+
+---
+
+# 1. REPLIT RESOURCE-EFFICIENCY REQUIREMENTS
+
+Build TS Commerce to work as efficiently as possible within the Replit Starter/Free environment.
+
+Use lightweight development workflows whenever possible.
+
+Do not unnecessarily require:
+
+* Max
+* Power mode
+* Large numbers of Replit connectors
+* Unnecessary paid services
+* Unnecessary dependencies
+* Multiple Replit projects
+* Complex microservices
+
+Prefer:
+
+* One well-structured application
+* Replit-supported database capabilities
+* PostgreSQL-compatible architecture
+* Lightweight dependencies
+* Reusable components
+* Modular internal services
+* Direct secure HTTPS API calls where appropriate
+* Environment secrets
+* Efficient queries
+* Pagination
+* Lazy loading
+* Bounded background jobs
+* Caching only where safe
+* Server-side validation
+* Incremental implementation
+
+Do not sacrifice security or financial correctness merely to save development resources.
+
+Use the simplest architecture capable of safely supporting the requirements.
+
+---
+
+# 2. BUILD IN PHASES
+
+Do not attempt to generate the entire platform in one enormous implementation operation.
+
+Build it in manageable phases.
+
+### PHASE 1 — FOUNDATION
+
+Implement:
+
+* Authentication
+* Customer accounts
+* Merchant accounts
+* Master Admin
+* Store creation
+* Tenant isolation
+* Database
+* Roles
+* Permissions
+* Basic storefront
+* Merchant dashboard
+* Customer dashboard
+
+### PHASE 2 — TS PAY
+
+Implement:
+
+* Store Codes
+* Customer Codes
+* Merchant Admin Payment Codes
+* TS Commerce Admin Code
+* Payment sessions
+* Ledger
+* Payment states
+* Flutterwave adapter
+* Server-side payment verification
+* Merchant balances
+
+### PHASE 3 — CHECKOUT
+
+Implement:
+
+* Products
+* Cart
+* Checkout
+* Multiple payment methods
+* Currency selector
+* Live currency conversion
+* Dynamic bank transfer destinations
+* Payment verification
+* Order state machine
+
+### PHASE 4 — MERCHANT FINANCE
+
+Implement:
+
+* $30 subscription
+* Automatic subscription deduction
+* Merchant bank/payment subscription
+* Refunds
+* Chargebacks
+* Reserves
+* Withdrawals
+* Reconciliation
+
+### PHASE 5 — TS AI
+
+Implement:
+
+* TS AI
+* DeepSeek model layer
+* Conversation history
+* Tool framework
+* Image generation
+
+### PHASE 6 — IMAGE SYSTEM
+
+Implement:
+
+* Pollinations integration
+* Save image
+* Download image
+* Media Library
+* Export to Store
+* Product image workflows
+
+### PHASE 7 — STORE AUTOMATION
+
+Implement:
+
+* TS Store AI
+* Supplier workflow
+* Automated fulfillment
+* Customer delivery
+* Tracking
+* Notifications
+
+### PHASE 8 — SECURITY
+
+Implement:
+
+* TS Pay Guard
+* Payment integrity
+* Fraud/risk monitoring
+* Anti-bypass
+* Security dashboard
+
+### PHASE 9 — MARKETPLACE / ADVANCED COMMERCE
+
+Implement:
+
+* Marketplace
+* CRM
+* Marketing
+* Analytics
+* Digital products
+* Courses
+* Memberships
+* Services
+* Bookings
+* Events
+* Subscriptions
+
+### PHASE 10 — HARDENING
+
+Implement:
+
+* Security testing
+* Financial invariant testing
+* Reconciliation
+* Recovery
+* Deployment hardening
+* Adversarial testing
+
+After every phase:
+
+1. Run the application.
+2. Test the new functionality.
+3. Fix errors.
+4. Check permissions.
+5. Check database consistency.
+6. Check security.
+7. Check financial invariants.
+8. Do not proceed with unresolved critical errors.
+
+Never pretend functionality exists when it is only mocked.
+
+---
+
+# 3. CORE TS COMMERCE PRODUCT
+
+TS Commerce is a global commerce ecosystem supporting:
+
+* Multi-vendor commerce
+* Independent merchant stores
+* Central marketplace
+* Physical products
+* Digital products
+* Courses
+* Memberships
+* Services
+* Appointments
+* Events/tickets
+* Subscriptions
+* CRM
+* Marketing
+* Analytics
+* Inventory
+* Shipping
+* Tax
+* Payments
+* Payouts
+* Reviews
+* Customer accounts
+* Merchant accounts
+* Custom domains
+* Mobile/web applications
+* APIs
+* Integrations
+* White-label commerce
+
+Merchant subscription:
+
+**$30/month**
+
+Merchant plan includes:
+
+**Unlimited stores**
+
+Marketplace is optional.
+
+Merchants do not automatically appear in the marketplace.
+
+Marketplace fees:
+
+**$5/month**
+
+plus:
+
+**$5 per product listed**
+
+plus:
+
+**1% transaction fee**
+
+These are separate charges.
+
+---
+
+# 4. MASTER ADMIN
+
+Create a completely separate Master Admin environment.
+
+Initial account configuration:
+
+Username:
+
+`TSAdmin`
+
+Display name:
+
+`TSAdmin`
+
+Email:
+
+`ifeoluwaolowu4@gmail.com`
+
+Phone:
+
+`08027684956`
+
+Country:
+
+No permanent country.
+
+Timezone:
+
+Automatic detection.
+
+Password:
+
+Never hard-code.
+
+Never store in:
+
+* Frontend
+* Git
+* Source code
+* Logs
+* Public configuration
+
+Use secure credential handling.
+
+Admin security:
+
+* 2FA
+* Login alerts
+* Device/session management
+* Suspicious-login detection
+* Brute-force protection
+* Rate limiting
+* Secure account recovery
+* Session revocation
+* Audit logs
+* Step-up authentication
+
+---
+
+# 5. MERCHANT ACCOUNTS
+
+Merchants can:
+
+* Register
+* Verify account
+* Create stores
+* Manage products
+* Manage inventory
+* Manage orders
+* Manage customers
+* Manage marketing
+* View analytics
+* Customize storefront
+* Manage shipping
+* Manage taxes
+* Manage payment settings
+* Request withdrawals
+* Manage subscriptions
+* Use TS AI
+* Use TS Store AI
+
+Each merchant can have multiple stores.
+
+Each store is an independently authorized environment.
+
+---
+
+# 6. CUSTOMER ACCOUNTS
+
+Customers can:
+
+* Register
+* Login
+* Manage profile
+* Manage addresses
+* Browse stores
+* Select currency
+* Add products
+* Checkout
+* Pay
+* Track orders
+* Request refunds
+* View transactions
+* Receive notifications
+
+Every customer account receives:
+
+**TS Customer Payment Code**
+
+Example:
+
+`TS-CUST-482917`
+
+This is an opaque identifier.
+
+It is NOT:
+
+* A bank account number
+* A password
+* A card number
+* A secret
+
+Never encode sensitive personal information into the code.
+
+---
+
+# 7. STORE CODE
+
+Every store receives:
+
+**TS Pay Store Code**
+
+Example:
+
+`TS-STORE-847291`
+
+The Store Code identifies the receiving store.
+
+It is NOT the bank account number.
+
+It is NOT a password.
+
+The customer normally does not manually enter it during normal checkout.
+
+The backend automatically binds the payment to the correct Store Code.
+
+---
+
+# 8. MERCHANT ADMIN PAYMENT CODE
+
+Every merchant account receives a unique:
+
+**Merchant Admin Payment Code**
+
+Example:
+
+`TS-MA-739284`
+
+This identifies the merchant when paying TS Commerce.
+
+It is different from:
+
+* Store Code
+* Customer Code
+* Global TS Commerce Admin Code
+
+It must be:
+
+* Unique
+* Securely generated
+* Difficult to guess
+* Server-controlled
+* Auditable
+* Rotatable/revocable when appropriate
+
+It is NOT a bank account.
+
+---
+
+# 9. TS COMMERCE ADMIN CODE
+
+Create a separate global:
+
+**TS Commerce Admin Code**
+
+Example:
+
+`TS-ADMIN-928374`
+
+This identifies TS Commerce as the platform payment recipient.
+
+It is NOT a bank account.
+
+The actual payment destination is supplied by the configured payment infrastructure.
+
+---
+
+# 10. CODE SECURITY
+
+Store Codes, Customer Codes, Merchant Admin Payment Codes and the global Admin Code are identifiers only.
+
+Never allow a code by itself to authorize or move funds.
+
+Financial verification must combine relevant data such as:
+
+* Authenticated account
+* Store
+* Merchant
+* Customer
+* Order/invoice
+* Provider transaction
+* Payment session
+* Amount
+* Currency
+* Payment status
+* Payment destination
+* Appropriate reference
+
+Protect against:
+
+* Code guessing
+* Enumeration
+* Reuse
+* Replay
+* Swapping
+* Stale codes
+* Cross-account use
+* QR/reference spoofing
+
+---
+
+# 11. TS PAY
+
+Create:
+
+**TS Pay**
+
+as the central payment orchestration, transaction, ledger, settlement, fee, refund, dispute, reconciliation and payout-control system.
+
+Architecture:
+
+**Checkout**
+
+→
+
+**TS Pay**
+
+→
+
+**Payment Provider Adapter**
+
+→
+
+**Flutterwave**
+
+→
+
+**Server Verification**
+
+→
+
+**TS Pay Ledger**
+
+→
+
+**Merchant Balance**
+
+TS Pay must be provider-independent.
+
+Flutterwave is the initial payment provider.
+
+---
+
+# 12. FLUTTERWAVE — USE PREVIOUSLY PROVIDED API CREDENTIALS
+
+Anywhere in TS Commerce where Flutterwave is required, use the **Flutterwave API credentials previously provided in this conversation/project/session**, provided those credentials are actually available in the Replit project/environment.
+
+Do NOT ask the developer to provide the credentials again if they are already available.
+
+Use them through secure Replit/project secrets/environment variables.
+
+Never:
+
+* Hard-code secret credentials
+* Put them in frontend code
+* Put them in JavaScript sent to customers
+* Commit them to Git
+* Display them in logs
+* Display them in dashboards
+* Return them through APIs
+* Expose them to AI prompts
+
+If the credentials are not actually available in the development environment:
+
+* Do not invent credentials
+* Do not create fake credentials
+* Do not pretend Flutterwave is connected
+* Create the correct secure environment-variable configuration
+* Clearly isolate live-payment activation until real credentials are available
+
+For every Flutterwave operation, use secure server-side communication.
+
+---
+
+# 13. CUSTOMER PAYMENT METHODS
+
+Do NOT make bank transfer the only customer payment option.
+
+Allow supported payment methods such as:
+
+* Debit card
+* Credit card
+* Bank transfer
+* USSD
+* Mobile money
+* Wallets
+* Account-based payment
+* QR
+* Other legitimate supported local/international methods
+
+Only show payment combinations actually supported by the configured provider, country and currency.
+
+---
+
+# 14. CUSTOMER PAYMENT FLOW
+
+Customer:
+
+**Selects store**
+
+→
+
+**Selects currency**
+
+→
+
+**Selects product**
+
+→
+
+**Chooses delivery**
+
+→
+
+**Chooses payment method**
+
+→
+
+**Pays**
+
+→
+
+**Flutterwave/payment rail**
+
+→
+
+**TS Pay verifies**
+
+→
+
+**Customer Code + Store Code + Order match**
+
+→
+
+**TS Pay ledger**
+
+→
+
+**Merchant balance**
+
+---
+
+# 15. STORE CODE PAYMENT MODEL
+
+The Store Code identifies the destination store.
+
+It does not physically transfer money.
+
+Example:
+
+Store:
+
+**ABC Fashion**
+
+Store Code:
+
+`TS-ABC-847291`
+
+Customer chooses bank transfer.
+
+TS Commerce requests a real payment destination from Flutterwave.
+
+The customer sees:
+
+* Bank Name
+* Account Name
+* Account Number
+* Amount
+* Payment Reference
+* Expiration where applicable
+
+The customer transfers the money to the real account.
+
+Flutterwave confirms payment.
+
+TS Pay verifies payment.
+
+TS Pay associates the transaction with:
+
+`TS-ABC-847291`
+
+The store dashboard is credited according to the verified ledger result.
+
+---
+
+# 16. DYNAMIC BANK PAYMENT DESTINATIONS
+
+NEVER hard-code a production bank account number.
+
+For bank transfer:
+
+**TS Commerce → Flutterwave → Actual Payable Destination**
+
+Use the real bank/payment details returned by the configured provider.
+
+Do not display the Store Code or Admin Code as if it were an account number.
+
+Correct model:
+
+**Code = identifier/reference**
+
+**Dynamic bank account = actual payment destination**
+
+**Payment reference = transaction/order/invoice identifier**
+
+---
+
+# 17. MERCHANT-TO-TS-COMMERCE PAYMENT
+
+When merchant chooses bank/payment-method payment:
+
+**Merchant**
+
+→
+
+**Payment method**
+
+→
+
+**Actual provider-generated payment destination**
+
+→
+
+**Merchant Admin Payment Code**
+
+→
+
+**Subscription invoice**
+
+→
+
+**TS Commerce Admin Code**
+
+→
+
+**TS Commerce platform ledger**
+
+The Merchant Admin Payment Code identifies which merchant owes the payment.
+
+The global Admin Code identifies TS Commerce as the platform recipient.
+
+---
+
+# 18. PAYMENT VERIFICATION
+
+Every payment must pass server-side verification.
+
+Verify:
+
+* Provider transaction
+* Transaction status
+* Amount
+* Currency
+* Store
+* Store Code
+* Merchant
+* Customer
+* Customer Code
+* Order
+* Payment session
+* Payment reference
+* Webhook authenticity
+* Duplicate status
+* Refund status
+* Chargeback status
+* Settlement status
+
+No verified payment:
+
+**No available merchant balance**
+
+---
+
+# 19. TS PAY VERIFICATION AI
+
+Create:
+
+**TS Pay Verification AI**
+
+It helps detect:
+
+* Suspicious patterns
+* Fraud indicators
+* Anomalies
+* Duplicate risk
+* Payment inconsistencies
+* Currency anomalies
+* Behavioral risk
+
+AI is NOT the authority for financial posting.
+
+Deterministic backend logic is authoritative.
+
+AI cannot directly:
+
+* Move money
+* Change balances
+* Mark payments verified
+* Approve withdrawals
+* Remove reserves
+
+---
+
+# 20. WEBHOOK SECURITY
+
+For every provider webhook:
+
+1. Validate signature/authenticity.
+2. Validate replay protections.
+3. Check duplicate event ID.
+4. Verify the authoritative provider transaction.
+5. Match transaction to TS Commerce payment session.
+6. Match store/customer/order.
+7. Verify amount/currency.
+8. Process idempotently.
+9. Record audit information.
+
+---
+
+# 21. PAYMENT STATES
+
+Support:
+
+* Initiated
+* Pending
+* Authorized
+* Captured
+* Successful
+* Settled
+* Available
+* Failed
+* Reversed
+* Refunded
+* Disputed
+* Chargeback
+* Duplicate
+* Needs Review
+
+Do not assume:
+
+**Successful = Withdrawable**
+
+---
+
+# 22. ORDER STATE MACHINE
+
+Use:
+
+**Draft**
+
+→
+
+**Pending Payment**
+
+→
+
+**Payment Processing**
+
+→
+
+**Paid**
+
+→
+
+**Fulfillment**
+
+→
+
+**Shipped**
+
+→
+
+**Delivered**
+
+→
+
+**Completed**
+
+Also support:
+
+* Cancelled
+* Refunded
+* Partially Refunded
+* Disputed
+* Failed
+* Payment Review
+
+Reject impossible transitions.
+
+---
+
+# 23. FINANCIAL LEDGER
+
+Use an append-only or strongly protected ledger.
+
+Every financial event gets a ledger record.
+
+Examples:
+
+* Payment
+* Fee
+* Tax
+* Refund
+* Chargeback
+* Reserve
+* Reserve release
+* Subscription deduction
+* FX conversion
+* Payout
+* Payout reversal
+* Adjustment
+
+Never silently rewrite history.
+
+---
+
+# 24. FINANCIAL STATE ENGINE
+
+Create:
+
+**TS Commerce Financial State Engine**
+
+All money-related workflows pass through it.
+
+### Payment
+
+Payment
+
+→ Verification
+
+→ Ledger
+
+→ Settlement
+
+→ Balance
+
+→ Withdrawal
+
+### Refund
+
+Refund
+
+→ Refund Engine
+
+→ Ledger
+
+→ Balance
+
+### Subscription
+
+Subscription
+
+→ Billing Engine
+
+→ Ledger
+
+→ Balance
+
+### Currency
+
+Currency Conversion
+
+→ FX Engine
+
+→ Ledger
+
+### Dispute
+
+Dispute
+
+→ Dispute Engine
+
+→ Ledger
+
+### Supplier
+
+Supplier Order
+
+→ Fulfillment Engine
+
+→ Order State
+
+Feature modules must not directly edit financial balances.
+
+---
+
+# 25. FINANCIAL INVARIANTS
+
+Enforce:
+
+**Refund ≤ eligible captured amount**
+
+**Payout ≤ withdrawable funds**
+
+**Subscription deduction ≤ amount outstanding**
+
+**Fee ≤ configured fee base**
+
+**No duplicate financial credit**
+
+**No unauthorized negative available balance**
+
+**Merchant funds remain separate from platform funds**
+
+**Every ledger entry has ownership**
+
+**Every financial movement has source and destination**
+
+---
+
+# 26. MERCHANT BALANCES
+
+Each merchant/store has:
+
+* Available
+* Pending
+* Reserved
+* Disputed where applicable
+* Gross Sales
+* Fees
+* Taxes
+* Refunds
+* Chargebacks
+* Withdrawals
+* Net Balance
+* Transaction History
+
+Frontend cannot edit these values.
+
+---
+
+# 27. PROTECTED/ESCROW FUNDS
+
+Where configured:
+
+**Customer payment**
+
+→
+
+**Pending/Protected**
+
+→
+
+**Fulfillment**
+
+→
+
+**Delivery/dispute period**
+
+→
+
+**Available**
+
+Use reserves and risk controls.
+
+---
+
+# 28. MERCHANT WITHDRAWALS
+
+Flow:
+
+**Available merchant balance**
+
+→
+
+**Withdrawal request**
+
+→
+
+**Eligibility**
+
+→
+
+**KYC/risk**
+
+→
+
+**Beneficiary verification**
+
+→
+
+**Approval if required**
+
+→
+
+**Payout**
+
+→
+
+**Verified payout destination**
+
+Protect against:
+
+* Double withdrawal
+* Race conditions
+* Unauthorized beneficiary changes
+* Withdrawal above balance
+* Payout after account compromise
+
+---
+
+# 29. BENEFICIARY CHANGE SECURITY
+
+When payout destination changes:
+
+* Re-verify
+* Notify merchant
+* Apply additional security checks
+* Consider a cooling period
+* Re-check pending withdrawals
+* Bind approved withdrawals to the verified beneficiary snapshot
+
+Never allow an attacker to change the bank account and immediately withdraw.
+
+---
+
+# 30. MERCHANT $30 SUBSCRIPTION
+
+Standard merchant subscription:
+
+**$30/month**
+
+Two main payment methods:
+
+**Dashboard Balance**
+
+or
+
+**Payment Method / Bank Payment**
+
+---
+
+# 31. AUTOMATIC SUBSCRIPTION DEDUCTION
+
+If merchant chooses dashboard-balance payment:
+
+### Merchant earns more than amount owed
+
+If:
+
+**Owed = $30**
+
+**Earned = $100**
+
+Then:
+
+**$30 → TS Commerce**
+
+**$70 → Merchant**
+
+Never deduct all $100.
+
+### Merchant earns less than amount owed
+
+If:
+
+**Owed = $30**
+
+**Earned = $12**
+
+Then:
+
+**$12 → TS Commerce**
+
+Remaining:
+
+**$18**
+
+Next eligible earning:
+
+**$20**
+
+Then:
+
+**$18 → TS Commerce**
+
+**$2 → Merchant**
+
+Subscription becomes:
+
+**PAID**
+
+Never over-deduct.
+
+Never double-deduct.
+
+Never deduct more than the outstanding amount.
+
+Do not deduct restricted funds unless the billing rules explicitly permit them.
+
+---
+
+# 32. SUBSCRIPTION BILLING STATE
+
+Track:
+
+* Invoice
+* Billing period
+* Amount due
+* Amount paid
+* Remaining
+* Deductions
+* Payment method
+* Status
+
+Invariant:
+
+**Paid + Remaining = Amount Due**
+
+and:
+
+**Paid ≤ Amount Due**
+
+---
+
+# 33. SUBSCRIPTION LIFECYCLE
+
+Support explicit states:
+
+* Active
+* Paid
+* Partially Paid
+* Payment Pending
+* Overdue
+* Grace
+* Restricted
+* Suspended
+
+Explicitly define which merchant functions remain available at each state.
+
+Do not let AI decide.
+
+---
+
+# 34. MERCHANT BANK PAYMENT
+
+When merchant pays TS Commerce by bank transfer:
+
+Show actual payment information supplied by the payment infrastructure.
+
+Use:
+
+**Merchant Admin Payment Code**
+
+*
+
+**Invoice**
+
+*
+
+**TS Commerce Admin Code**
+
+for deterministic matching.
+
+Do not rely on AI alone.
+
+---
+
+# 35. PLATFORM REVENUE SEPARATION
+
+Separate:
+
+**Merchant Funds**
+
+from:
+
+**TS Commerce Platform Revenue**
+
+Platform revenue includes:
+
+* Subscription
+* Transaction fees
+* Marketplace fees
+* Other platform fees
+
+Never mix merchant funds with platform revenue.
+
+---
+
+# 36. MULTI-CURRENCY
+
+Customers can choose the currency they want to use while shopping.
+
+Merchants can set:
+
+**Base Store Currency**
+
+and:
+
+**Preferred Settlement Currency**
+
+---
+
+# 37. LIVE CURRENCY CONVERSION — NO FIXED FIGURES
+
+This requirement applies **everywhere in TS Commerce**.
+
+Never use fixed pre-prepared exchange-rate figures.
+
+Never hard-code:
+
+`1 USD = X NGN`
+
+or any similar permanent rate.
+
+Do not create a static list and pretend it is current.
+
+Whenever currency conversion is required, the system must obtain the **current/recent market exchange rate from a trusted live internet-based source or configured payment/FX provider**.
+
+Examples of where live conversion is required:
+
+* Product prices
+* Cart prices
+* Checkout
+* Customer payments
+* Merchant settlement
+* Merchant subscription
+* Fees
+* Taxes where applicable
+* Shipping where applicable
+* Refunds
+* Payouts
+* Supplier orders
+* Reports
+* Platform revenue
+* Marketplace transactions
+
+The backend must be authoritative.
+
+---
+
+# 38. LIVE RATE SOURCE
+
+The currency engine should obtain rates from a trusted live source.
+
+For every rate, record:
+
+* Currency pair
+* Rate
+* Source
+* Timestamp
+
+Use a controlled short-lived cache to avoid excessive requests.
+
+The cache must have an explicit TTL.
+
+Do not treat old cached data as live indefinitely.
+
+---
+
+# 39. LIVE RATE FAILURE
+
+If the live rate source is temporarily unavailable:
+
+Do NOT silently pretend an old fixed value is current.
+
+Where platform policy permits, use the most recent valid cached rate, clearly record:
+
+**Rate Status = Stale/Recently Cached**
+
+and preserve:
+
+* Original rate timestamp
+* Source
+* Cache age
+
+For transactions where a stale rate is unsafe, pause/hold conversion and require a valid current rate.
+
+---
+
+# 40. CUSTOMER CURRENCY SELECTOR
+
+When customer enters a merchant store, provide:
+
+**Currency Selector**
+
+Example:
+
+* NGN
+* USD
+* EUR
+* GBP
+* CAD
+* AUD
+* Other supported currencies
+
+Selected currency updates:
+
+* Product prices
+* Variants
+* Cart
+* Discounts
+* Shipping where applicable
+* Tax where applicable
+* Checkout
+* Order totals
+
+---
+
+# 41. AUTOMATIC STORE PRICE CONVERSION
+
+Merchant base price:
+
+**$100 USD**
+
+Customer selects:
+
+**NGN**
+
+Show current live-rate equivalent.
+
+Customer switches to:
+
+**EUR**
+
+Show current live-rate equivalent.
+
+The merchant does not need to manually maintain every currency price.
+
+---
+
+# 42. CUSTOMER PAYS IN SELECTED CURRENCY
+
+Where payment provider supports it:
+
+Customer pays in the selected currency.
+
+Example:
+
+Merchant base:
+
+**USD**
+
+Customer chooses:
+
+**EUR**
+
+Customer pays in:
+
+**EUR**
+
+TS Pay records:
+
+**Original Customer Amount = EUR**
+
+Then settles according to merchant's configured currency.
+
+---
+
+# 43. RECEIVER SETTLEMENT
+
+Example:
+
+Customer pays:
+
+**EUR**
+
+Merchant settlement currency:
+
+**NGN**
+
+Flow:
+
+**EUR payment**
+
+→
+
+**Verification**
+
+→
+
+**EUR → NGN live-rate conversion**
+
+→
+
+**Merchant NGN ledger**
+
+Store both original and converted information.
+
+---
+
+# 44. CURRENCY DATA TO RETAIN
+
+Every converted transaction stores:
+
+* Original amount
+* Original currency
+* Converted amount
+* Settlement currency
+* Exchange rate
+* Rate source
+* Rate timestamp
+* FX fee where applicable
+* Conversion timestamp
+
+Never discard original transaction currency.
+
+---
+
+# 45. MULTI-CURRENCY REFUNDS
+
+Where provider rules permit:
+
+Refund using the appropriate original transaction currency.
+
+Preserve:
+
+* Original payment
+* Refund amount
+* Refund currency
+* Conversion
+* FX impact
+* Provider refund ID
+
+Never silently use an unexplained exchange rate.
+
+---
+
+# 46. MULTI-CURRENCY SUBSCRIPTION
+
+Base subscription:
+
+**$30 USD**
+
+If merchant selects another supported currency:
+
+Display its current equivalent.
+
+The system records both:
+
+**USD base amount**
+
+and:
+
+**Paid currency/amount**
+
+---
+
+# 47. FX SECURITY
+
+Prevent:
+
+* Client-provided exchange rates
+* Rate manipulation
+* Timing attacks
+* Rounding exploitation
+* Currency switching after payment
+* Repeated conversion arbitrage
+* Tiny-value conversion abuse
+
+All conversion calculations happen server-side.
+
+---
+
+# 48. CUSTOMER AND STORE IDENTIFICATION
+
+Every transaction should preserve:
+
+**Customer Code**
+
+*
+
+**Store Code**
+
+*
+
+**Order**
+
+*
+
+**Payment**
+
+*
+
+**Settlement**
+
+---
+
+# 49. TS AI
+
+Create:
+
+**TS AI**
+
+as the general assistant.
+
+Primary intelligence/reasoning engine:
+
+**DeepSeek**
+
+Image-generation engine:
+
+**Pollinations**
+
+Pollinations is NOT the primary chatbot.
+
+---
+
+# 50. DEEPSEEK WITHOUT REQUIRED API KEY
+
+Where technically feasible, support a self-hosted/open-weight DeepSeek model so that TS Commerce's core AI does not require a DeepSeek API key.
+
+Do not fake local inference.
+
+Do not claim a model is running when the environment cannot actually run it.
+
+Use a modular model adapter.
+
+---
+
+# 51. TS AI EXPERIENCE
+
+Support:
+
+* Natural conversation
+* Multi-turn context
+* Conversation history
+* New chat
+* Rename chat
+* Delete chat
+* Streaming
+* Stop
+* Regenerate
+* Copy
+* Markdown
+* Code
+* Tables
+* File understanding
+* Image understanding
+* Coding
+* Writing
+* Analysis
+* Product assistance
+* Marketing assistance
+* Store assistance
+
+---
+
+# 52. TS STORE AI
+
+Create:
+
+**TS Store AI**
+
+to help merchants run stores.
+
+It may assist with:
+
+* Products
+* Inventory
+* Orders
+* Customers
+* Analytics
+* Marketing
+* Shipping
+* Supplier workflows
+* Descriptions
+* Reports
+* Store management
+
+---
+
+# 53. AI ACTION LEVELS
+
+AI actions use:
+
+**SUGGEST**
+
+**PREPARE**
+
+**EXECUTE**
+
+Suggest:
+
+Recommendation only.
+
+Prepare:
+
+Draft/prepared operation.
+
+Execute:
+
+Actual operation only after required authorization.
+
+---
+
+# 54. AI TOOL RESTRICTIONS
+
+AI must never independently:
+
+* Change balances
+* Mark payments verified
+* Approve payouts
+* Disable TS Pay Guard
+* Disable KYC
+* Change payment destination
+* Alter historical ledger entries
+* Access another merchant
+* Bypass platform policy
+
+Backend authorization always wins.
+
+---
+
+# 55. AI PROMPT INJECTION
+
+Treat all external data as untrusted.
+
+This includes:
+
+* Product descriptions
+* Customer messages
+* Supplier information
+* Merchant content
+* Uploaded files
+* Web content
+
+Do not allow embedded instructions to become system instructions.
+
+---
+
+# 56. AI RESOURCE PROTECTION
+
+Limit:
+
+* AI tokens
+* File sizes
+* Tool calls
+* Image generations
+* Tool depth
+* Tool retries
+* Concurrent execution
+
+Use:
+
+* Timeouts
+* Budgets
+* Rate limits
+* Circuit breakers
+* Idempotency
+
+Prevent AI loops.
+
+---
+
+# 57. POLLINATIONS IMAGE GENERATION
+
+Use Pollinations for image generation only.
+
+Flow:
+
+**User**
+
+→
+
+**TS AI**
+
+→
+
+**DeepSeek understands/refines request**
+
+→
+
+**Pollinations**
+
+→
+
+**Generated Image**
+
+DeepSeek does not need to be presented as the image-generation engine.
+
+---
+
+# 58. IMAGE GENERATION
+
+Support:
+
+* Product photos
+* Product mockups
+* Lifestyle scenes
+* Advertisements
+* Social-media graphics
+* Store banners
+* Hero images
+* Promotional graphics
+* Blog images
+* Thumbnails
+* Backgrounds
+* Brand graphics
+
+---
+
+# 59. IMAGE UNDERSTANDING
+
+Where supported:
+
+**Upload image**
+
+→
+
+**DeepSeek vision/image understanding**
+
+→
+
+**AI interprets product**
+
+→
+
+**Pollinations generates requested visual**
+
+---
+
+# 60. IMAGE EDITING
+
+Where supported:
+
+* Regenerate
+* Variations
+* Background removal
+* Background replacement
+* New scene
+* Enhancement
+* Aspect-ratio changes
+
+---
+
+# 61. SAVE IMAGE
+
+Every generated image must provide:
+
+**Save to Media Library**
+
+Store:
+
+* Image ID
+* Merchant
+* Store
+* Prompt
+* Provider
+* Model
+* Timestamp
+* Dimensions
+* File size
+* Format
+* Product association
+* Parent image/variation
+
+---
+
+# 62. DOWNLOAD
+
+Every saved/generated image must have:
+
+**Download Image**
+
+The user downloads the actual image file.
+
+---
+
+# 63. EXPORT TO STORE
+
+Every saved image provides:
+
+**Export to Store**
+
+Show every store that the authenticated user is authorized to manage.
+
+Allow export to:
+
+* Media Library
+* Main Product Image
+* Product Gallery
+* Homepage Hero
+* Store Banner
+* Collection
+* Category
+* Blog
+* Advertisement
+* Marketing Campaign
+* Social Creative
+
+Never list unauthorized stores.
+
+---
+
+# 64. TS STORE AI — FULL CUSTOMER ORDER AUTOMATION
+
+Customer:
+
+**Visits store**
+
+→
+
+**Selects product**
+
+→
+
+**Selects currency**
+
+→
+
+**Selects delivery location**
+
+→
+
+**Selects payment method**
+
+→
+
+**Pays**
+
+→
+
+**TS Pay verifies**
+
+→
+
+**Customer Code + Store Code + Order**
+
+→
+
+**Ledger**
+
+→
+
+**Merchant balance**
+
+→
+
+**Order Paid**
+
+→
+
+**TS Store AI checks fulfillment**
+
+→
+
+**Supplier**
+
+→
+
+**Customer delivery destination**
+
+→
+
+**Shipment**
+
+→
+
+**Tracking**
+
+→
+
+**Notification**
+
+---
+
+# 65. NEVER ORDER SUPPLIER BEFORE VERIFIED PAYMENT
+
+Never place supplier orders for:
+
+* Pending payment
+* Failed payment
+* Disputed payment
+* Unverified payment
+* Customer claims
+* Screenshots
+* Frontend success only
+
+---
+
+# 66. SUPPLIER ORDER VERIFICATION
+
+Before automated ordering:
+
+Verify:
+
+* Customer
+* Store
+* Order
+* Product
+* Variant
+* SKU
+* Quantity
+* Price
+* Currency
+* Supplier
+* Delivery location
+* Shipping method
+
+---
+
+# 67. CUSTOMER DELIVERY DESTINATION
+
+The customer's confirmed destination becomes a protected order snapshot.
+
+Do not silently replace it.
+
+Changes use a controlled workflow.
+
+---
+
+# 68. SUPPLIER FAILURE
+
+If supplier:
+
+* Runs out of stock
+* Rejects order
+* Fails
+* Changes price
+* Becomes unavailable
+
+Do not silently charge customer again.
+
+Use controlled:
+
+**Alternative Supplier / Merchant Review / Refund**
+
+workflow.
+
+---
+
+# 69. INVENTORY RACE PROTECTION
+
+Use atomic stock reservations.
+
+If one item remains and two customers order simultaneously:
+
+Only one can successfully reserve the item.
+
+---
+
+# 70. RESERVATION SECURITY
+
+Reservations:
+
+* Have owner
+* Expire
+* Release idempotently
+* Cannot be duplicated
+* Cannot be stolen
+* Are audited
+
+Prevent cart hoarding.
+
+---
+
+# 71. PRICE CHANGE PROTECTION
+
+Example:
+
+Customer pays:
+
+`₦50,000`
+
+Supplier price changes to:
+
+`₦70,000`
+
+TS Store AI must never silently charge another ₦20,000.
+
+Use an approved change/refund/customer-consent workflow.
+
+---
+
+# 72. PRODUCT SNAPSHOT
+
+At order confirmation snapshot:
+
+* Product
+* Variant
+* SKU
+* Quantity
+* Price
+* Discount
+* Tax
+* Shipping
+* Currency
+* Exchange rate where applicable
+
+Editing the product later must not rewrite the historical order.
+
+---
+
+# 73. TS PAY GUARD
+
+Create:
+
+**TS Pay Guard**
+
+Its purpose is to detect attempts to bypass TS Pay.
+
+---
+
+# 74. TS PAY GUARD MONITORING
+
+Monitor merchant-controlled:
+
+* Store pages
+* Product descriptions
+* Product images
+* Banners
+* FAQs
+* Policies
+* Blogs
+* Invoices
+* Messages
+* Downloadable files
+* QR codes
+* Links
+* Redirects
+* Custom HTML
+* Custom JS
+* Payment settings
+* APIs
+* Marketplace content
+
+---
+
+# 75. BYPASS DETECTION
+
+Detect:
+
+* Direct bank account details
+* External payment links
+* External wallets
+* Personal payment numbers
+* "Pay me directly"
+* "Don't use checkout"
+* "Transfer to this account"
+* WhatsApp payment instructions
+* Hidden payment instructions
+* QR payment destinations
+* External forms
+* External checkout
+* Redirects
+* Payment buttons outside TS Pay
+* Payment information inside images
+* Payment information inside PDFs
+* Obfuscated instructions
+* Alternate-language bypass
+* Post-order bypass
+
+---
+
+# 76. HIDDEN/INDIRECT BYPASS
+
+Monitor for:
+
+* Hidden HTML
+* Tiny text
+* Encoded text
+* Images containing account information
+* QR codes
+* Shortened URLs
+* Redirect chains
+* Dynamic content
+* Customer-specific bypass instructions
+* Time-based bypass
+* Custom-code payment manipulation
+
+---
+
+# 77. CUSTOM CODE PROTECTION
+
+Where merchants can add custom code:
+
+Prevent code from:
+
+* Replacing checkout
+* Hiding TS Pay
+* Redirecting payment
+* Capturing payment credentials
+* Changing payment destination
+* Changing payment status
+
+---
+
+# 78. TS PAY GUARD RISK SCORING
+
+Use:
+
+**Low**
+
+**Medium**
+
+**High**
+
+**Critical**
+
+Do not permanently ban solely from uncertain AI prediction.
+
+Use graduated responses:
+
+**Warn → Review → Restrict → Escalate**
+
+---
+
+# 79. CUSTOMER PROTECTION
+
+If merchant content conflicts with official payment flow:
+
+Provide appropriate customer protection/warnings.
+
+Official TS Commerce payment information should be distinguishable from merchant-created instructions.
+
+---
+
+# 80. MERCHANT FRAUD CONTROLS
+
+Detect:
+
+* Fake customers
+* Self-purchases
+* Circular transactions
+* Fake reviews
+* Fake sales
+* Fake traffic
+* Merchant collusion
+* Fake refunds
+* Excessive cancellations
+* Account splitting
+* Subscription avoidance
+
+---
+
+# 81. CUSTOMER FRAUD CONTROLS
+
+Detect:
+
+* Fake accounts
+* Refund abuse
+* Chargeback abuse
+* Coupon farming
+* Referral abuse
+* Fake delivery claims
+* Multiple-account abuse
+* Payment cycling
+* Gift-card abuse
+* Loyalty abuse
+
+Do not automatically block legitimate shared devices solely because devices are shared.
+
+---
+
+# 82. MARKETPLACE CONTROLS
+
+Prevent:
+
+* Off-platform payment
+* Seller collusion
+* Fake listings
+* Duplicate listings
+* Fake reviews
+* Ranking manipulation
+* Counterfeit products
+* Prohibited products
+* Self-dealing
+* Referral abuse
+* Fake traffic
+
+---
+
+# 83. STORE TRANSFER PROTECTION
+
+When ownership changes:
+
+Preserve:
+
+* Financial history
+* Reserves
+* Disputes
+* Violations
+* Obligations
+* Transaction history
+
+Do not let transfer erase liabilities.
+
+---
+
+# 84. ACCOUNT-SPLITTING PROTECTION
+
+Do not allow merchants to evade:
+
+* Subscription
+* Restrictions
+* Financial obligations
+
+simply by creating another account/store.
+
+Apply lawful merchant/organization identity controls.
+
+---
+
+# 85. ACCOUNT DELETION
+
+Deletion must not erase legally required:
+
+* Financial records
+* Tax records
+* Dispute evidence
+* Security records
+* Audit history
+
+Apply appropriate retention rules.
+
+---
+
+# 86. IDOR/TENANT ISOLATION
+
+Protect every:
+
+* Database query
+* API
+* File
+* Media
+* Cache
+* Search
+* Analytics
+* Background job
+* AI tool
+* Export
+
+against cross-tenant access.
+
+---
+
+# 87. AUTHENTICATION SECURITY
+
+Protect against:
+
+* Account takeover
+* Session theft
+* Refresh-token theft
+* Session fixation
+* Password spraying
+* Credential stuffing
+* MFA abuse
+* Recovery takeover
+* Email/phone change takeover
+* Device cloning
+
+---
+
+# 88. APPLICATION SECURITY
+
+Protect against:
+
+* XSS
+* CSRF
+* CORS abuse
+* SSRF
+* SQL injection
+* NoSQL injection where relevant
+* Command injection
+* Path traversal
+* Open redirects
+* Host-header attacks
+* Cache poisoning
+* Malicious file uploads
+* ZIP bombs
+* Oversized requests
+* Regex DoS
+
+Use secure:
+
+* Cookies/tokens
+* CORS
+* Headers
+* Validation
+* Output encoding
+* Queries
+* Redirect allowlists
+* Resource limits
+* File validation
+
+---
+
+# 89. FILE SECURITY
+
+Validate:
+
+* File extension
+* MIME
+* Actual content
+
+Protect against:
+
+* Archive traversal
+* Malicious SVG/HTML
+* Polyglot files
+* Spreadsheet formula injection
+* CSV injection
+
+Scan/sandbox where appropriate.
+
+---
+
+# 90. MEDIA STORAGE SECURITY
+
+Use:
+
+* Tenant-scoped storage
+* Signed URLs
+* Expiration
+* Access checks
+* No public listing
+* Cache isolation
+
+---
+
+# 91. SEARCH SECURITY
+
+Authorization must apply:
+
+**Before indexing**
+
+and:
+
+**Before returning results**
+
+Prevent leakage through:
+
+* Search
+* Autocomplete
+* Suggestions
+* Typo correction
+* Filters
+
+---
+
+# 92. CACHE SECURITY
+
+Private data must never be cached under globally reusable keys.
+
+Protect:
+
+* Application cache
+* CDN
+* Search cache
+* HTTP cache
+* Analytics cache
+* Object-storage references
+
+---
+
+# 93. AI/RAG SECURITY
+
+If retrieval/vector search exists:
+
+Use:
+
+* Tenant-scoped indexes
+* ACL filters
+* Permission propagation
+* Deletion propagation
+* Retrieval validation
+* Prompt-injection protection
+* Source provenance
+
+Never leak data between merchants.
+
+---
+
+# 94. AI DATA PROTECTION
+
+Never send unnecessary:
+
+* API secrets
+* Passwords
+* Payment credentials
+* Private keys
+* Customer financial data
+
+to external AI/image providers.
+
+---
+
+# 95. PAYMENT-METHOD SWITCHING
+
+Prevent:
+
+**Card attempt**
+
+*
+
+**Bank attempt**
+
+from becoming:
+
+**Two credits**
+
+Track one authoritative order payment state and multiple separate payment attempts.
+
+---
+
+# 96. SPLIT PAYMENT
+
+Either deliberately support split payment with explicit accounting, or reject it.
+
+Never accidentally count multiple partial payments as multiple full payments.
+
+---
+
+# 97. OVERPAYMENT/UNDERPAYMENT
+
+Define exact handling for:
+
+* Exact payment
+* Underpayment
+* Overpayment
+* Partial payment
+
+Never mark a ₦10,000 order paid from a verified ₦1,000 payment.
+
+---
+
+# 98. PAYMENT SESSION EXPIRATION
+
+Payment sessions and dynamic payment destinations must have controlled:
+
+* Expiration
+* Reuse
+* Reconciliation
+
+Never reuse stale payment sessions for different orders.
+
+---
+
+# 99. REFUND PROTECTION
+
+Refunds must:
+
+* Reference a real order
+* Reference a valid payment
+* Be idempotent
+* Stay within eligible captured funds
+* Update ledger
+* Update order
+* Reconcile to provider
+
+---
+
+# 100. CHARGEBACK PROTECTION
+
+Protect against:
+
+**Payment → Withdrawal → Chargeback**
+
+Use:
+
+* Reserves
+* Pending periods
+* Risk controls
+* Recovery/negative balance rules where appropriate
+
+---
+
+# 101. GIFT CARDS / STORE CREDIT
+
+Where enabled:
+
+Track:
+
+* Issuance
+* Owner
+* Currency
+* Value
+* Redemption
+* Balance
+* Expiry/rules
+* Provenance
+
+Every redemption is idempotent.
+
+---
+
+# 102. COUPON PROTECTION
+
+Prevent:
+
+* Stacking abuse
+* Negative totals
+* Minimum-order bypass
+* Fake discounts
+* Free-shipping manipulation
+* Referral coupon loops
+
+---
+
+# 103. REFERRAL PROTECTION
+
+Prevent:
+
+* Self-referral
+* Circular referral
+* Fake accounts
+* Fake conversions
+* Attribution manipulation
+
+---
+
+# 104. SHIPPING PROTECTION
+
+Snapshot:
+
+* Shipping cost
+* Method
+* Destination
+* Terms
+
+at checkout.
+
+Do not let later edits change the historical order.
+
+---
+
+# 105. RETURN PROTECTION
+
+Returned goods enter:
+
+**Return Pending / Inspection**
+
+before they become sellable inventory.
+
+---
+
+# 106. DELIVERY PROTECTION
+
+Do not allow unsupported manual claims to automatically create:
+
+**Shipped**
+
+or:
+
+**Delivered**
+
+Use authorized evidence or carrier data where available.
+
+---
+
+# 107. SUPPLIER PROTECTION
+
+Supplier orders must be:
+
+* Idempotent
+* Auditable
+* Linked to paid order
+* Linked to product
+* Linked to customer
+* Linked to delivery destination
+
+---
+
+# 108. BACKGROUND JOB SECURITY
+
+Jobs must re-check current:
+
+* Authorization
+* Store status
+* Payment
+* Subscription
+* Payout destination
+* Policy
+
+when executing.
+
+Do not allow yesterday's permission to authorize today's operation.
+
+---
+
+# 109. QUEUE SECURITY
+
+Protect against:
+
+* Duplicate jobs
+* Replay
+* Poison messages
+* Queue floods
+* Worker over-privilege
+
+Use:
+
+* Timeouts
+* Retry limits
+* Quarantine
+* Idempotency
+
+---
+
+# 110. DISTRIBUTED EVENT SAFETY
+
+Critical events include:
+
+* Event ID
+* Correlation ID
+* Causation ID
+* Version
+* Actor
+* Tenant
+* Store
+* Server timestamp
+* Idempotency key
+
+Protect against stale/out-of-order events.
+
+---
+
+# 111. CONFUSED-DEPUTY PROTECTION
+
+Internal services must not perform privileged actions merely because another service requested them.
+
+Every service-to-service request carries:
+
+* Actor
+* Delegator
+* Tenant
+* Store
+* Scope
+* Permission
+
+---
+
+# 112. PAYOUT SECURITY
+
+Protect against:
+
+* Withdrawal race
+* Beneficiary substitution
+* Payout splitting
+* Payout duplication
+* Unauthorized beneficiary
+* Payout after account compromise
+
+---
+
+# 113. CUSTOMER/PARTNER TRANSFERS
+
+If TS Commerce later supports:
+
+* Customer → Customer
+* Merchant → Customer
+* Merchant → Merchant
+* Store → Store
+
+give each transfer type its own controlled financial workflow.
+
+Do not treat transfers as ordinary purchases.
+
+---
+
+# 114. ADMIN SECURITY
+
+Use:
+
+* Least privilege
+* Segregation of duties
+* Role-based access
+* Dual approval for high-risk actions
+* Step-up authentication
+* Privileged access reviews
+* Protected audit logs
+
+---
+
+# 115. BREAK-GLASS ACCESS
+
+Emergency administrator access must be:
+
+* Time-limited
+* Scoped
+* Reason-required
+* Logged
+* Reviewed
+
+Never become permanent hidden access.
+
+---
+
+# 116. NOTIFICATION SECURITY
+
+Official TS Commerce notifications originate only from authoritative events.
+
+Prevent:
+
+* Fake payment notifications
+* Template injection
+* Header injection
+* Replay
+* Notification storms
+
+---
+
+# 117. CUSTOMER/ MERCHANT MESSAGE SECURITY
+
+Merchant-created communications should remain clearly distinguishable from official TS Commerce messages.
+
+Apply:
+
+* Link checking
+* Attachment scanning
+* Spam controls
+* Evidence preservation
+
+---
+
+# 118. DISPUTE CENTER
+
+Create:
+
+**Customer**
+
+→
+
+**Merchant**
+
+→
+
+**TS Commerce Review**
+
+→
+
+**Evidence**
+
+→
+
+**Decision**
+
+→
+
+**Ledger Adjustment**
+
+Preserve evidence once disputes begin.
+
+---
+
+# 119. POLICY ENGINE
+
+Create:
+
+**TS Commerce Policy Engine**
+
+It centrally governs:
+
+* Payments
+* Refunds
+* Subscriptions
+* FX
+* Payouts
+* Fulfillment
+* AI
+* Marketplace
+* Security
+* Entitlements
+
+Do not duplicate critical rules inconsistently across modules.
+
+---
+
+# 120. POLICY VERSIONING
+
+Policies must be:
+
+* Versioned
+* Effective-dated
+* Audited
+* Reversible where appropriate
+
+Historical transactions retain the policy version that applied to them.
+
+---
+
+# 121. FEATURE ENTITLEMENTS
+
+Server-side verify:
+
+* Subscription
+* Paid features
+* Marketplace access
+* Store permissions
+
+Never trust frontend plan values.
+
+---
+
+# 122. ACCOUNT MERGE/SPLIT
+
+Require explicit authorization.
+
+Prevent:
+
+* Duplicate balances
+* Duplicate coupons
+* Lost disputes
+* Duplicate rewards
+* History deletion
+
+---
+
+# 123. BULK OPERATIONS
+
+Bulk:
+
+* Refunds
+* Products
+* Inventory
+* Exports
+* Imports
+* Customers
+
+must still enforce object-level authorization and business rules.
+
+---
+
+# 124. IMPORT SECURITY
+
+For CSV/JSON/XML/spreadsheets:
+
+* Validate
+* Limit size
+* Scan
+* Preview
+* Prevent formula injection
+* Prevent parser attacks
+* Audit
+
+---
+
+# 125. REPORTING SECURITY
+
+Reports must be based on the authoritative ledger.
+
+Prevent:
+
+* Double-counting
+* Cross-store leakage
+* Filter bypass
+* Currency inconsistencies
+* Unauthorized aggregation
+
+---
+
+# 126. ACCOUNTING PERIODS
+
+Support financial close/settlement periods.
+
+Closed historical records must not simply be edited.
+
+Late events become controlled adjustments.
+
+---
+
+# 127. RECONCILIATION
+
+Reconcile:
+
+**Provider**
+
+↔
+
+**TS Pay Transaction**
+
+↔
+
+**Ledger**
+
+↔
+
+**Merchant Balance**
+
+↔
+
+**Settlement**
+
+↔
+
+**Withdrawal**
+
+Flag all discrepancies.
+
+---
+
+# 128. PROVIDER OUTAGE
+
+If Flutterwave is unavailable:
+
+* Do not fake successful payment
+* Mark affected methods unavailable
+* Keep browsing available where safe
+* Never weaken payment verification
+
+---
+
+# 129. FAIL-CLOSED FINANCIAL OPERATIONS
+
+If an authoritative payment dependency cannot be trusted:
+
+**Hold the financial operation**
+
+rather than guessing.
+
+---
+
+# 130. DISASTER RECOVERY
+
+Provide:
+
+* Backups
+* Recovery procedures
+* Ledger reconciliation
+* Security-state restoration
+* Revoked-key handling
+* Payout-destination validation
+* Post-restore checks
+
+Old backups must not resurrect:
+
+* Suspended users
+* Revoked API keys
+* Old payout accounts
+* Blocked transactions
+
+---
+
+# 131. PROTECTED BACKUPS
+
+Use versioned/protected backups.
+
+After restoration:
+
+Run:
+
+* Ledger invariant checks
+* Permission checks
+* Security checks
+* Reconciliation
+
+---
+
+# 132. SECRET SECURITY
+
+Use secure environment secrets.
+
+Support:
+
+* Rotation
+* Revocation
+* Versioning
+* Emergency replacement
+
+Never expose secrets in AI prompts, logs, exports or frontend code.
+
+---
+
+# 133. DOMAIN SECURITY
+
+For custom domains:
+
+* Verify ownership
+* Bind domain to store
+* Revalidate where appropriate
+* Monitor DNS
+* Monitor certificates
+* Prevent impersonation
+
+---
+
+# 134. INTERNATIONAL/LEGAL CONTROLS
+
+The architecture must support configurable jurisdiction-specific rules for:
+
+* Payment
+* KYC
+* Payout
+* Tax
+* Product restrictions
+* Consumer protection
+* Age restrictions where applicable
+* High-risk destinations
+* Other legal requirements
+
+Merchants must not be able to choose a weaker jurisdiction simply to bypass controls.
+
+---
+
+# 135. DATA PRIVACY
+
+Apply:
+
+* Data minimization
+* Tenant isolation
+* Encryption where appropriate
+* Least privilege
+* Access logging
+* Controlled export
+* Retention
+* Deletion
+* Legal holds
+* Incident response
+
+---
+
+# 136. DATA PROVENANCE
+
+Important records should retain:
+
+* Source
+* Actor
+* Timestamp
+* Transformation
+* Approval
+* Result
+
+---
+
+# 137. SUPPORT SECURITY
+
+Support staff must not silently:
+
+* Change balances
+* Change account ownership
+* Change payout destination
+* Mark payments paid
+* Approve high-risk refunds
+
+Use proper permissions and escalation.
+
+---
+
+# 138. ADMIN BACKDOOR PROTECTION
+
+Regularly reconcile expected privileged users against actual privileged users.
+
+Detect:
+
+* Hidden admins
+* Dormant admins
+* Unexpected privilege escalation
+
+---
+
+# 139. DEPLOYMENT SECURITY
+
+Separate:
+
+* Development
+* Testing
+* Staging
+* Production
+
+Never deploy:
+
+* Test credentials
+* Seed accounts
+* Debug routes
+* Test payment endpoints
+
+into production.
+
+---
+
+# 140. DEPENDENCY SECURITY
+
+Use:
+
+* Lockfiles
+* Dependency scanning
+* Secret scanning
+* Package review
+* Container/image scanning where applicable
+
+---
+
+# 141. MIGRATION SAFETY
+
+Database migrations must:
+
+* Protect financial data
+* Be reviewed
+* Validate schema
+* Preserve relationships
+* Avoid unsafe destructive operations
+* Reconcile afterward
+
+---
+
+# 142. RESOURCE-EXHAUSTION PROTECTION
+
+Protect against:
+
+* Bot attacks
+* Large imports
+* Huge files
+* Huge AI prompts
+* AI loops
+* Expensive searches
+* Notification floods
+* Queue floods
+* Webhook storms
+* Report abuse
+
+Use:
+
+* Pagination
+* Limits
+* Timeouts
+* Quotas
+* Streaming
+* Circuit breakers
+
+---
+
+# 143. TIME SECURITY
+
+Use trusted server timestamps.
+
+Store canonical UTC where appropriate.
+
+Correctly handle:
+
+* Time zones
+* DST
+* Month boundaries
+* Year boundaries
+* Subscription renewal
+* Rate timestamps
+* Policy activation
+* Payment expiration
+
+---
+
+# 144. UNICODE AND INTERNATIONALIZATION SECURITY
+
+Protect against:
+
+* Homoglyphs
+* Mixed scripts
+* Bidirectional-text attacks
+* Lookalike identifiers
+* Currency symbol ambiguity
+* Locale decimal manipulation
+
+Normalize before security comparisons while preserving original evidence.
+
+---
+
+# 145. OBJECT VERSIONING
+
+For important mutable resources use:
+
+* Version numbers
+* Optimistic locking
+* ETags/version checks where appropriate
+* Stale-write protection
+
+Prevent old updates from overwriting new state.
+
+---
+
+# 146. ORDER/LEDGER PROVENANCE
+
+Critical state changes must have:
+
+* Actor
+* Service
+* Delegator
+* Tenant
+* Store
+* Source
+* Correlation ID
+* Causation ID
+* Version
+* Timestamp
+
+---
+
+# 147. FINANCIAL CONSERVATION
+
+Continuously test:
+
+**Money entering = money accounted for**
+
+**Money leaving = authorized movement**
+
+**Merchant ownership = ledger ownership**
+
+**Inventory movement = real inventory state**
+
+**Refunds = authorized reversals**
+
+**Payouts = eligible balances**
+
+**Subscription deductions = amount owed**
+
+**FX conversions = recorded source/rate/timestamp**
+
+---
+
+# 148. SECURITY INCIDENT RESPONSE
+
+Create workflows for:
+
+* Payment fraud
+* Account takeover
+* Provider compromise
+* API compromise
+* Admin compromise
+* Data leakage
+* Store compromise
+* AI abuse
+
+Preserve evidence.
+
+Contain affected scope.
+
+Audit all remediation.
+
+---
+
+# 149. CENTRAL OBSERVABILITY
+
+Use secure correlation IDs across:
+
+* User requests
+* Payments
+* Orders
+* Jobs
+* AI tools
+* Supplier orders
+* Notifications
+
+Logs must redact secrets and unnecessary PII.
+
+---
+
+# 150. TEST/Demo MODE SEPARATION
+
+Clearly separate:
+
+**DEMO/TEST**
+
+from:
+
+**REAL PAYMENT**
+
+Demo transactions must never count toward:
+
+* Merchant balance
+* Withdrawable funds
+* Subscription
+* Platform revenue
+* Financial reporting
+
+---
+
+# 151. NO FAKE FUNCTIONALITY
+
+Never create:
+
+* Fake payment balances
+* Fake payment confirmations
+* Fake AI outputs
+* Fake image generations
+* Fake supplier orders
+* Fake tracking numbers
+
+unless explicitly labeled as isolated test/demo data.
+
+---
+
+# 152. SECURITY TEST SUITE
+
+Automate tests for:
+
+* IDOR
+* Cross-store access
+* Cross-merchant access
+* Duplicate payments
+* Duplicate webhooks
+* Forged webhooks
+* Code spoofing
+* Code replay
+* Amount tampering
+* Currency tampering
+* FX manipulation
+* Subscription over-deduction
+* Withdrawal race
+* Refund race
+* Inventory race
+* Supplier duplicate orders
+* Address tampering
+* AI prompt injection
+* AI tool replay
+* API abuse
+* Payment bypass
+* Hidden payment links
+* QR bypass
+* Custom-code bypass
+* Account takeover
+* Privilege escalation
+* Tenant leakage
+
+---
+
+# 153. ADVERSARIAL SIMULATION
+
+In staging, simulate:
+
+* Malicious merchant
+* Malicious customer
+* Compromised admin
+* Stolen session
+* Forged webhook
+* Malicious supplier
+* Malicious integration
+* Malicious AI content
+* Provider outage
+* Database rollback
+* Queue replay
+* Duplicate transaction
+* Coordinated multi-account attack
+
+---
+
+# 154. FUTURE FEATURE SECURITY REVIEW
+
+Every new TS Commerce feature must be checked against:
+
+**Payment bypass**
+
+**Fee bypass**
+
+**Subscription bypass**
+
+**KYC bypass**
+
+**Permission escalation**
+
+**Data leakage**
+
+**Cross-store access**
+
+**AI abuse**
+
+**Currency manipulation**
+
+**Refund abuse**
+
+**Payout abuse**
+
+**Inventory abuse**
+
+**Supplier abuse**
+
+**Audit manipulation**
+
+**Account takeover**
+
+**Race conditions**
+
+**Recovery/replay**
+
+**Operational failure**
+
+If a possible bypass exists:
+
+**Fix it before releasing the feature.**
+
+---
+
+# 155. REPLIT DEVELOPMENT BEHAVIOR
+
+Because the target environment is Replit Starter/Free:
+
+Do not waste Agent usage by repeatedly rewriting working code.
+
+Reuse:
+
+* Components
+* Database models
+* Security functions
+* Ledger functions
+* Payment functions
+* API utilities
+* UI patterns
+
+Make targeted changes.
+
+Run tests after changes.
+
+Use Lite Build/lightweight workflows where practical.
+
+Do not unnecessarily upgrade the development mode merely because a feature is complex.
+
+---
+
+# 156. USE DIRECT API INTEGRATIONS WHERE APPROPRIATE
+
+For external services that provide ordinary HTTPS APIs:
+
+Prefer secure backend integration rather than requiring an unnecessary Replit connector.
+
+Example:
+
+**TS Commerce Backend → Flutterwave API**
+
+Store credentials securely in Replit environment secrets.
+
+---
+
+# 157. FLUTTERWAVE RULE — APPLY EVERYWHERE
+
+This rule applies across the entire application:
+
+**Whenever Flutterwave is required, use the Flutterwave API credentials previously provided by the developer when those credentials are actually available in the project/session environment.**
+
+Do not ask for them again when available.
+
+Do not invent them.
+
+Do not expose them.
+
+Do not hard-code them.
+
+Do not put them in frontend code.
+
+Do not put them in AI context.
+
+Do not log them.
+
+Use server-side API requests.
+
+---
+
+# 158. CURRENCY RULE — APPLY EVERYWHERE
+
+This rule applies to **every currency conversion in the entire TS Commerce application**.
+
+NEVER use:
+
+* Fixed exchange rates
+* Hard-coded market values
+* Pre-prepared conversion tables presented as current
+* Client-provided exchange rates
+
+Instead:
+
+**Check current/recent market exchange-rate data from a trusted live internet/FX/payment source.**
+
+Record:
+
+* Source
+* Rate
+* Timestamp
+
+Use controlled short-lived caching only to reduce unnecessary requests.
+
+When the source is unavailable:
+
+* Do not pretend a stale rate is current
+* Use a recent cached rate only where policy permits
+* Mark it as stale
+* Preserve its age/source
+* Hold unsafe transactions when necessary
+
+This rule applies to:
+
+**Products**
+
+**Checkout**
+
+**Customer payments**
+
+**Merchant settlements**
+
+**Merchant subscriptions**
+
+**Fees**
+
+**Taxes where applicable**
+
+**Shipping where applicable**
+
+**Refunds**
+
+**Withdrawals**
+
+**Supplier purchases**
+
+**Marketplace**
+
+**Analytics**
+
+**Platform revenue**
+
+**Reports**
+
+---
+
+# 159. FINAL CUSTOMER EXPERIENCE
+
+Customer:
+
+**Visits merchant store**
+
+↓
+
+**Chooses currency**
+
+↓
+
+**Prices automatically convert using current/recent live rate**
+
+↓
+
+**Chooses product**
+
+↓
+
+**Chooses delivery location**
+
+↓
+
+**Chooses payment method**
+
+↓
+
+**Pays**
+
+↓
+
+**Flutterwave/payment rail**
+
+↓
+
+**TS Pay verifies**
+
+↓
+
+**Customer Code + Store Code**
+
+↓
+
+**Merchant ledger**
+
+↓
+
+**Merchant balance**
+
+---
+
+# 160. FINAL MERCHANT EXPERIENCE
+
+Merchant:
+
+**Creates store**
+
+↓
+
+**Receives Store Code**
+
+↓
+
+**Receives Merchant Admin Payment Code**
+
+↓
+
+**Sets base currency**
+
+↓
+
+**Sets settlement currency**
+
+↓
+
+**Adds products**
+
+↓
+
+**Customers purchase**
+
+↓
+
+**TS Pay receives/verifies payments**
+
+↓
+
+**Currency automatically converts when required**
+
+↓
+
+**Merchant sees money in selected settlement currency**
+
+↓
+
+**$30 subscription automatically deducted when configured**
+
+↓
+
+**Merchant can request eligible withdrawal**
+
+---
+
+# 161. FINAL AI EXPERIENCE
+
+User:
+
+**Ask TS AI**
+
+↓
+
+**DeepSeek understands/reasons**
+
+↓
+
+**Answer**
+
+or:
+
+**User requests image**
+
+↓
+
+**DeepSeek understands/refines**
+
+↓
+
+**Pollinations generates**
+
+↓
+
+**Save**
+
+↓
+
+**Download**
+
+↓
+
+**Export to authorized store**
+
+---
+
+# 162. FINAL AUTOMATED STORE EXPERIENCE
+
+Customer:
+
+**Order**
+
+↓
+
+**Choose location**
+
+↓
+
+**Pay**
+
+↓
+
+**Payment verified**
+
+↓
+
+**TS Store AI**
+
+↓
+
+**Supplier order**
+
+↓
+
+**Delivery**
+
+↓
+
+**Tracking**
+
+↓
+
+**Customer notification**
+
+No step may bypass the required security/financial state.
+
+---
+
+# 163. FINAL PAYMENT-INTEGRITY EXPERIENCE
+
+**TS Pay**
+
+handles:
+
+* Payment
+* Verification
+* Ledger
+* Settlement
+* Balance
+* Fees
+* Refunds
+* Disputes
+* Subscription
+* Currency conversion
+* Payouts
+
+**TS Pay Guard**
+
+handles:
+
+* Bypass detection
+* Suspicious behavior
+* Store monitoring
+* External-payment detection
+* Fraud/risk analysis
+
+**TS Commerce Policy Engine**
+
+handles:
+
+* Global rules
+* Permissions
+* Security policies
+* Feature entitlements
+* Financial policies
+
+---
+
+# 164. ABSOLUTE RULES
+
+1. Customer payment must not be bank-transfer-only.
+2. Every store has a unique Store Code.
+3. Every customer has a unique Customer Code.
+4. Every merchant has a unique Merchant Admin Payment Code.
+5. TS Commerce has a separate Admin Code.
+6. Codes are identifiers, not bank accounts or passwords.
+7. Actual bank-transfer destinations come from the payment infrastructure.
+8. Flutterwave credentials previously supplied must be used anywhere Flutterwave is required, if actually available in the project environment.
+9. Flutterwave secrets never enter frontend code.
+10. Every payment is server-side verified.
+11. AI does not directly move money.
+12. One payment cannot create two credits.
+13. Merchant funds and platform funds remain separated.
+14. Merchant subscription is $30/month.
+15. If earnings exceed outstanding subscription, deduct only the outstanding amount.
+16. If earnings are below outstanding subscription, deduct eligible earnings and carry the remainder forward.
+17. Never over-deduct.
+18. Every financial event is ledger-recorded.
+19. Customers may choose supported payment currencies.
+20. Store prices automatically convert to the customer's selected currency.
+21. Currency conversion must use current/recent live market/provider rates—not fixed figures.
+22. Every exchange rate records source and timestamp.
+23. Frontend cannot control exchange rates.
+24. Merchant settlement can automatically convert to selected settlement currency.
+25. Original currency/amount are always preserved.
+26. TS Store AI cannot fulfill an unpaid/unverified order.
+27. Customer delivery destination must be protected against unauthorized changes.
+28. Generated images can be saved.
+29. Generated images can be downloaded.
+30. Generated images can be exported to authorized stores.
+31. DeepSeek is the main TS AI reasoning engine.
+32. Pollinations is the image-generation engine.
+33. TS Pay Guard monitors payment bypass.
+34. Merchants cannot replace TS Commerce checkout with hidden external payment routes.
+35. AI cannot bypass TS Commerce security.
+36. Frontend cannot alter financial state.
+37. Ledger is authoritative for accounting.
+38. Provider reconciliation is mandatory.
+39. Payouts cannot exceed withdrawable funds.
+40. Refunds cannot exceed eligible captured funds.
+41. Subscription deduction cannot exceed amount owed.
+42. Inventory cannot oversell through race conditions.
+43. Supplier orders cannot be duplicated through retries.
+44. Provider outages must not weaken security.
+45. Security logs must be protected.
+46. Historical financial records cannot be silently rewritten.
+47. Tenant isolation applies everywhere.
+48. Every new feature requires an adversarial threat review.
+49. Every discovered loophole must receive a corresponding control and regression test.
+50. Never claim functionality exists when it does not actually work.
+
+---
+
+# 165. FINAL DEVELOPMENT PRINCIPLE
+
+Build TS Commerce so that it is:
+
+**Simple for the user**
+
+but:
+
+**Strict internally**
+
+Use:
+
+**Authentication**
+
+*
+
+**Authorization**
+
+*
+
+**Payment-provider verification**
+
+*
+
+**Store/Customer/Merchant Codes**
+
+*
+
+**Order/invoice binding**
+
+*
+
+**Deterministic financial rules**
+
+*
+
+**AI risk analysis**
+
+*
+
+**TS Pay ledger**
+
+*
+
+**TS Commerce Policy Engine**
+
+*
+
+**TS Pay Guard**
+
+*
+
+**Reconciliation**
+
+*
+
+**Audit trails**
+
+*
+
+**Adversarial testing**
+
+The objective is not to make an unrealistic claim that every vulnerability in existence has been eliminated.
+
+The objective is to build TS Commerce using defense-in-depth so that identified practical attack classes have explicit controls, failures are handled safely, money cannot be created or redirected through frontend manipulation, and every future feature is reviewed for new attack surfaces before release.
+
+Start with Phase 1 and continue through the phases incrementally. Use the available Replit tools efficiently, avoid unnecessary upgrades, preserve working code, and implement the strongest practical version of each requirement that the environment can genuinely support.
