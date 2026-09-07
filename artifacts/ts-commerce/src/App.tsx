@@ -4,6 +4,7 @@ import { ClerkProvider, Show, SignIn, SignUp, useAuth, useClerk, useUser } from 
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Link, Redirect, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { ArrowRight, Banknote, LockKeyhole, Landmark } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
