@@ -3120,12 +3120,23 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
     merchant,
     identity.isAdmin && !isAdminPreviewRequest(identity),
   );
+  const [confirmedSubscriptionPayment] = await db
+    .select({ id: paymentsTable.id })
+    .from(paymentsTable)
+    .where(and(
+      eq(paymentsTable.merchantId, merchant.id),
+      eq(paymentsTable.method, "flutterwave"),
+      eq(paymentsTable.status, "confirmed"),
+      sql`${paymentsTable.reference} like ${`FLW-SUB-${currentSubscription.id}-%`}`,
+    ))
+    .limit(1);
   const shouldReprice =
     !identity.isAdmin &&
     !isAdminPreviewRequest(identity) &&
     currentSubscription.currency !== currency &&
     toNumber(currentSubscription.amountPaid) === 0 &&
-    toNumber(currentSubscription.earningsHeld) === 0;
+    toNumber(currentSubscription.earningsHeld) === 0 &&
+    !confirmedSubscriptionPayment;
   let quote:
     | Awaited<ReturnType<typeof getSubscriptionQuote>>
     | null = null;
