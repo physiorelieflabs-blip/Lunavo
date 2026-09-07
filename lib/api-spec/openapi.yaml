@@ -1011,6 +1011,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicStore"
+  /leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [public]
+      summary: Get the verified-sales leaderboard
+      responses:
+        "200":
+          description: Published merchants ranked by verified sales over the last 30 days
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
   /public/store/{merchantKey}/payment-destination:
     get:
       operationId: getPublicStorePaymentDestination
@@ -3668,13 +3682,26 @@ components:
     PublicStorePaymentDestination:
       type: object
       properties:
+        provider: { type: string, enum: [flutterwave] }
         configured: { type: boolean }
         beneficiaryName: { type: ["string", "null"] }
         bankName: { type: ["string", "null"] }
         bankCode: { type: ["string", "null"] }
         accountNumber: { type: ["string", "null"] }
         currency: { type: string, minLength: 3, maxLength: 3 }
-      required: [configured, beneficiaryName, bankName, bankCode, accountNumber, currency]
+        paymentCurrencies: { type: array, items: { type: string } }
+      required: [provider, configured, beneficiaryName, bankName, bankCode, accountNumber, currency, paymentCurrencies]
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer }
+        merchantId: { type: integer }
+        storeName: { type: string }
+        salesCount: { type: integer }
+        revenue: { type: number }
+        currency: { type: string }
+        periodDays: { type: integer }
+      required: [rank, merchantId, storeName, salesCount, revenue, currency, periodDays]
     MarketplaceProduct:
       type: object
       properties:
@@ -3845,6 +3872,7 @@ components:
         customerPhone: { type: string, maxLength: 40 }
         shippingAddress: { type: string, minLength: 8, maxLength: 500 }
         quantity: { type: integer, minimum: 1, maximum: 100 }
+        paymentCurrency: { type: string, minLength: 3, maxLength: 3 }
         marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [supplierProductId, customerName, customerEmail, shippingAddress, quantity, idempotencyKey]
@@ -4145,6 +4173,7 @@ components:
         customerEmail: { type: string, format: email }
         customerPhone: { type: string, maxLength: 40 }
         shippingAddress: { type: string, minLength: 8, maxLength: 500 }
+        paymentCurrency: { type: string, minLength: 3, maxLength: 3 }
         marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [customerName, customerEmail, shippingAddress, idempotencyKey]
@@ -4191,7 +4220,7 @@ components:
       properties:
         paymentReference: { type: string, minLength: 2, maxLength: 240 }
         senderName: { type: string, minLength: 2, maxLength: 160 }
-      required: [paymentReference, senderName]
+      required: [paymentReference]
     PublicPaymentReferenceResponse:
       type: object
       properties:

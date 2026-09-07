@@ -5,6 +5,7 @@
  * TS Commerce Plattform merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { PublicPaymentDestination } from './publicPaymentDestination';
 import type { PublicPaymentReferenceResponsePaymentProvider } from './publicPaymentReferenceResponsePaymentProvider';
 import type { PublicPaymentReferenceResponsePaymentStatus } from './publicPaymentReferenceResponsePaymentStatus';
 import type { PublicPaymentReferenceResponseStatus } from './publicPaymentReferenceResponseStatus';
@@ -18,5 +19,6 @@ export interface PublicPaymentReferenceResponse {
   paymentProvider: PublicPaymentReferenceResponsePaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicPaymentReferenceResponsePaymentStatus;
 }

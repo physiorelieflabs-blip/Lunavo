@@ -445,6 +445,7 @@ const SUPPORTED_CURRENCIES = [
   "CAD",
   "AUD",
 ] as const;
+const FLUTTERWAVE_PAYMENT_CURRENCIES = [...SUPPORTED_CURRENCIES] as const;
 const MONTHLY_FEE = 30;
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
@@ -453,6 +454,21 @@ const supplierImportQuota = new Map<string, { startedAt: number; count: number }
 const REFERRAL_ATTRIBUTE_WINDOW_MS = 10 * 60 * 1000;
 const REFERRAL_ATTRIBUTE_LIMIT = 8;
 const referralAttributeQuota = new Map<string, { startedAt: number; count: number }>();
+
+function paymentBypassSignals(values: unknown[]): string[] {
+  const text = values
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const signals: string[] = [];
+  if (/\b(account\s*(number|no|#)|bank\s*details?|transfer\s+to|send\s+to|pay\s+into)\b/i.test(text)) {
+    signals.push("bank destination language");
+  }
+  if (/\b\d{8,}\b/.test(text.replace(/[^\d]/g, " ").replace(/\s+/g, " "))) {
+    signals.push("account-like number");
+  }
+  return signals;
+}
 type FxPayload = {
   base: string;
   quote: string;
@@ -1903,6 +1919,7 @@ async function ensurePublicFlutterwaveCheckout(
   order: Order,
   title: string,
   origin: string,
+  requestedPaymentCurrency?: string,
 ): Promise<PublicFlutterwaveCheckout> {
   if (!isFlutterwaveConfigured()) {
     throw new Error("Online customer checkout is not configured");
@@ -1915,6 +1932,15 @@ async function ensurePublicFlutterwaveCheckout(
   }
 
   if (!origin) throw new Error("The checkout return address could not be determined");
+  const paymentCurrency = (requestedPaymentCurrency ?? order.currency).trim().toUpperCase();
+  if (!FLUTTERWAVE_PAYMENT_CURRENCIES.includes(paymentCurrency as (typeof FLUTTERWAVE_PAYMENT_CURRENCIES)[number])) {
+    throw new Error(`Flutterwave does not support ${paymentCurrency} for this store`);
+  }
+  const fx = await getMarketExchangeRate(order.currency, paymentCurrency);
+  const paymentAmount = Number((toNumber(order.total) * fx.rate).toFixed(2));
+  if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+    throw new Error("The selected payment currency could not be priced");
+  }
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select id from ${ordersTable} where id=${order.id} and merchant_id=${order.merchantId} for update`,
@@ -1942,8 +1968,11 @@ async function ensurePublicFlutterwaveCheckout(
         .values({
           merchantId: currentOrder.merchantId,
           orderId: currentOrder.id,
-          amountMinor: Math.round(toNumber(currentOrder.total) * 100),
-          currency: currentOrder.currency,
+          amountMinor: Math.round(paymentAmount * 100),
+          currency: paymentCurrency,
+          settlementAmountMinor: Math.round(toNumber(currentOrder.total) * 100),
+          settlementCurrency: currentOrder.currency,
+          fxRate: fx.rate.toFixed(8),
           method: "flutterwave",
           idempotencyKey: `public-order:${currentOrder.id}`,
           status: "created",
@@ -2014,8 +2043,8 @@ async function ensurePublicFlutterwaveCheckout(
     try {
       destination = await initializeFlutterwaveVirtualAccount({
         txRef,
-        amount: toNumber(currentOrder.total),
-        currency: currentOrder.currency,
+        amount: paymentAmount,
+        currency: paymentCurrency,
         customer: customerDetails,
         narration: `TS Commerce order ${currentOrder.orderNumber}`,
         meta,
@@ -2028,8 +2057,8 @@ async function ensurePublicFlutterwaveCheckout(
       ? null
       : await initializeFlutterwavePayment({
           txRef,
-          amount: toNumber(currentOrder.total),
-          currency: currentOrder.currency,
+          amount: paymentAmount,
+          currency: paymentCurrency,
           redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(currentOrder.publicPaymentToken!)}`,
           customer: customerDetails,
           title,
@@ -2123,7 +2152,7 @@ async function findFlutterwaveCustomerPayment(
   }
   const amount = flutterwaveAmount(transaction);
   const currency = String(transaction.currency ?? "").toUpperCase();
-  if (!Number.isFinite(amount) || Math.abs(amount - toNumber(order.total)) >= 0.01 || currency !== order.currency) {
+  if (!Number.isFinite(amount) || Math.abs(amount - intent.amountMinor / 100) >= 0.01 || currency !== intent.currency) {
     throw new Error("Flutterwave payment amount or currency does not match this order");
   }
   const status = flutterwaveStatus(transaction);
@@ -2309,14 +2338,16 @@ async function verifyPublicFlutterwaveOrder(
       }
     }
 
+    const settlementAmountMinor = currentIntent.settlementAmountMinor ?? currentIntent.amountMinor;
+    const settlementCurrency = currentIntent.settlementCurrency ?? currentOrder.currency;
     const [record] = await tx
       .insert(paymentRecordsTable)
       .values({
         intentId: currentIntent.id,
         merchantId: order.merchantId,
         orderId: currentOrder.id,
-        amountMinor: currentIntent.amountMinor,
-        currency: currentIntent.currency,
+        amountMinor: settlementAmountMinor,
+        currency: settlementCurrency,
         method: currentIntent.method,
         evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
         status: "verified",
@@ -2359,8 +2390,8 @@ async function verifyPublicFlutterwaveOrder(
         merchantId: order.merchantId,
         orderId: currentOrder.id,
         paymentRecordId: paymentRecord.id,
-        amountMinor: currentIntent.amountMinor,
-        currency: currentIntent.currency,
+        amountMinor: settlementAmountMinor,
+        currency: settlementCurrency,
         entryType: "sale",
         referenceKey: `payment:${currentIntent.id}`,
       })
@@ -3297,6 +3328,22 @@ router.post("/store", async (req, res): Promise<void> => {
   const storeContactEmail = parsed.data.storeContactEmail?.trim().toLowerCase() || null;
   const storePhone = parsed.data.storePhone?.trim() || null;
   const storeWebsite = parsed.data.storeWebsite?.trim() || null;
+  const guardSignals = paymentBypassSignals([
+    storeName,
+    storeDescription,
+    storeContactEmail,
+    storePhone,
+    storeWebsite,
+    parsed.data.storeAddress,
+    JSON.stringify(parsed.data.storefrontSections ?? []),
+  ]);
+  if (guardSignals.length) {
+    res.status(422).json({
+      error: "AI Commerce Guard blocked bank details from being published in the storefront",
+      signals: guardSignals,
+    });
+    return;
+  }
   if (storeContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(storeContactEmail)) {
     res.status(400).json({ error: "Enter a valid store contact email" });
     return;
@@ -3311,16 +3358,9 @@ router.post("/store", async (req, res): Promise<void> => {
     }
   }
   if (parsed.data.storefrontPublished === true) {
-    const paymentDestination = (
-      await db
-        .select({ id: merchantBankAccountsTable.id })
-        .from(merchantBankAccountsTable)
-        .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
-        .limit(1)
-    )[0];
-    if (!paymentDestination) {
+    if (!isFlutterwaveConfigured()) {
       res.status(409).json({
-        error: "Configure a merchant bank account before publishing your storefront",
+        error: "Configure Flutterwave before publishing your storefront",
       });
       return;
     }
@@ -5241,6 +5281,23 @@ router.get("/supplier-products", async (req, res): Promise<void> => {
     .where(eq(supplierProductsTable.merchantId, merchant.id))
     .orderBy(desc(supplierProductsTable.importedAt))
     .limit(100);
+  const guardSignals = paymentBypassSignals([
+    merchant.storeName,
+    merchant.storeDescription,
+    merchant.storeContactEmail,
+    merchant.storePhone,
+    merchant.storeWebsite,
+    JSON.stringify(merchant.storeAddress ?? {}),
+    JSON.stringify(merchant.storefrontSections ?? []),
+    ...products.flatMap((product) => [product.title, product.description, product.brand]),
+  ]);
+  if (guardSignals.length) {
+    res.status(423).json({
+      error: "AI Commerce Guard blocked this storefront because it contains bank-destination details",
+      signals: guardSignals,
+    });
+    return;
+  }
   res.json(
     ListSupplierProductsResponse.parse(
       products.map((product) => ({
@@ -7925,6 +7982,38 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
   }))));
 });
 
+router.get("/leaderboard", async (req, res): Promise<void> => {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      merchantId: merchantsTable.id,
+      storeName: merchantsTable.storeName,
+      salesCount: sql<number>`count(${ledgerEntriesTable.id})`,
+      revenueMinor: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+      currency: ledgerEntriesTable.currency,
+    })
+    .from(ledgerEntriesTable)
+    .innerJoin(merchantsTable, eq(merchantsTable.id, ledgerEntriesTable.merchantId))
+    .where(and(
+      eq(ledgerEntriesTable.entryType, "sale"),
+      gte(ledgerEntriesTable.createdAt, since),
+      eq(merchantsTable.storefrontPublished, true),
+      sql`${merchantsTable.status} <> 'banned'`,
+    ))
+    .groupBy(merchantsTable.id, merchantsTable.storeName, ledgerEntriesTable.currency)
+    .orderBy(desc(sql`count(${ledgerEntriesTable.id})`), desc(sql`sum(${ledgerEntriesTable.amountMinor})`))
+    .limit(50);
+  res.json(rows.map((row, index) => ({
+    rank: index + 1,
+    merchantId: row.merchantId,
+    storeName: row.storeName,
+    salesCount: Number(row.salesCount),
+    revenue: Number(row.revenueMinor) / 100,
+    currency: row.currency,
+    periodDays: 30,
+  })));
+});
+
 router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
   const parsed = GetPublicStoreParams.safeParse(req.params);
   if (!parsed.success) {
@@ -8005,40 +8094,18 @@ router.get("/public/store/:merchantKey/payment-destination", async (req, res): P
     res.status(404).json({ error: "Store not found" });
     return;
   }
-  const account = (
-    await db
-      .select()
-      .from(merchantBankAccountsTable)
-      .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
-      .limit(1)
-  )[0];
-  if (!account) {
-    res.json(
-      GetPublicStorePaymentDestinationResponse.parse({
-        configured: false,
-        beneficiaryName: null,
-        bankName: null,
-        bankCode: null,
-        accountNumber: null,
-        currency: merchant.currency,
-      }),
-    );
-    return;
-  }
-  try {
-    res.json(
-      GetPublicStorePaymentDestinationResponse.parse({
-        configured: true,
-        beneficiaryName: account.beneficiaryName,
-        bankName: account.bankName,
-        bankCode: account.bankCode,
-        accountNumber: decryptSecret(account.accountNumberCiphertext),
-        currency: merchant.currency,
-      }),
-    );
-  } catch {
-    res.status(500).json({ error: "The merchant payment destination could not be read" });
-  }
+  res.json(
+    GetPublicStorePaymentDestinationResponse.parse({
+      configured: isFlutterwaveConfigured(),
+      provider: "flutterwave",
+      paymentCurrencies: [...FLUTTERWAVE_PAYMENT_CURRENCIES],
+      beneficiaryName: null,
+      bankName: null,
+      bankCode: null,
+      accountNumber: null,
+      currency: merchant.currency,
+    }),
+  );
 });
 
 router.post(
@@ -8064,16 +8131,9 @@ router.post(
       res.status(404).json({ error: "Store not found" });
       return;
     }
-    const paymentDestination = (
-      await db
-        .select({ id: merchantBankAccountsTable.id })
-        .from(merchantBankAccountsTable)
-        .where(eq(merchantBankAccountsTable.merchantId, merchant.id))
-        .limit(1)
-    )[0];
-    if (!paymentDestination) {
+    if (!isFlutterwaveConfigured()) {
       res.status(409).json({
-        error: "This store is not accepting orders until the merchant configures bank payment details",
+        error: "This store is not accepting orders until Flutterwave checkout is configured",
       });
       return;
     }
@@ -8327,12 +8387,25 @@ router.post(
         });
         return { order, product };
       });
+      const guardSignals = paymentBypassSignals([
+        result.product.title,
+        result.product.description,
+        result.product.brand,
+      ]);
+      if (guardSignals.length) {
+        res.status(423).json({
+          error: "AI Commerce Guard blocked this checkout because the product contains bank-destination details",
+          signals: guardSignals,
+        });
+        return;
+      }
       let paymentDetails: Parameters<typeof serializePublicCheckoutOrder>[2];
       try {
         const payment = await ensurePublicFlutterwaveCheckout(
           result.order,
           result.product.title,
           requestOrigin(req),
+          parsed.data.paymentCurrency,
         );
         paymentDetails = {
           paymentIntentId: payment.paymentIntentId,
@@ -8345,16 +8418,13 @@ router.post(
             : "Your order is reserved. Complete the secure Flutterwave checkout; TS Commerce verifies the provider payment before fulfillment.",
         };
       } catch (error) {
-        req.log.warn({ err: error, orderId: result.order.id }, "Falling back to manual customer payment evidence");
-        const payment = await ensurePublicManualPaymentIntent(result.order);
-        paymentDetails = {
-          paymentIntentId: payment.id,
-          status: payment.status,
-          provider: "ts_pay",
-          paymentUrl: null,
-          paymentDestination: null,
-          paymentMessage: "Your order is reserved. Transfer the exact total to the merchant bank account shown at checkout, then submit the transfer reference and sender name for merchant verification.",
-        };
+        req.log.warn({ err: error, orderId: result.order.id }, "Flutterwave checkout could not be prepared");
+        res.status(503).json({
+          error: error instanceof Error
+            ? error.message
+            : "Flutterwave checkout could not be prepared. No merchant bank destination is accepted.",
+        });
+        return;
       }
       res.status(201).json(
         CreatePublicCheckoutResponse.parse(
@@ -8507,30 +8577,30 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
       });
       return order;
     });
-    let paymentProvider: "flutterwave" | "ts_pay" = "flutterwave";
+    const paymentProvider = "flutterwave" as const;
     let paymentUrl: string | null = null;
     let paymentIntentId: number | null = null;
     let paymentDestination: PublicFlutterwaveCheckout["destination"] = null;
-    let paymentStatus: "submitted" | "manual" = "submitted";
+    const paymentStatus = "submitted" as const;
     let paymentMessage = "Your order is reserved in TS Commerce. Complete the secure Flutterwave checkout; the order enters fulfillment only after server verification.";
     try {
       const payment = await ensurePublicFlutterwaveCheckout(
         result,
         initialLink.title,
         requestOrigin(req),
+        parsed.data.paymentCurrency ?? initialLink.currency,
       );
       paymentIntentId = payment.paymentIntentId;
       paymentUrl = payment.purchaseUrl;
       paymentDestination = payment.destination;
     } catch (error) {
-      // A payment-link order must remain usable when the hosted provider is
-      // unavailable. The merchant can review manual evidence from Finance.
-      req.log.warn({ err: error, orderId: result.id }, "Falling back to manual payment-link evidence");
-      const manualIntent = await ensurePublicManualPaymentIntent(result);
-      paymentProvider = "ts_pay";
-      paymentIntentId = manualIntent.id;
-      paymentStatus = "manual";
-      paymentMessage = "Your order is reserved in TS Commerce. Submit your bank or cash payment reference below; the merchant will verify it before fulfillment.";
+      req.log.warn({ err: error, orderId: result.id }, "Flutterwave payment-link checkout could not be prepared");
+      res.status(503).json({
+        error: error instanceof Error
+          ? error.message
+          : "Flutterwave checkout could not be prepared. No merchant bank destination is accepted.",
+      });
+      return;
     }
     res.status(201).json(CreatePaymentLinkCheckoutResponse.parse({
       orderNumber: result.orderNumber,
@@ -8589,21 +8659,11 @@ router.post("/public/checkout/:paymentToken/retry", async (req, res): Promise<vo
       paymentStatus: payment.status,
     });
   } catch (error) {
-    try {
-      const payment = await ensurePublicManualPaymentIntent(order);
-      res.status(201).json({
-        orderNumber: order.orderNumber,
-        status: order.status,
-        paymentToken,
-        paymentIntentId: payment.id,
-        paymentProvider: "ts_pay",
-        paymentUrl: null,
-        paymentDestination: null,
-        paymentStatus: payment.status === "created" ? "manual" : payment.status,
-      });
-    } catch (fallbackError) {
-      res.status(409).json({ error: fallbackError instanceof Error ? fallbackError.message : error instanceof Error ? error.message : "Payment session could not be reopened" });
-    }
+    res.status(503).json({
+      error: error instanceof Error
+        ? error.message
+        : "Flutterwave checkout could not be reopened. No merchant bank destination is accepted.",
+    });
   }
 });
 
@@ -8768,82 +8828,33 @@ router.post("/public/checkout/:paymentToken/payment-reference", async (req, res)
     return;
   }
   try {
-    const intent = await ensurePublicManualPaymentIntent(order);
-    const result = await db.transaction(async (tx) => {
-      await tx.execute(sql`select id from ${paymentIntentsTable} where id=${intent.id} and merchant_id=${order.merchantId} for update`);
-      await tx.execute(sql`select id from ${ordersTable} where id=${order.id} and merchant_id=${order.merchantId} for update`);
-      const currentIntent = (
-        await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1)
-      )[0];
-      const currentOrder = (
-        await tx.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1)
-      )[0];
-      if (!currentIntent || !currentOrder) throw new Error("Payment session is no longer available");
-      if (currentOrder.status === "paid" || currentIntent.status === "verified") {
-        return { order: currentOrder, intent: currentIntent, status: "paid" as const };
-      }
-      const evidence = parsed.data.senderName
-        ? `${parsed.data.paymentReference.trim()} | Sender: ${parsed.data.senderName.trim()}`
-        : parsed.data.paymentReference.trim();
-      const [updatedIntent] = await tx
-        .update(paymentIntentsTable)
-        .set({ status: "submitted", evidenceReference: evidence })
-        .where(eq(paymentIntentsTable.id, currentIntent.id))
-        .returning();
-      const payment = (
-        await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, currentIntent.id)).limit(1)
-      )[0];
-      if (payment) {
-        await tx.update(paymentRecordsTable).set({ status: "submitted", evidenceReference: evidence }).where(eq(paymentRecordsTable.id, payment.id));
-      } else {
-        await tx.insert(paymentRecordsTable).values({
-          intentId: currentIntent.id,
-          merchantId: currentOrder.merchantId,
-          orderId: currentOrder.id,
-          amountMinor: currentIntent.amountMinor,
-          currency: currentIntent.currency,
-          method: currentIntent.method,
-          status: "submitted",
-          evidenceReference: evidence,
-        });
-      }
-      await tx.insert(activityTable).values({
-        merchantId: currentOrder.merchantId,
-        type: "payment_evidence_submitted",
-        title: `Payment evidence received for ${currentOrder.orderNumber}`,
-        description: "A customer submitted payment evidence for merchant approval.",
-        amount: currentOrder.total,
-        currency: currentOrder.currency,
-        tone: "warning",
-      });
-      await emitDomainEvent(tx, {
-        merchantId: currentOrder.merchantId,
-        eventType: "payment.evidence_submitted",
-        aggregateType: "payment_intent",
-        aggregateId: currentIntent.id,
-        actorType: "customer",
-        source: "public_checkout",
-        idempotencyKey: `payment-intent:${currentIntent.id}:evidence:${evidence}`,
-        payload: { orderId: currentOrder.id, amountMinor: currentIntent.amountMinor, currency: currentIntent.currency },
-        before: { status: currentIntent.status },
-        after: { status: "submitted" },
-      });
-      return { order: currentOrder, intent: updatedIntent ?? currentIntent, status: "pending" as const };
-    });
+    const result = await verifyPublicFlutterwaveOrder(
+      paymentToken,
+      parsed.data.paymentReference.trim(),
+    );
+    const intent = (
+      await db
+        .select({ id: paymentIntentsTable.id, checkoutUrl: paymentIntentsTable.checkoutUrl })
+        .from(paymentIntentsTable)
+        .where(eq(paymentIntentsTable.orderId, result.order.id))
+        .limit(1)
+    )[0];
     res.json(SubmitPublicPaymentReferenceResponse.parse({
       orderNumber: result.order.orderNumber,
       status: result.status,
       paymentMessage: result.status === "paid"
-        ? "This order is already paid."
-        : "Payment evidence submitted inside TS Commerce. The merchant must approve it before the order enters fulfillment.",
+        ? "Flutterwave verified the payment. The sale has been posted to the merchant dashboard."
+        : result.status === "failed"
+          ? "Flutterwave rejected this payment. Retry with a new provider transaction ID."
+          : "Flutterwave has not settled this transaction yet. Retry verification shortly.",
       paymentToken,
-      paymentIntentId: result.intent.id,
-      paymentProvider: "ts_pay",
-      paymentUrl: null,
-      paymentStatus: result.status === "paid" ? "verified" : "submitted",
+      paymentIntentId: intent?.id ?? null,
+      paymentProvider: "flutterwave",
+      paymentUrl: intent?.checkoutUrl ?? null,
+      paymentStatus: result.status === "paid" ? "verified" : result.status,
     }));
   } catch (error) {
-    res.status(409).json({ error: error instanceof Error ? error.message : "Payment evidence could not be submitted" });
+    res.status(409).json({ error: error instanceof Error ? error.message : "Flutterwave payment could not be verified" });
   }
 });
 

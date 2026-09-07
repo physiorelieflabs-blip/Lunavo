@@ -8,6 +8,7 @@
 import type { PublicCheckoutPaymentSessionPaymentProvider } from './publicCheckoutPaymentSessionPaymentProvider';
 import type { PublicCheckoutPaymentSessionPaymentStatus } from './publicCheckoutPaymentSessionPaymentStatus';
 import type { PublicCheckoutPaymentSessionStatus } from './publicCheckoutPaymentSessionStatus';
+import type { PublicPaymentDestination } from './publicPaymentDestination';
 
 export interface PublicCheckoutPaymentSession {
   orderNumber: string;
@@ -17,5 +18,6 @@ export interface PublicCheckoutPaymentSession {
   paymentProvider: PublicCheckoutPaymentSessionPaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutPaymentSessionPaymentStatus;
 }

@@ -16,6 +16,7 @@ export default function PaymentLinkCheckout() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [shippingAddress, setShippingAddress] = useState('');
+  const [paymentCurrency, setPaymentCurrency] = useState('');
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [message, setMessage] = useState('');
   const [completed, setCompleted] = useState<{ orderNumber: string; total: number; currency: string; paymentToken: string; paymentDestination: NonNullable<typeof checkout.data>['paymentDestination'] } | null>(null);
@@ -28,7 +29,7 @@ export default function PaymentLinkCheckout() {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage('');
-    checkout.mutate({ token, data: { customerName, customerEmail, customerPhone: customerPhone || undefined, shippingAddress, marketingConsent, idempotencyKey: crypto.randomUUID() } }, {
+    checkout.mutate({ token, data: { customerName, customerEmail, customerPhone: customerPhone || undefined, shippingAddress, paymentCurrency: paymentCurrency || link.data.currency, marketingConsent, idempotencyKey: crypto.randomUUID() } }, {
        onSuccess: (result) => {
           setCompleted({ orderNumber: result.orderNumber, total: result.total, currency: result.currency, paymentToken: result.paymentToken ?? '', paymentDestination: result.paymentDestination });
          if (result.paymentUrl) window.location.assign(result.paymentUrl);
@@ -43,12 +44,11 @@ export default function PaymentLinkCheckout() {
     if (!completed?.paymentToken) return;
     submitEvidence.mutate({
       paymentToken: completed.paymentToken,
-      data: { paymentReference: paymentReference.trim(), senderName: senderName.trim() },
+      data: { paymentReference: paymentReference.trim() },
     }, {
       onSuccess: (result) => {
         setMessage(result.paymentMessage);
         setPaymentReference('');
-        setSenderName('');
       },
       onError: () => setMessage('Payment evidence could not be submitted. Check the reference and try again.'),
     });

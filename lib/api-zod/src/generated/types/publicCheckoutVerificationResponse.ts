@@ -8,6 +8,7 @@
 import type { PublicCheckoutVerificationResponsePaymentProvider } from './publicCheckoutVerificationResponsePaymentProvider';
 import type { PublicCheckoutVerificationResponsePaymentStatus } from './publicCheckoutVerificationResponsePaymentStatus';
 import type { PublicCheckoutVerificationResponseStatus } from './publicCheckoutVerificationResponseStatus';
+import type { PublicPaymentDestination } from './publicPaymentDestination';
 
 export interface PublicCheckoutVerificationResponse {
   orderNumber: string;
@@ -24,6 +25,7 @@ export interface PublicCheckoutVerificationResponse {
   paymentProvider: PublicCheckoutVerificationResponsePaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutVerificationResponsePaymentStatus;
   /** @nullable */
   providerPaymentId: string | null;

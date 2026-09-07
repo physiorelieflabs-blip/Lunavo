@@ -20,6 +20,11 @@ export interface PaymentLinkCheckoutInput {
      * @maxLength 500
      */
   shippingAddress: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  paymentCurrency?: string;
   marketingConsent?: boolean;
   /**
      * @minLength 8

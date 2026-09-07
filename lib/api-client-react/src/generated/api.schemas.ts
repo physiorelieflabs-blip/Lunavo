@@ -1163,6 +1163,48 @@ export interface Subscription {
   paymentRecoveryAvailable: boolean;
 }
 
+export interface ReferralAttributionInput {
+  /**
+     * @minLength 8
+     * @maxLength 40
+     */
+  code: string;
+}
+
+export type ReferralAttributionResponseStatus = typeof ReferralAttributionResponseStatus[keyof typeof ReferralAttributionResponseStatus];
+
+
+export const ReferralAttributionResponseStatus = {
+  attributed: 'attributed',
+  review: 'review',
+} as const;
+
+export interface ReferralAttributionResponse {
+  id: number;
+  status: ReferralAttributionResponseStatus;
+  riskStatus: string;
+  message: string;
+}
+
+export type ReferralOverviewCurrentPeriod = {
+  id: number;
+  periodKey: string;
+  code: string;
+  validFrom: string;
+  validUntil: string;
+  status: string;
+} | null;
+
+export type ReferralOverviewAttributionsItem = { [key: string]: unknown };
+
+export type ReferralOverviewRewardsItem = { [key: string]: unknown };
+
+export interface ReferralOverview {
+  currentPeriod: ReferralOverviewCurrentPeriod;
+  attributions: ReferralOverviewAttributionsItem[];
+  rewards: ReferralOverviewRewardsItem[];
+}
+
 /**
  * @nullable
  */
@@ -2419,7 +2461,15 @@ export interface PublicStore {
   products: PublicStoreProduct[];
 }
 
+export type PublicStorePaymentDestinationProvider = typeof PublicStorePaymentDestinationProvider[keyof typeof PublicStorePaymentDestinationProvider];
+
+
+export const PublicStorePaymentDestinationProvider = {
+  flutterwave: 'flutterwave',
+} as const;
+
 export interface PublicStorePaymentDestination {
+  provider: PublicStorePaymentDestinationProvider;
   configured: boolean;
   /** @nullable */
   beneficiaryName: string | null;
@@ -2434,6 +2484,17 @@ export interface PublicStorePaymentDestination {
      * @maxLength 3
      */
   currency: string;
+  paymentCurrencies: string[];
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  merchantId: number;
+  storeName: string;
+  salesCount: number;
+  revenue: number;
+  currency: string;
+  periodDays: number;
 }
 
 export interface MarketplaceProduct {
@@ -2665,12 +2726,37 @@ export interface PublicCheckoutInput {
      * @maximum 100
      */
   quantity: number;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  paymentCurrency?: string;
   marketingConsent?: boolean;
   /**
      * @minLength 8
      * @maxLength 120
      */
   idempotencyKey: string;
+}
+
+export type PublicPaymentDestinationProvider = typeof PublicPaymentDestinationProvider[keyof typeof PublicPaymentDestinationProvider];
+
+
+export const PublicPaymentDestinationProvider = {
+  flutterwave: 'flutterwave',
+} as const;
+
+export interface PublicPaymentDestination {
+  provider: PublicPaymentDestinationProvider;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  amount: number;
+  currency: string;
+  /** @nullable */
+  providerReference: string | null;
+  /** @nullable */
+  expiresAt: string | null;
 }
 
 export type PublicCheckoutOrderStatus = typeof PublicCheckoutOrderStatus[keyof typeof PublicCheckoutOrderStatus];
@@ -2699,19 +2785,6 @@ export const PublicCheckoutOrderPaymentStatus = {
   manual: 'manual',
 } as const;
 
-export interface PublicPaymentDestination {
-  provider: 'flutterwave';
-  bankName: string;
-  accountName: string;
-  accountNumber: string;
-  amount: number;
-  currency: string;
-  /** @nullable */
-  providerReference: string | null;
-  /** @nullable */
-  expiresAt: string | null;
-}
-
 export interface PublicCheckoutOrder {
   orderNumber: string;
   title: string;
@@ -2729,7 +2802,6 @@ export interface PublicCheckoutOrder {
   paymentProvider: PublicCheckoutOrderPaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
-  /** @nullable */
   paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutOrderPaymentStatus;
 }
@@ -3149,6 +3221,11 @@ export interface PaymentLinkCheckoutInput {
      * @maxLength 500
      */
   shippingAddress: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  paymentCurrency?: string;
   marketingConsent?: boolean;
   /**
      * @minLength 8
@@ -3189,7 +3266,6 @@ export interface PublicCheckoutPaymentSession {
   paymentProvider: PublicCheckoutPaymentSessionPaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
-  /** @nullable */
   paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutPaymentSessionPaymentStatus;
 }
@@ -3235,7 +3311,6 @@ export interface PublicCheckoutVerificationResponse {
   paymentProvider: PublicCheckoutVerificationResponsePaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
-  /** @nullable */
   paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicCheckoutVerificationResponsePaymentStatus;
   /** @nullable */
@@ -3252,7 +3327,7 @@ export interface PublicPaymentReferenceInput {
      * @minLength 2
      * @maxLength 160
      */
-  senderName: string;
+  senderName?: string;
 }
 
 export type PublicPaymentReferenceResponseStatus = typeof PublicPaymentReferenceResponseStatus[keyof typeof PublicPaymentReferenceResponseStatus];
@@ -3288,6 +3363,7 @@ export interface PublicPaymentReferenceResponse {
   paymentProvider: PublicPaymentReferenceResponsePaymentProvider;
   /** @nullable */
   paymentUrl: string | null;
+  paymentDestination: PublicPaymentDestination | null;
   paymentStatus: PublicPaymentReferenceResponsePaymentStatus;
 }
 
@@ -3333,6 +3409,18 @@ export type ListAuctionsParams = {
  * @maxLength 120
  */
 search?: string;
+};
+
+export type ApproveReferralReward200Status = typeof ApproveReferralReward200Status[keyof typeof ApproveReferralReward200Status];
+
+
+export const ApproveReferralReward200Status = {
+  earned: 'earned',
+} as const;
+
+export type ApproveReferralReward200 = {
+  id: number;
+  status: ApproveReferralReward200Status;
 };
 
 export type ListDomainEventsParams = {

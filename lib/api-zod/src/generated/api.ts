@@ -2452,6 +2452,21 @@ export const GetPublicStoreResponse = zod.object({
 
 
 /**
+ * @summary Get the verified-sales leaderboard
+ */
+export const GetLeaderboardResponseItem = zod.object({
+  "rank": zod.int(),
+  "merchantId": zod.int(),
+  "storeName": zod.string(),
+  "salesCount": zod.int(),
+  "revenue": zod.number(),
+  "currency": zod.string(),
+  "periodDays": zod.int()
+})
+export const GetLeaderboardResponse = zod.array(GetLeaderboardResponseItem)
+
+
+/**
  * @summary View the merchant bank destination for customer checkout
  */
 export const getPublicStorePaymentDestinationPathMerchantKeyMax = 128;
@@ -2468,12 +2483,14 @@ export const getPublicStorePaymentDestinationResponseCurrencyMax = 3;
 
 
 export const GetPublicStorePaymentDestinationResponse = zod.object({
+  "provider": zod.enum(['flutterwave']),
   "configured": zod.boolean(),
   "beneficiaryName": zod.string().nullable(),
   "bankName": zod.string().nullable(),
   "bankCode": zod.string().nullable(),
   "accountNumber": zod.string().nullable(),
-  "currency": zod.string().min(getPublicStorePaymentDestinationResponseCurrencyMin).max(getPublicStorePaymentDestinationResponseCurrencyMax)
+  "currency": zod.string().min(getPublicStorePaymentDestinationResponseCurrencyMin).max(getPublicStorePaymentDestinationResponseCurrencyMax),
+  "paymentCurrencies": zod.array(zod.string())
 })
 
 
@@ -2499,6 +2516,9 @@ export const createPublicCheckoutBodyShippingAddressMax = 500;
 
 export const createPublicCheckoutBodyQuantityMax = 100;
 
+export const createPublicCheckoutBodyPaymentCurrencyMin = 3;
+export const createPublicCheckoutBodyPaymentCurrencyMax = 3;
+
 export const createPublicCheckoutBodyIdempotencyKeyMin = 8;
 export const createPublicCheckoutBodyIdempotencyKeyMax = 120;
 
@@ -2511,19 +2531,9 @@ export const CreatePublicCheckoutBody = zod.object({
   "customerPhone": zod.string().max(createPublicCheckoutBodyCustomerPhoneMax).optional(),
   "shippingAddress": zod.string().min(createPublicCheckoutBodyShippingAddressMin).max(createPublicCheckoutBodyShippingAddressMax),
   "quantity": zod.int().min(1).max(createPublicCheckoutBodyQuantityMax),
+  "paymentCurrency": zod.string().min(createPublicCheckoutBodyPaymentCurrencyMin).max(createPublicCheckoutBodyPaymentCurrencyMax).optional(),
   "marketingConsent": zod.boolean().optional(),
   "idempotencyKey": zod.string().min(createPublicCheckoutBodyIdempotencyKeyMin).max(createPublicCheckoutBodyIdempotencyKeyMax)
-})
-
-export const PublicPaymentDestination = zod.object({
-  "provider": zod.literal("flutterwave"),
-  "bankName": zod.string(),
-  "accountName": zod.string(),
-  "accountNumber": zod.string(),
-  "amount": zod.number(),
-  "currency": zod.string(),
-  "providerReference": zod.string().nullable(),
-  "expiresAt": zod.iso.datetime().nullable(),
 })
 
 export const CreatePublicCheckoutResponse = zod.object({
@@ -2540,7 +2550,16 @@ export const CreatePublicCheckoutResponse = zod.object({
   "paymentIntentId": zod.int().nullable(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
-  "paymentDestination": PublicPaymentDestination.nullable(),
+  "paymentDestination": zod.union([zod.object({
+  "provider": zod.enum(['flutterwave']),
+  "bankName": zod.string(),
+  "accountName": zod.string(),
+  "accountNumber": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "providerReference": zod.string().nullable(),
+  "expiresAt": zod.coerce.date().nullable()
+}),zod.null()]),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
@@ -2587,6 +2606,9 @@ export const createPaymentLinkCheckoutBodyCustomerPhoneMax = 40;
 export const createPaymentLinkCheckoutBodyShippingAddressMin = 8;
 export const createPaymentLinkCheckoutBodyShippingAddressMax = 500;
 
+export const createPaymentLinkCheckoutBodyPaymentCurrencyMin = 3;
+export const createPaymentLinkCheckoutBodyPaymentCurrencyMax = 3;
+
 export const createPaymentLinkCheckoutBodyIdempotencyKeyMin = 8;
 export const createPaymentLinkCheckoutBodyIdempotencyKeyMax = 120;
 
@@ -2597,6 +2619,7 @@ export const CreatePaymentLinkCheckoutBody = zod.object({
   "customerEmail": zod.email(),
   "customerPhone": zod.string().max(createPaymentLinkCheckoutBodyCustomerPhoneMax).optional(),
   "shippingAddress": zod.string().min(createPaymentLinkCheckoutBodyShippingAddressMin).max(createPaymentLinkCheckoutBodyShippingAddressMax),
+  "paymentCurrency": zod.string().min(createPaymentLinkCheckoutBodyPaymentCurrencyMin).max(createPaymentLinkCheckoutBodyPaymentCurrencyMax).optional(),
   "marketingConsent": zod.boolean().optional(),
   "idempotencyKey": zod.string().min(createPaymentLinkCheckoutBodyIdempotencyKeyMin).max(createPaymentLinkCheckoutBodyIdempotencyKeyMax)
 })
@@ -2615,7 +2638,16 @@ export const CreatePaymentLinkCheckoutResponse = zod.object({
   "paymentIntentId": zod.int().nullable(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
-  "paymentDestination": PublicPaymentDestination.nullable(),
+  "paymentDestination": zod.union([zod.object({
+  "provider": zod.enum(['flutterwave']),
+  "bankName": zod.string(),
+  "accountName": zod.string(),
+  "accountNumber": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "providerReference": zod.string().nullable(),
+  "expiresAt": zod.coerce.date().nullable()
+}),zod.null()]),
   "paymentStatus": zod.enum(['created', 'submitted', 'verified', 'failed', 'manual'])
 })
 
@@ -2639,7 +2671,16 @@ export const RetryPublicPaymentSessionResponse = zod.object({
   "paymentIntentId": zod.int(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
-  "paymentDestination": PublicPaymentDestination.nullable(),
+  "paymentDestination": zod.union([zod.object({
+  "provider": zod.enum(['flutterwave']),
+  "bankName": zod.string(),
+  "accountName": zod.string(),
+  "accountNumber": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "providerReference": zod.string().nullable(),
+  "expiresAt": zod.coerce.date().nullable()
+}),zod.null()]),
   "paymentStatus": zod.enum(['submitted', 'manual'])
 })
 
@@ -2670,7 +2711,16 @@ export const VerifyPublicPaymentSessionResponse = zod.object({
   "paymentIntentId": zod.int(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
-  "paymentDestination": PublicPaymentDestination.nullable(),
+  "paymentDestination": zod.union([zod.object({
+  "provider": zod.enum(['flutterwave']),
+  "bankName": zod.string(),
+  "accountName": zod.string(),
+  "accountNumber": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "providerReference": zod.string().nullable(),
+  "expiresAt": zod.coerce.date().nullable()
+}),zod.null()]),
   "paymentStatus": zod.enum(['verified', 'pending', 'failed']),
   "providerPaymentId": zod.string().nullable()
 })
@@ -2698,7 +2748,7 @@ export const submitPublicPaymentReferenceBodySenderNameMax = 160;
 
 export const SubmitPublicPaymentReferenceBody = zod.object({
   "paymentReference": zod.string().min(submitPublicPaymentReferenceBodyPaymentReferenceMin).max(submitPublicPaymentReferenceBodyPaymentReferenceMax),
-  "senderName": zod.string().min(submitPublicPaymentReferenceBodySenderNameMin).max(submitPublicPaymentReferenceBodySenderNameMax)
+  "senderName": zod.string().min(submitPublicPaymentReferenceBodySenderNameMin).max(submitPublicPaymentReferenceBodySenderNameMax).optional()
 })
 
 export const SubmitPublicPaymentReferenceResponse = zod.object({
@@ -2709,6 +2759,16 @@ export const SubmitPublicPaymentReferenceResponse = zod.object({
   "paymentIntentId": zod.int(),
   "paymentProvider": zod.enum(['flutterwave', 'ts_pay']),
   "paymentUrl": zod.url().nullable(),
+  "paymentDestination": zod.union([zod.object({
+  "provider": zod.enum(['flutterwave']),
+  "bankName": zod.string(),
+  "accountName": zod.string(),
+  "accountNumber": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "providerReference": zod.string().nullable(),
+  "expiresAt": zod.coerce.date().nullable()
+}),zod.null()]),
   "paymentStatus": zod.enum(['submitted', 'verified'])
 })
 
@@ -3615,6 +3675,59 @@ export const CreateSubscriptionResponse = zod.object({
   "accessLocked": zod.boolean(),
   "gracePeriodHours": zod.int(),
   "paymentRecoveryAvailable": zod.boolean()
+})
+
+
+/**
+ * @summary Get the merchant referral code and reward history
+ */
+export const GetReferralOverviewResponse = zod.object({
+  "currentPeriod": zod.union([zod.object({
+  "id": zod.int(),
+  "periodKey": zod.string(),
+  "code": zod.string(),
+  "validFrom": zod.coerce.date(),
+  "validUntil": zod.coerce.date(),
+  "status": zod.string()
+}),zod.null()]),
+  "attributions": zod.array(zod.record(zod.string(), zod.unknown())),
+  "rewards": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+/**
+ * @summary Attribute the current merchant to a referral code
+ */
+export const attributeReferralBodyCodeMin = 8;
+export const attributeReferralBodyCodeMax = 40;
+
+
+
+export const AttributeReferralBody = zod.object({
+  "code": zod.string().min(attributeReferralBodyCodeMin).max(attributeReferralBodyCodeMax)
+})
+
+export const AttributeReferralResponse = zod.object({
+  "id": zod.int(),
+  "status": zod.enum(['attributed', 'review']),
+  "riskStatus": zod.string(),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Approve a flagged referral reward
+ */
+
+
+
+export const ApproveReferralRewardParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const ApproveReferralRewardResponse = zod.object({
+  "id": zod.int(),
+  "status": zod.enum(['earned'])
 })
 
 

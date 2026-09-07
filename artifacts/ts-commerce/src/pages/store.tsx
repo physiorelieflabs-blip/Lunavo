@@ -101,7 +101,7 @@ export default function StorePage() {
          setMessage(result.storefrontPublished ? 'Your storefront is published and ready for customers.' : 'Your storefront changes are saved as a draft.');
         void queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() });
       },
-      onError: () => setMessage('Storefront could not be saved. Configure a bank account in Withdrawals before publishing it.'),
+      onError: () => setMessage('Storefront could not be saved. Configure Flutterwave before publishing it, and keep all merchant bank details private for withdrawals only.'),
     });
   };
 
@@ -136,7 +136,7 @@ export default function StorePage() {
       </div>
 
       {message && <div className="mt-7"><Notice tone={message.includes('could not') ? 'danger' : 'success'} title={message.includes('could not') ? 'Store not saved' : 'Store saved'}>{message}</Notice></div>}
-      {!linkedBank.isLoading && !linkedBank.data && <div className="mt-7"><Notice tone="warning" title="Bank details are required before publishing">Customers pay this store by direct bank transfer. <Link href="/withdrawals" className="font-extrabold underline">Configure the merchant bank account in Withdrawals</Link>, then publish the storefront.</Notice></div>}
+      <div className="mt-7"><Notice tone="warning" title="Public checkout is provider-only">Customers pay through Flutterwave-generated payment sessions. Linked bank accounts are private withdrawal destinations and are never published on your storefront.</Notice></div>
 
        <form onSubmit={save}>
        <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">

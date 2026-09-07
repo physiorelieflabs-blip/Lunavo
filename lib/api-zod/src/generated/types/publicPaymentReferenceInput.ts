@@ -16,5 +16,5 @@ export interface PublicPaymentReferenceInput {
      * @minLength 2
      * @maxLength 160
      */
-  senderName: string;
+  senderName?: string;
 }

@@ -38,6 +38,7 @@ import type {
   AiSettingsInput,
   AiSimulation,
   AiSimulationInput,
+  ApproveReferralReward200,
   AuctionBid,
   AuctionBidInput,
   AuctionDetail,
@@ -68,6 +69,7 @@ import type {
   InvoicePaymentReferenceInput,
   InvoicePaymentReview,
   InvoicePaymentSubmission,
+  LeaderboardEntry,
   LinkedBankAccount,
   ListAuctionsParams,
   ListDomainEventsParams,
@@ -115,6 +117,9 @@ import type {
   ReconciliationInput,
   ReconciliationRecord,
   ReconciliationUpdateInput,
+  ReferralAttributionInput,
+  ReferralAttributionResponse,
+  ReferralOverview,
   RefundInput,
   RefundRecord,
   Store,
@@ -4611,6 +4616,83 @@ export function useGetPublicStore<TData = Awaited<ReturnType<typeof getPublicSto
 
 
 
+export const getGetLeaderboardUrl = () => {
+
+
+
+
+  return `/api/leaderboard`
+}
+
+/**
+ * @summary Get the verified-sales leaderboard
+ */
+export const getLeaderboard = async ( options?: Parameters<typeof customFetch>[1]): Promise<LeaderboardEntry[]> => {
+
+  return customFetch<LeaderboardEntry[]>(getGetLeaderboardUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLeaderboardQueryKey = () => {
+    return [
+    `/api/leaderboard`
+    ] as const;
+    }
+
+
+export const getGetLeaderboardQueryOptions = <TData = Awaited<ReturnType<typeof getLeaderboard>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLeaderboardQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLeaderboard>>> = ({ signal }) => getLeaderboard({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLeaderboard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLeaderboardQueryResult = NonNullable<Awaited<ReturnType<typeof getLeaderboard>>>
+export type GetLeaderboardQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the verified-sales leaderboard
+ */
+
+export function useGetLeaderboard<TData = Awaited<ReturnType<typeof getLeaderboard>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLeaderboardQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getGetPublicStorePaymentDestinationUrl = (merchantKey: string,) => {
 
 
@@ -6770,6 +6852,225 @@ export const useCreateSubscription = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateSubscriptionMutationOptions(options));
+    }
+
+export const getGetReferralOverviewUrl = () => {
+
+
+
+
+  return `/api/referrals`
+}
+
+/**
+ * @summary Get the merchant referral code and reward history
+ */
+export const getReferralOverview = async ( options?: Parameters<typeof customFetch>[1]): Promise<ReferralOverview> => {
+
+  return customFetch<ReferralOverview>(getGetReferralOverviewUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReferralOverviewQueryKey = () => {
+    return [
+    `/api/referrals`
+    ] as const;
+    }
+
+
+export const getGetReferralOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getReferralOverview>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferralOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReferralOverviewQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReferralOverview>>> = ({ signal }) => getReferralOverview({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReferralOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReferralOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof getReferralOverview>>>
+export type GetReferralOverviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the merchant referral code and reward history
+ */
+
+export function useGetReferralOverview<TData = Awaited<ReturnType<typeof getReferralOverview>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferralOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReferralOverviewQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAttributeReferralUrl = () => {
+
+
+
+
+  return `/api/referrals`
+}
+
+/**
+ * @summary Attribute the current merchant to a referral code
+ */
+export const attributeReferral = async (referralAttributionInput: ReferralAttributionInput, options?: Parameters<typeof customFetch>[1]): Promise<ReferralAttributionResponse> => {
+
+  return customFetch<ReferralAttributionResponse>(getAttributeReferralUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(referralAttributionInput)
+  }
+);}
+
+
+
+
+
+export const getAttributeReferralMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof attributeReferral>>, TError,{data: BodyType<ReferralAttributionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof attributeReferral>>, TError,{data: BodyType<ReferralAttributionInput>}, TContext> => {
+
+const mutationKey = ['attributeReferral'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof attributeReferral>>, {data: BodyType<ReferralAttributionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  attributeReferral(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AttributeReferralMutationResult = NonNullable<Awaited<ReturnType<typeof attributeReferral>>>
+    export type AttributeReferralMutationBody = BodyType<ReferralAttributionInput>
+    export type AttributeReferralMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Attribute the current merchant to a referral code
+ */
+export const useAttributeReferral = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof attributeReferral>>, TError,{data: BodyType<ReferralAttributionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof attributeReferral>>,
+        TError,
+        {data: BodyType<ReferralAttributionInput>},
+        TContext
+      > => {
+      return useMutation(getAttributeReferralMutationOptions(options));
+    }
+
+export const getApproveReferralRewardUrl = (id: number,) => {
+
+
+
+
+  return `/api/referrals/rewards/${id}/approve`
+}
+
+/**
+ * @summary Approve a flagged referral reward
+ */
+export const approveReferralReward = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<ApproveReferralReward200> => {
+
+  return customFetch<ApproveReferralReward200>(getApproveReferralRewardUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveReferralRewardMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveReferralReward>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveReferralReward>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['approveReferralReward'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveReferralReward>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  approveReferralReward(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveReferralRewardMutationResult = NonNullable<Awaited<ReturnType<typeof approveReferralReward>>>
+
+    export type ApproveReferralRewardMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Approve a flagged referral reward
+ */
+export const useApproveReferralReward = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveReferralReward>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveReferralReward>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getApproveReferralRewardMutationOptions(options));
     }
 
 export const getGetSubscriptionBankDestinationUrl = () => {

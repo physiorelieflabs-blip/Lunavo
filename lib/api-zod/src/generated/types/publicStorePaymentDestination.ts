@@ -5,8 +5,10 @@
  * TS Commerce Plattform merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
+import type { PublicStorePaymentDestinationProvider } from './publicStorePaymentDestinationProvider';
 
 export interface PublicStorePaymentDestination {
+  provider: PublicStorePaymentDestinationProvider;
   configured: boolean;
   /** @nullable */
   beneficiaryName: string | null;
@@ -21,4 +23,5 @@ export interface PublicStorePaymentDestination {
      * @maxLength 3
      */
   currency: string;
+  paymentCurrencies: string[];
 }
