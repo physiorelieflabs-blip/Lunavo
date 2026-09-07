@@ -209,7 +209,10 @@ export async function initializeFlutterwaveVirtualAccount(input: {
         phonenumber: input.customer.phonenumber,
         narration: input.narration.slice(0, 120),
         is_permanent: false,
-        duration: 30,
+        // Dynamic virtual-account expiry is specified in seconds. Keep the
+        // configured provider window explicit and show the provider-returned
+        // expiry to the customer when it is supplied.
+        expires: 1800,
         meta: input.meta,
       },
     },
@@ -234,8 +237,8 @@ export async function initializeFlutterwaveVirtualAccount(input: {
   }
   const providerReference = recordValue(account, ["id", "reference", "account_id", "accountId", "tx_ref"]);
   const expiresAt = parseProviderExpiry(
-    recordValue(account, ["expires_at", "expiresAt", "expiry", "expiration", "expires_on"]),
-  ) ?? new Date(Date.now() + 30 * 60 * 1000);
+    recordValue(account, ["expires_at", "expiresAt", "expiry", "expiration", "expires_on", "expiry_date"]),
+  );
   return {
     bankName,
     accountName,
