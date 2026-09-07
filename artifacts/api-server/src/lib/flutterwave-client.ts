@@ -299,7 +299,7 @@ export async function refundFlutterwaveTransaction(
 export function verifyFlutterwaveWebhookSignature(
   rawBody: Buffer,
   currentSignature: string | undefined,
-  legacySignature: string | undefined,
+  legacySignature?: string,
 ): boolean {
   const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim();
   if (!secret) return false;
