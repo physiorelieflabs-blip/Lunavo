@@ -103,3 +103,25 @@ test("dashboard earning window is fixed to its original start and cannot be rese
   assert.equal(after.locked, false);
   assert.equal(after.expiresAt.toISOString(), "2026-09-16T12:00:00.000Z");
 });
+
+
+test("current Flutterwave succeeded status is treated as provider-paid", async () => {
+  const { flutterwaveStatus } = await import("./flutterwave-client");
+  assert.equal(flutterwaveStatus({ status: "succeeded" }), "paid");
+});
+
+test("current Flutterwave webhook HMAC signature is accepted using the exact raw body", async () => {
+  const { createHmac } = await import("node:crypto");
+  const { verifyFlutterwaveWebhookSignature } = await import("./flutterwave-client");
+  const previous = process.env.FLUTTERWAVE_WEBHOOK_SECRET;
+  const raw = Buffer.from('{"id":"wbk_test","type":"charge.completed"}');
+  process.env.FLUTTERWAVE_WEBHOOK_SECRET = "test-secret";
+  const signature = createHmac("sha256", "test-secret").update(raw).digest("base64");
+  try {
+    assert.equal(verifyFlutterwaveWebhookSignature(raw, signature), true);
+    assert.equal(verifyFlutterwaveWebhookSignature(raw, "wrong"), false);
+  } finally {
+    if (previous === undefined) delete process.env.FLUTTERWAVE_WEBHOOK_SECRET;
+    else process.env.FLUTTERWAVE_WEBHOOK_SECRET = previous;
+  }
+});
