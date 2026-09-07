@@ -296,25 +296,32 @@ export async function refundFlutterwaveTransaction(
   return { id: response.data?.id == null ? null : String(response.data.id), status: String(response.data?.status ?? response.status ?? "pending") };
 }
 
-export function verifyFlutterwaveWebhookSignature(rawBody: Buffer, signature: string | undefined, legacySecretHash?: string | undefined): boolean {
-  const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim() || legacySecretHash?.trim();
-  if (!secret || !signature) return false;
+export function verifyFlutterwaveWebhookSignature(
+  rawBody: Buffer,
+  currentSignature: string | undefined,
+  legacySignature: string | undefined,
+): boolean {
+  const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim();
+  if (!secret) return false;
 
-  // Current Flutterwave webhooks use HMAC-SHA256 over the exact raw request body
-  // and return the digest as base64 in the flutterwave-signature header.
-  const suppliedText = signature.trim();
-  const expectedBase64 = createHmac("sha256", secret).update(rawBody).digest("base64");
-  const suppliedBase64 = Buffer.from(suppliedText);
-  const expectedBase64Buffer = Buffer.from(expectedBase64);
-  if (
-    suppliedBase64.length === expectedBase64Buffer.length &&
-    timingSafeEqual(suppliedBase64, expectedBase64Buffer)
-  ) {
-    return true;
+  // Current Flutterwave webhook signing: HMAC-SHA256 over the exact raw body,
+  // represented as base64 in the flutterwave-signature header.
+  if (currentSignature?.trim()) {
+    const supplied = Buffer.from(currentSignature.trim());
+    const expected = Buffer.from(
+      createHmac("sha256", secret).update(rawBody).digest("base64"),
+    );
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
   }
 
-  // Backward compatibility for older Flutterwave configurations that use the
-  // configured verif-hash secret directly. Never accept an arbitrary value.
-  const direct = Buffer.from(secret);
-  return direct.length === suppliedBase64.length && timingSafeEqual(direct, suppliedBase64);
+  // Legacy Flutterwave verif-hash mode: compare the provider-supplied value
+  // against the configured secret. Never treat the received signature itself
+  // as a secret.
+  if (legacySignature?.trim()) {
+    const supplied = Buffer.from(legacySignature.trim());
+    const expected = Buffer.from(secret);
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+
+  return false;
 }
