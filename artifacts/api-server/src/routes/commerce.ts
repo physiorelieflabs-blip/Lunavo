@@ -9487,8 +9487,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
         .update(subscriptionsTable)
         .set({
           paymentMethod: "earnings",
-          paymentMethodSelectedAt:
-            subscription.paymentMethodSelectedAt ?? new Date(),
+          paymentMethodSelectedAt: new Date(),
           status: "pending",
         })
         .where(eq(subscriptionsTable.id, subscription.id))
@@ -9550,8 +9549,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
     .update(subscriptionsTable)
     .set({
       paymentMethod: "bank",
-      paymentMethodSelectedAt:
-        subscription.paymentMethodSelectedAt ?? new Date(),
+      paymentMethodSelectedAt: new Date(),
     })
     .where(eq(subscriptionsTable.id, subscription.id))
     .returning();
