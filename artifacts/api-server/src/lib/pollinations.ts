@@ -1,6 +1,6 @@
 const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const STABILITY_IMAGE_MODEL = "stable-image/core";
+const STABILITY_IMAGE_MODEL = "stable-image/generate/core";
 const STABILITY_IMAGE_URL = `https://api.stability.ai/v2beta/${STABILITY_IMAGE_MODEL}`;
 
 type GeminiImageResponse = {
@@ -118,7 +118,7 @@ async function generateStabilityImage(prompt: string, key: string): Promise<Gene
   if (!bytes.length) throw new Error("Stability returned an empty image");
   const encoded = bytes.toString("base64");
   return {
-    model: `stability:${STABILITY_IMAGE_MODEL}`,
+    model: "stability:stable-image/core",
     mimeType,
     data: `data:${mimeType};base64,${encoded}`,
     bytes,

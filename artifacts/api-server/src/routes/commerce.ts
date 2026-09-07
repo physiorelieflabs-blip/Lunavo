@@ -4020,7 +4020,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
     const message = providerMessage
-      ? `Gemini image generation is unavailable: ${providerMessage}`
+      ? `Image generation is unavailable: ${providerMessage}`
         : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
