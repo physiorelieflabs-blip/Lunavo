@@ -370,6 +370,7 @@ import {
   refundFlutterwaveTransaction,
   verifyFlutterwaveTransaction,
   verifyFlutterwaveWebhookSignature,
+  supportsFlutterwaveDirectBankTransfer,
   type FlutterwaveTransaction,
 } from "../lib/flutterwave-client";
 import {
@@ -9991,22 +9992,28 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
       ));
     let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
     let destinationError: unknown = null;
-    try {
-      destination = await initializeFlutterwaveVirtualAccount({
-        txRef: reference,
-        amount: outstanding,
-        currency: enforced.subscription.currency,
-        customer: { email: merchant.email, name: "TS Commerce" },
-        narration: "TS Commerce subscription",
-        meta,
-      });
-    } catch (error) {
-      destinationError = error;
-      req.log.warn({
-        err: error,
-        currency: enforced.subscription.currency,
-        paymentReference: reference,
-      }, "Flutterwave temporary account generation failed; opening hosted bank checkout");
+    if (supportsFlutterwaveDirectBankTransfer(enforced.subscription.currency)) {
+      try {
+        destination = await initializeFlutterwaveVirtualAccount({
+          txRef: reference,
+          amount: outstanding,
+          currency: enforced.subscription.currency,
+          customer: { email: merchant.email, name: "TS Commerce" },
+          narration: "TS Commerce subscription",
+          meta,
+        });
+      } catch (error) {
+        destinationError = error;
+        req.log.warn({
+          err: error,
+          currency: enforced.subscription.currency,
+          paymentReference: reference,
+        }, "Flutterwave direct bank destination unavailable; falling back to hosted checkout");
+      }
+    } else {
+      destinationError = new Error(
+        `Flutterwave direct bank transfer is not available for ${enforced.subscription.currency}; using hosted checkout`,
+      );
     }
     if (!destination) {
       const origin = requestOrigin(req);
@@ -10025,7 +10032,10 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         customer: { email: merchant.email, name: "TS Commerce" },
         title: "TS Commerce subscription",
         meta,
-        paymentOptions: "banktransfer",
+        // Let Flutterwave expose only payment methods actually available
+        // for the selected currency/account. TS Commerce never fabricates a
+        // bank destination when direct bank transfer is unsupported.
+        paymentOptions: "card,banktransfer,ussd,mobilemoney",
       });
       const [updatedPayment] = await db.update(paymentsTable).set({
         evidenceReference: reference,
