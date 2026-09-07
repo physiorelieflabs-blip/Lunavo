@@ -450,6 +450,9 @@ const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
 const SUPPLIER_IMPORT_LIMIT = 60;
 const supplierImportQuota = new Map<string, { startedAt: number; count: number }>();
+const REFERRAL_ATTRIBUTE_WINDOW_MS = 10 * 60 * 1000;
+const REFERRAL_ATTRIBUTE_LIMIT = 8;
+const referralAttributeQuota = new Map<string, { startedAt: number; count: number }>();
 type FxPayload = {
   base: string;
   quote: string;
@@ -469,6 +472,18 @@ function consumeSupplierImportQuota(clerkUserId: string, requested: number): boo
   }
   if (current.count + requested > SUPPLIER_IMPORT_LIMIT) return false;
   current.count += requested;
+  return true;
+}
+
+function consumeReferralAttributeQuota(clerkUserId: string): boolean {
+  const now = Date.now();
+  const current = referralAttributeQuota.get(clerkUserId);
+  if (!current || now - current.startedAt >= REFERRAL_ATTRIBUTE_WINDOW_MS) {
+    referralAttributeQuota.set(clerkUserId, { startedAt: now, count: 1 });
+    return true;
+  }
+  if (current.count >= REFERRAL_ATTRIBUTE_LIMIT) return false;
+  current.count += 1;
   return true;
 }
 
@@ -1968,7 +1983,8 @@ async function ensurePublicFlutterwaveCheckout(
               accountNumber: existingDestination.accountNumber,
               amount: existingDestination.amountMinor / 100,
               currency: existingDestination.currency,
-              providerReference: existingDestination.providerReference,
+              providerReference:
+                existingDestination.providerReference ?? intent.evidenceReference,
               expiresAt: existingDestination.expiresAt?.toISOString() ?? null,
             }
           : null,
@@ -2036,7 +2052,7 @@ async function ensurePublicFlutterwaveCheckout(
         accountNumber: destination.accountNumber,
         amountMinor: Math.round(destination.amount * 100),
         currency: destination.currency,
-        providerReference: destination.providerReference,
+        providerReference: destination.providerReference ?? txRef,
         expiresAt: destination.expiresAt,
         status: "active",
         rawProviderMetadata: destination.raw,
@@ -2055,7 +2071,7 @@ async function ensurePublicFlutterwaveCheckout(
             accountNumber: destination.accountNumber,
             amount: destination.amount,
             currency: destination.currency,
-            providerReference: destination.providerReference,
+            providerReference: destination.providerReference ?? txRef,
             expiresAt: destination.expiresAt?.toISOString() ?? null,
           }
         : null,
@@ -9286,6 +9302,11 @@ router.get("/referrals", async (req, res): Promise<void> => {
 router.post("/referrals/attribute", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  if (!consumeReferralAttributeQuota(identity.clerkUserId)) {
+    res.setHeader("Retry-After", "600");
+    res.status(429).json({ error: "Too many referral attempts. Try again later." });
+    return;
+  }
   const code = typeof req.body?.code === "string" ? req.body.code : "";
   if (!code.trim()) {
     res.status(400).json({ error: "A referral code is required" });
@@ -9811,7 +9832,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         accountNumber: destination.accountNumber,
         amountMinor: Math.round(destination.amount * 100),
         currency: destination.currency,
-        providerReference: destination.providerReference,
+        providerReference: destination.providerReference ?? reference,
         expiresAt: destination.expiresAt,
         status: "active",
         rawProviderMetadata: destination.raw,
@@ -9829,7 +9850,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
             accountNumber: destination.accountNumber,
             amount: destination.amount,
             currency: destination.currency,
-            providerReference: destination.providerReference,
+            providerReference: destination.providerReference ?? reference,
             expiresAt: destination.expiresAt?.toISOString() ?? null,
           }
         : null,

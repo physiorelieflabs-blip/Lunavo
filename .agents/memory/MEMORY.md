@@ -26,3 +26,4 @@
 - [Supplier ingestion boundary](supplier-ingestion-boundary.md) — public supplier fetches must pin validated public DNS addresses and reject unsupported or unsafe financial data.
 - [Customer bank payment destination](customer-bank-payment-destination.md) — published stores use their linked bank account for direct customer transfers; evidence stays unverified until merchant approval.
 - [Image generation provider boundary](image-generation-provider-boundary.md) — preserve merchant prompts, validate image bytes, and fall back safely when a configured provider is unavailable.
+- [Workspace test runner](workspace-test-runner.md) — run TypeScript API tests through the workspace package that provides tsx.

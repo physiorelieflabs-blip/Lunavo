@@ -52,6 +52,7 @@ const migrations = [
   "0041_payment_intent_checkout_urls",
   "0042_referrals_and_payment_destinations",
   "0043_subscription_payment_choice_window",
+  "0044_referral_reward_integrity",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();

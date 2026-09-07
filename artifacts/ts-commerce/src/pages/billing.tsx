@@ -32,6 +32,15 @@ export default function Billing() {
   const [senderName, setSenderName] = useState('');
   const [message, setMessage] = useState('');
   const [flutterwavePending, setFlutterwavePending] = useState(false);
+  const [flutterwaveDestination, setFlutterwaveDestination] = useState<{
+    bankName: string;
+    accountName: string;
+    accountNumber: string;
+    amount: number;
+    currency: string;
+    providerReference: string | null;
+    expiresAt: string | null;
+  } | null>(null);
   const [tick, setTick] = useState(() => Date.now());
   const [referral, setReferral] = useState<{
     currentPeriod: { code: string; validUntil: string } | null;
@@ -174,13 +183,14 @@ export default function Billing() {
     setMessage('');
     setFlutterwavePending(true);
     try {
-      const result = await customFetch<{ purchaseUrl: string | null; paymentDestination?: { bankName: string; accountName: string; accountNumber: string; amount: number; currency: string } | null }>('/api/subscription/flutterwave-checkout', {
+      const result = await customFetch<{ purchaseUrl: string | null; paymentDestination?: { bankName: string; accountName: string; accountNumber: string; amount: number; currency: string; providerReference: string | null; expiresAt: string | null } | null }>('/api/subscription/flutterwave-checkout', {
         method: 'POST',
         body: JSON.stringify({}),
         responseType: 'json',
       });
       if (result.paymentDestination) {
-        setMessage(`Transfer ${money(result.paymentDestination.amount, result.paymentDestination.currency)} to ${result.paymentDestination.bankName}, ${result.paymentDestination.accountNumber}. Then return here with the Flutterwave transaction ID for verification.`);
+        setFlutterwaveDestination(result.paymentDestination);
+        setMessage(`Transfer the exact amount to the Flutterwave-generated account, then keep the payment reference for verification.`);
       } else if (result.purchaseUrl) {
         window.location.assign(result.purchaseUrl);
       } else {
@@ -254,6 +264,7 @@ export default function Billing() {
           {routeButton('flutterwave', <ExternalLink className="h-5 w-5 text-[#a2772e]" />, 'Pay with Flutterwave', 'Open secure hosted checkout and return here for verification.', 'button-method-flutterwave')}
           {routeButton('bank', <CreditCard className="h-5 w-5 text-[#a2772e]" />, 'Pay from bank', 'Send money from your bank and submit the payment reference.', 'button-method-bank')}
         </div>
+         {method === 'flutterwave' && flutterwaveDestination && <div className="mt-5 rounded-xl border border-[#9fc7d0] bg-[#e8f6f8] p-5 text-sm text-[#234c58]"><p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#315e6c]">Flutterwave-generated payment destination</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><p><span className="text-xs text-[#477563]">Bank name</span><br /><strong>{flutterwaveDestination.bankName}</strong></p><p><span className="text-xs text-[#477563]">Account name</span><br /><strong>{flutterwaveDestination.accountName}</strong></p><p><span className="text-xs text-[#477563]">Account number</span><br /><strong className="font-mono">{flutterwaveDestination.accountNumber}</strong></p><p><span className="text-xs text-[#477563]">Exact amount</span><br /><strong className="font-mono">{money(flutterwaveDestination.amount, flutterwaveDestination.currency)}</strong></p><p><span className="text-xs text-[#477563]">Payment reference</span><br /><strong className="font-mono">{flutterwaveDestination.providerReference ?? 'Provider reference pending'}</strong></p>{flutterwaveDestination.expiresAt && <p><span className="text-xs text-[#477563]">Expires</span><br /><strong>{new Date(flutterwaveDestination.expiresAt).toLocaleString()}</strong></p>}</div><p className="mt-3 text-xs leading-5">This destination belongs only to this subscription payment session. Never use a TS code or transaction ID as the bank account number.</p></div>}
       </section>
 
        <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">

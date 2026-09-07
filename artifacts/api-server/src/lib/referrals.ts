@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gt, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, isNotNull, lt, lte } from "drizzle-orm";
 import {
   merchantsTable,
   paymentsTable,
@@ -71,6 +71,14 @@ export async function ensureReferralPeriodForPaidSubscription(
 ): Promise<ReferralPeriod | null> {
   if (Number(subscription.amountPaid) + 0.005 < Number(subscription.amountDue)) return null;
   const period = referralPeriodForDate(subscription.billingTimezone, now);
+  await tx
+    .update(referralPeriodsTable)
+    .set({ status: "expired" })
+    .where(and(
+      eq(referralPeriodsTable.merchantId, merchantId),
+      eq(referralPeriodsTable.status, "active"),
+      lte(referralPeriodsTable.validUntil, now),
+    ));
   const existing = (
     await tx
       .select()
@@ -142,11 +150,31 @@ export async function attributeReferral(
     tx.select().from(merchantsTable).where(eq(merchantsTable.id, input.referredMerchantId)).limit(1).then((rows: any[]) => rows[0]),
   ]);
   if (!referrer || !referred) throw new Error("Referral merchant could not be found");
+  if (referrer.status !== "active") {
+    throw new Error("Only an active merchant can create referrals");
+  }
+  if (referred.status === "banned") {
+    throw new Error("A banned merchant cannot receive a referral attribution");
+  }
   if (referrer.id === referred.id || referrer.clerkUserId === referred.clerkUserId) {
     throw new Error("A merchant cannot refer itself");
   }
   if (normalizedIdentityEmail(referrer.email) === normalizedIdentityEmail(referred.email)) {
     throw new Error("This referral cannot be used because the merchant identities match");
+  }
+
+  const previouslyQualified = (
+    await tx
+      .select({ id: referralAttributionsTable.id })
+      .from(referralAttributionsTable)
+      .where(and(
+        eq(referralAttributionsTable.referredMerchantId, referred.id),
+        isNotNull(referralAttributionsTable.qualifyingPaymentId),
+      ))
+      .limit(1)
+  )[0];
+  if (previouslyQualified) {
+    throw new Error("This merchant has already used its one qualifying referral reward");
   }
 
   const existing = (
@@ -166,6 +194,29 @@ export async function attributeReferral(
   let riskScore = 0;
   if (referrer.email.split("@")[1]?.toLowerCase() === referred.email.split("@")[1]?.toLowerCase()) {
     riskSignals.push("shared_email_domain");
+    riskScore += 15;
+  }
+  const normalizedContactEmail = (value: string | null) =>
+    value ? normalizedIdentityEmail(value) : null;
+  if (
+    normalizedContactEmail(referrer.storeContactEmail) &&
+    normalizedContactEmail(referrer.storeContactEmail) ===
+      normalizedContactEmail(referred.storeContactEmail)
+  ) {
+    riskSignals.push("shared_store_contact_email");
+    riskScore += 35;
+  }
+  const normalizedPhone = (value: string | null) =>
+    value ? value.replace(/\D/g, "") : "";
+  if (
+    normalizedPhone(referrer.storePhone) &&
+    normalizedPhone(referrer.storePhone) === normalizedPhone(referred.storePhone)
+  ) {
+    riskSignals.push("shared_store_phone");
+    riskScore += 35;
+  }
+  if (Math.abs(referrer.registeredAt.getTime() - referred.registeredAt.getTime()) <= 10 * 60 * 1000) {
+    riskSignals.push("near_simultaneous_registration");
     riskScore += 10;
   }
   const riskStatus = riskScore >= 50 ? "review" : "clear";
@@ -199,6 +250,9 @@ export async function qualifyReferralForPayment(
   },
 ) {
   const now = input.now ?? new Date();
+  if (Number(input.subscription.amountPaid) + 0.005 < Number(input.subscription.amountDue)) {
+    return null;
+  }
   const [attribution] = await tx
     .select()
     .from(referralAttributionsTable)
@@ -215,6 +269,12 @@ export async function qualifyReferralForPayment(
     .where(and(eq(paymentsTable.id, input.paymentId), eq(paymentsTable.merchantId, input.referredMerchantId)))
     .limit(1);
   if (!payment || payment.status !== "confirmed") return null;
+  if (!["bank_transfer", "earnings", "flutterwave"].includes(payment.method)) return null;
+  const [referrer] = await tx
+    .select({ status: merchantsTable.status })
+    .from(merchantsTable)
+    .where(eq(merchantsTable.id, attribution.referrerMerchantId))
+    .limit(1);
 
   const grossAmountMinor = subscriptionGrossMinor(input.subscription);
   const discountAmountMinor = Math.round(grossAmountMinor * 0.3);
@@ -241,7 +301,10 @@ export async function qualifyReferralForPayment(
       discountAmountMinor,
       payableAmountMinor,
       currency: input.currency,
-      status: attribution.riskStatus === "review" ? "review" : "earned",
+       status:
+         attribution.riskStatus === "review" || referrer?.status !== "active"
+           ? "review"
+           : "earned",
     })
     .onConflictDoNothing()
     .returning();
@@ -301,6 +364,7 @@ export async function rollSubscriptionPeriod(
       amountPaid: "0",
       earningsHeld: "0",
       paymentMethod: null,
+      paymentMethodSelectedAt: null,
       status: payableMinor === 0 ? "active" : "pending",
     })
     .where(and(eq(subscriptionsTable.id, subscription.id), eq(subscriptionsTable.billingPeriodKey, subscription.billingPeriodKey)))
