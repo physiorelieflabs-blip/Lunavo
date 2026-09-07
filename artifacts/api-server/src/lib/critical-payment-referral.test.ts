@@ -91,3 +91,14 @@ test("refund and chargeback states are distinct from success", () => {
   assert.notEqual("charged_back", "successful");
   assert.equal(referralRewardIsRestricted("recovery_required"), true);
 });
+
+
+test("dashboard earning window is fixed to its original start and cannot be reset by a route switch", () => {
+  const start = new Date("2026-09-01T12:00:00.000Z");
+  const first = calculateDashboardWindow(start, new Date("2026-09-05T12:00:00.000Z"));
+  const after = calculateDashboardWindow(start, new Date("2026-09-10T12:00:00.000Z"));
+  assert.equal(first.locked, false);
+  assert.equal(first.expiresAt.toISOString(), "2026-09-16T12:00:00.000Z");
+  assert.equal(after.locked, false);
+  assert.equal(after.expiresAt.toISOString(), "2026-09-16T12:00:00.000Z");
+});
