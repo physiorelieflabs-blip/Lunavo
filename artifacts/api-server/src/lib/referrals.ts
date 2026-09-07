@@ -447,6 +447,10 @@ export async function rollSubscriptionPeriod(
       earningsHeld: "0",
       paymentMethod: null,
       paymentMethodSelectedAt: null,
+      dashboardWindowBillingPeriod: null,
+      dashboardAccessStartedAt: null,
+      dashboardAccessExpiresAt: null,
+      dashboardWindowUsed: false,
       status: payableMinor === 0 ? "active" : "pending",
     })
     .where(and(eq(subscriptionsTable.id, subscription.id), eq(subscriptionsTable.billingPeriodKey, subscription.billingPeriodKey)))
