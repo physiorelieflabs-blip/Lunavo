@@ -317,6 +317,7 @@ export async function qualifyReferralForPayment(
       attributionId: attribution.id,
       qualifyingPaymentId: payment.id,
       grossAmountMinor,
+      discountRateBps: Math.round(REFERRAL_DISCOUNT_RATE * 10000),
       discountAmountMinor,
       payableAmountMinor,
       currency: rewardCurrency,
@@ -428,9 +429,14 @@ export async function rollSubscriptionPeriod(
     ))
     .orderBy(desc(referralRewardsTable.createdAt))
     .limit(1);
+  const discountRateBps = reward?.discountRateBps ?? Math.round(REFERRAL_DISCOUNT_RATE * 10000);
+  const calculatedReferralDiscount = Math.min(
+    grossAmountMinor,
+    Math.round(grossAmountMinor * (discountRateBps / 10000)),
+  );
   const discountMinor = usesFreeMonth
     ? grossAmountMinor
-    : reward?.discountAmountMinor ?? 0;
+    : calculatedReferralDiscount;
   const payableMinor = Math.max(0, grossAmountMinor - discountMinor);
   const [nextSubscription] = await tx
     .update(subscriptionsTable)
@@ -447,6 +453,10 @@ export async function rollSubscriptionPeriod(
       earningsHeld: "0",
       paymentMethod: null,
       paymentMethodSelectedAt: null,
+      dashboardWindowBillingPeriod: null,
+      dashboardAccessStartedAt: null,
+      dashboardAccessExpiresAt: null,
+      dashboardWindowUsed: false,
       status: payableMinor === 0 ? "active" : "pending",
     })
     .where(and(eq(subscriptionsTable.id, subscription.id), eq(subscriptionsTable.billingPeriodKey, subscription.billingPeriodKey)))
@@ -455,8 +465,18 @@ export async function rollSubscriptionPeriod(
   if (reward && !usesFreeMonth) {
     await tx
       .update(referralRewardsTable)
-      .set({ status: "applied", appliedSubscriptionId: nextSubscription.id })
-      .where(and(eq(referralRewardsTable.id, reward.id), eq(referralRewardsTable.status, "earned")));
+      .set({
+        status: "applied",
+        appliedSubscriptionId: nextSubscription.id,
+        grossAmountMinor,
+        discountAmountMinor: discountMinor,
+        payableAmountMinor: payableMinor,
+        currency: subscription.currency,
+      })
+      .where(and(
+        eq(referralRewardsTable.id, reward.id),
+        eq(referralRewardsTable.status, "earned"),
+      ));
   }
   return nextSubscription;
 }
@@ -482,5 +502,42 @@ export async function reverseReferralReward(
     })
     .where(and(eq(referralRewardsTable.id, reward.id), isNull(referralRewardsTable.reversedAt)))
     .returning();
-  return updated ?? reward;
+  if (!updated) return reward;
+
+  const [countRow] = await tx
+    .select({ count: sql<number>`count(*)` })
+    .from(referralRewardsTable)
+    .where(and(
+      eq(referralRewardsTable.merchantId, reward.merchantId),
+      inArray(referralRewardsTable.status, ["earned", "applied"]),
+      isNull(referralRewardsTable.reversedAt),
+    ));
+  const remainingQualifying = Number(countRow?.count ?? 0);
+  if (remainingQualifying < REFERRAL_FREE_REFERRAL_MILESTONE) {
+    const [milestone] = await tx
+      .select()
+      .from(referralMilestonesTable)
+      .where(and(
+        eq(referralMilestonesTable.merchantId, reward.merchantId),
+        eq(referralMilestonesTable.milestoneKey, "150_verified_referrals"),
+        eq(referralMilestonesTable.status, "granted"),
+      ))
+      .limit(1);
+    if (milestone) {
+      await tx
+        .update(referralMilestonesTable)
+        .set({ status: "reversed" })
+        .where(eq(referralMilestonesTable.id, milestone.id));
+      await tx
+        .update(subscriptionsTable)
+        .set({
+          referralFreeMonths: sql`GREATEST(0, ${subscriptionsTable.referralFreeMonths} - ${REFERRAL_FREE_MONTHS})`,
+        })
+        .where(and(
+          eq(subscriptionsTable.merchantId, reward.merchantId),
+          sql`${subscriptionsTable.referralFreeMonths} > 0`,
+        ));
+    }
+  }
+  return updated;
 }
