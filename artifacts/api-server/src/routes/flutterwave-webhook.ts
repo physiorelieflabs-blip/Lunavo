@@ -26,7 +26,7 @@ function eventIdFrom(req: Request, payload: Payload, transactionId: string, even
     req.header("x-webhook-id"),
   ]) if (value?.trim()) return value.trim();
 
-  for (const key of ["event_id", "eventId", "webhook_id", "webhookId"]) {
+  for (const key of ["id", "event_id", "eventId", "webhook_id", "webhookId"]) {
     const value = payload[key];
     if (typeof value === "string" && value.trim()) return value.trim();
     if (typeof value === "number" && Number.isFinite(value)) return String(value);
