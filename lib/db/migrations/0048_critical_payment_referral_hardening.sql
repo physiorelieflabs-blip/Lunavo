@@ -2,6 +2,20 @@
 -- These records are reconciliation evidence, never a bank account or payment destination.
 
 ALTER TABLE payment_intents
+  ADD COLUMN IF NOT EXISTS provider_transaction_id text,
+  ADD COLUMN IF NOT EXISTS provider_event_id text,
+  ADD COLUMN IF NOT EXISTS provider_fee_minor integer,
+  ADD COLUMN IF NOT EXISTS ts_commerce_fee_minor integer,
+  ADD COLUMN IF NOT EXISTS merchant_net_minor integer;
+
+ALTER TABLE payments
+  ADD COLUMN IF NOT EXISTS provider_transaction_id text,
+  ADD COLUMN IF NOT EXISTS provider_event_id text,
+  ADD COLUMN IF NOT EXISTS provider_fee_minor integer,
+  ADD COLUMN IF NOT EXISTS ts_commerce_fee_minor integer,
+  ADD COLUMN IF NOT EXISTS merchant_net_minor integer;
+
+ALTER TABLE payment_intents
   DROP CONSTRAINT IF EXISTS payment_intents_status_check;
 ALTER TABLE payment_intents
   ADD CONSTRAINT payment_intents_status_check
@@ -23,6 +37,17 @@ ALTER TABLE payment_records
     'submitted','verified','canceled'
   ));
 
+ALTER TABLE payments
+  DROP CONSTRAINT IF EXISTS payments_status_check;
+ALTER TABLE payments
+  ADD CONSTRAINT payments_status_check
+  CHECK (status IN (
+    'created','awaiting_payment','pending','processing','provider_confirmed',
+    'successful','failed','expired','cancelled','refunded','partially_refunded',
+    'disputed','charged_back','reversed','reconciliation_required',
+    'submitted','under_review','confirmed','canceled'
+  ));
+
 CREATE UNIQUE INDEX IF NOT EXISTS payment_records_verified_intent_unique
   ON payment_records(intent_id)
   WHERE status IN ('provider_confirmed','successful','verified');
@@ -31,6 +56,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS payment_records_verified_evidence_unique
   ON payment_records(method, evidence_reference)
   WHERE evidence_reference IS NOT NULL
     AND status IN ('provider_confirmed','successful','verified');
+
+CREATE UNIQUE INDEX IF NOT EXISTS payment_intents_provider_transaction_unique
+  ON payment_intents(provider_transaction_id)
+  WHERE provider_transaction_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_provider_transaction_unique
+  ON payments(provider_transaction_id)
+  WHERE provider_transaction_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payment_reconciliation_exceptions (
   id serial PRIMARY KEY,
