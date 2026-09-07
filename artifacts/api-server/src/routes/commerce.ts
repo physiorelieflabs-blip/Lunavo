@@ -330,6 +330,7 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import { DASHBOARD_EARNING_WINDOW_DAYS, calculateDashboardWindow } from "../lib/critical-payment-rules";
 import {
   buildTsPayLedgerPostings,
   buildTsPayWithdrawalLedgerEntry,
@@ -1169,7 +1170,7 @@ async function getSubscriptionForMerchant(
       !subscription.dashboardAccessStartedAt
     ) {
       const startedAt = subscription.paymentMethodSelectedAt ?? new Date();
-      const expiresAt = new Date(startedAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+      const expiresAt = new Date(startedAt.getTime() + DASHBOARD_EARNING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
       const [backfilled] = await db
         .update(subscriptionsTable)
         .set({
@@ -1217,20 +1218,12 @@ function subscriptionAccessWindow(
   const selectionStartedAt = durableWindow
     ? storedStart!
     : subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
-  const deadline = durableWindow
-    ? storedExpiry!
-    : new Date(selectionStartedAt.getTime() + 15 * 24 * 60 * 60 * 1000);
-  const elapsedDays = Math.floor(
-    Math.max(0, now.getTime() - selectionStartedAt.getTime()) / 86_400_000,
-  );
-  const daysElapsed = dashboardMode ? Math.min(15, elapsedDays) : 0;
-  const daysRemaining =
-    dashboardMode && now < deadline
-      ? Math.max(
-          0,
-          Math.ceil((deadline.getTime() - now.getTime()) / 86_400_000),
-        )
-      : 0;
+  const window = calculateDashboardWindow(selectionStartedAt, now);
+  const deadline = durableWindow ? storedExpiry! : window.expiresAt;
+  const daysElapsed = dashboardMode ? window.elapsedDays : 0;
+  const daysRemaining = dashboardMode && now < deadline
+    ? Math.max(0, Math.ceil((deadline.getTime() - now.getTime()) / 86_400_000))
+    : 0;
 
   return {
     paymentMethod,
@@ -1238,8 +1231,8 @@ function subscriptionAccessWindow(
     hasSelectedMethod,
     dashboardMode,
     dashboardWindowUsed: Boolean(subscription.dashboardWindowUsed),
-    gracePeriodHours: dashboardMode ? 15 * 24 : 0,
-    gracePeriodDays: dashboardMode ? 15 : 0,
+    gracePeriodHours: dashboardMode ? DASHBOARD_EARNING_WINDOW_DAYS * 24 : 0,
+    gracePeriodDays: dashboardMode ? DASHBOARD_EARNING_WINDOW_DAYS : 0,
     deadline,
     daysElapsed,
     daysRemaining,
@@ -9632,7 +9625,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
         : selectedAt;
       const dashboardExpiresAt = reusableWindow
         ? subscription.dashboardAccessExpiresAt!
-        : new Date(dashboardStartedAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+        : new Date(dashboardStartedAt.getTime() + DASHBOARD_EARNING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
       const [selected] = await db
         .update(subscriptionsTable)
         .set({
