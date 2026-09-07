@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 
 type Transaction = any;
+const REFERRAL_DISCOUNT_USD = 30;
 
 export function normalizeReferralCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, "");
@@ -276,8 +277,22 @@ export async function qualifyReferralForPayment(
     .where(eq(merchantsTable.id, attribution.referrerMerchantId))
     .limit(1);
 
-  const grossAmountMinor = subscriptionGrossMinor(input.subscription);
-  const discountAmountMinor = Math.round(grossAmountMinor * 0.3);
+  const referrerSubscription = (
+    await tx
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.merchantId, attribution.referrerMerchantId))
+      .limit(1)
+  )[0];
+  const rewardCurrency = referrerSubscription?.currency ?? input.currency;
+  const rewardFxRate = Number(referrerSubscription?.fxRate ?? 1);
+  const grossAmountMinor = referrerSubscription
+    ? subscriptionGrossMinor(referrerSubscription)
+    : Math.round(REFERRAL_DISCOUNT_USD * 100);
+  const discountAmountMinor = Math.min(
+    grossAmountMinor,
+    Math.round(REFERRAL_DISCOUNT_USD * Math.max(rewardFxRate, 0) * 100),
+  );
   const payableAmountMinor = Math.max(0, grossAmountMinor - discountAmountMinor);
   const [updatedAttribution] = await tx
     .update(referralAttributionsTable)
@@ -300,7 +315,7 @@ export async function qualifyReferralForPayment(
       grossAmountMinor,
       discountAmountMinor,
       payableAmountMinor,
-      currency: input.currency,
+      currency: rewardCurrency,
        status:
          attribution.riskStatus === "review" || referrer?.status !== "active"
            ? "review"

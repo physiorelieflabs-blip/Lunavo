@@ -1133,7 +1133,7 @@ function subscriptionAccessWindow(
   const hasSelectedMethod = Boolean(paymentMethod);
   const selectionStartedAt =
     subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
-  const gracePeriodHours = hasSelectedMethod ? 14 * 24 : 24;
+  const gracePeriodHours = hasSelectedMethod ? 15 * 24 : 24;
   const deadline = new Date(
     selectionStartedAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
   );
@@ -1146,7 +1146,7 @@ function subscriptionAccessWindow(
             (24 * 60 * 60 * 1000),
         ),
       );
-  const gracePeriodDays = hasSelectedMethod ? 14 : 1;
+  const gracePeriodDays = hasSelectedMethod ? 15 : 1;
   const daysRemaining = hasSelectedMethod
     ? Math.max(0, gracePeriodDays - daysElapsed)
     : Math.max(
@@ -1221,7 +1221,7 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
         type: "subscription_suspended",
         title: "Account suspended",
         description: access.hasSelectedMethod
-          ? "The platform fee was not settled within 14 days of choosing a payment method. A verified payment restores access."
+          ? "The platform fee was not settled within 15 days of choosing a payment method. A verified payment restores access."
           : "No subscription payment method was selected within 24 hours. Choose a payment method and complete a verified payment to restore access.",
         amount: remaining.toFixed(2),
         tone: "negative",
@@ -9384,6 +9384,10 @@ router.get("/subscription", async (req, res): Promise<void> => {
 router.get("/subscription/bank-destination", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  res.status(410).json({
+    error: "Fixed merchant bank destinations are retired. Use Flutterwave Pay by bank to generate a temporary account.",
+  });
+  return;
   const adminMerchant = (
     await db
       .select()
@@ -9450,7 +9454,7 @@ router.post("/subscription", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
+  if (identity!.isAdmin && !isAdminPreviewRequest(identity!)) {
     const subscription = await getSubscriptionForMerchant(
       merchant,
       identity.isAdmin && !isAdminPreviewRequest(identity),
@@ -9546,7 +9550,7 @@ router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getOrCreateMerchant(identity!);
   try {
     const { payment } = await payFromEarnings(merchant);
     res
@@ -9566,22 +9570,26 @@ router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
 router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
-  if (identity.isAdmin && !isAdminPreviewRequest(identity)) {
+  const parsed = SubmitBankTransferBody.safeParse(req.body);
+  res.status(410).json({
+    error: "Manual bank transfers are retired. Use Flutterwave Pay by bank to generate a temporary account.",
+  });
+  return;
+  if (identity!.isAdmin && !isAdminPreviewRequest(identity!)) {
     res.status(409).json({ error: "Master admin account is subscription exempt" });
     return;
   }
-  const parsed = SubmitBankTransferBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Amount, sender name, and transfer reference are required" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
+  const merchant = await getOrCreateMerchant(identity!);
   if (merchant.status === "banned") {
     res.status(403).json({ error: "Banned accounts cannot submit subscription payments" });
     return;
   }
-  const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
-  const amount = Number(parsed.data.amount.toFixed(2));
+  const enforced = await enforceSubscription(merchant, identity!.isAdmin && !isAdminPreviewRequest(identity!));
+  const amount = Number(parsed.data!.amount.toFixed(2));
   if (!Number.isFinite(amount) || amount <= 0) {
     res.status(400).json({ error: "Enter a valid payment amount" });
     return;
@@ -9599,7 +9607,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
     res.status(409).json({ error: `The payment cannot exceed the ${remaining.toFixed(2)} outstanding balance` });
     return;
   }
-  const reference = parsed.data.reference.trim().toUpperCase();
+  const reference = parsed.data!.reference.trim().toUpperCase();
   if (reference.startsWith("EARN-SUB-")) {
     res.status(400).json({
       error: "That reference format is reserved for internal earnings payments",
@@ -9680,7 +9688,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
         currency: currentSubscription.currency,
         method: "bank_transfer",
         reference,
-        senderName: parsed.data.senderName.trim(),
+        senderName: parsed.data!.senderName.trim(),
         status: "under_review",
       })
       .onConflictDoNothing()
@@ -9728,7 +9736,7 @@ router.post("/subscription/bank-transfer", async (req, res): Promise<void> => {
     res.status(409).json({
       error:
         error instanceof Error
-          ? error.message
+        ? (error as Error).message
           : "Transfer reference could not be submitted",
     });
   }
@@ -9751,6 +9759,13 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
     return;
   }
   const enforced = await enforceSubscription(merchant, identity.isAdmin && !isAdminPreviewRequest(identity));
+  const attemptKey = typeof req.body?.attemptKey === "string"
+    ? req.body.attemptKey.trim()
+    : "";
+  if (!/^[a-zA-Z0-9_-]{12,80}$/.test(attemptKey)) {
+    res.status(400).json({ error: "A new payment attempt key is required" });
+    return;
+  }
   const outstanding = Number(Math.max(
     0,
     toNumber(enforced.subscription.amountDue) - toNumber(enforced.subscription.amountPaid),
@@ -9759,7 +9774,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
     res.status(409).json({ error: "Subscription is already settled" });
     return;
   }
-  const reference = `FLW-SUB-${enforced.subscription.id}`;
+  const reference = `FLW-SUB-${enforced.subscription.id}-${attemptKey}`;
   let payment = (await db.select().from(paymentsTable).where(and(
     eq(paymentsTable.merchantId, merchant.id),
     eq(paymentsTable.reference, reference),
@@ -9808,7 +9823,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         txRef: reference,
         amount: outstanding,
         currency: enforced.subscription.currency,
-        customer: { email: merchant.email, name: merchant.name },
+        customer: { email: merchant.email, name: "TS Commerce" },
         narration: "TS Commerce subscription",
         meta,
       });
@@ -9823,7 +9838,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
           amount: outstanding,
           currency: enforced.subscription.currency,
           redirectUrl: `${requestOrigin(req)}/billing?flutterwave=return`,
-          customer: { email: merchant.email, name: merchant.name },
+          customer: { email: merchant.email, name: "TS Commerce" },
           title: "TS Commerce subscription",
           meta,
         });

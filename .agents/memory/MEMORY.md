@@ -23,6 +23,7 @@
 - [Media persistence boundary](media-persistence-boundary.md) — picture uploads need durable tenant ownership and byte validation; use App Storage when provisioned, never browser-only files.
 - [Supplier versus customer pricing](supplier-customer-pricing.md) — supplier source prices are costs; only merchant selling prices may be exposed or charged to shoppers.
 - [Consumer guide boundary](consumer-guide-boundary.md) — shopper AI may use public storefront context and answer freely, but never mutate orders, payments, stock, or merchant data.
+- [Referrer subscription discount](referral-discount.md) — the verified referrer earns one fixed 30 USD-equivalent subscription discount; the referred merchant does not.
 - [Supplier ingestion boundary](supplier-ingestion-boundary.md) — public supplier fetches must pin validated public DNS addresses and reject unsupported or unsafe financial data.
 - [Customer bank payment destination](customer-bank-payment-destination.md) — published stores use their linked bank account for direct customer transfers; evidence stays unverified until merchant approval.
 - [Image generation provider boundary](image-generation-provider-boundary.md) — preserve merchant prompts, validate image bytes, and fall back safely when a configured provider is unavailable.

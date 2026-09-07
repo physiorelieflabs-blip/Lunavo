@@ -219,7 +219,7 @@ export async function initializeFlutterwaveVirtualAccount(input: {
   const providerReference = recordValue(account, ["id", "reference", "account_id", "accountId", "tx_ref"]);
   const expiresAt = parseProviderExpiry(
     recordValue(account, ["expires_at", "expiresAt", "expiry", "expiration", "expires_on"]),
-  );
+  ) ?? new Date(Date.now() + 30 * 60 * 1000);
   return {
     bankName,
     accountName,
