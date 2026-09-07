@@ -1079,17 +1079,22 @@ async function getSubscriptionForMerchant(
       .returning();
   }
   }
-  const [subscriptionPaymentActivity] = await db
+  const [confirmedSubscriptionPayment] = await db
     .select({ id: paymentsTable.id })
     .from(paymentsTable)
-    .where(eq(paymentsTable.merchantId, merchant.id))
+    .where(and(
+      eq(paymentsTable.merchantId, merchant.id),
+      eq(paymentsTable.status, "confirmed"),
+      eq(paymentsTable.method, "flutterwave"),
+      sql`${paymentsTable.reference} like ${`FLW-SUB-${subscription.id}-%`}`,
+    ))
     .limit(1);
   const shouldReprice =
     !isAdmin &&
     subscription.currency !== merchant.currency &&
     toNumber(subscription.amountPaid) === 0 &&
     toNumber(subscription.earningsHeld) === 0 &&
-    !subscriptionPaymentActivity;
+    !confirmedSubscriptionPayment;
   if (shouldReprice) {
     const quote = await getSubscriptionQuote(merchant.currency);
     [subscription] = await db
@@ -1132,32 +1137,35 @@ function subscriptionAccessWindow(
   now = new Date(),
 ) {
   const paymentMethod = subscription.paymentMethod;
+  const dashboardMode = paymentMethod === "earnings";
   const hasSelectedMethod = Boolean(paymentMethod);
   const selectionStartedAt =
     subscription.paymentMethodSelectedAt ?? merchant.registeredAt;
-  const gracePeriodHours = hasSelectedMethod ? 15 * 24 : 0;
+  const gracePeriodHours = dashboardMode ? 15 * 24 : 0;
+  const calendarDaysElapsed = dashboardMode
+    ? daysSince(selectionStartedAt, subscription.billingTimezone ?? "UTC")
+    : 0;
+  const daysElapsed = Math.min(15, Math.max(0, calendarDaysElapsed));
+  const gracePeriodDays = dashboardMode ? 15 : 0;
+  const daysRemaining = dashboardMode
+    ? Math.max(0, gracePeriodDays - calendarDaysElapsed)
+    : 0;
   const deadline = new Date(
     selectionStartedAt.getTime() + gracePeriodHours * 60 * 60 * 1000,
   );
-  const daysElapsed = hasSelectedMethod
-    ? daysSince(selectionStartedAt, subscription.billingTimezone ?? "UTC")
-    : 0;
-  const gracePeriodDays = hasSelectedMethod ? 15 : 0;
-  const daysRemaining = hasSelectedMethod
-    ? Math.max(0, gracePeriodDays - daysElapsed)
-    : 0;
 
   return {
     paymentMethod,
     paymentMethodSelectedAt: subscription.paymentMethodSelectedAt,
     hasSelectedMethod,
+    dashboardMode,
     gracePeriodHours,
     gracePeriodDays,
     deadline,
     daysElapsed,
     daysRemaining,
-    warningDay: hasSelectedMethod ? 10 : 0,
-    accessLocked: paymentMethod === "earnings" ? now >= deadline : true,
+    warningDay: dashboardMode ? 10 : 0,
+    accessLocked: dashboardMode ? now >= deadline : true,
   };
 }
 
@@ -3112,12 +3120,23 @@ router.put("/settings/currency", async (req, res): Promise<void> => {
     merchant,
     identity.isAdmin && !isAdminPreviewRequest(identity),
   );
+  const [confirmedSubscriptionPayment] = await db
+    .select({ id: paymentsTable.id })
+    .from(paymentsTable)
+    .where(and(
+      eq(paymentsTable.merchantId, merchant.id),
+      eq(paymentsTable.method, "flutterwave"),
+      eq(paymentsTable.status, "confirmed"),
+      sql`${paymentsTable.reference} like ${`FLW-SUB-${currentSubscription.id}-%`}`,
+    ))
+    .limit(1);
   const shouldReprice =
     !identity.isAdmin &&
     !isAdminPreviewRequest(identity) &&
     currentSubscription.currency !== currency &&
     toNumber(currentSubscription.amountPaid) === 0 &&
-    toNumber(currentSubscription.earningsHeld) === 0;
+    toNumber(currentSubscription.earningsHeld) === 0 &&
+    !confirmedSubscriptionPayment;
   let quote:
     | Awaited<ReturnType<typeof getSubscriptionQuote>>
     | null = null;
@@ -9518,11 +9537,15 @@ router.post("/subscription", async (req, res): Promise<void> => {
   if (parsed.data.method === "earnings") {
     try {
       const subscription = await getSubscriptionForMerchant(merchant);
+      const selectedAt =
+        subscription.paymentMethod === "earnings" && subscription.paymentMethodSelectedAt
+          ? subscription.paymentMethodSelectedAt
+          : new Date();
       const [selected] = await db
         .update(subscriptionsTable)
         .set({
           paymentMethod: "earnings",
-          paymentMethodSelectedAt: new Date(),
+          paymentMethodSelectedAt: selectedAt,
           status: "pending",
         })
         .where(eq(subscriptionsTable.id, subscription.id))
@@ -9580,11 +9603,16 @@ router.post("/subscription", async (req, res): Promise<void> => {
     merchant,
     identity.isAdmin && !isAdminPreviewRequest(identity),
   );
+  const selectedAt =
+    subscription.paymentMethod === "bank" && subscription.paymentMethodSelectedAt
+      ? subscription.paymentMethodSelectedAt
+      : new Date();
   const [updated] = await db
     .update(subscriptionsTable)
     .set({
       paymentMethod: "bank",
-      paymentMethodSelectedAt: new Date(),
+      paymentMethodSelectedAt: selectedAt,
+      status: "pending",
     })
     .where(eq(subscriptionsTable.id, subscription.id))
     .returning();
