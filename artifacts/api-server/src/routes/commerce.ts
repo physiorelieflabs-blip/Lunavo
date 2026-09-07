@@ -1294,7 +1294,7 @@ async function enforceSubscription(merchant: Merchant, isAdmin = false) {
         title: "Account suspended",
         description: access.hasSelectedMethod
           ? "The platform fee was not settled within 15 days of choosing a payment method. A verified payment restores access."
-          : "No subscription payment method was selected within 24 hours. Choose a payment method and complete a verified payment to restore access.",
+          : "No subscription payment method has been selected. Choose a payment route to access the workspace and settle the subscription.",
         amount: remaining.toFixed(2),
         tone: "negative",
       });
