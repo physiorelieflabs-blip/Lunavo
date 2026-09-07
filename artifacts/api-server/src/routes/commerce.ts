@@ -352,7 +352,7 @@ import {
   simulateMerchantScenario,
 } from "../lib/ai";
 import { completeGeminiChat } from "../lib/gemini";
-import { generatePollinationsImage } from "../lib/pollinations";
+import { generateImage } from "../lib/pollinations";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
@@ -3994,12 +3994,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   try {
     const merchant = await getOrCreateMerchant(identity);
     if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
-     const generated = await generatePollinationsImage([
-      "Create a polished ecommerce image for a merchant storefront.",
-      "Do not render words, logos, labels, watermarks, or fake brand marks in the image.",
-      "Keep the product faithful to the merchant's prompt and use a clean, customer-safe composition.",
-      prompt,
-    ].join("\n"));
+    const generated = await generateImage(prompt);
     if (generated.bytes.length > MEDIA_MAX_BYTES) {
       res.status(502).json({ error: "The generated image was too large to save. Try a simpler prompt." });
       return;
@@ -4025,7 +4020,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
     const message = providerMessage
-      ? `Pollinations image generation is unavailable: ${providerMessage}`
+      ? `Gemini image generation is unavailable: ${providerMessage}`
         : "The image could not be generated right now. Try a more specific prompt.";
     res.status(503).json({ error: message });
   }
