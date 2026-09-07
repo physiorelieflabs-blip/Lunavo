@@ -32,7 +32,13 @@ router.post("/payments/:id/verify", async (req, res, next): Promise<void> => {
   const [merchant] = await db.select({ id: merchantsTable.id }).from(merchantsTable).where(eq(merchantsTable.clerkUserId, auth.userId)).limit(1);
   if (!merchant) return next();
   const [intent] = await db.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.id, id), eq(paymentIntentsTable.merchantId, merchant.id))).limit(1);
-  if (!intent || intent.method !== "flutterwave") return next();
+  if (!intent) return next();
+
+  const locallyManual = new Set(["manual_bank_transfer", "manual_cash", "manual_other", "manual"]);
+  // Every provider-backed order payment must be verified against the configured
+  // provider. The legacy commerce reviewer remains available only for explicit
+  // manual evidence workflows.
+  if (locallyManual.has(intent.method)) return next();
 
   const transactionId = typeof req.body?.transaction_id === "string"
     ? req.body.transaction_id.trim()
@@ -40,7 +46,7 @@ router.post("/payments/:id/verify", async (req, res, next): Promise<void> => {
       ? req.body.transactionId.trim()
       : "";
   if (!transactionId) {
-    res.status(400).json({ error: "Flutterwave transaction ID is required; frontend payment_status flags are not payment evidence" });
+    res.status(400).json({ error: "Provider transaction ID is required; frontend payment_status flags are not payment evidence" });
     return;
   }
   try {
@@ -59,16 +65,16 @@ router.post("/payments/:id/verify", async (req, res, next): Promise<void> => {
       outcome,
       message:
         outcome === "successful" || outcome === "duplicate"
-          ? "Flutterwave payment was verified server-side."
+          ? "Provider payment was verified server-side."
           : outcome === "pending"
-            ? "Flutterwave has not confirmed the payment yet."
+            ? "The provider has not confirmed the payment yet."
             : outcome === "reconciliation_required"
               ? "The payment did not match the TS Pay session and was sent to reconciliation."
-              : "Flutterwave did not confirm the payment.",
+              : "The provider did not confirm the payment.",
     });
   } catch (error) {
     req.log.warn({ err: error, paymentIntentId: id }, "Provider payment verification failed");
-    res.status(502).json({ error: error instanceof Error ? error.message : "Flutterwave payment could not be verified" });
+    res.status(502).json({ error: error instanceof Error ? error.message : "Provider payment could not be verified" });
   }
 });
 
