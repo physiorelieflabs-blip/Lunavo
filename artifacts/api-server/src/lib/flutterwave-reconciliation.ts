@@ -51,7 +51,7 @@ export async function reconcilePendingFlutterwavePayments() {
     const references: Array<{ reference: string; paymentIntentId?: number; paymentId?: number }> = [];
 
     for (const intent of intents) {
-      const reference = intent.evidenceReference?.trim() || intent.idempotencyKey?.trim() || "";
+      const reference = intent.evidenceReference?.trim() || "";
       if (!reference || seenReferences.has(reference) || intent.createdAt > newest) continue;
       seenReferences.add(reference);
       references.push({ reference, paymentIntentId: intent.id });
