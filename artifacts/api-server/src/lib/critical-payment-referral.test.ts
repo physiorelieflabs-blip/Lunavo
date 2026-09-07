@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   PAYMENT_STATUSES,
   applyEarningsToSubscription,
+  calculateDashboardWindow,
   calculateMerchantNetMinor,
   calculateSubscriptionWithReferral,
   calculateTsCommerceFeeMinor,
@@ -90,4 +91,37 @@ test("refund and chargeback states are distinct from success", () => {
   assert.notEqual("refunded", "successful");
   assert.notEqual("charged_back", "successful");
   assert.equal(referralRewardIsRestricted("recovery_required"), true);
+});
+
+
+test("dashboard earning window is fixed to its original start and cannot be reset by a route switch", () => {
+  const start = new Date("2026-09-01T12:00:00.000Z");
+  const first = calculateDashboardWindow(start, new Date("2026-09-05T12:00:00.000Z"));
+  const after = calculateDashboardWindow(start, new Date("2026-09-10T12:00:00.000Z"));
+  assert.equal(first.locked, false);
+  assert.equal(first.expiresAt.toISOString(), "2026-09-16T12:00:00.000Z");
+  assert.equal(after.locked, false);
+  assert.equal(after.expiresAt.toISOString(), "2026-09-16T12:00:00.000Z");
+});
+
+
+test("current Flutterwave succeeded status is treated as provider-paid", async () => {
+  const { flutterwaveStatus } = await import("./flutterwave-client");
+  assert.equal(flutterwaveStatus({ status: "succeeded" }), "paid");
+});
+
+test("current Flutterwave webhook HMAC signature is accepted using the exact raw body", async () => {
+  const { createHmac } = await import("node:crypto");
+  const { verifyFlutterwaveWebhookSignature } = await import("./flutterwave-client");
+  const previous = process.env.FLUTTERWAVE_WEBHOOK_SECRET;
+  const raw = Buffer.from('{"id":"wbk_test","type":"charge.completed"}');
+  process.env.FLUTTERWAVE_WEBHOOK_SECRET = "test-secret";
+  const signature = createHmac("sha256", "test-secret").update(raw).digest("base64");
+  try {
+    assert.equal(verifyFlutterwaveWebhookSignature(raw, signature), true);
+    assert.equal(verifyFlutterwaveWebhookSignature(raw, "wrong"), false);
+  } finally {
+    if (previous === undefined) delete process.env.FLUTTERWAVE_WEBHOOK_SECRET;
+    else process.env.FLUTTERWAVE_WEBHOOK_SECRET = previous;
+  }
 });

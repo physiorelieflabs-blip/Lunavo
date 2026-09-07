@@ -1,7 +1,24 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { ArrowRight, Banknote, CheckCircle2, Clock3, ExternalLink, LockKeyhole, TriangleAlert } from 'lucide-react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  ArrowRight,
+  BadgeDollarSign,
+  Banknote,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  ExternalLink,
+  Gift,
+  Landmark,
+  LockKeyhole,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  UsersRound,
+} from 'lucide-react';
 import {
   customFetch,
+  getGetCurrencySettingsQueryKey,
   getGetDashboardOverviewQueryKey,
   getGetSubscriptionQueryKey,
   getListDashboardActivityQueryKey,
@@ -16,6 +33,7 @@ import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading } from 
 import { dateLabel, money } from '@/lib/format';
 
 type PaymentMethod = 'earnings' | 'bank';
+
 type PaymentDestination = {
   bankName: string;
   accountName: string;
@@ -26,164 +44,236 @@ type PaymentDestination = {
   expiresAt: string | null;
 };
 
+type ReferralOverview = {
+  currentPeriod: { code: string; validUntil: string } | null;
+  qualifyingReferralCount: number;
+  freeMonthsRemaining: number;
+  milestones: Array<{
+    id: number;
+    milestoneKey: string;
+    qualifyingReferralCount: number;
+    freeMonths: number;
+    status: string;
+    grantedAt: string;
+  }>;
+  rewards: Array<{
+    id: number;
+    discountAmountMinor: number;
+    currency: string;
+    status: string;
+  }>;
+};
+
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <section className={`rounded-2xl border border-[#d8d1c4] bg-[#fcfbf7] shadow-[0_12px_35px_rgba(31,43,56,.05)] ${className}`}>
+      {children}
+    </section>
+  );
+}
+
+function RouteCard({
+  active,
+  icon,
+  title,
+  subtitle,
+  description,
+  onClick,
+  testId,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  description: string;
+  onClick: () => void;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group rounded-2xl border p-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(31,43,56,.08)] ${active ? 'border-[#a9853d] bg-[#fff8e8] shadow-[0_10px_28px_rgba(169,133,61,.10)]' : 'border-[#d8d1c4] bg-[#fcfbf7] hover:border-[#bca26a]'}`}
+      data-testid={testId}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <span className={`grid h-11 w-11 place-items-center rounded-xl ${active ? 'bg-[#ead9ad] text-[#71551c]' : 'bg-[#f0ece3] text-[#7a8490]'}`}>
+          {icon}
+        </span>
+        {active && <span className="grid h-7 w-7 place-items-center rounded-full bg-[#1f6f58] text-white"><Check className="h-4 w-4" /></span>}
+      </div>
+      <div className="mt-5">
+        <p className="text-base font-extrabold tracking-[-.02em] text-[#182333]">{title}</p>
+        <p className="mt-1 text-xs font-bold uppercase tracking-[.08em] text-[#9b7830]">{subtitle}</p>
+        <p className="mt-3 text-sm leading-6 text-[#687482]">{description}</p>
+      </div>
+    </button>
+  );
+}
+
 export default function Billing() {
   const subscription = useGetSubscription();
   const currencySettings = useGetCurrencySettings();
-  const queryClient = useQueryClient();
   const earningsPayment = usePaySubscriptionFromEarnings();
+  const queryClient = useQueryClient();
+
   const [method, setMethod] = useState<PaymentMethod>('earnings');
   const [message, setMessage] = useState('');
   const [flutterwavePending, setFlutterwavePending] = useState(false);
   const [flutterwaveDestination, setFlutterwaveDestination] = useState<PaymentDestination | null>(null);
   const [transactionId, setTransactionId] = useState('');
-  const [tick, setTick] = useState(() => Date.now());
-  const [referral, setReferral] = useState<{
-    currentPeriod: { code: string; validUntil: string } | null;
-    qualifyingReferralCount: number;
-    freeMonthsRemaining: number;
-    milestones: Array<{ id: number; milestoneKey: string; qualifyingReferralCount: number; freeMonths: number; status: string; grantedAt: string }>;
-    rewards: Array<{ id: number; discountAmountMinor: number; currency: string; status: string }>;
-  } | null>(null);
   const [referralCode, setReferralCode] = useState('');
+  const [referral, setReferral] = useState<ReferralOverview | null>(null);
   const [referralMessage, setReferralMessage] = useState('');
   const [selectedCurrency, setSelectedCurrency] = useState('');
   const [currencyPending, setCurrencyPending] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [tick, setTick] = useState(() => Date.now());
 
   useEffect(() => {
     const timer = window.setInterval(() => setTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
+  const refreshBilling = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: getListDashboardActivityQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: getGetCurrencySettingsQueryKey() }),
+    ]);
+  };
+
+  useEffect(() => {
+    const savedMethod = subscription.data?.paymentMethod;
+    if (savedMethod === 'earnings' || savedMethod === 'Pay from dashboard') setMethod('earnings');
+    if (['bank', 'flutterwave', 'Pay from bank', 'Pay with Flutterwave'].includes(savedMethod ?? '')) setMethod('bank');
+  }, [subscription.data?.paymentMethod]);
+
+  useEffect(() => {
+    void customFetch<ReferralOverview>('/api/referrals', { responseType: 'json' })
+      .then(setReferral)
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const transactionId = params.get('transaction_id') ?? params.get('transactionId');
     if (params.get('flutterwave') !== 'return') return;
-    if (!transactionId) {
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
-      setMessage('Flutterwave did not return a transaction ID. Confirm the payment status before trying again.');
+    const transaction = params.get('transaction_id') ?? params.get('transactionId');
+    window.history.replaceState({}, '', '/billing');
+    if (!transaction) {
+      setMessage('Flutterwave returned without a transaction ID. The payment remains unconfirmed until the provider can verify it.');
       return;
     }
     let active = true;
     void customFetch<{ message: string }>('/api/subscription/flutterwave-verify', {
       method: 'POST',
-      body: JSON.stringify({ transaction_id: transactionId }),
+      body: JSON.stringify({ transaction_id: transaction }),
       responseType: 'json',
-    }).then((result) => {
+    }).then(async (result) => {
       if (!active) return;
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
       setMessage(result.message);
-      void refreshBilling();
+      await refreshBilling();
     }).catch((error) => {
       if (active) setMessage(error instanceof Error ? error.message : 'Flutterwave payment verification could not be completed.');
     });
     return () => { active = false; };
   }, [queryClient]);
 
-  useEffect(() => {
-    const savedMethod = subscription.data?.paymentMethod;
-    if (savedMethod === 'Pay from dashboard' || savedMethod === 'earnings') setMethod('earnings');
-    if (savedMethod === 'Pay from bank' || savedMethod === 'bank' || savedMethod === 'flutterwave' || savedMethod === 'Pay with Flutterwave') setMethod('bank');
-  }, [subscription.data?.paymentMethod]);
+  if (subscription.isLoading || currencySettings.isLoading) {
+    return <AppShell><LoadingState label="Loading subscription billing" /></AppShell>;
+  }
 
-  useEffect(() => {
-    void customFetch<typeof referral>('/api/referrals', { responseType: 'json' })
-      .then(setReferral)
-      .catch(() => undefined);
-  }, []);
-
-  if (subscription.isLoading || currencySettings.isLoading) return <AppShell><LoadingState /></AppShell>;
   if (subscription.isError || currencySettings.isError || !subscription.data) {
-    return <AppShell><ErrorState onRetry={() => { void subscription.refetch(); void currencySettings.refetch(); }} /></AppShell>;
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-4xl">
+          <ErrorState onRetry={() => { void subscription.refetch(); void currencySettings.refetch(); }} />
+        </div>
+      </AppShell>
+    );
   }
 
   const data = subscription.data;
   const currency = data.currency ?? currencySettings.data?.currency ?? 'USD';
   const availableCurrencies = currencySettings.data?.availableCurrencies ?? [];
-  const billingLocked = data.accessLocked || data.status === 'suspended';
-  const outstanding = Math.max(data.amountDue - data.amountPaid, 0);
+  const outstanding = Math.max(0, data.amountDue - data.amountPaid);
   const earningsHeld = data.earningsHeld ?? 0;
-  const serverOffset = new Date(data.serverNow).getTime() - tick;
-  const countdownMs = Math.max(0, new Date(data.trialEndsAt).getTime() - (tick + serverOffset));
+  const locked = data.accessLocked || data.status === 'suspended';
+  const dashboardMode = data.paymentMethod === 'earnings' || data.paymentMethod === 'Pay from dashboard';
+  const serverDelta = new Date(data.serverNow).getTime() - tick;
+  const deadlineMs = new Date(data.trialEndsAt).getTime();
+  const countdownMs = Math.max(0, deadlineMs - (tick + serverDelta));
   const countdownTotalSeconds = Math.floor(countdownMs / 1000);
   const countdownDays = Math.floor(countdownTotalSeconds / 86400);
   const countdownHours = Math.floor((countdownTotalSeconds % 86400) / 3600);
   const countdownMinutes = Math.floor((countdownTotalSeconds % 3600) / 60);
   const countdownSeconds = countdownTotalSeconds % 60;
-  const suspended = data.status === 'suspended';
-  const locked = data.accessLocked || suspended;
-  const selectedMethod = data.paymentMethod ?? 'No payment method selected';
-  const graceCopy = data.paymentMethod ? '15-day payment window after method selection' : 'Choose a payment method to unlock the workspace';
-  const messageIsError = /could|not return|error|failed|invalid|expired|retired/i.test(message);
+  const progress = data.amountDue > 0 ? Math.min(100, (data.amountPaid / data.amountDue) * 100) : 100;
+  const messageIsError = /could not|cannot|failed|invalid|expired|unavailable|error|not completed/i.test(message);
 
-  function refreshBilling() {
-    return Promise.all([
-      queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }),
-      queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() }),
-      queryClient.invalidateQueries({ queryKey: getListDashboardActivityQueryKey() }),
-    ]);
-  }
+  const statusLabel = locked
+    ? 'Access locked'
+    : dashboardMode
+      ? '15-day earning window active'
+      : data.status.replaceAll('_', ' ');
 
-  async function changePaymentCurrency(nextCurrency: string) {
+  const statusTone = locked ? 'danger' : dashboardMode ? 'warning' : 'success';
+
+  const changePaymentCurrency = async (nextCurrency: string) => {
     if (!nextCurrency || nextCurrency === currency || currencyPending) return;
     setCurrencyPending(true);
     setMessage('');
     try {
-      await customFetch<{ currency: string; availableCurrencies: string[] }>('/api/settings/currency', {
+      await customFetch('/api/settings/currency', {
         method: 'PUT',
         body: JSON.stringify({ currency: nextCurrency }),
         responseType: 'json',
       });
       setSelectedCurrency(nextCurrency);
-      setMessage(`Subscription currency changed to ${nextCurrency}. You can now pay in that currency.`);
-      await refreshBilling();
       setFlutterwaveDestination(null);
       setTransactionId('');
-      if (method === 'bank') {
-        window.history.replaceState({}, '', '/billing?method=bank');
-      }
+      setMessage(`Your unpaid subscription is now priced in ${nextCurrency}.`);
+      await refreshBilling();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'The payment currency could not be changed.');
       setSelectedCurrency(currency);
+      setMessage(error instanceof Error ? error.message : 'The payment currency could not be changed.');
     } finally {
       setCurrencyPending(false);
     }
-  }
-
-  const onEarnings = () => {
-    setMessage('');
-    earningsPayment.mutate(undefined, {
-      onSuccess: () => { setMessage('Payment applied from your dashboard balance.'); void refreshBilling(); },
-      onError: () => setMessage('We could not pay from dashboard. Confirm that enough dashboard balance is available, or choose Pay by bank.'),
-    });
   };
 
-  async function startFlutterwaveCheckout() {
+  const startFlutterwaveCheckout = async () => {
     setMessage('');
     setFlutterwavePending(true);
     try {
-      const result = await customFetch<{ purchaseUrl: string | null; paymentDestination?: PaymentDestination | null }>('/api/subscription/flutterwave-checkout', {
-        method: 'POST',
-        body: JSON.stringify({ attemptKey: crypto.randomUUID() }),
-        responseType: 'json',
-      });
+      const result = await customFetch<{ purchaseUrl: string | null; paymentDestination?: PaymentDestination | null }>(
+        '/api/subscription/flutterwave-checkout',
+        {
+          method: 'POST',
+          body: JSON.stringify({ attemptKey: crypto.randomUUID() }),
+          responseType: 'json',
+        },
+      );
+
       if (result.paymentDestination) {
         setFlutterwaveDestination(result.paymentDestination);
         window.history.replaceState({}, '', '/billing?method=bank');
         requestAnimationFrame(() => document.getElementById('bank-payment-destination')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-        setMessage('Transfer the exact amount to the temporary Flutterwave account. TS Commerce verifies the incoming payment before changing your subscription state.');
+        setMessage('A real Flutterwave payment destination has been generated. Transfer the exact amount shown; your account changes only after provider verification.');
       } else if (result.purchaseUrl) {
         window.history.replaceState({}, '', '/billing?method=bank');
         window.location.assign(result.purchaseUrl);
         return;
       } else {
-        throw new Error('Flutterwave did not return bank details or a hosted payment page.');
+        throw new Error('Flutterwave did not return a payment destination or hosted payment page.');
       }
-      setFlutterwavePending(false);
     } catch (error) {
-      setFlutterwavePending(false);
       setMessage(error instanceof Error ? error.message : 'Flutterwave payment could not be started.');
+    } finally {
+      setFlutterwavePending(false);
     }
-  }
+  };
 
   const chooseMethod = async (value: PaymentMethod) => {
     setMethod(value);
@@ -194,18 +284,32 @@ export default function Billing() {
         body: JSON.stringify({ method: value }),
         responseType: 'json',
       });
-      setMessage(
-        result.amountPaid && result.amountPaid >= data.amountDue
-          ? 'Your dashboard payment was applied and access is restored.'
-          : value === 'earnings'
-            ? 'Dashboard selected. You have 15 days from this choice to settle the subscription.'
-            : 'Pay by bank selected. Flutterwave is generating a fresh temporary account.',
-      );
-      void refreshBilling();
-      if (value === 'bank') await startFlutterwaveCheckout();
+      if (value === 'earnings') {
+        setMessage(result.amountPaid && result.amountPaid >= data.amountDue
+          ? 'Your subscription is settled and the full workspace is active.'
+          : 'Dashboard payment selected. Your entire workspace is unlocked for this 15-day earning window.');
+      } else {
+        setMessage('Bank payment selected. A fresh Flutterwave destination will be generated for this subscription currency.');
+        setFlutterwaveDestination(null);
+        await startFlutterwaveCheckout();
+      }
+      await refreshBilling();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'The payment method could not be selected.');
+      setMessage(error instanceof Error ? error.message : 'The payment route could not be selected.');
     }
+  };
+
+  const payFromDashboard = () => {
+    setMessage('');
+    earningsPayment.mutate(undefined, {
+      onSuccess: async () => {
+        setMessage('The available eligible dashboard earnings were applied to your subscription.');
+        await refreshBilling();
+      },
+      onError: (error) => {
+        setMessage(error instanceof Error ? error.message : 'Dashboard earnings could not be applied.');
+      },
+    });
   };
 
   const verifyBankPayment = async (event: FormEvent) => {
@@ -236,41 +340,325 @@ export default function Billing() {
       });
       setReferralMessage(result.message);
       setReferralCode('');
-      setReferral(await customFetch<typeof referral>('/api/referrals', { responseType: 'json' }));
+      setReferral(await customFetch<ReferralOverview>('/api/referrals', { responseType: 'json' }));
     } catch (error) {
       setReferralMessage(error instanceof Error ? error.message : 'Referral code could not be recorded.');
     }
   };
 
-  const routeButton = (value: PaymentMethod, icon: ReactNode, title: string, description: string, testId: string) => (
-    <button type="button" onClick={() => void chooseMethod(value)} className={`rounded-xl border p-5 text-left ${method === value ? 'border-[#bca26a] bg-[#f7edd2]' : 'border-[#d9d2c4] bg-[#fbfaf6] hover:border-[#bca26a]'}`} data-testid={testId}>
-      <div className="flex items-center justify-between">{icon}{method === value && <CheckCircle2 className="h-5 w-5 text-[#a2772e]" />}</div>
-      <p className="mt-6 font-extrabold">{title}</p>
-      <p className="mt-1 text-sm text-[#697687]">{description}</p>
-    </button>
+  const copyAccount = async () => {
+    if (!flutterwaveDestination) return;
+    await navigator.clipboard.writeText(flutterwaveDestination.accountNumber);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  const referralProgress = useMemo(
+    () => Math.min(100, ((referral?.qualifyingReferralCount ?? 0) / 150) * 100),
+    [referral?.qualifyingReferralCount],
   );
 
-  return <AppShell>
-    <div className="mx-auto max-w-[1050px]">
-      <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Subscription ledger</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Keep your account moving.</h1><p className="mt-2 text-sm text-[#697687]">The {money(data.baseAmountUsd, 'USD')} monthly platform fee is {money(data.amountDue, currency)} in your billing currency.</p><p className="mt-1 text-xs text-[#697687]">Rate locked at {data.fxRate.toFixed(4)} · {data.fxSource}</p></div><Badge tone={suspended ? 'danger' : data.status === 'active' ? 'success' : 'warning'}>{data.status.replaceAll('_', ' ')}</Badge></div>
-      {message && <div className="mt-7"><Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Action not completed' : 'Update received'}>{message}</Notice></div>}
-       {billingLocked ? <div className="mt-8"><Notice tone="danger" title="Workspace is locked until you choose a payment route">Select <strong>Pay from dashboard</strong> to unlock every workspace feature for a 15-day earning window, or select <strong>Pay by bank</strong> to open the real Flutterwave payment destination. Your payment currency can be changed here before a payment is confirmed.</Notice></div> : data.daysRemaining <= 7 && <div className="mt-8"><Notice title={`Action needed within ${data.daysRemaining || 1} day${data.daysRemaining === 1 ? '' : 's'}`}>Your selected method has {data.daysRemaining} day{data.daysRemaining === 1 ? '' : 's'} left. Settle the outstanding balance before the window closes.</Notice></div>}
-      <div className="mt-8 grid gap-4 md:grid-cols-[1.1fr_.9fr]"><section className="rounded-xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-8"><div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[#d6aa46]">Outstanding</p><p className="mt-5 font-mono text-5xl tracking-[-.1em]">{money(outstanding, currency)}</p><p className="mt-3 text-sm text-[#aab6c2]">of {money(data.amountDue, currency)} due this cycle</p></div><LockKeyhole className="h-5 w-5 text-[#d6aa46]" /></div><div className="mt-9 h-2 overflow-hidden rounded-full bg-[#3b4b60]"><div className="h-full rounded-full bg-[#d6aa46]" style={{ width: `${data.amountDue > 0 ? Math.min((data.amountPaid / data.amountDue) * 100, 100) : 100}%` }} /></div><div className="mt-3 flex justify-between text-xs text-[#aab6c2]"><span>{money(data.amountPaid, currency)} paid</span><span>{data.paymentMethod ? `Day ${data.daysElapsed} of ${data.suspensionDay}` : 'Select a payment method'}</span></div></section><section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8"><div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.15em] text-[#a2772e]">Account clock</p><p className="mt-4 text-3xl font-extrabold tracking-[-.06em]">{locked ? 'Locked' : `${countdownDays}d ${String(countdownHours).padStart(2, '0')}h`}</p><p className="mt-1 text-sm text-[#697687]">{locked ? `${graceCopy} has ended` : `${graceCopy} · ${String(countdownMinutes).padStart(2, '0')}m ${String(countdownSeconds).padStart(2, '0')}s remaining`}</p></div><Clock3 className="h-5 w-5 text-[#a2772e]" /></div><div className="mt-7 space-y-3 text-sm"><div className="flex justify-between"><span className="text-[#697687]">Registered</span><strong>{dateLabel(data.registeredAt)}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Payment method</span><strong>{selectedMethod}</strong></div><div className="flex justify-between"><span className="text-[#697687]">Access deadline</span><strong>{dateLabel(data.trialEndsAt)}</strong></div></div></section></div>
-       <section className="mt-10"><SectionHeading eyebrow="Choose a route" title="Settle the subscription" description="You can change the currency before payment is confirmed, even when the workspace is locked. Pay from dashboard unlocks the entire workspace for 15 days so you can earn enough to settle the fee. Pay by bank takes you to the real Flutterwave-generated bank destination for the selected currency." />
-       <div className="mb-5 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5">
-         <div className="flex flex-wrap items-end justify-between gap-4">
-           <div><p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#a2772e]">Payment currency</p><h3 className="mt-2 text-xl font-extrabold">Choose the currency you want to pay in</h3><p className="mt-1 text-sm text-[#697687]">This control remains available while the account is locked. Unpaid payment attempts can be replaced with a newly priced currency.</p></div>
-           <select value={selectedCurrency || currency} onChange={(event) => void changePaymentCurrency(event.target.value)} disabled={currencyPending} className="h-11 min-w-[150px] rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm font-extrabold text-[#182333] outline-none focus:border-[#bca26a]" data-testid="select-subscription-currency">
-             {availableCurrencies.map((code) => <option key={code} value={code}>{code}</option>)}
-           </select>
-         </div>
-       </div>
-       <div className="grid gap-4 md:grid-cols-2">{routeButton('earnings', <Banknote className="h-5 w-5 text-[#a2772e]" />, 'Pay from dashboard', 'Unlock the entire workspace for 15 days from the moment you choose dashboard earnings.', 'button-method-earnings')}{routeButton('bank', <ExternalLink className="h-5 w-5 text-[#a2772e]" />, 'Pay by bank · Flutterwave', 'Open the page showing the real temporary bank details generated by Flutterwave for this payment.', 'button-method-bank')}</div>{method === 'bank' && flutterwaveDestination && <div id="bank-payment-destination" className="mt-5 rounded-xl border border-[#9fc7d0] bg-[#e8f6f8] p-5 text-sm text-[#234c58]"><p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#315e6c]">Fresh Flutterwave bank details</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><p><span className="text-xs text-[#477563]">Bank name</span><br /><strong>{flutterwaveDestination.bankName}</strong></p><p><span className="text-xs text-[#477563]">Account name</span><br /><strong>{flutterwaveDestination.accountName}</strong></p><p><span className="text-xs text-[#477563]">Account number</span><br /><strong className="font-mono">{flutterwaveDestination.accountNumber}</strong></p><p><span className="text-xs text-[#477563]">Exact amount</span><br /><strong className="font-mono">{money(flutterwaveDestination.amount, flutterwaveDestination.currency)}</strong></p>{flutterwaveDestination.expiresAt && <p><span className="text-xs text-[#477563]">Expires</span><br /><strong>{new Date(flutterwaveDestination.expiresAt).toLocaleString()}</strong></p>}</div><p className="mt-3 text-xs leading-5">Transfer the exact amount to this temporary bank account. Flutterwave and TS Commerce verify the transfer before features unlock. No merchant-owned bank details are used.</p><button type="button" onClick={() => void startFlutterwaveCheckout()} className="mt-4 text-sm font-extrabold text-[#315e6c] underline">Generate a new account</button></div>}</section>
-       <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8"><SectionHeading eyebrow="Merchant referrals" title="Invite another merchant" description="Each genuinely new merchant who completes a verified first $30 subscription can earn you 30% off your next subscription. Reach 150 or more verified paid referrals to receive 12 free TS Commerce subscription months. The 12 months is a non-cash subscription entitlement." />{referral && <div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-[#bfd6dc] bg-[#eef7f8] p-4"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#315e6c]">Verified referrals</p><p className="mt-2 text-2xl font-extrabold text-[#234c58]">{referral.qualifyingReferralCount} <span className="text-sm font-normal">/ 150</span></p><p className="mt-1 text-xs text-[#477563]">Only verified subscription payments count.</p></div><div className="rounded-lg border border-[#dfc27a] bg-[#fff7df] p-4"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#765817]">Free subscription months</p><p className="mt-2 text-2xl font-extrabold text-[#765817]">{referral.freeMonthsRemaining}</p><p className="mt-1 text-xs text-[#765817]">Non-cash, non-transferable entitlement.</p></div></div>}{referral?.currentPeriod ? <div className="mt-5 rounded-lg border border-[#b8d6ca] bg-[#eff8f3] p-4"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#2f6958]">Current code</p><p className="mt-2 font-mono text-xl font-extrabold tracking-[.08em]">{referral.currentPeriod.code}</p><p className="mt-1 text-xs text-[#477563]">Valid until {dateLabel(referral.currentPeriod.validUntil)}</p></div> : <p className="mt-4 text-sm text-[#697687]">Complete and verify your current subscription payment to unlock a monthly referral code.</p>}<form onSubmit={submitReferral} className="mt-5 flex flex-wrap gap-3"><input value={referralCode} onChange={(event) => setReferralCode(event.target.value)} className="h-11 min-w-[220px] flex-1 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 font-mono text-sm uppercase outline-none focus:border-[#bca26a]" placeholder="Enter a merchant referral code" /><Button type="submit" disabled={!referralCode.trim()}>Apply referral code</Button></form>{referralMessage && <p className="mt-3 text-sm text-[#315e6c]">{referralMessage}</p>}{!!referral?.rewards.length && <div className="mt-5 text-sm text-[#697687]">{referral.rewards.slice(0, 3).map((reward) => <p key={reward.id}>Referrer reward: {money(reward.discountAmountMinor / 100, reward.currency)} off · {reward.status}</p>)}</div>}</section>
-       {method === 'bank' && flutterwaveDestination && <form onSubmit={verifyBankPayment} className="mt-5 flex flex-wrap gap-3 rounded-xl border border-[#9fc7d0] bg-[#e8f6f8] p-5"><input required value={transactionId} onChange={(event) => setTransactionId(event.target.value)} className="h-11 min-w-[220px] flex-1 rounded-lg border border-[#9fc7d0] bg-white/70 px-3 font-mono text-sm outline-none" placeholder="Flutterwave transaction ID after transfer" /><Button type="submit">Verify payment</Button></form>}
-       <section className="mt-4 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">{method === 'earnings' ? <div className="flex flex-wrap items-center justify-between gap-5"><div><h3 className="font-extrabold">Pay from dashboard: {money(outstanding, currency)}</h3><p className="mt-1 text-sm text-[#697687]">Available in your dashboard: {money(earningsHeld, currency)}. The fee settles only when the full outstanding amount is available.</p></div><Button onClick={onEarnings} disabled={earningsPayment.isPending || outstanding === 0 || earningsHeld < outstanding} data-testid="button-pay-earnings">{earningsPayment.isPending ? 'Applying…' : outstanding === 0 ? 'Already settled' : earningsHeld < outstanding ? 'Insufficient dashboard balance' : 'Pay from dashboard'} <ArrowRight className="h-4 w-4" /></Button></div> : <div className="flex flex-wrap items-center justify-between gap-5"><div><h3 className="font-extrabold">Pay by bank with Flutterwave: {money(outstanding, currency)}</h3><p className="mt-1 text-sm text-[#697687]">Use the temporary account above or generate another one. Flutterwave verifies the incoming payment before TS Commerce updates your subscription.</p></div><Button onClick={() => void startFlutterwaveCheckout()} disabled={flutterwavePending || outstanding === 0} data-testid="button-pay-by-bank">{flutterwavePending ? 'Generating account…' : outstanding === 0 ? 'Already settled' : flutterwaveDestination ? 'Generate new account' : 'Generate payment account'} <ExternalLink className="h-4 w-4" /></Button></div>}</section>
-       <p className="mt-6 flex items-center gap-2 text-xs text-[#697687]"><TriangleAlert className="h-4 w-4 text-[#a2772e]" /> Flutterwave verifies the payment server-side before TS Commerce updates your subscription and unlocks features. Bank details come only from Flutterwave, either directly here or on its secure payment page.</p>
-      <Link href="/dashboard" className="mt-6 inline-flex text-sm font-extrabold text-[#8a6826] underline" data-testid="link-back-dashboard">Back to overview</Link>
-    </div>
-  </AppShell>;
+  return (
+    <AppShell>
+      <div className="mx-auto max-w-[1120px]">
+        <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
+            <div className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[.18em] text-[#a2772e]">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Subscription & billing
+            </div>
+            <h1 className="mt-2 text-3xl font-extrabold tracking-[-.055em] text-[#182333] md:text-4xl">
+              Keep your workspace active.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#687482]">
+              One place to manage your subscription, payment route, billing currency, and merchant referral benefits.
+            </p>
+          </div>
+          <Badge tone={statusTone}>{statusLabel}</Badge>
+        </header>
+
+        {message && (
+          <div className="mt-7" aria-live="polite">
+            <Notice tone={messageIsError ? 'danger' : 'success'} title={messageIsError ? 'Action needs attention' : 'Billing update'}>
+              {message}
+            </Notice>
+          </div>
+        )}
+
+        <div className="mt-8 grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
+          <Card className="overflow-hidden">
+            <div className="bg-[#182333] p-6 text-[#f8f3e8] md:p-8">
+              <div className="flex items-start justify-between gap-5">
+                <div>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[.16em] text-[#d6aa46]">Outstanding balance</p>
+                  <p className="mt-4 text-5xl font-extrabold tracking-[-.07em]">{money(outstanding, currency)}</p>
+                  <p className="mt-2 text-sm text-[#aeb8c4]">of {money(data.amountDue, currency)} due this billing period</p>
+                </div>
+                <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><BadgeDollarSign className="h-5 w-5 text-[#d6aa46]" /></span>
+              </div>
+
+              <div className="mt-8 h-2 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-[#d6aa46] transition-all" style={{ width: `${progress}%` }} />
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs text-[#aeb8c4]">
+                <span>{money(data.amountPaid, currency)} paid</span>
+                <span>{Math.round(progress)}% complete</span>
+              </div>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-[10px] uppercase tracking-[.12em] text-[#9facb9]">Currency</p>
+                  <p className="mt-2 font-mono text-lg font-bold">{currency}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-[10px] uppercase tracking-[.12em] text-[#9facb9]">Method</p>
+                  <p className="mt-2 text-sm font-bold">{data.paymentMethod ?? 'Not selected'}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-[10px] uppercase tracking-[.12em] text-[#9facb9]">Rate source</p>
+                  <p className="mt-2 truncate text-sm font-bold">{data.fxSource}</p>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 md:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[.16em] text-[#a2772e]">Access clock</p>
+                <h2 className="mt-2 text-2xl font-extrabold tracking-[-.04em]">
+                  {locked ? 'Workspace protected' : dashboardMode ? `${countdownDays}d ${String(countdownHours).padStart(2, '0')}h` : 'Active'}
+                </h2>
+              </div>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#efe6d0] text-[#8a6826]"><Clock3 className="h-5 w-5" /></span>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[#687482]">
+              {locked
+                ? 'Choose Pay from dashboard to unlock every merchant feature for 15 days, or choose Pay by bank and complete verified payment.'
+                : dashboardMode
+                  ? `Your dashboard earning window is active. ${String(countdownHours).padStart(2, '0')}h ${String(countdownMinutes).padStart(2, '0')}m ${String(countdownSeconds).padStart(2, '0')}s remain in the current window.`
+                  : 'Your subscription is currently active.'}
+            </p>
+
+            {dashboardMode && !locked && (
+              <div className="mt-6 rounded-xl border border-[#e0c982] bg-[#fff9e8] p-4">
+                <div className="flex items-center gap-2 text-sm font-extrabold text-[#6e531a]"><Sparkles className="h-4 w-4" /> Full workspace access is enabled</div>
+                <p className="mt-1 text-xs leading-5 text-[#806d42]">The 15-day clock is controlled by the server and cannot be reset by changing payment routes.</p>
+              </div>
+            )}
+            <div className="mt-6 space-y-3 text-sm">
+              <div className="flex justify-between gap-4"><span className="text-[#7a8490]">Billing period</span><strong>{dateLabel(data.registeredAt)}</strong></div>
+              <div className="flex justify-between gap-4"><span className="text-[#7a8490]">Access deadline</span><strong>{dateLabel(data.trialEndsAt)}</strong></div>
+              <div className="flex justify-between gap-4"><span className="text-[#7a8490]">Dashboard earnings held</span><strong>{money(earningsHeld, currency)}</strong></div>
+            </div>
+          </Card>
+        </div>
+
+        {locked && (
+          <Card className="mt-6 border-[#e3c6bc] bg-[#fff8f5] p-5 md:p-6">
+            <div className="flex gap-4">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#f4ddd6] text-[#9f4c3d]"><LockKeyhole className="h-5 w-5" /></span>
+              <div>
+                <h2 className="font-extrabold text-[#6f352d]">Your workspace is currently locked</h2>
+                <p className="mt-1 text-sm leading-6 text-[#7f5e58]">
+                  Billing remains available so you can choose your currency and payment route. No feature access is restored until the server confirms the applicable payment/access condition.
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        <div className="mt-10">
+          <SectionHeading
+            eyebrow="Payment setup"
+            title="Choose how you want to settle this period"
+            description="Your selection controls access, but only verified money movement changes your subscription balance."
+          />
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <RouteCard
+              active={method === 'earnings'}
+              icon={<Banknote className="h-5 w-5" />}
+              title="Pay from dashboard"
+              subtitle="15-day earning window"
+              description="Immediately unlock the entire merchant workspace for one server-controlled 15-day window while you earn enough to settle the subscription."
+              onClick={() => void chooseMethod('earnings')}
+              testId="button-method-earnings"
+            />
+            <RouteCard
+              active={method === 'bank'}
+              icon={<Landmark className="h-5 w-5" />}
+              title="Pay by bank with Flutterwave"
+              subtitle="Provider-verified payment"
+              description="Generate a real Flutterwave payment destination or open Flutterwave's secure bank-transfer page. Access changes only after verification."
+              onClick={() => void chooseMethod('bank')}
+              testId="button-method-bank"
+            />
+          </div>
+        </div>
+
+        <Card className="mt-5 p-5 md:p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">Billing currency</p>
+              <h2 className="mt-1 text-lg font-extrabold">Choose the currency you want to pay in</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-[#687482]">This remains available while locked. Changing currency reprices the unpaid subscription and invalidates stale payment attempts.</p>
+            </div>
+            <select
+              value={selectedCurrency || currency}
+              onChange={(event) => void changePaymentCurrency(event.target.value)}
+              disabled={currencyPending}
+              className="h-11 min-w-[160px] rounded-xl border border-[#d8d1c4] bg-[#f7f4ed] px-3 text-sm font-extrabold text-[#182333] outline-none focus:border-[#a9853d] focus:ring-2 focus:ring-[#d6aa46]/20"
+              data-testid="select-subscription-currency"
+            >
+              {availableCurrencies.map((code) => <option key={code} value={code}>{code}</option>)}
+            </select>
+          </div>
+        </Card>
+
+        {method === 'earnings' ? (
+          <Card className="mt-5 p-5 md:p-6">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">Dashboard earnings</p>
+                <h2 className="mt-1 text-xl font-extrabold">Apply eligible earnings to this subscription</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-[#687482]">
+                  Current eligible amount: <strong>{money(earningsHeld, currency)}</strong>. The server will apply only what is available and will never over-deduct the balance.
+                </p>
+              </div>
+              <Button onClick={payFromDashboard} disabled={earningsPayment.isPending || outstanding === 0 || earningsHeld <= 0} data-testid="button-pay-earnings">
+                {earningsPayment.isPending ? 'Applying…' : outstanding === 0 ? 'Already settled' : earningsHeld <= 0 ? 'No eligible earnings yet' : 'Apply dashboard earnings'}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <Card id="bank-payment-destination" className="mt-5 overflow-hidden">
+            <div className="border-b border-[#d8d1c4] bg-[#f4f7f7] p-5 md:p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-extrabold text-[#234c58]"><ShieldCheck className="h-4 w-4" /> Flutterwave payment destination</div>
+                  <p className="mt-1 text-xs leading-5 text-[#4e6b72]">Every bank detail below comes from the live provider response for this payment attempt.</p>
+                </div>
+                <button type="button" onClick={() => void startFlutterwaveCheckout()} disabled={flutterwavePending || outstanding === 0} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#9fc7d0] bg-white px-4 text-xs font-extrabold text-[#315e6c] hover:bg-[#eef7f8]">
+                  <RefreshCw className={`h-4 w-4 ${flutterwavePending ? 'animate-spin' : ''}`} />
+                  {flutterwavePending ? 'Generating…' : flutterwaveDestination ? 'Generate new details' : 'Generate payment details'}
+                </button>
+              </div>
+            </div>
+
+            {flutterwaveDestination ? (
+              <div className="p-5 md:p-7">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7d8792]">Bank</p><p className="mt-2 font-extrabold">{flutterwaveDestination.bankName}</p></div>
+                  <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7d8792]">Account name</p><p className="mt-2 font-extrabold">{flutterwaveDestination.accountName}</p></div>
+                  <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4 md:col-span-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div><p className="text-[10px] uppercase tracking-[.12em] text-[#7d8792]">Account number</p><p className="mt-2 font-mono text-2xl font-extrabold tracking-[.06em] text-[#182333]">{flutterwaveDestination.accountNumber}</p></div>
+                      <button type="button" onClick={() => void copyAccount()} className="grid h-10 w-10 place-items-center rounded-xl border border-[#d8d1c4] bg-white text-[#657180] hover:text-[#182333]" aria-label="Copy bank account number">{copied ? <Check className="h-4 w-4 text-[#1f6f58]" /> : <Copy className="h-4 w-4" />}</button>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7d8792]">Exact amount</p><p className="mt-2 font-mono text-xl font-extrabold">{money(flutterwaveDestination.amount, flutterwaveDestination.currency)}</p></div>
+                  <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7d8792]">Expires</p><p className="mt-2 text-sm font-extrabold">{flutterwaveDestination.expiresAt ? new Date(flutterwaveDestination.expiresAt).toLocaleString() : 'Provider did not supply an expiry'}</p></div>
+                </div>
+
+                <div className="mt-5 rounded-xl border border-[#e1dbcf] bg-[#f8f6f0] p-4 text-sm leading-6 text-[#586574]">
+                  <strong className="text-[#182333]">Important:</strong> transfer the exact amount to the provider-returned account above. Your TS Commerce store code, customer code, and TS Pay reference identify the transaction; they are not bank accounts or payment destinations.
+                </div>
+
+                <form onSubmit={verifyBankPayment} className="mt-5 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    required
+                    value={transactionId}
+                    onChange={(event) => setTransactionId(event.target.value)}
+                    className="h-11 flex-1 rounded-xl border border-[#d8d1c4] bg-white px-3 font-mono text-sm outline-none focus:border-[#9bbfc6] focus:ring-2 focus:ring-[#9fc7d0]/20"
+                    placeholder="Flutterwave transaction ID after transfer"
+                  />
+                  <Button type="submit">Verify payment</Button>
+                </form>
+              </div>
+            ) : (
+              <div className="p-6 text-center md:p-10">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-[#eef4f5] text-[#315e6c]"><ExternalLink className="h-5 w-5" /></div>
+                <h2 className="mt-4 text-lg font-extrabold">No payment destination generated yet</h2>
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#687482]">Generate the provider destination to see the actual bank details you should transfer money to. Nothing is marked paid merely by opening this page.</p>
+                <button type="button" onClick={() => void startFlutterwaveCheckout()} disabled={flutterwavePending || outstanding === 0} className="mt-5 inline-flex h-11 items-center gap-2 rounded-xl bg-[#182333] px-5 text-sm font-extrabold text-[#f8f3e8]">
+                  <Landmark className="h-4 w-4" />
+                  {flutterwavePending ? 'Generating…' : 'Generate real bank details'}
+                </button>
+              </div>
+            )}
+          </Card>
+        )}
+
+        <Card className="mt-8 overflow-hidden">
+          <div className="border-b border-[#d8d1c4] p-6 md:p-7">
+            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+              <SectionHeading
+                eyebrow="Merchant referral program"
+                title="Build toward 12 free months"
+                description="A genuinely new merchant must complete a verified first subscription payment before a referral qualifies."
+              />
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#efe5ce] text-[#8a6826]"><Gift className="h-5 w-5" /></span>
+            </div>
+          </div>
+
+          <div className="grid gap-5 p-6 md:grid-cols-[1fr_.95fr] md:p-7">
+            <div>
+              <div className="flex items-end justify-between gap-4">
+                <div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#7c8792]">Verified paid referrals</p><p className="mt-1 text-4xl font-extrabold tracking-[-.05em]">{referral?.qualifyingReferralCount ?? 0}</p></div>
+                <p className="text-sm font-extrabold text-[#8a6826]">150+ unlocks 12 months free</p>
+              </div>
+              <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#ebe6db]"><div className="h-full rounded-full bg-[#a9853d]" style={{ width: `${referralProgress}%` }} /></div>
+              <div className="mt-2 flex justify-between text-xs text-[#7c8792]"><span>0</span><span>150 verified referrals</span></div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.1em] text-[#7c8792]"><UsersRound className="h-4 w-4" /> Free months</div>
+                  <p className="mt-2 text-2xl font-extrabold">{referral?.freeMonthsRemaining ?? 0}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#7c8792]">Subscription entitlement only. Never cash or withdrawable funds.</p>
+                </div>
+                <div className="rounded-xl border border-[#d8d1c4] bg-[#fbfaf6] p-4">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.1em] text-[#7c8792]"><BadgeDollarSign className="h-4 w-4" /> Next referral reward</div>
+                  <p className="mt-2 text-2xl font-extrabold">$9 off</p>
+                  <p className="mt-1 text-xs leading-5 text-[#7c8792]">Applied to your next eligible $30 subscription, not credited as cash.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#d8d1c4] bg-[#f8f5ed] p-5">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">Current referral code</p>
+              {referral?.currentPeriod ? (
+                <>
+                  <p className="mt-3 font-mono text-xl font-extrabold tracking-[.06em] text-[#182333]">{referral.currentPeriod.code}</p>
+                  <p className="mt-1 text-xs text-[#77818c]">Valid until {dateLabel(referral.currentPeriod.validUntil)}</p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-[#687482]">Complete a verified subscription payment to activate your monthly referral code.</p>
+              )}
+
+              <form onSubmit={submitReferral} className="mt-5">
+                <label className="text-xs font-bold uppercase tracking-[.1em] text-[#7c8792]">Have a referral code?</label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={referralCode}
+                    onChange={(event) => setReferralCode(event.target.value)}
+                    className="h-11 min-w-0 flex-1 rounded-xl border border-[#d8d1c4] bg-white px-3 font-mono text-sm uppercase outline-none focus:border-[#a9853d]"
+                    placeholder="TS-REF-XXXXXXXXXXXX"
+                  />
+                  <Button type="submit" disabled={!referralCode.trim()}>Apply</Button>
+                </div>
+                {referralMessage && <p className="mt-3 text-xs leading-5 text-[#4e6b72]">{referralMessage}</p>}
+              </form>
+            </div>
+          </div>
+        </Card>
+
+        <div className="mt-6 flex flex-col gap-3 border-t border-[#d8d1c4] pt-6 text-xs leading-5 text-[#78828e] md:flex-row md:items-center md:justify-between">
+          <p>All payment state changes are decided by TS Pay and the configured provider. Frontend buttons never create financial success.</p>
+          <Link href="/dashboard" className="inline-flex items-center gap-2 font-extrabold text-[#8a6826] underline underline-offset-4">Back to workspace <ArrowRight className="h-3.5 w-3.5" /></Link>
+        </div>
+      </div>
+    </AppShell>
+  );
 }

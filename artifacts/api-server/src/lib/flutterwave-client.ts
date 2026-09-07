@@ -93,6 +93,14 @@ async function flutterwaveRequest<T>(
   return payload as T;
 }
 
+export const FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES = ["NGN", "GHS"] as const;
+
+export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean {
+  return FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES.includes(
+    currency.trim().toUpperCase() as (typeof FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES)[number],
+  );
+}
+
 export function isFlutterwaveConfigured(): boolean {
   return Boolean(process.env.FLUTTERWAVE_SECRET_KEY?.trim());
 }
@@ -116,7 +124,7 @@ export function flutterwaveTransactionId(value: FlutterwaveTransaction): string 
 
 export function flutterwaveStatus(value: FlutterwaveTransaction): "paid" | "failed" | "pending" {
   const status = String(value.status ?? "").toLowerCase();
-  if (["successful", "success", "completed", "paid"].includes(status)) return "paid";
+  if (["successful", "success", "completed", "paid", "succeeded"].includes(status)) return "paid";
   if (["failed", "cancelled", "canceled", "reversed", "declined"].includes(status)) return "failed";
   return "pending";
 }
@@ -209,7 +217,10 @@ export async function initializeFlutterwaveVirtualAccount(input: {
         phonenumber: input.customer.phonenumber,
         narration: input.narration.slice(0, 120),
         is_permanent: false,
-        duration: 30,
+        // Dynamic virtual-account expiry is specified in seconds. Keep the
+        // configured provider window explicit and show the provider-returned
+        // expiry to the customer when it is supplied.
+        expires: 1800,
         meta: input.meta,
       },
     },
@@ -234,8 +245,8 @@ export async function initializeFlutterwaveVirtualAccount(input: {
   }
   const providerReference = recordValue(account, ["id", "reference", "account_id", "accountId", "tx_ref"]);
   const expiresAt = parseProviderExpiry(
-    recordValue(account, ["expires_at", "expiresAt", "expiry", "expiration", "expires_on"]),
-  ) ?? new Date(Date.now() + 30 * 60 * 1000);
+    recordValue(account, ["expires_at", "expiresAt", "expiry", "expiration", "expires_on", "expiry_date"]),
+  );
   return {
     bankName,
     accountName,
@@ -246,6 +257,23 @@ export async function initializeFlutterwaveVirtualAccount(input: {
     expiresAt,
     raw: data,
   };
+}
+
+export async function findFlutterwaveTransactionsByReference(
+  txRef: string,
+  from: string,
+  to: string,
+): Promise<FlutterwaveTransaction[]> {
+  const params = new URLSearchParams({
+    tx_ref: txRef,
+    from,
+    to,
+    page: "1",
+  });
+  const response = await flutterwaveRequest<FlutterwaveResponse<FlutterwaveTransaction[]>>(
+    `/transactions?${params.toString()}`,
+  );
+  return Array.isArray(response.data) ? response.data : [];
 }
 
 export async function verifyFlutterwaveTransaction(transactionId: string): Promise<FlutterwaveTransaction> {
@@ -268,13 +296,32 @@ export async function refundFlutterwaveTransaction(
   return { id: response.data?.id == null ? null : String(response.data.id), status: String(response.data?.status ?? response.status ?? "pending") };
 }
 
-export function verifyFlutterwaveWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
+export function verifyFlutterwaveWebhookSignature(
+  rawBody: Buffer,
+  currentSignature: string | undefined,
+  legacySignature?: string,
+): boolean {
   const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim();
-  if (!secret || !signature) return false;
-  const supplied = Buffer.from(signature.trim());
-  const direct = Buffer.from(secret);
-  if (supplied.length === direct.length && timingSafeEqual(supplied, direct)) return true;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const hmac = Buffer.from(expected);
-  return supplied.length === hmac.length && timingSafeEqual(supplied, hmac);
+  if (!secret) return false;
+
+  // Current Flutterwave webhook signing: HMAC-SHA256 over the exact raw body,
+  // represented as base64 in the flutterwave-signature header.
+  if (currentSignature?.trim()) {
+    const supplied = Buffer.from(currentSignature.trim());
+    const expected = Buffer.from(
+      createHmac("sha256", secret).update(rawBody).digest("base64"),
+    );
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+
+  // Legacy Flutterwave verif-hash mode: compare the provider-supplied value
+  // against the configured secret. Never treat the received signature itself
+  // as a secret.
+  if (legacySignature?.trim()) {
+    const supplied = Buffer.from(legacySignature.trim());
+    const expected = Buffer.from(secret);
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+
+  return false;
 }

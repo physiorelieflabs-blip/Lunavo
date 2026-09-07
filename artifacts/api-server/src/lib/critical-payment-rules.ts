@@ -1,4 +1,5 @@
 export const TS_COMMERCE_TRANSACTION_FEE_RATE = 0.01;
+export const DASHBOARD_EARNING_WINDOW_DAYS = 15;
 export const REFERRAL_DISCOUNT_MINOR = 900;
 export const REFERRAL_SUBSCRIPTION_GROSS_MINOR = 3000;
 
@@ -19,6 +20,24 @@ export const PAYMENT_STATUSES = [
   "reversed",
   "reconciliation_required",
 ] as const;
+
+export function calculateDashboardWindow(startedAt: Date, now = new Date()) {
+  const expiresAt = new Date(startedAt.getTime() + DASHBOARD_EARNING_WINDOW_DAYS * 86_400_000);
+  const elapsedDays = Math.min(
+    DASHBOARD_EARNING_WINDOW_DAYS,
+    Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 86_400_000)),
+  );
+  const daysRemaining = now < expiresAt
+    ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / 86_400_000))
+    : 0;
+  return {
+    startedAt,
+    expiresAt,
+    elapsedDays,
+    daysRemaining,
+    locked: now >= expiresAt,
+  };
+}
 
 export function calculateTsCommerceFeeMinor(grossAmountMinor: number): number {
   const gross = Math.max(0, Math.round(grossAmountMinor));
