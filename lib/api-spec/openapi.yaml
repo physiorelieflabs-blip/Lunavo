@@ -3870,6 +3870,7 @@ components:
         customerName: { type: string, minLength: 2, maxLength: 160 }
         customerEmail: { type: string, format: email }
         customerPhone: { type: string, maxLength: 40 }
+        customerCountry: { type: string, minLength: 2, maxLength: 80 }
         shippingAddress: { type: string, minLength: 8, maxLength: 500 }
         quantity: { type: integer, minimum: 1, maximum: 100 }
         paymentCurrency: { type: string, minLength: 3, maxLength: 3 }
@@ -4172,6 +4173,7 @@ components:
         customerName: { type: string, minLength: 2, maxLength: 160 }
         customerEmail: { type: string, format: email }
         customerPhone: { type: string, maxLength: 40 }
+        customerCountry: { type: string, minLength: 2, maxLength: 80 }
         shippingAddress: { type: string, minLength: 8, maxLength: 500 }
         paymentCurrency: { type: string, minLength: 3, maxLength: 3 }
         marketingConsent: { type: boolean }

@@ -16,6 +16,11 @@ export interface PaymentLinkCheckoutInput {
   /** @maxLength 40 */
   customerPhone?: string;
   /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  customerCountry?: string;
+  /**
      * @minLength 8
      * @maxLength 500
      */

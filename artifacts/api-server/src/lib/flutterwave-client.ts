@@ -6,6 +6,7 @@ export type FlutterwaveCustomer = {
   email: string;
   name?: string;
   phonenumber?: string;
+  country?: string;
 };
 
 export type FlutterwaveTransaction = {

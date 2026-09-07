@@ -1920,6 +1920,7 @@ async function ensurePublicFlutterwaveCheckout(
   title: string,
   origin: string,
   requestedPaymentCurrency?: string,
+  customerCountry?: string,
 ): Promise<PublicFlutterwaveCheckout> {
   if (!isFlutterwaveConfigured()) {
     throw new Error("Online customer checkout is not configured");
@@ -1998,27 +1999,14 @@ async function ensurePublicFlutterwaveCheckout(
         .where(eq(paymentDestinationsTable.paymentIntentId, intent.id))
         .limit(1)
     )[0];
-    if (intent.status === "submitted" && intent.evidenceReference && (intent.checkoutUrl || existingDestination)) {
-      return {
-        paymentToken: currentOrder.publicPaymentToken!,
-        paymentIntentId: intent.id,
-        checkoutId: intent.evidenceReference,
-        purchaseUrl: intent.checkoutUrl,
-        destination: existingDestination
-          ? {
-              provider: existingDestination.provider,
-              bankName: existingDestination.bankName,
-              accountName: existingDestination.accountName,
-              accountNumber: existingDestination.accountNumber,
-              amount: existingDestination.amountMinor / 100,
-              currency: existingDestination.currency,
-              providerReference:
-                existingDestination.providerReference ?? intent.evidenceReference,
-              expiresAt: existingDestination.expiresAt?.toISOString() ?? null,
-            }
-          : null,
-        status: "submitted" as const,
-      };
+    if (existingDestination) {
+      await tx
+        .update(paymentDestinationsTable)
+        .set({ status: "expired" })
+        .where(and(
+          eq(paymentDestinationsTable.paymentIntentId, intent.id),
+          eq(paymentDestinationsTable.status, "active"),
+        ));
     }
 
     const customer = (
@@ -2029,8 +2017,14 @@ async function ensurePublicFlutterwaveCheckout(
         .limit(1)
     )[0];
     if (!customer) throw new Error("Checkout customer could not be found");
-    const txRef = `TSO-${currentOrder.id}-${intent.id}`;
-    const customerDetails = { email: customer.email, name: customer.name, phonenumber: customer.phone ?? undefined };
+    const attemptKey = randomUUID().replaceAll("-", "").slice(0, 16);
+    const txRef = `TSO-${currentOrder.id}-${intent.id}-${attemptKey}`;
+    const customerDetails = {
+      email: customer.email,
+      name: customer.name,
+      phonenumber: customer.phone ?? undefined,
+      country: customerCountry?.trim().slice(0, 80) || undefined,
+    };
     const meta = {
       provider: "flutterwave",
       merchant_id: currentOrder.merchantId,
@@ -2038,6 +2032,7 @@ async function ensurePublicFlutterwaveCheckout(
       order_number: currentOrder.orderNumber,
       payment_intent_id: intent.id,
       payment_token: currentOrder.publicPaymentToken!,
+      customer_country: customerCountry?.trim().slice(0, 80) ?? "",
     };
     let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
     try {
@@ -2050,23 +2045,13 @@ async function ensurePublicFlutterwaveCheckout(
         meta,
       });
     } catch {
-      // Some Flutterwave accounts/rails do not expose dynamic virtual accounts.
-      // Fall back only to the provider-hosted rail, never to a merchant payout account.
+      throw new Error(
+        "Flutterwave could not generate a temporary bank account for this currency. No card checkout or merchant bank details are accepted.",
+      );
     }
-    const checkout = destination
-      ? null
-      : await initializeFlutterwavePayment({
-          txRef,
-          amount: paymentAmount,
-          currency: paymentCurrency,
-          redirectUrl: `${origin}/checkout/payment-return?token=${encodeURIComponent(currentOrder.publicPaymentToken!)}`,
-          customer: customerDetails,
-          title,
-          meta,
-        });
     const [updated] = await tx
       .update(paymentIntentsTable)
-      .set({ status: "submitted", evidenceReference: txRef, checkoutUrl: checkout?.link ?? null })
+      .set({ status: "submitted", evidenceReference: txRef, checkoutUrl: null })
       .where(eq(paymentIntentsTable.id, intent.id))
       .returning();
     if (!updated) throw new Error("Could not save the customer checkout reference");
@@ -2091,7 +2076,7 @@ async function ensurePublicFlutterwaveCheckout(
       paymentToken: currentOrder.publicPaymentToken!,
       paymentIntentId: intent.id,
       checkoutId: txRef,
-      purchaseUrl: checkout?.link ?? null,
+      purchaseUrl: null,
       destination: destination
         ? {
             provider: "flutterwave",
@@ -2123,7 +2108,11 @@ async function findFlutterwaveCustomerPayment(
     await db
       .select()
       .from(paymentDestinationsTable)
-      .where(eq(paymentDestinationsTable.paymentIntentId, intent.id))
+        .where(and(
+          eq(paymentDestinationsTable.paymentIntentId, intent.id),
+          eq(paymentDestinationsTable.status, "active"),
+        ))
+        .orderBy(desc(paymentDestinationsTable.createdAt))
       .limit(1)
   )[0];
   if (destination?.expiresAt && destination.expiresAt.getTime() < Date.now()) {
@@ -8406,6 +8395,7 @@ router.post(
           result.product.title,
           requestOrigin(req),
           parsed.data.paymentCurrency,
+          parsed.data.customerCountry,
         );
         paymentDetails = {
           paymentIntentId: payment.paymentIntentId,
@@ -8589,6 +8579,7 @@ router.post("/public/payment-links/:token/checkout", async (req, res): Promise<v
         initialLink.title,
         requestOrigin(req),
         parsed.data.paymentCurrency ?? initialLink.currency,
+        parsed.data.customerCountry,
       );
       paymentIntentId = payment.paymentIntentId;
       paymentUrl = payment.purchaseUrl;
@@ -9480,12 +9471,6 @@ router.post("/subscription", async (req, res): Promise<void> => {
         })
         .where(eq(subscriptionsTable.id, subscription.id))
         .returning();
-      if (merchant.status === "suspended") {
-        await db
-          .update(merchantsTable)
-          .set({ status: "active" })
-          .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
-      }
       const remaining = Math.max(
         0,
         toNumber(selected.amountDue) - toNumber(selected.amountPaid),
@@ -9528,12 +9513,6 @@ router.post("/subscription", async (req, res): Promise<void> => {
     })
     .where(eq(subscriptionsTable.id, subscription.id))
     .returning();
-  if (merchant.status === "suspended") {
-    await db
-      .update(merchantsTable)
-      .set({ status: "active" })
-      .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
-  }
   res
     .status(201)
     .json(
@@ -9804,12 +9783,6 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         enforced.subscription.paymentMethodSelectedAt ?? new Date(),
     })
     .where(eq(subscriptionsTable.id, enforced.subscription.id));
-  if (merchant.status === "suspended") {
-    await db
-      .update(merchantsTable)
-      .set({ status: "active" })
-      .where(and(eq(merchantsTable.id, merchant.id), eq(merchantsTable.status, "suspended")));
-  }
   try {
     const meta = {
       provider: "flutterwave",
@@ -9817,6 +9790,13 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
       subscription_id: enforced.subscription.id,
       payment_reference: reference,
     };
+    await db
+      .update(paymentDestinationsTable)
+      .set({ status: "expired" })
+      .where(and(
+        eq(paymentDestinationsTable.paymentId, payment.id),
+        eq(paymentDestinationsTable.status, "active"),
+      ));
     let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
     try {
       destination = await initializeFlutterwaveVirtualAccount({
@@ -9828,20 +9808,10 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
         meta,
       });
     } catch {
-      // Account capability varies by Flutterwave rail; hosted checkout remains
-      // the provider-backed fallback, never a merchant payout destination.
+      throw new Error(
+        "Flutterwave could not generate a temporary bank account for this currency. No card checkout or merchant bank details are accepted.",
+      );
     }
-    const checkout = destination
-      ? null
-      : await initializeFlutterwavePayment({
-          txRef: reference,
-          amount: outstanding,
-          currency: enforced.subscription.currency,
-          redirectUrl: `${requestOrigin(req)}/billing?flutterwave=return`,
-          customer: { email: merchant.email, name: "TS Commerce" },
-          title: "TS Commerce subscription",
-          meta,
-        });
     const [updatedPayment] = await db.update(paymentsTable).set({
       evidenceReference: reference,
       status: "under_review",
@@ -9867,7 +9837,7 @@ router.post("/subscription/flutterwave-checkout", async (req, res): Promise<void
     res.status(201).json({
       provider: "flutterwave",
       checkoutId: reference,
-      purchaseUrl: checkout?.link ?? null,
+       purchaseUrl: null,
       paymentDestination: destination
         ? {
             provider: "flutterwave",
@@ -9928,7 +9898,11 @@ router.post("/subscription/flutterwave-verify", async (req, res): Promise<void> 
       await db
         .select()
         .from(paymentDestinationsTable)
-        .where(eq(paymentDestinationsTable.paymentId, payment.id))
+        .where(and(
+          eq(paymentDestinationsTable.paymentId, payment.id),
+          eq(paymentDestinationsTable.status, "active"),
+        ))
+        .orderBy(desc(paymentDestinationsTable.createdAt))
         .limit(1)
     )[0];
     if (destination?.expiresAt && destination.expiresAt.getTime() < Date.now()) {

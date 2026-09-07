@@ -1122,9 +1122,9 @@ export const paymentDestinationsTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("payment_destinations_intent_unique").on(table.paymentIntentId),
-    uniqueIndex("payment_destinations_payment_unique").on(table.paymentId),
-    uniqueIndex("payment_destinations_order_unique").on(table.orderId),
+    index("payment_destinations_intent_idx").on(table.paymentIntentId),
+    index("payment_destinations_payment_idx").on(table.paymentId),
+    index("payment_destinations_order_idx").on(table.orderId),
     index("payment_destinations_merchant_status_idx").on(table.merchantId, table.status),
   ],
 );

@@ -2717,6 +2717,11 @@ export interface PublicCheckoutInput {
   /** @maxLength 40 */
   customerPhone?: string;
   /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  customerCountry?: string;
+  /**
      * @minLength 8
      * @maxLength 500
      */
@@ -3216,6 +3221,11 @@ export interface PaymentLinkCheckoutInput {
   customerEmail: string;
   /** @maxLength 40 */
   customerPhone?: string;
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  customerCountry?: string;
   /**
      * @minLength 8
      * @maxLength 500

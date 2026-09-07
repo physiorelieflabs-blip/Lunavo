@@ -22,6 +22,7 @@ export default function Checkout() {
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerCountry, setCustomerCountry] = useState('');
   const [shippingAddress, setShippingAddress] = useState('');
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [receipt, setReceipt] = useState<Awaited<typeof checkout.data> | null>(null);
@@ -53,6 +54,7 @@ export default function Checkout() {
         customerName,
         customerEmail,
         customerPhone: customerPhone || undefined,
+        customerCountry: customerCountry.trim() || undefined,
         shippingAddress,
         quantity: Number(quantity),
         paymentCurrency: paymentCurrency || paymentDestination.data.currency,
@@ -108,6 +110,7 @@ export default function Checkout() {
             <label className="block text-sm font-bold">Full name<input required minLength={2} maxLength={160} value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" /></label>
             <label className="block text-sm font-bold">Email<input required type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" /></label>
             <label className="block text-sm font-bold">Phone <span className="font-normal text-[#697687]">(optional)</span><input value={customerPhone} maxLength={40} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" /></label>
+             <label className="block text-sm font-bold">Country<input required minLength={2} maxLength={80} value={customerCountry} onChange={(event) => setCustomerCountry(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" placeholder="Country you are paying from" autoComplete="country-name" /></label>
             <label className="block text-sm font-bold">Shipping address<textarea required minLength={8} maxLength={500} value={shippingAddress} onChange={(event) => setShippingAddress(event.target.value)} className="mt-2 min-h-24 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-3 text-sm outline-none focus:border-[#bca26a]" /></label>
              <label className="flex items-start gap-3 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-3 text-xs leading-5 text-[#536174]"><input type="checkbox" checked={marketingConsent} onChange={(event) => setMarketingConsent(event.target.checked)} className="mt-1 accent-[#a2772e]" data-testid="input-marketing-consent" /><span>I agree to receive relevant product and store updates from this merchant. I can withdraw consent later.</span></label>
              <div className="rounded-lg bg-[#eef7f8] px-3 py-3 text-xs leading-5 text-[#315e6c]">This checkout uses Flutterwave only. The order enters fulfillment after server verification, and the verified sale is posted to the merchant dashboard.</div>

@@ -2511,6 +2511,9 @@ export const createPublicCheckoutBodyCustomerNameMax = 160;
 
 export const createPublicCheckoutBodyCustomerPhoneMax = 40;
 
+export const createPublicCheckoutBodyCustomerCountryMin = 2;
+export const createPublicCheckoutBodyCustomerCountryMax = 80;
+
 export const createPublicCheckoutBodyShippingAddressMin = 8;
 export const createPublicCheckoutBodyShippingAddressMax = 500;
 
@@ -2529,6 +2532,7 @@ export const CreatePublicCheckoutBody = zod.object({
   "customerName": zod.string().min(createPublicCheckoutBodyCustomerNameMin).max(createPublicCheckoutBodyCustomerNameMax),
   "customerEmail": zod.email(),
   "customerPhone": zod.string().max(createPublicCheckoutBodyCustomerPhoneMax).optional(),
+  "customerCountry": zod.string().min(createPublicCheckoutBodyCustomerCountryMin).max(createPublicCheckoutBodyCustomerCountryMax).optional(),
   "shippingAddress": zod.string().min(createPublicCheckoutBodyShippingAddressMin).max(createPublicCheckoutBodyShippingAddressMax),
   "quantity": zod.int().min(1).max(createPublicCheckoutBodyQuantityMax),
   "paymentCurrency": zod.string().min(createPublicCheckoutBodyPaymentCurrencyMin).max(createPublicCheckoutBodyPaymentCurrencyMax).optional(),
@@ -2603,6 +2607,9 @@ export const createPaymentLinkCheckoutBodyCustomerNameMax = 160;
 
 export const createPaymentLinkCheckoutBodyCustomerPhoneMax = 40;
 
+export const createPaymentLinkCheckoutBodyCustomerCountryMin = 2;
+export const createPaymentLinkCheckoutBodyCustomerCountryMax = 80;
+
 export const createPaymentLinkCheckoutBodyShippingAddressMin = 8;
 export const createPaymentLinkCheckoutBodyShippingAddressMax = 500;
 
@@ -2618,6 +2625,7 @@ export const CreatePaymentLinkCheckoutBody = zod.object({
   "customerName": zod.string().min(createPaymentLinkCheckoutBodyCustomerNameMin).max(createPaymentLinkCheckoutBodyCustomerNameMax),
   "customerEmail": zod.email(),
   "customerPhone": zod.string().max(createPaymentLinkCheckoutBodyCustomerPhoneMax).optional(),
+  "customerCountry": zod.string().min(createPaymentLinkCheckoutBodyCustomerCountryMin).max(createPaymentLinkCheckoutBodyCustomerCountryMax).optional(),
   "shippingAddress": zod.string().min(createPaymentLinkCheckoutBodyShippingAddressMin).max(createPaymentLinkCheckoutBodyShippingAddressMax),
   "paymentCurrency": zod.string().min(createPaymentLinkCheckoutBodyPaymentCurrencyMin).max(createPaymentLinkCheckoutBodyPaymentCurrencyMax).optional(),
   "marketingConsent": zod.boolean().optional(),
