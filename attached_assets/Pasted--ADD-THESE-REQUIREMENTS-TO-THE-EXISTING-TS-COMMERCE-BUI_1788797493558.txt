@@ -1,0 +1,539 @@
+## ADD THESE REQUIREMENTS TO THE EXISTING TS COMMERCE BUILD
+
+### 1. FLUTTERWAVE BANK-TRANSFER VIRTUAL ACCOUNT — MAKE THIS EXPLICIT
+
+When a customer selects **Bank Transfer** at checkout, TS Pay must use the **actual bank/virtual account dynamically generated and returned by Flutterwave for that specific payment**, whenever Flutterwave provides this capability.
+
+The customer must see the actual provider-returned:
+
+* Bank Name
+* Account Name
+* Account Number
+* Exact Amount
+* Payment Reference
+* Expiration time, if provided
+
+The customer sends the money to that **actual Flutterwave-generated account number**.
+
+The following are **NOT bank account numbers**:
+
+* TS Store Code
+* TS Customer Code
+* Merchant Admin Payment Code
+* Global TS Admin Code
+* TS Pay transaction ID
+
+Those codes are only identifiers used for routing, attribution and reconciliation.
+
+Example flow:
+
+**Customer → TS Checkout → TS Pay → Flutterwave-generated virtual account → Customer's bank → Flutterwave → TS Pay verification → Merchant ledger**
+
+Never:
+
+* Hard-code a universal bank account
+* Invent an account number
+* Use a TS Code as a bank account
+* Reuse another customer's virtual account incorrectly
+* Credit an order from a customer screenshot
+* Mark payment successful from frontend confirmation alone
+
+Store the provider-returned virtual-account/payment destination against the specific payment session and order.
+
+Before crediting the merchant, verify:
+
+* Provider transaction
+* Provider status
+* Amount
+* Currency
+* Payment reference
+* Order
+* Merchant/store
+* Customer
+* Payment session
+* Duplicate status
+* Refund/dispute status where applicable
+
+Protect against duplicate transfers, duplicate webhooks, replay attacks, expired virtual accounts and race conditions.
+
+For merchant-to-TS Commerce payments, use the same principle: the merchant must receive the **actual legitimate payment destination supplied by the configured payment/banking rail**. The Merchant Admin Payment Code is only an identifier.
+
+---
+
+# 2. MERCHANT REFERRAL PROGRAM
+
+Add a referral system for merchants.
+
+### Referral eligibility
+
+After a merchant has **successfully paid their $30 monthly TS Commerce subscription**, the system generates a unique referral code for that merchant.
+
+The referral code is valid for that applicable paid subscription month.
+
+At the beginning of the merchant's next successfully paid subscription period, generate/activate a new referral code for that period.
+
+Do not allow an expired referral code to remain valid indefinitely.
+
+### Referral reward
+
+If a merchant refers a new merchant using their valid referral code, and the referred merchant:
+
+1. Creates a legitimate merchant account
+2. Uses the referral code during the permitted referral period
+3. Completes any required verification
+4. Successfully pays their first $30 subscription
+5. Has that payment verified by TS Pay
+
+then the referring merchant receives:
+
+**30% off their next $30 subscription**
+
+30% of $30 = **$9 discount**.
+
+Therefore:
+
+**Next subscription = $30 − $9 = $21**
+
+The $9 reward is a **subscription discount**, not withdrawable cash.
+
+---
+
+# 3. IMPORTANT — PAYMENT MUST BE VERIFIED
+
+Do NOT award the referral reward merely because someone:
+
+* Clicked a referral link
+* Entered a referral code
+* Signed up
+* Started checkout
+* Uploaded a payment screenshot
+* Claimed they paid
+* Has a pending payment
+* Has an unverified webhook
+
+The reward becomes earned only after TS Pay has independently verified the referred merchant's qualifying first subscription payment.
+
+---
+
+# 4. REFERRAL ATTRIBUTION
+
+When a referral is used, permanently record:
+
+* Referrer merchant ID
+* Referred merchant ID
+* Referral code
+* Referral-code period
+* Referral creation time
+* Referral usage time
+* Qualifying payment ID
+* Qualifying payment amount
+* Qualifying payment currency
+* Payment verification status
+* Reward amount
+* Reward status
+* Reward period
+* Discount application
+* Created timestamp
+* Updated timestamp
+
+Referral attribution must be server-side and auditable.
+
+The frontend must never determine whether a referral qualifies.
+
+---
+
+# 5. REFERRAL CODE SECURITY
+
+Referral codes must:
+
+* Be generated server-side
+* Use cryptographically secure randomness
+* Be unique
+* Be difficult to guess
+* Have an explicit expiration
+* Be linked to a specific merchant
+* Be linked to a specific referral period
+* Have database uniqueness constraints
+* Be validated server-side
+* Be rate-limited
+
+Never allow merchants to manually create arbitrary referral codes that impersonate another merchant.
+
+---
+
+# 6. PREVENT SELF-REFERRAL
+
+A merchant must not be able to refer themselves.
+
+Protect against obvious and indirect self-referral methods, including:
+
+* Same account
+* Same merchant
+* Multiple stores under the same account
+* Multiple email addresses
+* Recreated accounts
+* Alias email addresses
+* Reusing an existing merchant identity
+* Deliberate account deletion and recreation
+* Payment/account ownership relationships
+* Other suspicious account-linkage signals
+
+Do not rely on a single signal such as IP address because legitimate users can share networks.
+
+Use multiple signals and risk scoring.
+
+Suspicious cases should be flagged for review rather than automatically banning legitimate users solely because of one matching signal.
+
+---
+
+# 7. PREVENT REFERRAL ABUSE
+
+The system must prevent:
+
+### Duplicate rewards
+
+One referred merchant's qualifying first subscription payment can generate **only one referral reward**.
+
+A merchant must not generate repeated rewards by:
+
+* Re-paying
+* Renewing
+* Cancelling and resubscribing
+* Deleting/recreating accounts
+* Creating multiple stores
+* Reusing a referral code
+* Triggering duplicate webhooks
+* Exploiting payment retries
+
+Use immutable referral attribution and unique constraints.
+
+---
+
+# 8. REFERRAL CODE EXPIRATION
+
+A referral code must expire according to its defined monthly referral period.
+
+For example:
+
+Merchant's qualifying subscription period:
+
+**September**
+
+Referral code:
+
+**TS-REF-XXXXXX**
+
+The code is valid only during its assigned referral period.
+
+After expiration:
+
+* It cannot create new qualifying referrals.
+* Existing legitimately attributed referrals should remain attached to the original code/period.
+* Do not retroactively invalidate a referral merely because the code later expired.
+
+Do not use the frontend device clock to determine expiry.
+
+The backend/server must determine:
+
+* Current time
+* Referral period
+* Code expiration
+* Eligibility
+
+Handle timezone boundaries consistently.
+
+---
+
+# 9. NEW MONTH = NEW REFERRAL PERIOD
+
+When the merchant successfully enters a new paid subscription period:
+
+* Generate a new referral code/period.
+* Expire the previous code according to its defined period.
+* Do not accidentally create multiple active codes for the same merchant and period.
+* Preserve all historical referral records.
+
+The historical code must remain available for audit purposes even after expiration.
+
+---
+
+# 10. REFERRAL REWARD + SUBSCRIPTION LEDGER
+
+The $9 referral benefit must be represented clearly in the subscription ledger.
+
+Example:
+
+Subscription price:
+
+**$30**
+
+Referral discount:
+
+**$9**
+
+Amount due:
+
+**$21**
+
+Record separately:
+
+* Subscription gross price: $30
+* Referral discount: $9
+* Amount payable: $21
+* Referral reward ID
+* Referrer
+* Referred merchant
+* Qualifying payment
+* Referral period
+
+Never simply change the subscription price to $21 without recording why.
+
+---
+
+# 11. DO NOT CREATE FAKE CASH BALANCES
+
+The referral reward is a **discount against the next subscription**, not money deposited into the merchant's withdrawable TS Pay balance.
+
+The merchant cannot:
+
+* Withdraw the $9
+* Transfer the $9
+* Convert the $9 to cash
+* Use the $9 as a general payment balance
+* Apply the $9 to unrelated fees
+
+The reward must remain restricted to the qualifying subscription discount.
+
+---
+
+# 12. OUTSTANDING SUBSCRIPTION BALANCES
+
+Integrate the referral discount safely with the existing subscription collection logic.
+
+Existing rule:
+
+If the merchant owes $30 but only has $12 available:
+
+* Deduct $12
+* Carry the remaining $18 forward
+
+With a valid $9 referral discount:
+
+The subscription obligation should first be calculated correctly.
+
+Example:
+
+$30 subscription
+− $9 referral discount
+= **$21 payable**
+
+If only $12 is available:
+
+* Deduct $12
+* Remaining subscription obligation = $9
+
+Do not accidentally:
+
+* Deduct $30
+* Then separately credit $9
+* Create a $9 withdrawable balance
+* Apply the discount twice
+* Apply the same referral reward to multiple months
+
+The subscription ledger must make the calculation auditable.
+
+---
+
+# 13. REFUNDS AND CHARGEBACKS
+
+A referral reward is not considered permanently earned until the qualifying payment has passed the platform's applicable payment/refund/chargeback policy.
+
+If the referred merchant's qualifying payment is:
+
+* Refunded
+* Reversed
+* Charged back
+* Determined fraudulent
+* Otherwise invalidated
+
+then the system must prevent an unearned referral benefit from remaining incorrectly granted.
+
+If the $9 discount has already been applied, handle reversal/recovery through a controlled ledger adjustment rather than silently rewriting history.
+
+Never delete the original referral record.
+
+---
+
+# 14. REFERRAL FRAUD MONITORING
+
+Create referral-abuse monitoring for suspicious patterns such as:
+
+* One person creating many merchant accounts
+* Multiple accounts repeatedly referring each other
+* Large numbers of referrals from linked accounts
+* Repeated payment instruments
+* Suspicious account recreation
+* Unusual signup/payment patterns
+* Referral codes being distributed through prohibited or suspicious mechanisms
+* Repeated refunds after referral rewards
+* Multiple merchants appearing to be controlled by the same entity
+
+Use risk scoring and human review where appropriate.
+
+Do not automatically punish legitimate merchants based on a single weak signal.
+
+---
+
+# 15. REFERRAL DATABASE INTEGRITY
+
+Use database constraints to prevent:
+
+* Duplicate referral codes
+* Duplicate qualifying referral rewards
+* Multiple rewards for one referred merchant's first qualifying subscription
+* Multiple active codes for the same merchant and referral period
+* Referral attribution being changed after qualification
+* Referral reward being applied twice
+
+Referral qualification and reward application must happen inside safe transactional/idempotent backend logic.
+
+---
+
+# 16. REFERRAL + MULTI-TENANCY
+
+Referral records must be tenant-safe.
+
+A merchant must never be able to:
+
+* View another merchant's referral data
+* Modify another merchant's referral code
+* Claim another merchant's reward
+* Change the referrer
+* Change the referred merchant
+* Modify reward eligibility
+* Manipulate the qualifying payment
+
+Admin access must also be properly scoped and audited.
+
+---
+
+# 17. REFERRAL + PAYMENT VERIFICATION
+
+The referral engine must integrate directly with TS Pay.
+
+The correct flow is:
+
+**Referrer pays subscription**
+
+↓
+
+**TS Pay verifies subscription**
+
+↓
+
+**Referral period becomes eligible**
+
+↓
+
+**Unique referral code generated**
+
+↓
+
+**New merchant uses code**
+
+↓
+
+**New merchant completes signup**
+
+↓
+
+**New merchant pays $30**
+
+↓
+
+**TS Pay verifies payment**
+
+↓
+
+**Referral engine checks eligibility + anti-fraud rules**
+
+↓
+
+**Referral reward becomes earned**
+
+↓
+
+**$9 subscription discount is issued**
+
+↓
+
+**Next eligible subscription = $21**
+
+Every step must be idempotent.
+
+---
+
+# 18. NO FRONTEND TRUST
+
+The frontend must never be trusted to determine:
+
+* Referral ownership
+* Referral expiry
+* Referral eligibility
+* Qualifying payment
+* Reward amount
+* Discount amount
+* Reward status
+* Subscription amount
+
+All of these must be calculated and enforced server-side.
+
+The frontend only displays the authoritative result returned by the backend.
+
+---
+
+# 19. FINAL REFERRAL RULE
+
+The intended business rule is:
+
+**A merchant who has successfully paid their $30 subscription receives a referral code for that paid monthly referral period.**
+
+**If a genuinely new merchant uses that valid code and successfully pays their first $30 subscription, the referring merchant earns a $9 discount on their next $30 subscription.**
+
+**The reward is not cash, cannot be withdrawn, cannot be stacked indefinitely, and cannot be earned repeatedly from the same referred merchant.**
+
+Build the referral system with the same financial integrity, idempotency, auditability, anti-fraud protection and multi-tenant security as TS Pay.
+
+---
+
+# 20. PERMANENT LOOPHOLE CHECK FOR THIS FEATURE
+
+Before considering the referral system complete, actively test:
+
+* Can a merchant refer themselves?
+* Can they use another email to refer themselves?
+* Can they delete and recreate their account?
+* Can they create multiple stores to generate multiple rewards?
+* Can one referred merchant generate multiple rewards?
+* Can duplicate webhooks generate multiple rewards?
+* Can payment retries generate multiple rewards?
+* Can an expired code still be used?
+* Can a referral code be guessed?
+* Can someone modify the referrer ID from the frontend?
+* Can someone modify the $9 discount from the frontend?
+* Can the $9 become withdrawable?
+* Can the $9 be applied twice?
+* Can the $9 be applied to another fee?
+* Can a refund occur after the reward is issued?
+* Can a chargeback leave an invalid reward?
+* Can two subscription periods share the wrong referral code?
+* Can a merchant access another merchant's referral data?
+* Can an admin accidentally apply the reward twice?
+* Can a race condition create two rewards?
+* Can an attacker directly call the referral API without authorization?
+* Can referral attribution be changed after qualification?
+* Can a test/demo payment trigger a real referral reward?
+* Can a suspended/ineligible account continue generating rewards?
+* Can account recreation bypass referral limits?
+
+Fix every discovered loophole before considering the feature complete.
