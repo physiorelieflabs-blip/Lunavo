@@ -116,7 +116,7 @@ export function flutterwaveTransactionId(value: FlutterwaveTransaction): string 
 
 export function flutterwaveStatus(value: FlutterwaveTransaction): "paid" | "failed" | "pending" {
   const status = String(value.status ?? "").toLowerCase();
-  if (["successful", "success", "completed", "paid"].includes(status)) return "paid";
+  if (["successful", "success", "completed", "paid", "succeeded"].includes(status)) return "paid";
   if (["failed", "cancelled", "canceled", "reversed", "declined"].includes(status)) return "failed";
   return "pending";
 }
