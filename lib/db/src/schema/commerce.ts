@@ -220,6 +220,10 @@ export const subscriptionsTable = pgTable(
     status: text("status").notNull().default("pending"),
     paymentMethod: text("payment_method"),
     paymentMethodSelectedAt: timestamp("payment_method_selected_at", { withTimezone: true }),
+    dashboardWindowBillingPeriod: text("dashboard_window_billing_period"),
+    dashboardAccessStartedAt: timestamp("dashboard_access_started_at", { withTimezone: true }),
+    dashboardAccessExpiresAt: timestamp("dashboard_access_expires_at", { withTimezone: true }),
+    dashboardWindowUsed: boolean("dashboard_window_used").notNull().default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
