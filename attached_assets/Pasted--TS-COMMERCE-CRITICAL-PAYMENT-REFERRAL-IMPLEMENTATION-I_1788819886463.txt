@@ -1,0 +1,1134 @@
+# TS COMMERCE — CRITICAL PAYMENT + REFERRAL IMPLEMENTATION INSTRUCTIONS
+
+## READ THIS FIRST
+
+The most important instruction in this document is:
+
+**DO NOT BUILD A FAKE PAYMENT SYSTEM.**
+
+Do not simply create a checkout page saying "Payment successful."
+
+Do not create fake bank accounts.
+
+Do not create fake balances.
+
+Do not assume that a TS Commerce code is a bank account.
+
+Do not assume that Flutterwave sends money directly into a TS Commerce database.
+
+You must understand the difference between:
+
+1. A real payment destination
+2. A payment provider
+3. TS Pay
+4. A TS Commerce internal ledger
+5. A merchant balance
+6. A bank/settlement account
+7. An identifier/code
+
+Build them as separate concepts.
+
+---
+
+# PART A — UNDERSTAND HOW MONEY ACTUALLY MOVES
+
+## 1. TS PAY IS THE SOFTWARE CONTROL LAYER
+
+TS Pay is TS Commerce's first-party payment operating layer.
+
+It is responsible for:
+
+* Creating payment sessions
+* Creating orders
+* Connecting to payment providers
+* Tracking payment status
+* Verifying payments
+* Recording transactions
+* Calculating TS Commerce fees
+* Recording merchant earnings
+* Recording refunds
+* Recording disputes
+* Recording settlements
+* Maintaining the internal financial ledger
+* Handling payout requests
+* Reconciling provider transactions
+
+However:
+
+**TS Pay does NOT magically create a real bank account.**
+
+A real bank account or virtual account must come from an actual banking/payment infrastructure provider.
+
+For the first implementation, that provider is Flutterwave.
+
+---
+
+# PART B — THE ACTUAL CUSTOMER PAYMENT FLOW
+
+Suppose a customer is buying a product for:
+
+**₦50,000**
+
+The customer reaches the merchant's TS Commerce storefront.
+
+They click:
+
+**Buy Now**
+
+Then:
+
+**Checkout**
+
+Then:
+
+**Payment**
+
+TS Commerce creates:
+
+* Order ID
+* TS Pay payment session
+* Unique payment reference
+* Customer ID
+* Merchant ID
+* Store ID
+* Amount
+* Currency
+
+For example:
+
+Order:
+
+`TS-ORDER-12345`
+
+Payment reference:
+
+`TS-PAY-98765`
+
+These identifiers are created by TS Commerce.
+
+They are NOT bank accounts.
+
+---
+
+# PART C — CUSTOMER CHOOSES BANK TRANSFER
+
+Suppose the customer chooses:
+
+**Bank Transfer**
+
+At this point, do NOT tell the customer to transfer money to:
+
+`TS-STORE-123`
+
+or:
+
+`TS-CUST-123`
+
+or:
+
+`TS-PAY-123`
+
+Those are not bank accounts.
+
+Instead:
+
+TS Pay asks the configured payment provider, currently Flutterwave, to create/provide the appropriate bank-transfer payment destination.
+
+If the Flutterwave payment flow returns a dynamically generated virtual account, Flutterwave returns the actual account information.
+
+For example:
+
+**Bank Name:** Example Bank
+**Account Name:** Flutterwave / Provider-generated name
+**Account Number:** 1234567890
+**Amount:** ₦50,000
+**Reference:** TS-PAY-98765
+**Expires:** 30 minutes
+
+THESE VALUES MUST COME FROM THE ACTUAL PROVIDER RESPONSE.
+
+Do not invent them.
+
+Do not hard-code them.
+
+Do not create fake account numbers in the database.
+
+Do not assume every Flutterwave transaction has the same account number.
+
+Do not assume every payment method/country/currency has the same behavior.
+
+---
+
+# PART D — WHAT THE CUSTOMER ACTUALLY DOES
+
+The customer's screen should clearly say something similar to:
+
+**Bank Transfer**
+
+Transfer exactly:
+
+**₦50,000**
+
+To:
+
+**Bank:** [provider-returned bank name]
+
+**Account Name:** [provider-returned account name]
+
+**Account Number:** [provider-returned account number]
+
+**Payment Reference:** [TS Pay reference]
+
+**Expires:** [provider-returned expiration, if available]
+
+Then:
+
+**The customer opens their bank app and transfers ₦50,000 to the actual account number shown above.**
+
+That is where the money actually goes.
+
+The customer does NOT transfer money to the TS Store Code.
+
+The customer does NOT transfer money to the Customer Code.
+
+The customer does NOT transfer money to the TS Pay reference.
+
+Those values only help TS Commerce identify and reconcile the payment.
+
+---
+
+# PART E — WHAT HAPPENS AFTER THE CUSTOMER TRANSFERS
+
+This is extremely important.
+
+The frontend must NOT say:
+
+"Payment successful"
+
+just because the customer clicked a button.
+
+Instead:
+
+Customer transfers money.
+
+↓
+
+Flutterwave/provider receives/detects the transfer.
+
+↓
+
+Flutterwave sends the appropriate event/webhook and/or makes the transaction available for verification.
+
+↓
+
+TS Commerce receives the provider event.
+
+↓
+
+TS Commerce verifies the webhook authenticity.
+
+↓
+
+TS Pay asks Flutterwave to verify/re-query the actual transaction.
+
+↓
+
+TS Pay checks:
+
+* Provider transaction ID
+* Amount
+* Currency
+* Status
+* Payment reference
+* Merchant
+* Store
+* Customer
+* Order
+* Payment session
+* Duplicate status
+* Refund/reversal status where applicable
+
+↓
+
+Only after successful verification:
+
+**TS Pay marks the payment as successful.**
+
+↓
+
+The order becomes paid.
+
+↓
+
+The internal TS Pay ledger records the money.
+
+↓
+
+The merchant's dashboard balance is updated according to the applicable funds-availability/settlement rules.
+
+This is the correct concept.
+
+---
+
+# PART F — DO NOT CONFUSE A LEDGER WITH A BANK ACCOUNT
+
+This is another critical concept.
+
+Suppose the customer pays:
+
+**₦50,000**
+
+Flutterwave may receive/settle the actual funds according to Flutterwave's infrastructure and settlement rules.
+
+TS Commerce then records the verified transaction in its internal TS Pay ledger.
+
+The merchant dashboard may show:
+
+**Available balance: ₦50,000**
+
+or an appropriate available/pending amount depending on settlement rules.
+
+That dashboard number is an **internal accounting representation**.
+
+It does NOT mean TS Commerce has magically created a bank account containing ₦50,000.
+
+The application ledger and actual regulated funds/settlement infrastructure must remain separate concepts.
+
+Never tell the user that a database balance itself is a bank account.
+
+---
+
+# PART G — FEES
+
+Suppose:
+
+Customer pays:
+
+**₦50,000**
+
+TS Commerce must separately calculate and record:
+
+* Gross transaction: ₦50,000
+* Flutterwave/provider fee: actual provider fee
+* TS Commerce transaction fee: 1%
+* Merchant net
+* Settlement amount/currency
+* Any applicable tax/shipping/discount
+* Any FX information
+
+Do NOT simply change ₦50,000 to a random smaller number.
+
+Every deduction must have a reason and ledger entry.
+
+For example:
+
+Gross:
+
+₦50,000
+
+TS Commerce 1%:
+
+₦500
+
+Provider fee:
+
+[actual provider-calculated fee]
+
+Merchant net:
+
+[calculated from actual verified values]
+
+The exact provider fee must not be invented.
+
+---
+
+# PART H — PAYMENT STATUS
+
+Create explicit payment states.
+
+At minimum:
+
+* Created
+* Awaiting payment
+* Pending
+* Processing
+* Provider confirmed
+* Successful
+* Failed
+* Expired
+* Cancelled
+* Refunded
+* Partially refunded
+* Disputed
+* Charged back
+* Reversed
+* Reconciliation required
+
+Do not use one generic "paid" field.
+
+---
+
+# PART I — FLUTTERWAVE WEBHOOKS
+
+Never trust a webhook blindly.
+
+When Flutterwave sends a webhook:
+
+1. Receive it.
+2. Verify its authenticity/signature.
+3. Check the event ID.
+4. Check whether the event has already been processed.
+5. Re-query/verify the transaction with Flutterwave.
+6. Compare the verified transaction against the TS Pay payment session.
+7. Check amount.
+8. Check currency.
+9. Check reference.
+10. Check merchant.
+11. Check order.
+12. Check customer.
+13. Check whether the transaction was already credited.
+14. Commit the ledger update transactionally.
+
+If something does not match:
+
+**DO NOT CREDIT THE MERCHANT.**
+
+Create a reconciliation exception.
+
+---
+
+# PART J — DUPLICATE PAYMENT PROTECTION
+
+Imagine Flutterwave sends the same webhook three times.
+
+The merchant must NOT receive three credits.
+
+Example:
+
+Customer pays:
+
+₦50,000
+
+Webhook arrives:
+
+Event 1 → credit ₦50,000
+
+Event 2 → do nothing
+
+Event 3 → do nothing
+
+The final merchant ledger must contain only one valid credit.
+
+Use:
+
+* Provider transaction ID
+* Event ID
+* Payment reference
+* Idempotency key
+* Unique database constraints
+* Database transactions
+* Appropriate locks/version checks
+
+---
+
+# PART K — FRONTEND PAYMENT BUTTONS MUST NOT CONTROL MONEY
+
+A frontend button saying:
+
+**"I've paid"**
+
+does NOT make the payment successful.
+
+A customer saying:
+
+"I transferred the money"
+
+does NOT make it successful.
+
+A screenshot does NOT make it successful.
+
+A merchant saying:
+
+"I received it"
+
+does NOT make it successful.
+
+Only verified payment-provider/banking evidence and TS Pay backend processing can make the payment successful.
+
+---
+
+# PART L — TS CODES
+
+TS Commerce uses codes for identification.
+
+Example:
+
+### Store Code
+
+`TS-STORE-847291`
+
+Identifies a store.
+
+### Customer Code
+
+`TS-CUST-482917`
+
+Identifies a customer.
+
+### Merchant Admin Payment Code
+
+`TS-MA-739284`
+
+Identifies the merchant's payment/accounting relationship.
+
+### Global TS Admin Code
+
+`TS-ADMIN-928374`
+
+Identifies TS Commerce's administrative payment/accounting relationship.
+
+These are NOT:
+
+* Bank accounts
+* Virtual accounts
+* Wallet addresses
+* Payment destinations
+* Passwords
+* Payment credentials
+
+Never tell customers to transfer money to one of these codes.
+
+---
+
+# PART M — MERCHANT PAYING TS COMMERCE
+
+When a merchant owes TS Commerce money, for example:
+
+**$30 subscription**
+
+the merchant needs an actual payment method.
+
+If bank transfer is offered:
+
+TS Pay must obtain the actual bank/virtual account/payment destination from the configured payment infrastructure.
+
+For example:
+
+**Bank:** provider-returned bank
+
+**Account:** provider-returned account
+
+**Amount:** actual amount due
+
+**Reference:** merchant/subscription payment reference
+
+The merchant transfers money to the actual payment destination.
+
+The reference identifies the obligation.
+
+The reference itself is NOT the bank account.
+
+---
+
+# PART N — MERCHANT SUBSCRIPTION
+
+Merchant subscription:
+
+**$30/month**
+
+If the merchant has sufficient eligible earnings:
+
+Deduct:
+
+**$30**
+
+If the merchant has only $12 available:
+
+Deduct:
+
+**$12**
+
+Remaining subscription obligation:
+
+**$18**
+
+If the merchant later earns $10:
+
+Deduct:
+
+**$10**
+
+Remaining:
+
+**$8**
+
+If the merchant later earns $50:
+
+Deduct:
+
+**$8**
+
+Remaining merchant funds:
+
+**$42**
+
+Never over-deduct.
+
+Never make the balance negative merely because the subscription is due.
+
+---
+
+# PART O — REFERRAL SYSTEM
+
+Now add the referral program.
+
+This is a merchant referral program.
+
+The exact rule is:
+
+**A merchant who successfully pays their $30 monthly subscription receives a referral code for that paid referral period.**
+
+If they refer a genuinely new merchant and that new merchant successfully pays their first $30 subscription:
+
+**The referring merchant gets 30% off their next $30 subscription.**
+
+30% of $30:
+
+**$9**
+
+Therefore:
+
+**Next subscription = $21**
+
+---
+
+# PART P — REFERRAL CODE GENERATION
+
+After a merchant's $30 subscription has been successfully verified:
+
+Generate a unique referral code.
+
+Example:
+
+`TS-REF-8K4M92XQ`
+
+The code must be:
+
+* Unique
+* Random
+* Cryptographically secure
+* Server-generated
+* Associated with the merchant
+* Associated with a subscription period
+* Associated with an expiration time
+
+The referral code is valid only during its assigned monthly referral period.
+
+Do not allow expired codes to work.
+
+---
+
+# PART Q — NEW MONTH
+
+When the merchant successfully begins their next paid subscription period:
+
+Create a new referral period/code.
+
+Preserve the old referral record for historical purposes.
+
+Do not destroy old referral data.
+
+Do not allow two conflicting active referral codes for the same merchant and period.
+
+---
+
+# PART R — REFERRAL EXAMPLE
+
+Merchant A pays:
+
+**$30**
+
+TS Commerce generates:
+
+`TS-REF-8K4M92XQ`
+
+Merchant A shares it.
+
+Merchant B signs up using that referral code.
+
+Merchant B pays:
+
+**$30**
+
+TS Pay verifies Merchant B's payment.
+
+The referral engine verifies:
+
+* Merchant B is genuinely eligible
+* Code was valid when used
+* Merchant B is new
+* Merchant B has not previously qualified
+* Merchant A is eligible
+* Payment is genuine
+* Payment is not duplicated
+* No fraud rule blocks the reward
+
+Then:
+
+**Merchant A earns a $9 subscription discount.**
+
+At Merchant A's next eligible subscription:
+
+Original:
+
+**$30**
+
+Referral discount:
+
+**−$9**
+
+Amount due:
+
+**$21**
+
+---
+
+# PART S — VERY IMPORTANT: THE REFERRAL IS NOT CASH
+
+The $9 is NOT deposited into Merchant A's withdrawable balance.
+
+It cannot be:
+
+* Withdrawn
+* Transferred
+* Converted into cash
+* Used to pay unrelated fees
+* Sent to another merchant
+
+It is a restricted:
+
+**subscription discount entitlement**
+
+---
+
+# PART T — REFERRAL PAYMENT VERIFICATION
+
+Do NOT give Merchant A the $9 merely because Merchant B:
+
+* Clicked the link
+* Entered the code
+* Created an account
+* Started checkout
+* Added a card
+* Started a bank transfer
+* Uploaded a screenshot
+
+The reward is triggered only after Merchant B's qualifying $30 subscription payment has been successfully verified by TS Pay.
+
+---
+
+# PART U — SELF-REFERRAL PROTECTION
+
+Merchant A must not create Merchant B simply to receive the $9 reward.
+
+Protect against:
+
+* Same account
+* Same merchant identity
+* Multiple emails
+* Recreated accounts
+* Multiple stores
+* Circular referrals
+* Fake accounts
+* Payment-account relationships
+* Suspicious device/account patterns
+* Repeated account creation
+
+Do not use IP address alone as proof of fraud.
+
+Multiple legitimate people can share an IP address.
+
+Use multiple legitimate risk signals.
+
+Suspicious cases should be flagged for review.
+
+---
+
+# PART V — ONE REWARD PER NEW MERCHANT
+
+Merchant B's first qualifying subscription can generate only:
+
+**ONE $9 referral reward**
+
+for Merchant A.
+
+Do not allow:
+
+Payment webhook #1 → $9
+
+Payment webhook #2 → another $9
+
+Payment retry → another $9
+
+Page refresh → another $9
+
+API replay → another $9
+
+Account recreation → another $9
+
+Use database uniqueness and idempotency.
+
+---
+
+# PART W — REFUNDS AND CHARGEBACKS
+
+Suppose Merchant B pays $30.
+
+Merchant A receives a $9 referral entitlement.
+
+Later Merchant B's payment is refunded or charged back.
+
+TS Commerce must check whether the referral reward is still valid.
+
+If the reward was not legitimately earned anymore:
+
+* Mark the reward appropriately
+* Reverse/recover it where appropriate
+* Do not erase history
+* Create a compensating ledger/discount record
+
+Do not simply edit the original record.
+
+---
+
+# PART X — REFERRAL EXPIRATION
+
+The referral code expires according to the assigned monthly referral period.
+
+The frontend must NOT determine expiration.
+
+The backend determines:
+
+* Current server time
+* Referral period
+* Code status
+* Expiration
+* Eligibility
+
+An expired code cannot generate a new qualifying referral.
+
+However, a referral that was legitimately attributed while the code was valid should remain linked to its original referral record.
+
+---
+
+# PART Y — REFERRAL DATABASE STRUCTURE
+
+Create appropriate records for:
+
+### ReferralCode
+
+* id
+* merchant_id
+* code
+* subscription_period_id
+* created_at
+* expires_at
+* status
+
+### ReferralAttribution
+
+* id
+* referral_code_id
+* referrer_merchant_id
+* referred_merchant_id
+* created_at
+* qualification_status
+* qualifying_payment_id
+* qualified_at
+
+### ReferralReward
+
+* id
+* attribution_id
+* referrer_merchant_id
+* discount_amount
+* discount_currency
+* subscription_period_id
+* status
+* applied_at
+* reversed_at
+* created_at
+
+Use unique constraints to prevent duplicate qualification/rewards.
+
+---
+
+# PART Z — REFERRAL + SUBSCRIPTION CALCULATION
+
+The system must calculate:
+
+**Subscription price**
+
+minus
+
+**valid referral discount**
+
+equals
+
+**actual amount due**
+
+Example:
+
+$30
+
+− $9
+
+=
+
+$21
+
+Do not:
+
+1. Charge $30
+2. Give $9 as cash
+3. Create a random balance
+4. Call the subscription $21 without recording the discount
+
+The ledger must clearly show:
+
+**$30 gross subscription**
+
+**−$9 referral discount**
+
+**=$21 payable**
+
+---
+
+# PART AA — PAYMENT + REFERRAL SECURITY
+
+The frontend cannot decide:
+
+* Whether a merchant paid
+* Whether a referral code is valid
+* Whether a referral expired
+* Whether someone is a new merchant
+* Whether a referral qualifies
+* Whether a reward exists
+* Whether the reward is $9
+* Whether the subscription is $21
+
+The backend decides all of these.
+
+---
+
+# PART AB — TEST THESE EXACT SCENARIOS
+
+Before declaring the implementation complete, test:
+
+### Test 1 — Normal bank transfer
+
+Customer pays ₦50,000.
+
+Expected:
+
+One verified payment.
+
+One order marked paid.
+
+One ledger credit.
+
+---
+
+### Test 2 — Duplicate webhook
+
+Same provider event arrives 5 times.
+
+Expected:
+
+One ledger credit.
+
+---
+
+### Test 3 — Fake frontend success
+
+Frontend sends:
+
+`payment_status=success`
+
+but provider says pending.
+
+Expected:
+
+Payment remains pending.
+
+---
+
+### Test 4 — Wrong amount
+
+Order:
+
+₦50,000
+
+Provider transaction:
+
+₦40,000
+
+Expected:
+
+Do NOT mark the order as fully paid.
+
+---
+
+### Test 5 — Wrong merchant
+
+Payment belongs to Merchant A.
+
+Attacker attempts to credit Merchant B.
+
+Expected:
+
+Rejected.
+
+---
+
+### Test 6 — Expired virtual account
+
+Provider indicates payment destination expired.
+
+Expected:
+
+Do not incorrectly mark a new payment as successful.
+
+---
+
+### Test 7 — Referral signup
+
+Merchant B enters Merchant A's valid code but does not pay.
+
+Expected:
+
+No $9 reward.
+
+---
+
+### Test 8 — Referral payment
+
+Merchant B pays $30 and payment is verified.
+
+Expected:
+
+Merchant A gets one $9 subscription discount entitlement.
+
+---
+
+### Test 9 — Duplicate referral webhook
+
+Same qualifying payment processed multiple times.
+
+Expected:
+
+Merchant A receives only one $9 reward.
+
+---
+
+### Test 10 — Self-referral
+
+Merchant A creates another account and attempts to refer themselves.
+
+Expected:
+
+Flag/reject according to referral fraud rules.
+
+---
+
+### Test 11 — Referral refund
+
+Merchant B's qualifying payment is refunded.
+
+Expected:
+
+Referral reward is re-evaluated and cannot remain incorrectly earned.
+
+---
+
+### Test 12 — Referral expiry
+
+Merchant tries to use an expired code.
+
+Expected:
+
+Referral code rejected.
+
+---
+
+### Test 13 — Subscription discount
+
+Merchant has a valid $9 reward.
+
+Normal subscription:
+
+$30
+
+Expected charge:
+
+$21
+
+Not $30 + $9.
+
+Not $9 cash.
+
+Not $0 unless another valid rule applies.
+
+---
+
+# FINAL INSTRUCTION TO REPLIT AGENT
+
+Do not interpret this as a request to merely create UI.
+
+Build the underlying business logic.
+
+For every payment feature, ask:
+
+**Where does the real money go?**
+
+**Who provides the real payment destination?**
+
+**How does TS Pay know the payment actually happened?**
+
+**How does the backend verify it?**
+
+**How is it recorded in the ledger?**
+
+**How does the merchant balance change?**
+
+**What happens if the payment is duplicated?**
+
+**What happens if the payment is reversed?**
+
+**What happens if the provider is unavailable?**
+
+For every referral feature, ask:
+
+**Who owns the referral code?**
+
+**When does it become valid?**
+
+**When does it expire?**
+
+**Who actually qualifies?**
+
+**Has the referred merchant genuinely paid?**
+
+**Can the same payment create two rewards?**
+
+**Can someone refer themselves?**
+
+**Can the $9 become cash accidentally?**
+
+**Can a refund make the reward invalid?**
+
+If the answer to any of these is unclear, do not guess.
+
+Inspect the existing architecture and implement the safest correct design.
+
+Do not create fake financial behavior merely to make the UI appear functional.
