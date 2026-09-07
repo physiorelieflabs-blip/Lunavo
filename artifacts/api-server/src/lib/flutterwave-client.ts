@@ -93,6 +93,14 @@ async function flutterwaveRequest<T>(
   return payload as T;
 }
 
+export const FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES = ["NGN", "GHS"] as const;
+
+export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean {
+  return FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES.includes(
+    currency.trim().toUpperCase() as (typeof FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES)[number],
+  );
+}
+
 export function isFlutterwaveConfigured(): boolean {
   return Boolean(process.env.FLUTTERWAVE_SECRET_KEY?.trim());
 }
