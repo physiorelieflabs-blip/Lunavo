@@ -13,6 +13,8 @@ import {
   paymentRecordsTable,
   paymentsTable,
   subscriptionsTable,
+  autoDsSettingsTable,
+  fulfillmentJobsTable,
 } from "@workspace/db";
 import {
   calculateMerchantNetMinor,
@@ -296,6 +298,29 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
+    if (order.supplierProductId) {
+      const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
+      if (autoDs?.enabled) {
+        await tx.insert(fulfillmentJobsTable).values({
+          merchantId: merchant.id,
+          orderId: order.id,
+          supplierProductId: order.supplierProductId,
+          mode: autoDs.mode,
+          status: autoDs.requireApprovalBeforeExternalOrder ? "ready" : "ready",
+          supplierCheckoutUrl: null,
+          customerSnapshot: {
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone,
+            shippingAddress: order.shippingAddress,
+          },
+          costMinor: null,
+          currency: order.currency,
+          attempts: 0,
+          idempotencyKey: `autods:order:${order.id}`,
+        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+      }
+    }
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: order.id, paymentIntentId: currentIntent.id, entityType: "payment_intent", fromStatus: currentIntent.status, toStatus: "successful", actorId: "flutterwave_webhook", note: "Provider-verified Flutterwave payment" });
     await tx.insert(activityTable).values({ merchantId: merchant.id, type: "payment_verified", title: "Payment verified", description: "Flutterwave payment was re-queried and verified server-side. Gross sale, actual provider fee (when returned), and TS Commerce 1% fee were recorded separately.", amount: (intent.amountMinor / 100).toFixed(2), currency, tone: "positive" });
     return "successful" as const;
