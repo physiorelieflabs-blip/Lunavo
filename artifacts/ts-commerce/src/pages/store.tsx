@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useUser } from '@clerk/react';
-import { ExternalLink, Eye, EyeOff, Palette, Plus, Store as StoreIcon, Trash2 } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, Palette, Plus, Sparkles, Store as StoreIcon, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
+  customFetch,
   getGetDashboardOverviewQueryKey,
   getGetCheckoutSettingsQueryKey,
   useGetLinkedBankAccount,
@@ -46,6 +47,16 @@ export default function StorePage() {
   const [sections, setSections] = useState<StorefrontSection[]>([]);
   const [published, setPublished] = useState(true);
   const [message, setMessage] = useState('');
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderBusy, setBuilderBusy] = useState(false);
+  const [builderBusinessName, setBuilderBusinessName] = useState('');
+  const [builderNiche, setBuilderNiche] = useState('');
+  const [builderAudience, setBuilderAudience] = useState('');
+  const [builderLocation, setBuilderLocation] = useState('');
+  const [builderTone, setBuilderTone] = useState('Modern, trustworthy, premium');
+  const [builderGoal, setBuilderGoal] = useState('');
+  const [builderColors, setBuilderColors] = useState('');
+  const [builderModel, setBuilderModel] = useState('');
 
   useEffect(() => {
     if (!overview.data) return;
@@ -137,6 +148,65 @@ export default function StorePage() {
 
       {message && <div className="mt-7"><Notice tone={message.includes('could not') ? 'danger' : 'success'} title={message.includes('could not') ? 'Store not saved' : 'Store saved'}>{message}</Notice></div>}
       <div className="mt-7"><Notice tone="warning" title="Public checkout is provider-only">Customers pay through Flutterwave-generated payment sessions. Linked bank accounts are private withdrawal destinations and are never published on your storefront.</Notice></div>
+
+       <section className="mt-7 overflow-hidden rounded-2xl border border-[#263b4a] bg-[#182333] text-[#f8f3e8] shadow-[0_20px_55px_rgba(24,35,51,.16)]">
+        <div className="flex flex-col gap-5 p-6 md:p-8 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[.18em] text-[#d6aa46]"><Sparkles className="h-4 w-4" /> AI Store Builder</div>
+            <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em] md:text-3xl">Build the first version from a few details.</h2>
+            <p className="mt-3 text-sm leading-6 text-[#b8c2cc]">Describe your business, customers, market, visual direction, and goal. The AI architect will generate a polished storefront structure for review. It stays a draft until you save/publish it.</p>
+          </div>
+          <Button onClick={() => setBuilderOpen((value) => !value)} className="shrink-0 bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]">{builderOpen ? 'Close builder' : 'Build my store'} <Sparkles className="h-4 w-4" /></Button>
+        </div>
+        {builderOpen && <div className="border-t border-[#405162] bg-[#213140] p-6 md:p-8">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-bold">Business name<input value={builderBusinessName} onChange={(e) => setBuilderBusinessName(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. Ade’s Studio" /></label>
+            <label className="text-sm font-bold">What do you sell?<input value={builderNiche} onChange={(e) => setBuilderNiche(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. premium handmade bags" /></label>
+            <label className="text-sm font-bold">Target audience<input value={builderAudience} onChange={(e) => setBuilderAudience(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. young professionals in Lagos" /></label>
+            <label className="text-sm font-bold">Market / location<input value={builderLocation} onChange={(e) => setBuilderLocation(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. Nigeria, selling worldwide" /></label>
+            <label className="text-sm font-bold">Brand tone<input value={builderTone} onChange={(e) => setBuilderTone(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. premium, warm, minimalist" /></label>
+            <label className="text-sm font-bold">Brand colors <span className="font-normal text-[#aeb9c4]">(optional)</span><input value={builderColors} onChange={(e) => setBuilderColors(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. black, cream, gold" /></label>
+            <label className="text-sm font-bold md:col-span-2">Primary business goal<textarea value={builderGoal} onChange={(e) => setBuilderGoal(e.target.value)} rows={3} className="mt-2 w-full rounded-lg border border-[#526376] bg-[#182333] px-3 py-3 text-sm text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="e.g. build trust and increase qualified purchases" /></label>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Button onClick={async () => {
+              if (!builderBusinessName.trim() || !builderNiche.trim() || !builderAudience.trim()) {
+                setMessage('AI Store Builder needs a business name, what you sell, and a target audience.');
+                return;
+              }
+              setBuilderBusy(true); setMessage('');
+              try {
+                const result = await customFetch<{
+                  storeName: string; storeDescription: string; announcement: string; layout: StorefrontTheme['layout'];
+                  accentColor: string; backgroundColor: string; textColor: string; heroHeading: string; heroBody: string;
+                  storyHeading: string; storyBody: string; productsHeading: string;
+                  sections: StorefrontSection[]; model: string; publish: false;
+                }>('/api/ai/store-builder', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ details: {
+                    businessName: builderBusinessName, niche: builderNiche, audience: builderAudience,
+                    location: builderLocation, tone: builderTone, goal: builderGoal, colors: builderColors,
+                  } }),
+                });
+                setStoreName(result.storeName);
+                setStoreDescription(result.storeDescription);
+                setTheme((current) => ({ ...current, accentColor: result.accentColor, backgroundColor: result.backgroundColor, textColor: result.textColor, layout: result.layout, announcement: result.announcement }));
+                setSections(result.sections);
+                setPublished(false);
+                setBuilderModel(result.model);
+                setMessage(`AI storefront draft generated with ${result.model}. Review it below, then save when you are happy.`);
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'AI Store Builder could not complete the draft.');
+              } finally {
+                setBuilderBusy(false);
+              }
+            }} disabled={builderBusy} className="bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]"><Sparkles className="h-4 w-4" />{builderBusy ? 'Architecting…' : 'Generate storefront draft'}</Button>
+            {builderModel && <Badge tone="info">Model: {builderModel}</Badge>}
+            <span className="text-xs text-[#aeb9c4]">Draft only — publishing remains a separate merchant action.</span>
+          </div>
+        </div>}
+       </section>
 
        <form onSubmit={save}>
        <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
