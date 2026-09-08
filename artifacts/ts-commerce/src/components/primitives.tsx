@@ -2,7 +2,7 @@ import { type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { ArrowUpRight, Check, CircleAlert, CircleCheck, LoaderCircle, RefreshCw } from 'lucide-react';
 
 export function Logo({ inverse = false }: { inverse?: boolean }) {
-  return <span className="inline-flex items-center gap-3" data-testid="brand-logo"><span className="relative grid h-9 w-9 place-items-center rounded-[11px] bg-accent shadow-[0_7px_17px_hsl(var(--accent)/.23)]"><span className="absolute h-4 w-[2px] rotate-45 bg-[#f8f3e8]" /><span className="absolute h-4 w-[2px] -rotate-45 bg-[#f8f3e8]" /><span className="absolute h-[2px] w-4 bg-[#f8f3e8]" /></span><span className={`font-mono text-[11px] font-medium leading-4 tracking-[.07em] ${inverse ? 'text-sidebar-foreground' : 'text-foreground'}`}>TS COMMERCE<br />PLATFORM</span></span>;
+  return <span className="inline-flex items-center gap-3" data-testid="brand-logo"><span className="relative grid h-9 w-9 place-items-center rounded-[11px] bg-accent shadow-[0_7px_17px_hsl(var(--accent)/.23)]"><span className="absolute h-4 w-[2px] rotate-45 bg-[#f8f3e8]" /><span className="absolute h-4 w-[2px] -rotate-45 bg-[#f8f3e8]" /><span className="absolute h-[2px] w-4 bg-[#f8f3e8]" /></span><span className={`font-mono text-[11px] font-medium leading-4 tracking-[.07em] ${inverse ? 'text-sidebar-foreground' : 'text-foreground'}`}>LUNAVO<br />COMMERCE PLATFORM</span></span>;
 }
 
 export function Button({ children, variant = 'primary', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }) {
