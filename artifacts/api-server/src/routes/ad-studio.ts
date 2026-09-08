@@ -16,6 +16,7 @@ import { planAd } from "../lib/ad-brain";
 import { renderProductAd } from "../lib/ad-renderer";
 
 const router = Router();
+const generationLocks = new Set<number>();
 
 async function merchantFor(req: Request) {
   const userId = getAuth(req).userId;
@@ -58,6 +59,8 @@ router.post("/ads/generator/generate", async(req,res)=>{
   const merchant=await merchantFor(req); if(!merchant)return fail(res,401,"Authentication required");
   const productId=Number(req.body?.productId);
   if(!Number.isInteger(productId)||productId<1)return fail(res,400,"Choose a real catalog product");
+  if(generationLocks.has(productId)) return fail(res,409,"This product is already being rendered. Please use the existing creative once it finishes.");
+  generationLocks.add(productId);
   const product=(await db.select().from(supplierProductsTable).where(and(eq(supplierProductsTable.id,productId),eq(supplierProductsTable.merchantId,merchant.id))).limit(1))[0];
   if(!product)return fail(res,404,"Product not found");
   if(!product.imageUrl)return fail(res,422,"This product needs a primary image before video generation can start");
@@ -92,6 +95,7 @@ router.post("/ads/generator/generate", async(req,res)=>{
   }
   await db.update(adCampaignsTable).set({status:outputs.some(o=>o.status==="completed")?"completed":"failed",updatedAt:new Date()}).where(eq(adCampaignsTable.id,campaign.id));
   res.status(201).json({campaignId:campaign.id,productId,brain:plan,creatives:outputs});
+  generationLocks.delete(productId);
 });
 
 router.post("/ads/generator/generate-store", async(req,res)=>{
