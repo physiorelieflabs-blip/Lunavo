@@ -37,7 +37,7 @@ router.post("/growth/sourcing/sources", async (req, res, next) => {
     const merchantId = await merchantIdFor(req);
     const url = cleanUrl(req.body?.sourceUrl);
     const [source] = await db.insert(sourcingSourcesTable).values({ merchantId, sourceUrl: url.toString(), canonicalUrl: url.toString(), domain: url.hostname, sourceType: "product_url" }).returning();
-    res.status(201).json({ source });
+    return res.status(201).json({ source });
   } catch (error) { next(error); }
 });
 
@@ -45,7 +45,7 @@ router.get("/growth/sourcing/sources", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
     const sources = await db.select().from(sourcingSourcesTable).where(eq(sourcingSourcesTable.merchantId, merchantId)).orderBy(desc(sourcingSourcesTable.createdAt));
-    res.json({ sources });
+    return res.json({ sources });
   } catch (error) { next(error); }
 });
 
@@ -106,7 +106,7 @@ router.get("/growth/opportunities", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
     const opportunities = await db.select().from(commerceGrowthOpportunitiesTable).where(eq(commerceGrowthOpportunitiesTable.merchantId, merchantId)).orderBy(desc(commerceGrowthOpportunitiesTable.score), desc(commerceGrowthOpportunitiesTable.createdAt));
-    res.json({ opportunities });
+    return res.json({ opportunities });
   } catch (error) { next(error); }
 });
 
@@ -114,7 +114,7 @@ router.get("/growth/store-health", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
     const [latest] = await db.select().from(storeHealthChecksTable).where(eq(storeHealthChecksTable.merchantId, merchantId)).orderBy(desc(storeHealthChecksTable.generatedAt)).limit(1);
-    res.json({ health: latest ?? null });
+    return res.json({ health: latest ?? null });
   } catch (error) { next(error); }
 });
 
