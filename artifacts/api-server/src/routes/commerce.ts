@@ -74,6 +74,8 @@ import {
   tsPayAccountsTable,
   tsPayTransfersTable,
   mediaAssetsTable,
+  merchantStorefrontsTable,
+  mediaAssetStorefrontsTable,
   type Merchant as MerchantRecord,
 } from "@workspace/db";
 import {
@@ -360,6 +362,7 @@ import {
 } from "../lib/ai";
 import { completeGeminiChat } from "../lib/gemini";
 import { generateImage } from "../lib/pollinations";
+import { completeGeminiChat } from "../lib/gemini";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
@@ -3518,6 +3521,226 @@ router.post("/store", async (req, res): Promise<void> => {
       createdAt: updated.registeredAt,
     }),
   );
+});
+
+function storefrontSlug(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70) || "store";
+}
+
+router.get("/stores", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+  const stores = await db.select().from(merchantStorefrontsTable)
+    .where(eq(merchantStorefrontsTable.merchantId, merchant.id))
+    .orderBy(asc(merchantStorefrontsTable.createdAt));
+  res.json(stores.map((store) => ({
+    id: store.id,
+    name: store.name,
+    slug: store.slug,
+    publicKey: store.publicKey,
+    description: store.description,
+    theme: storefrontTheme(store.theme),
+    sections: storefrontSections(store.sections),
+    published: store.published,
+    url: `/store/${store.publicKey}`,
+  })));
+});
+
+router.post("/stores", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+  const name = typeof req.body?.name === "string" ? req.body.name.trim().replace(/\s+/g, " ") : "";
+  if (name.length < 2 || name.length > 80) {
+    res.status(400).json({ error: "Store name must be between 2 and 80 characters." });
+    return;
+  }
+  const slugBase = storefrontSlug(name);
+  const existing = await db.select({ id: merchantStorefrontsTable.id })
+    .from(merchantStorefrontsTable)
+    .where(and(
+      eq(merchantStorefrontsTable.merchantId, merchant.id),
+      eq(merchantStorefrontsTable.slug, slugBase),
+    ))
+    .limit(1);
+  const slug = existing.length ? `${slugBase}-${randomBytes(3).toString("hex")}` : slugBase;
+  const [store] = await db.insert(merchantStorefrontsTable).values({
+    merchantId: merchant.id,
+    name,
+    slug,
+    publicKey: `TS-${randomBytes(12).toString("hex")}`,
+    description: typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 500) : null,
+    createdByClerkUserId: identity.clerkUserId,
+    published: false,
+  }).returning();
+  if (!store) {
+    res.status(500).json({ error: "Store could not be created." });
+    return;
+  }
+  res.status(201).json({
+    id: store.id,
+    name: store.name,
+    slug: store.slug,
+    publicKey: store.publicKey,
+    description: store.description,
+    theme: storefrontTheme(store.theme),
+    sections: storefrontSections(store.sections),
+    published: store.published,
+    url: `/store/${store.publicKey}`,
+  });
+});
+
+router.get("/stores/:id", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const store = (await db.select().from(merchantStorefrontsTable).where(and(
+    eq(merchantStorefrontsTable.id, req.params.id),
+    eq(merchantStorefrontsTable.merchantId, merchant.id),
+  )).limit(1))[0];
+  if (!store) { res.status(404).json({ error: "Store not found." }); return; }
+  res.json({
+    id: store.id, name: store.name, slug: store.slug, publicKey: store.publicKey,
+    description: store.description, theme: storefrontTheme(store.theme),
+    sections: storefrontSections(store.sections), published: store.published,
+    url: `/store/${store.publicKey}`,
+  });
+});
+
+router.post("/media/:id/export", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const mediaId = Number(req.params.id);
+  const rawStoreIds = Array.isArray(req.body?.storefrontIds) ? req.body.storefrontIds : [];
+  const storefrontIds = rawStoreIds.filter((value: unknown): value is string => typeof value === "string").slice(0, 50);
+  if (!Number.isInteger(mediaId) || mediaId < 1 || storefrontIds.length === 0) {
+    res.status(400).json({ error: "Choose at least one destination store." });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
+  const [asset] = await db.select().from(mediaAssetsTable).where(and(eq(mediaAssetsTable.id, mediaId), eq(mediaAssetsTable.merchantId, merchant.id))).limit(1);
+  if (!asset) { res.status(404).json({ error: "Media asset not found." }); return; }
+  const stores = await db.select({ id: merchantStorefrontsTable.id })
+    .from(merchantStorefrontsTable)
+    .where(and(eq(merchantStorefrontsTable.merchantId, merchant.id), inArray(merchantStorefrontsTable.id, storefrontIds)));
+  if (stores.length !== storefrontIds.length) { res.status(403).json({ error: "One or more destination stores are not owned by this merchant." }); return; }
+  await db.insert(mediaAssetStorefrontsTable).values(
+    stores.map((store) => ({
+      mediaAssetId: asset.id,
+      storefrontId: store.id,
+      role: typeof req.body?.role === "string" ? req.body.role.slice(0, 60) : "library",
+      assignedByClerkUserId: identity.clerkUserId,
+    })),
+  ).onConflictDoUpdate({
+    target: [mediaAssetStorefrontsTable.mediaAssetId, mediaAssetStorefrontsTable.storefrontId],
+    set: { assignedAt: new Date(), assignedByClerkUserId: identity.clerkUserId },
+  });
+  res.json({ success: true, exportedTo: stores.map((store) => store.id) });
+});
+
+router.get("/media/:id/download", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const mediaId = Number(req.params.id);
+  const merchant = await getOrCreateMerchant(identity);
+  const [asset] = await db.select().from(mediaAssetsTable).where(and(eq(mediaAssetsTable.id, mediaId), eq(mediaAssetsTable.merchantId, merchant.id))).limit(1);
+  if (!asset) { res.status(404).json({ error: "Media asset not found." }); return; }
+  const encoded = asset.imageData.slice(asset.imageData.indexOf(",") + 1);
+  const buffer = Buffer.from(encoded, "base64");
+  res.setHeader("Content-Type", asset.mimeType);
+  res.setHeader("Content-Length", buffer.length);
+  res.setHeader("Content-Disposition", `attachment; filename="${asset.filename}"`);
+  res.end(buffer);
+});
+
+router.post("/ai/store-builder", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const details = req.body?.details && typeof req.body.details === "object" ? req.body.details as Record<string, unknown> : {};
+  const businessName = typeof details.businessName === "string" ? details.businessName.trim().slice(0, 80) : "";
+  const niche = typeof details.niche === "string" ? details.niche.trim().slice(0, 180) : "";
+  const audience = typeof details.audience === "string" ? details.audience.trim().slice(0, 180) : "";
+  const location = typeof details.location === "string" ? details.location.trim().slice(0, 160) : "";
+  const tone = typeof details.tone === "string" ? details.tone.trim().slice(0, 120) : "";
+  const goal = typeof details.goal === "string" ? details.goal.trim().slice(0, 240) : "";
+  const colors = typeof details.colors === "string" ? details.colors.trim().slice(0, 160) : "";
+  if (businessName.length < 2 || niche.length < 2 || audience.length < 2) {
+    res.status(400).json({ error: "Provide a business name, niche, and target audience." });
+    return;
+  }
+  const products = await db.select({
+    title: supplierProductsTable.title,
+    category: supplierProductsTable.category,
+    description: supplierProductsTable.description,
+  }).from(supplierProductsTable).where(eq(supplierProductsTable.merchantId, merchant.id)).orderBy(desc(supplierProductsTable.importedAt)).limit(30);
+
+  const prompt = [
+    "You are TS Commerce Store Architect.",
+    "Build a production-quality storefront draft for the merchant from the provided business details.",
+    "Return ONLY JSON with keys: storeName, storeDescription, announcement, layout, accentColor, backgroundColor, textColor, heroHeading, heroBody, storyHeading, storyBody, productsHeading, sections.",
+    "layout must be editorial, minimal, or catalog.",
+    "colors should be valid 6-digit hex colors; choose a professional accessible palette if the merchant did not provide exact colors.",
+    "sections must contain 3-5 objects with keys id,type,enabled,heading,body,imageUrl,imageAlt. type must be hero, products, story, or announcement.",
+    "Do not invent product claims, prices, certifications, guarantees, shipping promises, or facts not supplied.",
+    "Use the merchant's real catalog only as context.",
+    `Business name: ${businessName}`,
+    `Niche: ${niche}`,
+    `Target audience: ${audience}`,
+    `Location: ${location || "Not specified"}`,
+    `Brand tone: ${tone || "Modern, trustworthy, premium"}`,
+    `Business goal: ${goal || "Increase qualified storefront conversions"}`,
+    `Color preferences: ${colors || "Choose a polished palette"}`,
+    `Existing catalog: ${JSON.stringify(products)}`,
+  ].join("\n");
+
+  try {
+    const response = await completeGeminiChat([
+      { role: "system", content: "Generate a coherent ecommerce storefront draft. Never fabricate factual claims. Output strict JSON only." },
+      { role: "user", content: prompt },
+    ]);
+    const raw = response.content.trim().replace(/^\`\`\`json\s*/i, "").replace(/\s*\`\`\`$/i, "");
+    const draft = JSON.parse(raw) as Record<string, unknown>;
+    const safeHex = (value: unknown, fallback: string) => /^#[0-9a-f]{6}$/i.test(String(value)) ? String(value) : fallback;
+    const rawSections = Array.isArray(draft.sections) ? draft.sections : [];
+    const sectionTypes = new Set(["hero","products","story","announcement"]);
+    const safeSections = rawSections.slice(0, 5).filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item, index) => ({
+      id: typeof item.id === "string" ? item.id.slice(0, 60) : `section-${index + 1}`,
+      type: sectionTypes.has(String(item.type)) ? String(item.type) : "story",
+      enabled: item.enabled !== false,
+      heading: String(item.heading ?? "").slice(0, 120),
+      body: String(item.body ?? "").slice(0, 500),
+      imageUrl: null,
+      imageAlt: String(item.imageAlt ?? item.heading ?? "").slice(0, 160),
+    }));
+    res.json({
+      storeName: String(draft.storeName ?? businessName).slice(0, 80),
+      storeDescription: String(draft.storeDescription ?? "").slice(0, 500),
+      announcement: String(draft.announcement ?? "").slice(0, 160),
+      layout: ["editorial","minimal","catalog"].includes(String(draft.layout)) ? String(draft.layout) : "editorial",
+      accentColor: safeHex(draft.accentColor, "#a9853d"),
+      backgroundColor: safeHex(draft.backgroundColor, "#f5f1e8"),
+      textColor: safeHex(draft.textColor, "#182333"),
+      heroHeading: String(draft.heroHeading ?? businessName).slice(0, 120),
+      heroBody: String(draft.heroBody ?? "").slice(0, 500),
+      storyHeading: String(draft.storyHeading ?? "Our point of view").slice(0, 120),
+      storyBody: String(draft.storyBody ?? "").slice(0, 500),
+      productsHeading: String(draft.productsHeading ?? "Shop the collection").slice(0, 120),
+      sections: safeSections.length ? safeSections : [
+        { id: "hero", type: "hero", enabled: true, heading: String(draft.heroHeading ?? businessName).slice(0, 120), body: String(draft.heroBody ?? "").slice(0, 500), imageUrl: null, imageAlt: businessName },
+        { id: "products", type: "products", enabled: true, heading: String(draft.productsHeading ?? "Shop the collection").slice(0, 120), body: "", imageUrl: null, imageAlt: "Product collection" },
+      ],
+      model: response.model,
+      publish: false,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "AI Store Builder failed");
+    res.status(503).json({ error: error instanceof Error ? error.message : "AI Store Builder is temporarily unavailable." });
+  }
 });
 
 router.get("/media", async (req, res): Promise<void> => {
