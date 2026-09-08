@@ -11,6 +11,36 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+app.set('trust proxy', 1);
+const rateBuckets = new Map<string, { windowStartedAt: number; count: number }>();
+function rateLimit(prefix: string, limit: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const forwarded = req.headers["x-forwarded-for"];
+    const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0];
+    const ip = (firstForwarded || req.ip || "unknown").trim();
+    const key = prefix + ":" + ip;
+    const now = Date.now();
+    const current = rateBuckets.get(key);
+    if (!current || now - current.windowStartedAt >= windowMs) {
+      rateBuckets.set(key, { windowStartedAt: now, count: 1 });
+      next();
+      return;
+    }
+    current.count += 1;
+    if (current.count > limit) {
+      res.setHeader("Retry-After", String(Math.ceil((windowMs - (now - current.windowStartedAt)) / 1000)));
+      res.status(429).json({ error: "Too many requests. Please try again shortly." });
+      return;
+    }
+    next();
+  };
+}
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [key, value] of rateBuckets) if (value.windowStartedAt < cutoff) rateBuckets.delete(key);
+}, 5 * 60 * 1000).unref();
+
+
 
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -61,6 +91,8 @@ app.use("/api/media", express.json({ limit: "8mb" }));
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 
+app.use("/api/public/checkout", rateLimit("public-checkout", 30, 60_000));
+app.use("/api/ads/generator", rateLimit("ad-generator", 6, 60_000));
 app.use("/api", router);
 
 app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
