@@ -46,6 +46,7 @@ import TsPay from '@/pages/ts-pay';
 import Invite from '@/pages/invite';
 import PasswordReset from '@/pages/password-reset';
 import Leaderboard from '@/pages/leaderboard';
+import Guide from '@/pages/guide';
 import CommerceGrowth from '@/pages/commerce-growth';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId, useGetSubscription } from '@workspace/api-client-react';
@@ -72,6 +73,7 @@ function AuthRoutes() { return <Switch>
     <Route path="/" component={HomeRoute} />
     <Route path="/general-store" component={GeneralStore} />
     <Route path="/leaderboard" component={Leaderboard} />
+        <Route path="/guide" component={() => <Protected><Guide /></Protected>} />
     <Route path="/marketplace" component={Marketplace} />
     <Route path="/growth" component={() => <Protected><CommerceGrowth /></Protected>} />
     <Route path="/auctions/:id" component={Auctions} />
