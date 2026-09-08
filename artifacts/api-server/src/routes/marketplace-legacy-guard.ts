@@ -5,12 +5,16 @@ import { db, merchantsTable, marketplaceListingsTable, marketplaceBillingRecords
 const router = Router();
 const DAYS = 30;
 
+// Legacy client compatibility. The old marketplace endpoint now applies the
+// same shopper eligibility checks as the new authoritative discovery feed.
 router.get("/marketplace/products", async (req, res): Promise<void> => {
   const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 120) : "";
   const category = typeof req.query.category === "string" ? req.query.category.trim().slice(0, 120) : "";
   const currency = typeof req.query.currency === "string" ? req.query.currency.trim().toUpperCase() : "";
+  const cutoff = new Date(Date.now() - DAYS * 86_400_000);
   const filters = [
     eq(merchantsTable.status, "active"),
+    sql`${merchantsTable.publicStoreKey} is not null`,
     eq(supplierProductsTable.status, "active"),
     eq(supplierProductsTable.visibility, "active"),
     eq(marketplaceListingsTable.status, "approved"),
@@ -19,7 +23,14 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
       eq(marketplaceBillingRecordsTable.merchantId, merchantsTable.id),
       eq(marketplaceBillingRecordsTable.kind, "monthly"),
       eq(marketplaceBillingRecordsTable.status, "paid"),
-      gte(marketplaceBillingRecordsTable.paidAt, new Date(Date.now() - DAYS * 86_400_000)),
+      gte(marketplaceBillingRecordsTable.paidAt, cutoff),
+    ))),
+    exists(db.select({ id: marketplaceBillingRecordsTable.id }).from(marketplaceBillingRecordsTable).where(and(
+      eq(marketplaceBillingRecordsTable.merchantId, merchantsTable.id),
+      eq(marketplaceBillingRecordsTable.listingId, marketplaceListingsTable.id),
+      eq(marketplaceBillingRecordsTable.kind, "listing"),
+      eq(marketplaceBillingRecordsTable.status, "paid"),
+      gte(marketplaceBillingRecordsTable.paidAt, cutoff),
     ))),
     sql`${supplierProductsTable.sellingPrice} is not null`,
   ];
@@ -34,19 +45,10 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     .orderBy(desc(supplierProductsTable.publishedAt), desc(supplierProductsTable.importedAt))
     .limit(100);
   res.json(rows.map(({ product, merchantKey, merchantName }) => ({
-    id: product.id,
-    merchantKey,
-    merchantName: merchantName || "Independent merchant",
-    title: product.title,
-    description: product.description,
-    imageUrl: product.imageUrl,
-    price: Number(product.sellingPrice),
-    salePrice: null,
-    currency: product.currency,
-    category: product.category,
-    brand: product.brand,
-    availability: product.availability,
-    availabilityQuantity: product.availabilityQuantity,
+    id: product.id, merchantKey, merchantName: merchantName || "Independent merchant", title: product.title,
+    description: product.description, imageUrl: product.imageUrl, price: Number(product.sellingPrice), salePrice: null,
+    currency: product.currency, category: product.category, brand: product.brand,
+    availability: product.availability, availabilityQuantity: product.availabilityQuantity,
   })));
 });
 
