@@ -3777,6 +3777,44 @@ router.post("/ai/store-builder", async (req, res): Promise<void> => {
   }
 });
 
+
+router.get("/exports/store", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const [stores, products, media, campaigns] = await Promise.all([
+    db.select().from(merchantStorefrontsTable).where(eq(merchantStorefrontsTable.merchantId, merchant.id)).orderBy(asc(merchantStorefrontsTable.createdAt)),
+    db.select().from(supplierProductsTable).where(eq(supplierProductsTable.merchantId, merchant.id)).orderBy(desc(supplierProductsTable.updatedAt)),
+    db.select().from(mediaAssetsTable).where(eq(mediaAssetsTable.merchantId, merchant.id)).orderBy(desc(mediaAssetsTable.createdAt)),
+    db.select().from(adCampaignsTable).where(eq(adCampaignsTable.merchantId, merchant.id)).orderBy(desc(adCampaignsTable.createdAt)),
+  ]);
+  const payload = {
+    exportedAt: new Date().toISOString(), platform: "TS Commerce", merchantId: merchant.id,
+    store: { name: merchant.storeName, description: merchant.storeDescription, currency: merchant.currency, publicStoreKey: publicStoreKeyFor(merchant), published: merchant.storefrontPublished, theme: storefrontTheme(merchant.storefrontTheme), sections: storefrontSections(merchant.storefrontSections) },
+    storefronts: stores.map((store) => ({ id: store.id, name: store.name, slug: store.slug, publicKey: store.publicKey, published: store.published, theme: storefrontTheme(store.theme), sections: storefrontSections(store.sections) })),
+    products,
+    media: media.map(publicMediaRecord),
+    adCampaigns: campaigns,
+  };
+  const filename = storeSlug(merchant.storeName) + "-ts-commerce-export.json";
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+  res.send(JSON.stringify(payload, null, 2));
+});
+
+router.get("/exports/ads", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const rows = await db.select().from(adCreativesTable).where(eq(adCreativesTable.merchantId, merchant.id)).orderBy(desc(adCreativesTable.createdAt));
+  const document = csvDocument(
+    ["creative_id", "campaign_id", "product_id", "platform", "aspect_ratio", "duration_seconds", "title", "caption", "hashtags", "status", "created_at", "completed_at"],
+    rows.map((row) => [row.id, row.campaignId, row.productId, row.platform, row.aspectRatio, row.durationSeconds, row.title, row.caption, Array.isArray(row.hashtags) ? row.hashtags.join(" ") : "", row.status, row.createdAt.toISOString(), row.completedAt?.toISOString() ?? ""]),
+  );
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"" + storeSlug(merchant.storeName) + "-ad-creatives.csv\"");
+  res.send(document);
+});
 router.get("/media", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
