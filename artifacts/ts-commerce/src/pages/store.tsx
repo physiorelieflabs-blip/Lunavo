@@ -57,6 +57,13 @@ export default function StorePage() {
   const [builderGoal, setBuilderGoal] = useState('');
   const [builderColors, setBuilderColors] = useState('');
   const [builderModel, setBuilderModel] = useState('');
+  const [stores, setStores] = useState<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>([]);
+  const [newStoreName, setNewStoreName] = useState('');
+  const [storeBusy, setStoreBusy] = useState(false);
+
+  useEffect(() => {
+    void customFetch<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>('/api/stores', { responseType: 'json' }).then(setStores).catch(() => setStores([]));
+  }, []);
 
   useEffect(() => {
     if (!overview.data) return;
@@ -206,6 +213,14 @@ export default function StorePage() {
             <span className="text-xs text-[#aeb9c4]">Draft only — publishing remains a separate merchant action.</span>
           </div>
         </div>}
+       </section>
+
+       <section className="mt-5 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+           <SectionHeading eyebrow="Store destinations" title="Manage your storefronts" description="Each storefront has its own public link and can receive exported AI media." />
+           <div className="flex w-full gap-2 md:max-w-sm"><input value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} className="h-11 min-w-0 flex-1 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" placeholder="New store name" /><Button type="button" disabled={storeBusy || newStoreName.trim().length < 2} onClick={async () => { setStoreBusy(true); try { const created = await customFetch<{ id: string; name: string; publicKey: string; published: boolean; url: string }>('/api/stores', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: newStoreName.trim() }) }); setStores((current) => [...current, created]); setNewStoreName(''); setMessage(`Store “${created.name}” created as a draft. Export AI visuals to it from AI Control Room.`); } catch (error) { setMessage(error instanceof Error ? error.message : 'Store could not be created.'); } finally { setStoreBusy(false); } }}>Add store</Button></div>
+         </div>
+         <div className="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-3">{stores.map((storeItem) => <div key={storeItem.id} className="rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4"><div className="flex items-center justify-between gap-3"><p className="font-extrabold">{storeItem.name}</p><Badge tone={storeItem.published ? 'success' : 'neutral'}>{storeItem.published ? 'Published' : 'Draft'}</Badge></div><p className="mt-2 truncate font-mono text-[10px] text-[#697687]">{storeItem.publicKey}</p><a href={storeItem.url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1 text-xs font-extrabold text-[#8a6826] underline">Open storefront <ExternalLink className="h-3.5 w-3.5" /></a></div>)}</div>
        </section>
 
        <form onSubmit={save}>
