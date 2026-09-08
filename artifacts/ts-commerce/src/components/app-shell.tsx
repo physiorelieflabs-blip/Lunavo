@@ -114,7 +114,10 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     queryClient.clear();
     setLocation('/general-store');
   };
-  const activeLabel = links.find((link) => location === link.href)?.label ?? (admin ? 'Control room' : 'Overview');
+  const activeLink = [...links]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((link) => location === link.href || location.startsWith(`${link.href}/`));
+  const activeLabel = activeLink?.label ?? (admin ? 'Control room' : 'Overview');
   const goBack = () => {
     if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
       window.history.back();
