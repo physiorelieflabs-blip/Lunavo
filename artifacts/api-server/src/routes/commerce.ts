@@ -8883,14 +8883,9 @@ router.post(
       });
       return;
     }
-    const merchant = (
-      await db
-        .select()
-        .from(merchantsTable)
-        .where(eq(merchantsTable.publicStoreKey, params.data.merchantKey))
-        .limit(1)
-    )[0];
-    if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
+    const resolved = await resolvePublicStoreByKey(params.data.merchantKey);
+    const merchant = resolved?.merchant;
+    if (!merchant) {
       res.status(404).json({ error: "Store not found" });
       return;
     }
