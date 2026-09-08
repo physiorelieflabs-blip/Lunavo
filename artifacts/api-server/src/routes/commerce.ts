@@ -8451,67 +8451,38 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
 
 router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
   const parsed = GetPublicStoreParams.safeParse(req.params);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid store link" });
-    return;
-  }
-  const merchant = (
-    await db
-      .select()
-      .from(merchantsTable)
-      .where(eq(merchantsTable.publicStoreKey, parsed.data.merchantKey))
-      .limit(1)
-  )[0];
-  if (!merchant || merchant.status !== "active" || !merchant.storefrontPublished) {
-    res.status(404).json({ error: "Store not found" });
-    return;
-  }
-  const products = await db
-    .select()
-    .from(supplierProductsTable)
-    .where(
-      and(
-        eq(supplierProductsTable.merchantId, merchant.id),
-        eq(supplierProductsTable.status, "active"),
-        eq(supplierProductsTable.visibility, "active"),
-        sql`${supplierProductsTable.sellingPrice} is not null`,
-      ),
-    )
-    .orderBy(desc(supplierProductsTable.importedAt))
-    .limit(100);
-  res.json(
-    GetPublicStoreResponse.parse({
-       merchantKey: publicStoreKeyFor(merchant),
-      storeName: merchant.storeName,
-       storeDescription: merchant.storeDescription,
-       storeContactEmail: merchant.storeContactEmail,
-       storePhone: merchant.storePhone,
-       storeWebsite: merchant.storeWebsite,
-       storeAddress: merchant.storeAddress,
-       storefrontTheme: storefrontTheme(merchant.storefrontTheme),
-       storefrontSections: storefrontSections(merchant.storefrontSections),
-      products: products.map((product) => ({
-        id: product.id,
-        title: product.title,
-        description: product.description,
-        imageUrl: product.imageUrl,
-         // `price` and `salePrice` on supplierProducts are source costs.
-         // Public checkout must expose and charge the merchant's sellingPrice,
-         // never a supplier's temporary sale price.
-         price: toNumber(product.sellingPrice),
-         salePrice: null,
-        currency: product.currency,
-        sku: product.sku,
-        availability: product.availability,
-        inventoryStatus: product.inventoryStatus,
-        inventoryQuantity: product.availabilityQuantity,
-        variants: Array.isArray(product.variants) ? product.variants : [],
-        category: product.category,
-      })),
-    }),
-  );
+  if (!parsed.success) { res.status(400).json({ error: "Invalid store link" }); return; }
+  const key = parsed.data.merchantKey;
+  const storefront = (await db.select().from(merchantStorefrontsTable).where(eq(merchantStorefrontsTable.publicKey, key)).limit(1))[0];
+  const merchant = storefront
+    ? (await db.select().from(merchantsTable).where(and(eq(merchantsTable.id, storefront.merchantId), eq(merchantsTable.status, "active"))).limit(1))[0]
+    : (await db.select().from(merchantsTable).where(eq(merchantsTable.publicStoreKey, key)).limit(1))[0];
+  const published = storefront ? storefront.published : merchant?.storefrontPublished;
+  if (!merchant || merchant.status !== "active" || !published) { res.status(404).json({ error: "Store not found" }); return; }
+  const products = await db.select().from(supplierProductsTable).where(and(
+    eq(supplierProductsTable.merchantId, merchant.id),
+    eq(supplierProductsTable.status, "active"),
+    eq(supplierProductsTable.visibility, "active"),
+    sql`${supplierProductsTable.sellingPrice} is not null`,
+  )).orderBy(desc(supplierProductsTable.importedAt)).limit(100);
+  res.json(GetPublicStoreResponse.parse({
+    merchantKey: key,
+    storeName: storefront?.name ?? merchant.storeName,
+    storeDescription: storefront?.description ?? merchant.storeDescription,
+    storeContactEmail: merchant.storeContactEmail,
+    storePhone: merchant.storePhone,
+    storeWebsite: merchant.storeWebsite,
+    storeAddress: merchant.storeAddress,
+    storefrontTheme: storefrontTheme(storefront?.theme ?? merchant.storefrontTheme),
+    storefrontSections: storefrontSections(storefront?.sections ?? merchant.storefrontSections),
+    products: products.map((product) => ({
+      id: product.id, title: product.title, description: product.description, imageUrl: product.imageUrl,
+      price: toNumber(product.sellingPrice), salePrice: null, currency: product.currency, sku: product.sku,
+      availability: product.availability, inventoryStatus: product.inventoryStatus, inventoryQuantity: product.availabilityQuantity,
+      variants: Array.isArray(product.variants) ? product.variants : [], category: product.category,
+    })),
+  }));
 });
-
 router.get("/public/store/:merchantKey/payment-destination", async (req, res): Promise<void> => {
   const parsed = GetPublicStorePaymentDestinationParams.safeParse(req.params);
   if (!parsed.success) {
