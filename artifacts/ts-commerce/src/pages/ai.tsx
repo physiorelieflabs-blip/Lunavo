@@ -591,7 +591,28 @@ export default function AiControlRoom() {
                <div className="mt-3 grid gap-2 sm:grid-cols-2">{ownedStores.map((store) => <label key={store.id} className="flex items-center gap-3 rounded-lg border border-[#536174] bg-[#1b2a39] p-3 text-xs font-bold text-[#d8e1e3]"><input type="checkbox" checked={selectedStoreIds.includes(store.id)} onChange={(event) => setSelectedStoreIds((current) => event.target.checked ? Array.from(new Set([...current, store.id])) : current.filter((id) => id !== store.id))} />{store.name}<span className="ml-auto text-[10px] text-[#8f9dac]">{store.published ? 'Published' : 'Draft'}</span></label>)}</div>
                <div className="mt-3 flex flex-wrap gap-2">
                  <a href={`/api/media/${generatedImage.asset.id}/download`} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#f8f3e8] hover:bg-[#344454]">Download image</a>
-                 <button type="button" onClick={() => void exportGeneratedImage()} disabled={!selectedStoreIds.length} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#182333] disabled:opacity-50">Export to selected stores</button>
+                 <select id="image-export-role" defaultValue="hero" className="h-9 rounded-lg border border-[#536174] bg-[#1b2a39] px-2 text-xs font-bold text-[#f8f3e8]" aria-label="Image placement">
+                   <option value="hero">Use as hero image</option>
+                   <option value="story">Use in story section</option>
+                   <option value="library">Save to store media library</option>
+                 </select>
+                 <button type="button" onClick={() => {
+                   const role = (document.getElementById('image-export-role') as HTMLSelectElement | null)?.value || 'hero';
+                   void (async () => {
+                     if (!generatedImage?.asset?.id || !selectedStoreIds.length) return;
+                     setImageExportMessage('');
+                     try {
+                       await customFetch('/api/media/' + generatedImage.asset.id + '/export', {
+                         method: 'POST',
+                         headers: { 'content-type': 'application/json' },
+                         body: JSON.stringify({ storefrontIds: selectedStoreIds, role }),
+                       });
+                       setImageExportMessage(`Image exported to ${selectedStoreIds.length} store${selectedStoreIds.length === 1 ? '' : 's'} as ${role === 'hero' ? 'hero media' : role === 'story' ? 'story media' : 'library media'}.`);
+                     } catch (error) {
+                       setImageExportMessage(error instanceof Error ? error.message : 'The image could not be exported.');
+                     }
+                   })();
+                 }} disabled={!selectedStoreIds.length} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#182333] disabled:opacity-50">Export to selected stores</button>
                </div>
                {imageExportMessage && <p className="mt-2 text-xs leading-5 text-[#aeb9c4]" aria-live="polite">{imageExportMessage}</p>}
              </div>
