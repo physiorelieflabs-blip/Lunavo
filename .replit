@@ -11,7 +11,39 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "Project"
+runButton = "Lunavo"
+
+[[workflows.workflow]]
+name = "Lunavo"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "api"
+
+[[workflows.workflow.tasks]]
+task = "web"
+
+[[workflows.workflow]]
+name = "api"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "api-dev"
+
+[[workflows.workflow]]
+name = "web"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "web-dev"
+
+[[tasks]]
+name = "api-dev"
+command = "pnpm --filter @workspace/api-server run dev"
+
+[[tasks]]
+name = "web-dev"
+command = "pnpm --filter @workspace/ts-commerce run dev"
 
 [agent]
 stack = "PNPM_WORKSPACE"
