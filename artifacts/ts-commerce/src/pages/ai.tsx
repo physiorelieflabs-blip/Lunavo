@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -551,7 +551,7 @@ export default function AiControlRoom() {
         </div>
       </section>
 
-       <section className="mt-8 rounded-2xl border border-[#2d3d4d] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
+       <section className="mt-8 rounded-xl border border-[#2d3d4d] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
            <div className="max-w-2xl">
              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]"><ImagePlus className="h-4 w-4" /> Smart Visual Studio</div>
