@@ -330,6 +330,7 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import { enhanceImagePrompt } from "../lib/gemini";
 import { DASHBOARD_EARNING_WINDOW_DAYS, calculateDashboardWindow } from "../lib/critical-payment-rules";
 import {
   buildTsPayLedgerPostings,
@@ -4335,7 +4336,37 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   try {
     const merchant = await getOrCreateMerchant(identity);
     if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
-    const generated = await generateImage(prompt);
+
+    const catalog = await db
+      .select({
+        title: supplierProductsTable.title,
+        category: supplierProductsTable.category,
+        description: supplierProductsTable.description,
+      })
+      .from(supplierProductsTable)
+      .where(and(
+        eq(supplierProductsTable.merchantId, merchant.id),
+        eq(supplierProductsTable.status, "active"),
+        eq(supplierProductsTable.visibility, "active"),
+      ))
+      .orderBy(desc(supplierProductsTable.importedAt))
+      .limit(30);
+
+    let optimizedPrompt = prompt;
+    try {
+      optimizedPrompt = await enhanceImagePrompt(prompt, {
+        storeName: merchant.storeName,
+        storeDescription: merchant.storeDescription,
+        currency: merchant.currency,
+        products: catalog,
+      });
+    } catch (error) {
+      // Image generation must remain available even when the text-model
+      // enhancement provider is unavailable. Never block a valid image request.
+      req.log.warn({ err: error }, "Image prompt enhancement unavailable; using merchant prompt");
+    }
+
+    const generated = await generateImage(optimizedPrompt);
     if (generated.bytes.length > MEDIA_MAX_BYTES) {
       res.status(502).json({ error: "The generated image was too large to save. Try a simpler prompt." });
       return;
@@ -4348,15 +4379,19 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
       mimeType: generated.mimeType,
       byteSize: generated.bytes.length,
       imageData: generated.data,
-      altText: altText || `AI-generated store image for ${merchant.storeName}`,
-      caption: caption || "Generated with the TS Commerce image studio.",
+      altText: altText || `AI-generated visual for ${merchant.storeName}`,
+      caption: caption || "Generated with the TS Commerce AI visual studio.",
       visibility: "public",
     }).returning();
     if (!asset) {
       res.status(500).json({ error: "The generated image could not be saved." });
       return;
     }
-    res.status(201).json({ asset: publicMediaRecord(asset), model: generated.model });
+    res.status(201).json({
+      asset: publicMediaRecord(asset),
+      model: generated.model,
+      enhancedPrompt: optimizedPrompt,
+    });
   } catch (error) {
     req.log.error({ err: error }, "Store image generation failed");
     const providerMessage = error instanceof Error ? error.message : "";
