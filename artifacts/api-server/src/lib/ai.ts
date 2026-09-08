@@ -718,8 +718,7 @@ export async function listAiActionsForMerchant(merchantId: number) {
     .select()
     .from(aiActionsTable)
     .where(eq(aiActionsTable.merchantId, merchantId))
-    .orderBy(desc(aiActionsTable.createdAt))
-    .limit(100);
+    .orderBy(desc(aiActionsTable.createdAt));
   return actions.map(serializeAiAction);
 }
 

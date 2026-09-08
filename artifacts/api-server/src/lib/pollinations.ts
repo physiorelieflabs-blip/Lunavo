@@ -1,4 +1,4 @@
-const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const STABILITY_IMAGE_MODEL = "stable-image/generate/core";
 const STABILITY_IMAGE_URL = `https://api.stability.ai/v2beta/${STABILITY_IMAGE_MODEL}`;
@@ -36,8 +36,72 @@ type GeneratedImage = {
 };
 
 async function generateGeminiImage(prompt: string, key: string): Promise<GeneratedImage> {
+  // Prefer the Gemini Interactions API for the current Nano Banana 2 image model.
+  const interactionResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": key,
+    },
+    body: JSON.stringify({
+      model: GEMINI_IMAGE_MODEL,
+      input: prompt,
+      response_format: {
+        type: "image",
+        aspect_ratio: "1:1",
+        image_size: "2K",
+      },
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  const interactionPayload = (await interactionResponse.json().catch(() => ({}))) as Record<string, unknown>;
+  if (interactionResponse.ok) {
+    const outputImage = interactionPayload.output_image;
+    if (outputImage && typeof outputImage === "object") {
+      const image = outputImage as Record<string, unknown>;
+      const data = typeof image.data === "string" ? image.data : "";
+      const mimeType = typeof image.mime_type === "string" ? image.mime_type : "image/png";
+      if (data && mimeType.startsWith("image/")) {
+        const bytes = Buffer.from(data, "base64");
+        if (bytes.length) {
+          return {
+            model: `gemini:${GEMINI_IMAGE_MODEL}`,
+            mimeType,
+            data: `data:${mimeType};base64,${data}`,
+            bytes,
+          };
+        }
+      }
+    }
+    const steps = Array.isArray(interactionPayload.steps) ? interactionPayload.steps : [];
+    for (const step of steps) {
+      if (!step || typeof step !== "object") continue;
+      const content = (step as Record<string, unknown>).content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+        const candidate = block as Record<string, unknown>;
+        if (candidate.type !== "image") continue;
+        const data = typeof candidate.data === "string" ? candidate.data : "";
+        const mimeType = typeof candidate.mime_type === "string" ? candidate.mime_type : "image/png";
+        if (!data || !mimeType.startsWith("image/")) continue;
+        const bytes = Buffer.from(data, "base64");
+        if (!bytes.length) continue;
+        return {
+          model: `gemini:${GEMINI_IMAGE_MODEL}`,
+          mimeType,
+          data: `data:${mimeType};base64,${data}`,
+          bytes,
+        };
+      }
+    }
+  }
+
+  // Backward-compatible GenerateContent fallback for Gemini API configurations
+  // that have not exposed the Interactions endpoint to the project yet.
   const response = await fetch(
-    `${GEMINI_API_BASE}/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -47,8 +111,7 @@ async function generateGeminiImage(prompt: string, key: string): Promise<Generat
           parts: [{
             text: [
               "Generate exactly one image that follows the user's brief precisely.",
-              "Do not substitute the requested subject, color, material, count, composition, or setting.",
-              "Do not add words, logos, labels, or watermarks unless the user explicitly requests them.",
+              "Prioritize realistic ecommerce composition, material fidelity, coherent lighting, and clean commercial presentation.",
               "USER IMAGE BRIEF:",
               prompt,
             ].join("\n"),
@@ -56,6 +119,7 @@ async function generateGeminiImage(prompt: string, key: string): Promise<Generat
         }],
         generationConfig: {
           responseModalities: ["IMAGE"],
+          imageSize: "2K",
         },
       }),
       signal: AbortSignal.timeout(120_000),
@@ -63,7 +127,7 @@ async function generateGeminiImage(prompt: string, key: string): Promise<Generat
   );
   const payload = (await response.json().catch(() => ({}))) as GeminiImageResponse;
   if (!response.ok) {
-    throw new Error(payload.error?.message || `Gemini returned HTTP ${response.status}`);
+    throw new Error(payload.error?.message || (interactionResponse.ok ? `Gemini returned HTTP ${response.status}` : `Gemini returned HTTP ${interactionResponse.status}`));
   }
 
   const candidate = payload.candidates?.[0];
@@ -76,12 +140,8 @@ async function generateGeminiImage(prompt: string, key: string): Promise<Generat
   }
 
   const mimeType = imagePart.inlineData.mimeType || "image/png";
-  if (!["image/png", "image/jpeg", "image/webp"].includes(mimeType)) {
-    throw new Error(`Gemini returned an unsupported image type: ${mimeType}`);
-  }
   const bytes = Buffer.from(imagePart.inlineData.data, "base64");
   if (!bytes.length) throw new Error("Gemini returned an empty image");
-
   return {
     model: `gemini:${GEMINI_IMAGE_MODEL}`,
     mimeType,
@@ -159,18 +219,20 @@ export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const geminiKey = apiKey("GEMINI_IMAGE_API_KEY") || apiKey("GEMINI_API_KEY");
   const failures: string[] = [];
 
+  // Prefer the current Gemini image model for the highest-quality smart generation.
+  if (geminiKey) {
+    try {
+      return await generateGeminiImage(prompt, geminiKey);
+    } catch (error) {
+      failures.push(`Gemini image: ${error instanceof Error ? error.message : "request failed"}`);
+    }
+  }
+
   if (stabilityKey) {
     try {
       return await generateStabilityImage(prompt, stabilityKey);
     } catch (error) {
       failures.push(`Stability: ${error instanceof Error ? error.message : "request failed"}`);
-    }
-  }
-  if (geminiKey) {
-    try {
-      return await generateGeminiImage(prompt, geminiKey);
-    } catch (error) {
-      failures.push(`Gemini: ${error instanceof Error ? error.message : "request failed"}`);
     }
   }
 
