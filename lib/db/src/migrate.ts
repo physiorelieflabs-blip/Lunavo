@@ -63,53 +63,26 @@ const migrations = [
   "0051_storefront_entities_and_media_links",
   "0052_marketplace_ad_payment_link",
   "0053_commerce_suite_autods",
+  "0054_self_hosted_ad_studio",
+  "0055_social_publishing_and_custom_ad_media",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();
 
 try {
-  await client.query(
-    "SELECT pg_advisory_lock(hashtext('ts-commerce-schema-migrations'))",
-  );
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "_ts_commerce_migrations" (
-      id text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
-
+  await client.query("SELECT pg_advisory_lock(hashtext('ts-commerce-schema-migrations'))");
+  await client.query(`CREATE TABLE IF NOT EXISTS "_ts_commerce_migrations" (id text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
   for (const migrationId of migrations) {
-    const migrationPath = new URL(
-      `../migrations/${migrationId}.sql`,
-      import.meta.url,
-    );
+    const migrationPath = new URL(`../migrations/${migrationId}.sql`, import.meta.url);
     const migrationSql = await readFile(migrationPath, "utf8");
-    const applied = await client.query<{ id: string }>(
-      'SELECT id FROM "_ts_commerce_migrations" WHERE id = $1',
-      [migrationId],
-    );
-    if (applied.rowCount) {
-      console.log(`Database migration ${migrationId} already applied`);
-      continue;
-    }
+    const applied = await client.query<{ id: string }>('SELECT id FROM "_ts_commerce_migrations" WHERE id = $1', [migrationId]);
+    if (applied.rowCount) { console.log(`Database migration ${migrationId} already applied`); continue; }
     await client.query("BEGIN");
-    try {
-      await client.query(migrationSql);
-      await client.query(
-        'INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)',
-        [migrationId],
-      );
-      await client.query("COMMIT");
-      console.log(`Applied database migration ${migrationId}`);
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
+    try { await client.query(migrationSql); await client.query('INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)', [migrationId]); await client.query("COMMIT"); console.log(`Applied database migration ${migrationId}`); }
+    catch (error) { await client.query("ROLLBACK"); throw error; }
   }
 } finally {
-  await client.query(
-    "SELECT pg_advisory_unlock(hashtext('ts-commerce-schema-migrations'))",
-  );
+  await client.query("SELECT pg_advisory_unlock(hashtext('ts-commerce-schema-migrations'))");
   client.release();
   await pool.end();
 }

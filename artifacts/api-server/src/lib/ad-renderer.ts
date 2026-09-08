@@ -1,0 +1,61 @@
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os'; import path from 'node:path'; import { promisify } from 'node:util'; import { lookup } from 'node:dns/promises'; import net from 'node:net'; import { request as httpRequest } from 'node:http'; import { request as httpsRequest } from 'node:https';
+const execFileAsync=promisify(execFile); const FONT=process.env.TS_AD_FONT_PATH||'DejaVu Sans';
+export type RenderOptions={imageUrl?:string|null;title:string;hook:string;proof:string;cta:string;durationSeconds:number;width:number;height:number;outputPath:string};
+function escapeDrawtext(value:string){return value.replace(/\\/g,'\\\\').replace(/:/g,'\\:').replace(/'/g,"\\'").replace(/%/g,'\\%').replace(/,/g,'\\,').replace(/\n/g,' ');}
+async function resolvePublicImageAddress(hostname:string){
+  const host=hostname.toLowerCase();
+  if(host==='localhost'||host.endsWith('.localhost')||host.endsWith('.local')||host.endsWith('.internal'))throw new Error('Private/local image hosts are not allowed for server-side ad rendering');
+  const answers=await lookup(hostname,{all:true,verbatim:true});
+  if(!answers.length)throw new Error('Product image host did not resolve');
+  for(const answer of answers){
+    const ip=answer.address;
+    if(net.isIPv4(ip)){
+      const [a,b]=ip.split('.').map(Number);
+      if(a===10||a===127||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)||a===0)throw new Error('Private image network targets are not allowed');
+    }else if(net.isIPv6(ip)){
+      const normalized=ip.toLowerCase();
+      if(normalized==='::1'||normalized.startsWith('fc')||normalized.startsWith('fd')||normalized.startsWith('fe80:'))throw new Error('Private image network targets are not allowed');
+    }
+  }
+  return answers[0]!.address;
+}
+async function fetchImage(url:string,target:string){
+  const parsed=new URL(url);
+  if(!['http:','https:'].includes(parsed.protocol))throw new Error('Ad asset URL must be HTTP(S)');
+  const address=await resolvePublicImageAddress(parsed.hostname);
+  await new Promise<void>((resolve,reject)=>{
+    const request=(parsed.protocol==='https:'?httpsRequest:httpRequest)({
+      hostname:address,port:parsed.port||(parsed.protocol==='https:'?443:80),path:parsed.pathname+parsed.search,
+      servername:net.isIP(parsed.hostname)?undefined:parsed.hostname,rejectUnauthorized:true,
+      headers:{accept:'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9',host:parsed.host,'user-agent':'TS-Commerce-Ad-Renderer/1.0'},
+      timeout:8000,
+    },response=>{
+      const code=response.statusCode??0;
+      if(code>=300&&code<400){request.destroy();reject(new Error('Redirected image URLs are disabled for server-side ad rendering'));return;}
+      if(code<200||code>=300){request.destroy();reject(new Error('Product image could not be fetched (HTTP '+code+')'));return;}
+      const contentType=String(response.headers['content-type']||'');
+      if(!contentType.startsWith('image/')){request.destroy();reject(new Error('Product image URL did not return an image'));return;}
+      const expected=Number(response.headers['content-length']||0);
+      if(expected>12*1024*1024){request.destroy();reject(new Error('Product image is too large for self-hosted ad rendering'));return;}
+      const chunks:Buffer[]=[];let size=0;
+      response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>12*1024*1024){request.destroy(new Error('Product image is too large for self-hosted ad rendering'));return;}chunks.push(chunk);});
+      response.on('end',async()=>{try{await writeFile(target,Buffer.concat(chunks));resolve();}catch(error){reject(error);}});
+      response.on('error',reject);
+    });
+    request.on('timeout',()=>request.destroy(new Error('Product image request timed out')));
+    request.on('error',reject);
+    request.end();
+  });
+}
+export async function renderProductAd(options:RenderOptions){const work=await mkdtemp(path.join(os.tmpdir(),'ts-commerce-ad-'));const imagePath=path.join(work,'source');try{if(!options.imageUrl)throw new Error('A product image is required for video generation');await fetchImage(options.imageUrl,imagePath);const filter=[
+`scale=${options.width}:${options.height}:force_original_aspect_ratio=increase`,
+`crop=${options.width}:${options.height}`,
+`zoompan=z='min(zoom+0.0007,1.08)':d=${options.durationSeconds*30}:s=${options.width}x${options.height}:fps=30`,
+'eq=saturation=1.05:contrast=1.03',
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.hook)}':fontcolor=white:fontsize=${Math.max(34,Math.round(options.width/21))}:x=(w-text_w)/2:y=h*0.10:box=1:boxcolor=black@0.48:boxborderw=26:enable='between(t,0,3)'`,
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.title)}':fontcolor=white:fontsize=${Math.max(26,Math.round(options.width/30))}:x=(w-text_w)/2:y=h*0.73:box=1:boxcolor=black@0.40:boxborderw=20:enable='between(t,3,8)'`,
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.proof)}':fontcolor=white:fontsize=${Math.max(22,Math.round(options.width/38))}:x=(w-text_w)/2:y=h*0.80:box=1:boxcolor=black@0.35:boxborderw=16:enable='between(t,8,11)'`,
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.cta)}':fontcolor=white:fontsize=${Math.max(28,Math.round(options.width/26))}:x=(w-text_w)/2:y=h*0.88:box=1:boxcolor=black@0.58:boxborderw=24:enable='gte(t,11)'`,
+].join(',');await execFileAsync('ffmpeg',['-y','-hide_banner','-loglevel','error','-loop','1','-i',imagePath,'-t',String(options.durationSeconds),'-vf',filter,'-r','30','-an','-c:v','libx264','-preset',process.env.TS_AD_FFMPEG_PRESET||'veryfast','-crf',process.env.TS_AD_FFMPEG_CRF||'25','-pix_fmt','yuv420p','-movflags','+faststart',options.outputPath]);return await readFile(options.outputPath);}catch(error){const stderr=error&&typeof error==='object'&&'stderr' in error?String((error as {stderr?:unknown}).stderr||''):'';throw new Error(stderr.split('\n').filter(Boolean).slice(-3).join(' ')|| (error instanceof Error?error.message:'FFmpeg failed to render the advertisement'));}finally{await rm(work,{recursive:true,force:true});}}
