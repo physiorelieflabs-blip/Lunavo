@@ -45,6 +45,41 @@ async function generateContent(
   return payload;
 }
 
+export async function enhanceImagePrompt(
+  prompt: string,
+  context: {
+    storeName: string;
+    storeDescription?: string | null;
+    currency: string;
+    products?: Array<{ title: string; category?: string | null; description?: string | null }>;
+  },
+): Promise<string> {
+  const productContext = (context.products ?? []).slice(0, 30)
+    .map((p) => `- ${p.title} | ${p.category ?? "general"} | ${p.description ?? ""}`)
+    .join("\n");
+
+  const response = await completeGeminiChat([
+    {
+      role: "system",
+      content: [
+        "You are the TS Commerce Visual Director.",
+        "Turn a merchant's rough image idea into one highly specific production-ready image prompt.",
+        "Optimize for ecommerce storefronts, product photography, hero banners, campaign creatives, editorial lifestyle scenes, or polished UI/brand visuals as appropriate.",
+        "Preserve the merchant's requested subject and intent. Improve composition, camera/lens language, lighting, materials, color harmony, realistic proportions, background, negative space, and commercial polish.",
+        "Do not invent factual product specifications, brand claims, prices, discounts, certifications, people, logos, or text that the merchant did not provide.",
+        "Do not add watermarks or fake logos. Do not claim an image contains exact text unless the merchant explicitly requested that text.",
+        "Return only the final image-generation prompt, with no preamble.",
+        `Store: ${context.storeName}`,
+        `Store description: ${context.storeDescription ?? "Not provided"}`,
+        `Billing/display currency: ${context.currency}`,
+        productContext ? `Relevant catalog context:\n${productContext}` : "No catalog context supplied.",
+      ].join("\n"),
+    },
+    { role: "user", content: prompt },
+  ]);
+  return response.content.trim() || prompt;
+}
+
 export async function completeGeminiChat(messages: GeminiMessage[]): Promise<{
   model: string;
   content: string;
