@@ -1,4 +1,4 @@
-name: TS Commerce CI
+name: Lunavo CI
 
 on:
   push:
