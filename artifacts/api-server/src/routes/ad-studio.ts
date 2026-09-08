@@ -6,7 +6,7 @@ import { writeFile, readFile, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { db, merchantsTable, supplierProductsTable, adCampaignsTable, adCreativesTable } from "@workspace/db";
-import { planAd } from "../lib/ad-brain";
+import { planAdWithBrain } from "../lib/ad-brain";
 import { renderProductAd } from "../lib/ad-renderer";
 
 const router = Router();
@@ -61,7 +61,7 @@ router.post("/ads/generator/generate", async (req, res): Promise<void> => {
   if (!product.imageUrl) { fail(res, 422, "This product needs a primary image before video generation can start"); return; }
   if (generationLocks.has(productId)) { fail(res, 409, "This product is already being rendered. Please use the existing creative once it finishes."); return; }
   generationLocks.add(productId);
-  const plan = planAd({
+  const plan = await planAdWithBrain({
     storeName: merchant.storeName, productTitle: product.title, description: product.description, category: product.category, brand: product.brand,
     price: product.sellingPrice === null ? null : Number(product.sellingPrice), currency: product.currency, availability: product.availability,
     sourceCost: product.price === null ? null : Number(product.price), audience: req.body?.audience, goal: req.body?.goal, offer: req.body?.offer,
