@@ -34,6 +34,19 @@ export default function AdStudio() {
   useEffect(()=>{void load();},[]);
 
   const selected = products.find(p=>String(p.id)===productId)||null;
+  const generateStore=async()=>{
+    setGenerating(true);setMessage('');
+    try{
+      const result=await customFetch<{requested:number;processed:number;results:Array<{productId:number;status:string;reason?:string;variantsCompleted?:number}>}>('/api/ads/generator/generate-store',{
+        method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({limit:10,goal,audience,offer})
+      });
+      setMessage(result.processed+' product(s) processed. '+result.results.filter(r=>r.status==='completed').length+' received rendered ad packs.');
+      await load();
+    }catch(e){setMessage(e instanceof Error?e.message:'Store-wide generation failed.');}
+    finally{setGenerating(false);}
+  };
+
   const generate=async()=>{
     if(!selected){setMessage('Choose a real product with a primary image.');return;}
     setGenerating(true);setMessage('');
@@ -71,7 +84,7 @@ export default function AdStudio() {
           <label className="text-sm font-bold">Audience<input value={audience} onChange={e=>setAudience(e.target.value)} placeholder="e.g. busy parents" className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#243344] px-3 text-[#f8f3e8]"/></label>
         </div>
         <label className="mt-4 block text-sm font-bold">Offer / CTA context<input value={offer} onChange={e=>setOffer(e.target.value)} placeholder="Optional: Free delivery this week" className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#243344] px-3 text-[#f8f3e8]"/></label>
-        <div className="mt-5 flex flex-wrap items-center gap-3"><Button onClick={generate} disabled={generating||!selected?.imageUrl} className="bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]">{generating?<><RefreshCw className="h-4 w-4 animate-spin"/>Rendering ads…</>:<><Film className="h-4 w-4"/>Generate social ad pack</>}</Button><p className="text-xs text-[#aeb9c4]">Creates Reels, Shorts, feed and landscape MP4 variants from the same approved product source.</p></div>
+        <div className="mt-5 flex flex-wrap items-center gap-3"><Button onClick={generate} disabled={generating||!selected?.imageUrl} className="bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]">{generating?<><RefreshCw className="h-4 w-4 animate-spin"/>Rendering ads…</>:<><Film className="h-4 w-4"/>Generate social ad pack</>}</Button><Button variant="secondary" onClick={generateStore} disabled={generating}><Clapperboard className="h-4 w-4"/>Generate for 10 products</Button><p className="text-xs text-[#aeb9c4]">Creates platform variants from real product media. Store-wide generation processes up to 10 products per request.</p></div>
       </section>
 
       {lastBrain&&<section className="mt-8 rounded-2xl border border-[#c4dadd] bg-[#eef7f8] p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#315e6c]">Brain result</p><h2 className="mt-2 text-2xl font-extrabold text-[#182333]">{lastBrain.hook}</h2><p className="mt-2 text-sm leading-6 text-[#477563]">{lastBrain.valueProp}</p></div><div className="rounded-xl bg-white px-4 py-3 text-center"><p className="text-[10px] uppercase tracking-[.12em] text-[#697687]">Creative score</p><p className="mt-1 font-mono text-2xl font-extrabold text-[#182333]">{lastBrain.score}/100</p></div></div><div className="mt-5 grid gap-3 md:grid-cols-3"><div className="rounded-xl bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#697687]">Proof</p><p className="mt-2 text-sm font-extrabold text-[#182333]">{lastBrain.proof}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#697687]">CTA</p><p className="mt-2 text-sm font-extrabold text-[#182333]">{lastBrain.cta}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#697687]">Reasoning</p><p className="mt-2 text-xs leading-5 text-[#536174]">{lastBrain.reasoning.join(' ')}</p></div></div></section>}
