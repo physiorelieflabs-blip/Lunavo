@@ -174,7 +174,7 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
   const creativeIds = rawIds.filter((value: unknown): value is string => typeof value === "string" && value.length > 0).slice(0, 20);
   if (creativeIds.length < 2) { fail(res, 400, "Choose at least two completed video clips to stitch"); return; }
   const creatives = await db.select().from(adCreativesTable).where(and(eq(adCreativesTable.merchantId, merchant.id), eq(adCreativesTable.status, "completed")));
-  const selected = creativeIds.map((id) => creatives.find((creative) => creative.id === id)).filter((item): item is typeof creatives[number] => Boolean(item));
+  const selected = creativeIds.map((id: string) => creatives.find((creative) => creative.id === id)).filter((item): item is typeof creatives[number] => Boolean(item));
   if (selected.length !== creativeIds.length) { fail(res, 404, "One or more video clips are unavailable"); return; }
   const first = selected[0]!;
   if (selected.some((creative) => creative.aspectRatio !== first.aspectRatio)) { fail(res, 422, "Stitch clips with the same aspect ratio"); return; }
@@ -191,7 +191,7 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
     }
     const inputArgs = inputPaths.flatMap((inputPath) => ["-i", inputPath]);
     const transition = 0.6;
-    const durations = selected.map((creative) => creative.durationSeconds);
+    const durations = selected.map((creative: typeof creatives[number]) => creative.durationSeconds);
     const filterParts: string[] = [];
     let cumulative = durations[0]!;
     filterParts.push(`[0:v]setpts=PTS-STARTPTS[v0]`);
@@ -202,7 +202,6 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
       cumulative += durations[i]! - transition;
     }
     const finalLabel = `x${selected.length - 1}`;
-    await (await import("node:child_process")).execFile ? undefined : undefined;
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
     await promisify(execFile)("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...inputArgs, "-filter_complex", filterParts.join(";"), "-map", `[${finalLabel}]`, "-an", "-c:v", "libx264", "-preset", process.env.TS_AD_FFMPEG_PRESET || "veryfast", "-crf", process.env.TS_AD_FFMPEG_CRF || "25", "-pix_fmt", "yuv420p", "-movflags", "+faststart", outputPath]);
