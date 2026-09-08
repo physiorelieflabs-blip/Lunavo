@@ -93,6 +93,7 @@ app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 
 app.use("/api/public/checkout", rateLimit("public-checkout", 30, 60_000));
 app.use("/api/ads/generator", rateLimit("ad-generator", 6, 60_000));
+app.use("/api/ai/generate-image", rateLimit("image-generator", 8, 60_000));
 app.use("/api", router);
 
 app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
