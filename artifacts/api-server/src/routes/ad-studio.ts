@@ -94,4 +94,37 @@ router.post("/ads/generator/generate", async(req,res)=>{
   res.status(201).json({campaignId:campaign.id,productId,brain:plan,creatives:outputs});
 });
 
+router.post("/ads/generator/generate-store", async(req,res)=>{
+  const merchant=await merchantFor(req); if(!merchant)return fail(res,401,"Authentication required");
+  const requestedLimit=Number(req.body?.limit ?? 10);
+  const limit=Math.max(1,Math.min(25,Number.isFinite(requestedLimit)?Math.floor(requestedLimit):10));
+  const products=await db.select().from(supplierProductsTable)
+    .where(and(eq(supplierProductsTable.merchantId,merchant.id),eq(supplierProductsTable.status,"active"),eq(supplierProductsTable.visibility,"active")))
+    .orderBy(desc(supplierProductsTable.updatedAt)).limit(limit);
+  const results=[];
+  for(const product of products){
+    if(!product.imageUrl){results.push({productId:product.id,status:"skipped",reason:"missing primary image"});continue;}
+    try{
+      const plan=planAd({storeName:merchant.storeName,productTitle:product.title,description:product.description,category:product.category,brand:product.brand,price:product.sellingPrice===null?null:Number(product.sellingPrice),currency:product.currency,availability:product.availability,sourceCost:product.price===null?null:Number(product.price),audience:req.body?.audience,goal:req.body?.goal,offer:req.body?.offer});
+      const [campaign]=await db.insert(adCampaignsTable).values({merchantId:merchant.id,productId:product.id,goal:typeof req.body?.goal==="string"?req.body.goal:"sales",audience:typeof req.body?.audience==="string"?req.body.audience.trim():null,offer:typeof req.body?.offer==="string"?req.body.offer.trim():null,status:"rendering",brainSummary:`Score ${plan.score}/100. ${plan.reasoning.join(' ')}`}).returning();
+      if(!campaign) throw new Error("Campaign could not be created");
+      let completed=0;
+      for(const variant of VARIANTS){
+        const [creative]=await db.insert(adCreativesTable).values({merchantId:merchant.id,campaignId:campaign.id,productId:product.id,platform:variant.platform,aspectRatio:variant.aspectRatio,durationSeconds:variant.durationSeconds,title:product.title,caption:plan.caption,hashtags:plan.hashtags,script:plan.script,status:"rendering"}).returning();
+        if(!creative)continue;
+        const outPath=path.join(os.tmpdir(),`ts-commerce-${randomUUID()}.mp4`);
+        try{
+          const buffer=await renderProductAd({imageUrl:product.imageUrl,title:product.title,hook:plan.hook,proof:plan.proof,cta:plan.cta,durationSeconds:variant.durationSeconds,width:variant.width,height:variant.height,outputPath:outPath});
+          await db.update(adCreativesTable).set({status:"completed",videoData:buffer.toString("base64"),completedAt:new Date(),errorMessage:null}).where(eq(adCreativesTable.id,creative.id));
+          completed++;
+        }catch(error){await db.update(adCreativesTable).set({status:"failed",errorMessage:error instanceof Error?error.message:"Renderer failed"}).where(eq(adCreativesTable.id,creative.id));}
+        finally{try{await unlink(outPath);}catch{}}
+      }
+      await db.update(adCampaignsTable).set({status:completed?"completed":"failed",updatedAt:new Date()}).where(eq(adCampaignsTable.id,campaign.id));
+      results.push({productId:product.id,campaignId:campaign.id,status:completed?"completed":"failed",variantsCompleted:completed});
+    }catch(error){results.push({productId:product.id,status:"failed",reason:error instanceof Error?error.message:"generation failed"});}
+  }
+  res.status(201).json({requested:products.length,processed:results.length,results});
+});
+
 export default router;
