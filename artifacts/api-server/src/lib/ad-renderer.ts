@@ -52,6 +52,7 @@ async function fetchImage(url:string,target:string){
 export async function renderProductAd(options:RenderOptions){const work=await mkdtemp(path.join(os.tmpdir(),'ts-commerce-ad-'));const imagePath=path.join(work,'source');try{if(!options.imageUrl)throw new Error('A product image is required for video generation');await fetchImage(options.imageUrl,imagePath);const filter=[
 `scale=${options.width}:${options.height}:force_original_aspect_ratio=increase`,
 `crop=${options.width}:${options.height}`,
+`zoompan=z='min(zoom+0.0007,1.08)':d=${options.durationSeconds*30}:s=${options.width}x${options.height}:fps=30`,
 'eq=saturation=1.05:contrast=1.03',
 `drawtext=font='${FONT}':text='${escapeDrawtext(options.hook)}':fontcolor=white:fontsize=${Math.max(34,Math.round(options.width/21))}:x=(w-text_w)/2:y=h*0.10:box=1:boxcolor=black@0.48:boxborderw=26:enable='between(t,0,3)'`,
 `drawtext=font='${FONT}':text='${escapeDrawtext(options.title)}':fontcolor=white:fontsize=${Math.max(26,Math.round(options.width/30))}:x=(w-text_w)/2:y=h*0.73:box=1:boxcolor=black@0.40:boxborderw=20:enable='between(t,3,8)'`,
