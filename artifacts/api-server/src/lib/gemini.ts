@@ -18,7 +18,7 @@ type GeminiResponse = {
   };
 };
 
-const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-3.8-flash";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function geminiKey(): string {
