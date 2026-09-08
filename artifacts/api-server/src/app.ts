@@ -1,4 +1,6 @@
 import express, { type Express } from "express";
+import path from "node:path";
+import { existsSync } from "node:fs";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
@@ -55,5 +57,22 @@ app.use("/api/ads/generator", rateLimit("ad-generator", 6, 60_000));
 app.use("/api/ai/generate-image", rateLimit("image-generator", 8, 60_000));
 app.use("/api/ads/media", rateLimit("ad-media-upload", 10, 60_000));
 app.use("/api", router);
+
+const webDistPath = path.resolve(import.meta.dirname, "../../ts-commerce/dist/public");
+if (existsSync(webDistPath)) {
+  app.use(express.static(webDistPath, {
+    index: "index.html",
+    maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
+  }));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path === "/api") {
+      next();
+      return;
+    }
+    res.sendFile(path.join(webDistPath, "index.html"), (error) => {
+      if (error) next(error);
+    });
+  });
+}
 app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => { if (res.headersSent) { next(error); return; } const statusCode=error&&typeof error==='object'&&'statusCode' in error&&(error as {statusCode?:unknown}).statusCode===403?403:500; if(statusCode===403)req.log.warn({err:error},"Merchant authorization denied");else req.log.error({err:error},"Unhandled request error"); res.status(statusCode).json({error:statusCode===403?"You do not have permission for this action":"Internal server error"}); });
 export default app;
