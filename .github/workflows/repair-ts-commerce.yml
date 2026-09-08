@@ -1,0 +1,52 @@
+name: TS Commerce one-time repair
+
+on:
+  push:
+    branches: [feat/social-hub-ui-real]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply reported compiler fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'missing expected source pattern in {path}: {old}')
+              p.write_text(s.replace(old, new, 1))
+
+          replace('artifacts/ts-commerce/src/pages/ai.tsx', "import { useState } from 'react';", "import { useEffect, useState } from 'react';")
+          replace('artifacts/ts-commerce/src/components/storefront-section.tsx', "    case 'image_with_text': case 'story': return", "    case 'image_with_text': return")
+          replace('artifacts/ts-commerce/src/pages/billing.tsx', "function Card({ children, className = '' }: { children: ReactNode; className?: string }) {", "function Card({ children, className = '', id }: { children: ReactNode; className?: string; id?: string }) {")
+          replace('artifacts/ts-commerce/src/pages/billing.tsx', "    <section className={`rounded-2xl", "    <section id={id} className={`rounded-2xl")
+          replace('artifacts/ts-commerce/src/pages/marketplace-management.tsx', "import { ArrowRight, Check, CircleAlert, Globe2, Landmark, Pause, Send, X } from 'lucide-react';", "import { ArrowRight, Check, CircleAlert, ExternalLink, Globe2, Landmark, Pause, Send, X } from 'lucide-react';")
+          replace('artifacts/ts-commerce/src/pages/marketplace-management.tsx', "customFetch<typeof adPayment>", "customFetch<NonNullable<typeof adPayment>>")
+          replace('artifacts/ts-commerce/src/pages/marketplace.tsx', "  const [submitted, setSubmitted] = useState({ search: '', category: '', currency: '', minPrice: '', maxPrice: '' });", "  const [submitted, setSubmitted] = useState<{ search: string; category: string; currency: string; minPrice?: number; maxPrice?: number }>({ search: '', category: '', currency: '' });")
+          replace('artifacts/ts-commerce/src/pages/marketplace.tsx', "  const products = useListMarketplaceProducts(submitted);", "  const parsePrice = (value: string) => { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined; };\n  const products = useListMarketplaceProducts(submitted);")
+          replace('artifacts/ts-commerce/src/pages/marketplace.tsx', "      minPrice: minPrice.trim(),\n      maxPrice: maxPrice.trim(),", "      minPrice: parsePrice(minPrice),\n      maxPrice: parsePrice(maxPrice),")
+          replace('artifacts/ts-commerce/src/pages/marketplace.tsx', "        <p className=\"font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]\">TS Commerce marketplace</p>", "        <p className=\"font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]\">TS commerce marketplace</p>")
+          replace('artifacts/ts-commerce/src/App.tsx', "TS COMMERCE PLATTFORM", "TS commerce")
+
+      - name: Commit and remove repair workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/repair-ts-commerce.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/ts-commerce/src .github/workflows/repair-ts-commerce.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: resolve reported TS Commerce type errors"
+          git push origin HEAD:feat/social-hub-ui-real
