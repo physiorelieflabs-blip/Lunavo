@@ -12,7 +12,8 @@ export default function Marketplace() {
   const [currency, setCurrency] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
-  const [submitted, setSubmitted] = useState({ search: '', category: '', currency: '', minPrice: '', maxPrice: '' });
+  const [submitted, setSubmitted] = useState<{ search: string; category: string; currency: string; minPrice?: number; maxPrice?: number }>({ search: '', category: '', currency: '' });
+  const parsePrice = (value: string) => { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined; };
   const products = useListMarketplaceProducts(submitted);
 
   const submit = (event: React.FormEvent) => {
@@ -21,8 +22,8 @@ export default function Marketplace() {
       search: search.trim(),
       category: category.trim(),
       currency: currency.trim().toUpperCase(),
-      minPrice: minPrice.trim(),
-      maxPrice: maxPrice.trim(),
+      minPrice: parsePrice(minPrice),
+      maxPrice: parsePrice(maxPrice),
     });
   };
 
@@ -31,7 +32,7 @@ export default function Marketplace() {
     <div className="mx-auto max-w-[1240px] px-5 pb-20 pt-8 md:px-10">
       <section className="relative overflow-hidden rounded-[2rem] bg-[#182333] px-6 py-12 text-[#f8f3e8] shadow-[0_20px_60px_rgba(24,35,51,.15)] md:px-12 md:py-16">
         <div className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full border-[54px] border-[#d6aa46]/20" />
-        <p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]">TS Commerce marketplace</p>
+        <p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]">TS commerce marketplace</p>
         <h1 className="mt-4 max-w-3xl text-4xl font-extrabold tracking-[-.07em] md:text-6xl">Discover products from independent stores.</h1>
         <p className="mt-5 max-w-2xl text-sm leading-7 text-[#b8c2cc] md:text-base">This is the TS Commerce General Store — a customer-facing discovery marketplace for products that merchants have actively promoted. A product appears here only after marketplace review, an active merchant participation subscription, and a verified $5 product advertising payment.</p>
         <div className="mt-5 flex flex-wrap gap-3 text-sm font-extrabold"><Link href="/auctions" className="inline-flex items-center gap-2 rounded-xl bg-[#d6aa46] px-4 py-2.5 text-[#182333] hover:bg-[#e0b95d]">Browse live auctions <ArrowRight className="h-4 w-4" /></Link></div>

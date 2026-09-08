@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, Check, CircleAlert, Globe2, Landmark, Pause, Send, X } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, ExternalLink, Globe2, Landmark, Pause, Send, X } from 'lucide-react';
 import { Link } from 'wouter';
 import {
   customFetch,
@@ -100,7 +100,7 @@ export default function MarketplaceManagement() {
     setAdPayingId(listingId);
     setMessage('');
     try {
-      const result = await customFetch<typeof adPayment>('/api/marketplace/listings/' + listingId + '/checkout', {
+      const result = await customFetch<NonNullable<typeof adPayment>>('/api/marketplace/listings/' + listingId + '/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
