@@ -64,8 +64,8 @@ if (existsSync(webDistPath)) {
     index: "index.html",
     maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
   }));
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api/") || req.path === "/api") {
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api/") || req.path === "/api") {
       next();
       return;
     }
