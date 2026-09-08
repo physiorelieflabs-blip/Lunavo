@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os'; import path from 'node:path'; import { promisify } from 'node:util'; import { lookup } from 'node:dns/promises'; import net from 'node:net';
+import os from 'node:os'; import path from 'node:path'; import { promisify } from 'node:util'; import { lookup } from 'node:dns/promises'; import net from 'node:net'; import { request as httpRequest } from 'node:http'; import { request as httpsRequest } from 'node:https';
 const execFileAsync=promisify(execFile); const FONT=process.env.TS_AD_FONT_PATH||'DejaVu Sans';
 export type RenderOptions={imageUrl?:string|null;title:string;hook:string;proof:string;cta:string;durationSeconds:number;width:number;height:number;outputPath:string};
 function escapeDrawtext(value:string){return value.replace(/\\/g,'\\\\').replace(/:/g,'\\:').replace(/'/g,"\\'").replace(/%/g,'\\%').replace(/,/g,'\\,').replace(/\n/g,' ');}
