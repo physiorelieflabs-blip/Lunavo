@@ -363,7 +363,7 @@ import {
 import { completeGeminiChat } from "../lib/gemini";
 import { generateImage } from "../lib/pollinations";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
-import { completeGeminiChat } from "../lib/gemini";
+
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
   flutterwaveAmount,
