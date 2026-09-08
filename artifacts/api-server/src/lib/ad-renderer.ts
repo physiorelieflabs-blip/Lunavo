@@ -4,7 +4,51 @@ import os from 'node:os'; import path from 'node:path'; import { promisify } fro
 const execFileAsync=promisify(execFile); const FONT=process.env.TS_AD_FONT_PATH||'DejaVu Sans';
 export type RenderOptions={imageUrl?:string|null;title:string;hook:string;proof:string;cta:string;durationSeconds:number;width:number;height:number;outputPath:string};
 function escapeDrawtext(value:string){return value.replace(/\\/g,'\\\\').replace(/:/g,'\\:').replace(/'/g,"\\'").replace(/%/g,'\\%').replace(/,/g,'\\,').replace(/\n/g,' ');}
-async function fetchImage(url:string,target:string){const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol))throw new Error('Ad asset URL must be HTTP(S)');const response=await fetch(parsed,{redirect:'follow'});if(response.status>=300&&response.status<400)throw new Error('Redirected image URLs are disabled for server-side ad rendering');if(!response.ok)throw new Error('Product image could not be fetched ('+response.status+')');const contentType=response.headers.get('content-type')||'';if(!contentType.startsWith('image/'))throw new Error('Product image URL did not return an image');const length=Number(response.headers.get('content-length')||0);if(length>12*1024*1024)throw new Error('Product image is too large for self-hosted ad rendering');const buffer=Buffer.from(await response.arrayBuffer());if(buffer.byteLength>12*1024*1024)throw new Error('Product image is too large for self-hosted ad rendering');await writeFile(target,buffer);}
+async function resolvePublicImageAddress(hostname:string){
+  const host=hostname.toLowerCase();
+  if(host==='localhost'||host.endsWith('.localhost')||host.endsWith('.local')||host.endsWith('.internal'))throw new Error('Private/local image hosts are not allowed for server-side ad rendering');
+  const answers=await lookup(hostname,{all:true,verbatim:true});
+  if(!answers.length)throw new Error('Product image host did not resolve');
+  for(const answer of answers){
+    const ip=answer.address;
+    if(net.isIPv4(ip)){
+      const [a,b]=ip.split('.').map(Number);
+      if(a===10||a===127||(a===172&&b>=16&&b<=31)||(a===192&&b===168)||(a===169&&b===254)||a===0)throw new Error('Private image network targets are not allowed');
+    }else if(net.isIPv6(ip)){
+      const normalized=ip.toLowerCase();
+      if(normalized==='::1'||normalized.startsWith('fc')||normalized.startsWith('fd')||normalized.startsWith('fe80:'))throw new Error('Private image network targets are not allowed');
+    }
+  }
+  return answers[0]!.address;
+}
+async function fetchImage(url:string,target:string){
+  const parsed=new URL(url);
+  if(!['http:','https:'].includes(parsed.protocol))throw new Error('Ad asset URL must be HTTP(S)');
+  const address=await resolvePublicImageAddress(parsed.hostname);
+  await new Promise<void>((resolve,reject)=>{
+    const request=(parsed.protocol==='https:'?httpsRequest:httpRequest)({
+      hostname:address,port:parsed.port||(parsed.protocol==='https:'?443:80),path:parsed.pathname+parsed.search,
+      servername:net.isIP(parsed.hostname)?undefined:parsed.hostname,rejectUnauthorized:true,
+      headers:{accept:'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9',host:parsed.host,'user-agent':'TS-Commerce-Ad-Renderer/1.0'},
+      timeout:8000,
+    },response=>{
+      const code=response.statusCode??0;
+      if(code>=300&&code<400){request.destroy();reject(new Error('Redirected image URLs are disabled for server-side ad rendering'));return;}
+      if(code<200||code>=300){request.destroy();reject(new Error('Product image could not be fetched (HTTP '+code+')'));return;}
+      const contentType=String(response.headers['content-type']||'');
+      if(!contentType.startsWith('image/')){request.destroy();reject(new Error('Product image URL did not return an image'));return;}
+      const expected=Number(response.headers['content-length']||0);
+      if(expected>12*1024*1024){request.destroy();reject(new Error('Product image is too large for self-hosted ad rendering'));return;}
+      const chunks:Buffer[]=[];let size=0;
+      response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>12*1024*1024){request.destroy(new Error('Product image is too large for self-hosted ad rendering'));return;}chunks.push(chunk);});
+      response.on('end',async()=>{try{await writeFile(target,Buffer.concat(chunks));resolve();}catch(error){reject(error);}});
+      response.on('error',reject);
+    });
+    request.on('timeout',()=>request.destroy(new Error('Product image request timed out')));
+    request.on('error',reject);
+    request.end();
+  });
+}
 export async function renderProductAd(options:RenderOptions){const work=await mkdtemp(path.join(os.tmpdir(),'ts-commerce-ad-'));const imagePath=path.join(work,'source');try{if(!options.imageUrl)throw new Error('A product image is required for video generation');await fetchImage(options.imageUrl,imagePath);const filter=[
 `scale=${options.width}:${options.height}:force_original_aspect_ratio=increase`,
 `crop=${options.width}:${options.height}`,
