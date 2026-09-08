@@ -49,6 +49,7 @@ import Leaderboard from '@/pages/leaderboard';
 import Guide from '@/pages/guide';
 import CommerceGrowth from '@/pages/commerce-growth';
 import CommerceSuite from '@/pages/commerce-suite';
+import AdStudio from '@/pages/ad-studio';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { setSelectedWorkspaceId, useGetSubscription } from '@workspace/api-client-react';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -78,6 +79,7 @@ function AuthRoutes() { return <Switch>
     <Route path="/marketplace" component={Marketplace} />
     <Route path="/growth" component={() => <Protected><CommerceGrowth /></Protected>} />
     <Route path="/commerce-suite" component={() => <Protected><CommerceSuite /></Protected>} />
+    <Route path="/ad-studio" component={() => <Protected><AdStudio /></Protected>} />
     <Route path="/auctions/:id" component={Auctions} />
     <Route path="/auctions" component={Auctions} />
     <Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} />
