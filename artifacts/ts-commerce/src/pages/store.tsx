@@ -202,7 +202,23 @@ export default function StorePage() {
                 setSections(result.sections);
                 setPublished(false);
                 setBuilderModel(result.model);
-                setMessage(`AI storefront draft generated with ${result.model}. Review it below, then save when you are happy.`);
+                setMessage(`Store architecture generated. TS Commerce is now creating brand visuals and product ad creatives from the same business context…`);
+                const visualPrompt = `Create a premium, natural ecommerce hero/lifestyle photograph for a ${builderNiche.trim()} brand called ${result.storeName}. Target customers: ${builderAudience.trim()}. Market: ${builderLocation.trim() || 'global'}. Tone: ${builderTone.trim() || 'modern, trustworthy, premium'}. Show an authentic, lived-in commercial scene that feels human and believable, with tasteful composition, natural lighting, realistic materials, no fake logos, no readable invented text, and no unsupported product claims.`;
+                const storyPrompt = `Create a warm editorial brand-story image for ${result.storeName}, a ${builderNiche.trim()} business serving ${builderAudience.trim()}. The visual should feel human, candid and premium rather than synthetic or overly perfect: real-world textures, natural light, subtle imperfections, thoughtful composition, no invented logos, no readable text, no unsupported claims.`;
+                const [heroResult, storyResult, adResult] = await Promise.allSettled([
+                  customFetch<{ asset: { url: string; id: number } }>('/api/ai/generate-image', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: visualPrompt, altText: `${result.storeName} storefront hero`, caption: 'AI-generated storefront hero visual' }) }),
+                  customFetch<{ asset: { url: string; id: number } }>('/api/ai/generate-image', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: storyPrompt, altText: `${result.storeName} brand story`, caption: 'AI-generated brand story visual' }) }),
+                  customFetch('/api/ads/generator/generate-store', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ limit: 10, goal: 'sales', audience: builderAudience.trim() }) }),
+                ]);
+                const heroUrl = heroResult.status === 'fulfilled' ? heroResult.value.asset.url : null;
+                const storyUrl = storyResult.status === 'fulfilled' ? storyResult.value.asset.url : null;
+                if (heroUrl || storyUrl) {
+                  setTheme((current) => ({ ...current, heroImageUrl: heroUrl || current.heroImageUrl }));
+                  setSections((current) => current.map((section) => section.type === 'hero' && heroUrl ? { ...section, imageUrl: heroUrl, imageAlt: section.imageAlt || `${result.storeName} hero` } : section.type === 'story' && storyUrl ? { ...section, imageUrl: storyUrl, imageAlt: section.imageAlt || `${result.storeName} story` } : section));
+                }
+                const adCount = adResult.status === 'fulfilled' ? ((adResult.value as { processed?: number })?.processed ?? 0) : 0;
+                const visualStatus = [heroResult, storyResult].filter((item) => item.status === 'fulfilled').length;
+                setMessage(`Store generated: architecture + ${visualStatus}/2 brand visuals + ${adCount} product ad packs. Review the visuals and ads, regenerate anything you dislike, then save the storefront.`);
               } catch (error) {
                 setMessage(error instanceof Error ? error.message : 'AI Store Builder could not complete the draft.');
               } finally {
