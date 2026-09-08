@@ -26,7 +26,7 @@ export default function AdStudio() {
     setLoading(true);
     try{
       const c=await customFetch<{campaigns:Campaign[];creatives:Creative[]}>('/api/ads/generator/campaigns');
-      setProducts((supplierProducts.data?.products ?? []) as Product[]); setCampaigns(c.campaigns||[]); setCreatives(c.creatives||[]);
+      setProducts((supplierProducts.data ?? []) as Product[]); setCampaigns(c.campaigns||[]); setCreatives(c.creatives||[]);
       if(!productId && p.products?.[0]) setProductId(String(p.products[0].id));
     }catch(e){setMessage(e instanceof Error?e.message:'Ad Studio could not be loaded.');}
     finally{setLoading(false);}
