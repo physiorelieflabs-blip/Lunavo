@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ArrowRight, Check, CircleAlert, Globe2, Pause, Send, X } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, Globe2, Landmark, Pause, Send, X } from 'lucide-react';
 import { Link } from 'wouter';
 import {
+  customFetch,
   getGetMarketplaceManagementQueryKey,
   useCreateMarketplaceListing,
   useGetMarketplaceManagement,
@@ -25,6 +26,22 @@ export default function MarketplaceManagement() {
   const submitBilling = useSubmitMarketplaceBilling();
   const [selectedProduct, setSelectedProduct] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
+  const [paymentBusyId, setPaymentBusyId] = useState<number | null>(null);
+  const [paymentDestination, setPaymentDestination] = useState<{
+    billingId: number;
+    paymentUrl: string | null;
+    paymentDestination?: {
+      bankName: string;
+      accountName: string;
+      accountNumber: string;
+      amount: number;
+      currency: string;
+      providerReference: string | null;
+      expiresAt: string | null;
+    } | null;
+    amount: number;
+    currency: string;
+  } | null>(null);
   const [message, setMessage] = useState('');
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: getGetMarketplaceManagementQueryKey() });
@@ -42,6 +59,37 @@ export default function MarketplaceManagement() {
       onError: () => setMessage('The listing could not be updated.'),
     });
   };
+  const startAdvertisingPayment = async (billingId: number) => {
+    setPaymentBusyId(billingId);
+    setMessage('');
+    try {
+      const result = await customFetch<{
+        billingId: number;
+        amount: number;
+        currency: string;
+        paymentUrl: string | null;
+        paymentDestination?: {
+          bankName: string; accountName: string; accountNumber: string;
+          amount: number; currency: string; providerReference: string | null; expiresAt: string | null;
+        } | null;
+        status: string;
+      }>(`/api/marketplace/billing/${billingId}/checkout`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      });
+      setPaymentDestination(result);
+      if (result.paymentUrl) {
+        window.location.assign(result.paymentUrl);
+        return;
+      }
+      setMessage('A real provider payment destination is ready below. Transfer the exact amount and let TS Pay verify it.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Marketplace payment could not be started.');
+    } finally {
+      setPaymentBusyId(null);
+    }
+  };
+
   const submitReference = (id: number) => {
     if (paymentReference.trim().length < 3) return;
     submitBilling.mutate({ id, data: { paymentReference: paymentReference.trim() } }, {
@@ -68,7 +116,12 @@ export default function MarketplaceManagement() {
 
       <section className="mt-8"><SectionHeading eyebrow="Listing history" title="Review state by product" description="Paused and removed are merchant-controlled states. Public visibility also depends on your active monthly participation subscription." />{management.isLoading ? <LoadingState label="Loading marketplace management" /> : management.isError ? <ErrorState onRetry={() => void management.refetch()} /> : management.data?.listings.length ? <div className="space-y-3">{management.data.listings.map((listing) => <div key={listing.id} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold">{listing.productTitle}</h3><p className="mt-1 text-xs text-[#697687]">Product {listing.productStatus} · submitted {new Date(listing.createdAt).toLocaleDateString()}</p></div><div className="flex flex-wrap gap-2"><Badge tone={listing.status === 'approved' ? 'success' : listing.status === 'pending' ? 'warning' : 'neutral'}>{listing.status}</Badge><Badge tone={management.data?.monthlyFee.status === 'paid' ? 'success' : 'warning'}>monthly {management.data?.monthlyFee.status ?? 'due'}</Badge></div></div>{listing.reviewNote && <p className="mt-3 text-xs leading-5 text-[#536174]">{listing.reviewNote}</p>}<div className="mt-4 flex flex-wrap gap-2">{listing.status === 'approved' && <Button variant="secondary" className="min-h-8 px-3 text-xs" onClick={() => changeListing(listing.id, 'paused')}><Pause className="h-3.5 w-3.5" />Pause</Button>}{listing.status !== 'removed' && <Button variant="danger" className="min-h-8 px-3 text-xs" onClick={() => changeListing(listing.id, 'removed')}><X className="h-3.5 w-3.5" />Remove</Button>}</div></div>)}</div> : <EmptyState title="No listings yet" description="Submit a published product to begin a reviewable marketplace participation history." />}</section>
 
-      <section className="mt-8 rounded-xl border border-[#dfc27a] bg-[#fff7df] p-6"><SectionHeading eyebrow="Monthly participation subscription" title="Pay from bank" description="The $5 monthly subscription keeps approved listings visible in the General Store. This form is for Pay from bank; the reference stays pending until an admin verifies it." />{management.data?.billing.length ? <div className="space-y-3">{management.data.billing.map((record) => <div key={record.id} className="rounded-lg border border-[#dfc27a] bg-white/60 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-extrabold text-[#765817]">{record.kind === 'listing' ? 'Legacy listing fee record' : 'Monthly participation fee'} · {money(record.amount, record.currency)}</p><p className="mt-1 text-xs text-[#765817]">{record.status}{record.paymentReference ? ` · ${record.paymentReference}` : ''}</p></div><Badge tone={record.status === 'paid' ? 'success' : record.status === 'submitted' ? 'info' : 'warning'}>{record.status}</Badge></div>{record.status === 'due' && record.kind === 'monthly' && <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Pay from bank reference" className={`${inputClass} mt-0`} /><Button className="shrink-0" onClick={() => submitReference(record.id)} disabled={paymentReference.trim().length < 3 || submitBilling.isPending}><Check className="h-4 w-4" />Submit Pay from bank</Button></div>}</div>)}</div> : <EmptyState title="No subscription records yet" description="The monthly participation record appears when a merchant submits a product for marketplace participation." />}</section>
+      {paymentDestination && <section className="mt-5 rounded-2xl border border-[#9fc7d0] bg-[#eef7f8] p-6">
+        <div className="flex items-center justify-between gap-4"><div><p className="font-mono text-[10px] font-bold uppercase tracking-[.15em] text-[#315e6c]">Provider payment destination</p><h2 className="mt-1 text-lg font-extrabold text-[#234c58]">Transfer only to these returned details</h2></div><button type="button" onClick={() => setPaymentDestination(null)} className="text-xs font-bold text-[#53727b]">Close</button></div>
+        {paymentDestination.paymentDestination ? <div className="mt-5 grid gap-3 md:grid-cols-2"><div className="rounded-xl bg-white p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7a8790]">Bank</p><p className="mt-1 font-extrabold">{paymentDestination.paymentDestination.bankName}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7a8790]">Account name</p><p className="mt-1 font-extrabold">{paymentDestination.paymentDestination.accountName}</p></div><div className="rounded-xl bg-white p-4 md:col-span-2"><p className="text-[10px] uppercase tracking-[.12em] text-[#7a8790]">Account number</p><p className="mt-1 font-mono text-2xl font-extrabold tracking-[.06em]">{paymentDestination.paymentDestination.accountNumber}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7a8790]">Exact amount</p><p className="mt-1 font-mono text-xl font-extrabold">{money(paymentDestination.paymentDestination.amount, paymentDestination.paymentDestination.currency)}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] uppercase tracking-[.12em] text-[#7a8790]">Expires</p><p className="mt-1 text-sm font-extrabold">{paymentDestination.paymentDestination.expiresAt ? new Date(paymentDestination.paymentDestination.expiresAt).toLocaleString() : 'Provider did not supply an expiry'}</p></div></div> : <div className="mt-5 rounded-xl border border-[#c4dde3] bg-white p-4 text-sm leading-6 text-[#4d6870]">Flutterwave returned a hosted payment page for this currency. Continue there; TS Commerce will not mark the advertising fee paid until provider verification.</div>}
+      </section>}
+
+      <section className="mt-8 rounded-xl border border-[#dfc27a] bg-[#fff7df] p-6"><SectionHeading eyebrow="Monthly participation subscription" title="Pay from bank" description="A product promotion costs $5 per listed product. TS Commerce also maintains a separate monthly marketplace participation fee. Both charges use real provider-backed payment verification; payment references are identifiers, not payment destinations." />{management.data?.billing.length ? <div className="space-y-3">{management.data.billing.map((record) => <div key={record.id} className="rounded-lg border border-[#dfc27a] bg-white/60 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-extrabold text-[#765817]">{record.kind === 'listing' ? 'Legacy listing fee record' : 'Monthly participation fee'} · {money(record.amount, record.currency)}</p><p className="mt-1 text-xs text-[#765817]">{record.status}{record.paymentReference ? ` · ${record.paymentReference}` : ''}</p></div><Badge tone={record.status === 'paid' ? 'success' : record.status === 'submitted' ? 'info' : 'warning'}>{record.status}</Badge></div>{(record.status === 'due' || record.status === 'submitted') && <div className="mt-3 flex flex-wrap gap-2"><Button className="shrink-0" onClick={() => void startAdvertisingPayment(record.id)} disabled={paymentBusyId === record.id}><Landmark className="h-4 w-4" />{paymentBusyId === record.id ? 'Opening secure payment…' : record.status === 'submitted' ? 'Reopen provider payment' : 'Pay securely with Flutterwave'}</Button></div>}</div>)}</div> : <EmptyState title="No subscription records yet" description="The monthly participation record appears when a merchant submits a product for marketplace participation." />}</section>
     </div>
   </AppShell>;
 }
