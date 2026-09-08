@@ -4,6 +4,7 @@ import paymentBoundaryRouter from "./payment-boundary";
 import flutterwaveWebhookRouter from "./flutterwave-webhook";
 import commerceRouter from "./commerce";
 import commerceGrowthRouter from "./commerce-growth";
+import commerceSuiteRouter from "./commerce-suite";
 
 const router: IRouter = Router();
 
@@ -15,5 +16,6 @@ router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
 router.use(commerceRouter);
 router.use(commerceGrowthRouter);
+router.use(commerceSuiteRouter);
 
 export default router;
