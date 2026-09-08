@@ -25,5 +25,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm run typecheck
+      - name: Critical payment and subscription simulation
+        run: node --experimental-strip-types scripts/security-simulation.ts
       - name: Build
         run: pnpm run build
