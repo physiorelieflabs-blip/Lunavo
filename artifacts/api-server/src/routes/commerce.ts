@@ -3628,18 +3628,51 @@ router.post("/media/:id/export", async (req, res): Promise<void> => {
     .from(merchantStorefrontsTable)
     .where(and(eq(merchantStorefrontsTable.merchantId, merchant.id), inArray(merchantStorefrontsTable.id, storefrontIds)));
   if (stores.length !== storefrontIds.length) { res.status(403).json({ error: "One or more destination stores are not owned by this merchant." }); return; }
-  await db.insert(mediaAssetStorefrontsTable).values(
-    stores.map((store) => ({
-      mediaAssetId: asset.id,
-      storefrontId: store.id,
-      role: typeof req.body?.role === "string" ? req.body.role.slice(0, 60) : "library",
-      assignedByClerkUserId: identity.clerkUserId,
-    })),
-  ).onConflictDoUpdate({
-    target: [mediaAssetStorefrontsTable.mediaAssetId, mediaAssetStorefrontsTable.storefrontId],
-    set: { assignedAt: new Date(), assignedByClerkUserId: identity.clerkUserId },
+  const role = typeof req.body?.role === "string" ? req.body.role.slice(0, 60) : "library";
+  await db.transaction(async (tx) => {
+    await tx.insert(mediaAssetStorefrontsTable).values(
+      stores.map((store) => ({
+        mediaAssetId: asset.id,
+        storefrontId: store.id,
+        role,
+        assignedByClerkUserId: identity.clerkUserId,
+      })),
+    ).onConflictDoUpdate({
+      target: [mediaAssetStorefrontsTable.mediaAssetId, mediaAssetStorefrontsTable.storefrontId],
+      set: { assignedAt: new Date(), assignedByClerkUserId: identity.clerkUserId, role },
+    });
+
+    if (role === "hero") {
+      for (const store of stores) {
+        const current = (await tx.select().from(merchantStorefrontsTable)
+          .where(and(eq(merchantStorefrontsTable.id, store.id), eq(merchantStorefrontsTable.merchantId, merchant.id)))
+          .limit(1))[0];
+        if (!current) continue;
+        const theme = storefrontTheme(current.theme);
+        theme.heroImageUrl = `/api/media/${asset.id}`;
+        await tx.update(merchantStorefrontsTable).set({ theme }).where(eq(merchantStorefrontsTable.id, store.id));
+      }
+    } else if (role === "story") {
+      for (const store of stores) {
+        const current = (await tx.select().from(merchantStorefrontsTable)
+          .where(and(eq(merchantStorefrontsTable.id, store.id), eq(merchantStorefrontsTable.merchantId, merchant.id)))
+          .limit(1))[0];
+        if (!current) continue;
+        const sections = storefrontSections(current.sections);
+        const storyIndex = sections.findIndex((section) => section.type === "story");
+        const nextSections = storyIndex >= 0
+          ? sections.map((section, index) => index === storyIndex ? { ...section, imageUrl: `/api/media/${asset.id}`, imageAlt: section.imageAlt || asset.altText || section.heading || "Store story" } : section)
+          : [...sections, { id: `story-${asset.id}`, type: "story" as const, enabled: true, heading: "Our story", body: "", imageUrl: `/api/media/${asset.id}`, imageAlt: asset.altText || "Store story" }];
+        await tx.update(merchantStorefrontsTable).set({ sections: nextSections }).where(eq(merchantStorefrontsTable.id, store.id));
+      }
+    }
   });
-  res.json({ success: true, exportedTo: stores.map((store) => store.id) });
+  res.json({
+    success: true,
+    exportedTo: stores.map((store) => store.id),
+    role,
+    publicMediaUrl: `/api/media/${asset.id}`,
+  });
 });
 
 router.get("/media/:id/download", async (req, res): Promise<void> => {
