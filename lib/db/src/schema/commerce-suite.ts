@@ -219,3 +219,39 @@ export const customerEntitlementsTable = pgTable("customer_entitlements", {
 }, (table) => [
   uniqueIndex("customer_entitlement_unique").on(table.merchantId, table.customerId, table.digitalProductId),
 ]);
+
+export const adCampaignsTable = pgTable("ad_campaigns", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  productId: integer("product_id"),
+  goal: text("goal").notNull().default("sales"),
+  audience: text("audience"),
+  offer: text("offer"),
+  status: text("status").notNull().default("draft"),
+  brainSummary: text("brain_summary"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const adCreativesTable = pgTable("ad_creatives", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  campaignId: uuid("campaign_id").notNull(),
+  productId: integer("product_id"),
+  platform: text("platform").notNull(),
+  aspectRatio: text("aspect_ratio").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  title: text("title").notNull(),
+  caption: text("caption"),
+  hashtags: jsonb("hashtags").notNull().default([]),
+  script: jsonb("script").notNull().default([]),
+  mimeType: text("mime_type").notNull().default("video/mp4"),
+  videoData: text("video_data"),
+  status: text("status").notNull().default("queued"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("ad_creatives_campaign_platform_unique").on(table.campaignId, table.platform),
+  index("ad_creatives_merchant_created_idx").on(table.merchantId, table.createdAt),
+]);
