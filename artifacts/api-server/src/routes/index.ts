@@ -5,17 +5,18 @@ import flutterwaveWebhookRouter from "./flutterwave-webhook";
 import commerceRouter from "./commerce";
 import commerceGrowthRouter from "./commerce-growth";
 import commerceSuiteRouter from "./commerce-suite";
+import adStudioRouter from "./ad-studio";
+import socialHubRouter from "./social-hub";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-// Provider-backed verification and internal earnings application must run
-// before the legacy commerce handlers so frontend claims can never create
-// provider payment success or bypass the partial-earnings rules.
 router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
 router.use(commerceRouter);
 router.use(commerceGrowthRouter);
 router.use(commerceSuiteRouter);
+router.use(adStudioRouter);
+router.use(socialHubRouter);
 
 export default router;

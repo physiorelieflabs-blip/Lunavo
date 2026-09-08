@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getListMerchantsQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces, useListMerchants } from '@workspace/api-client-react';
 import { useClerk, useUser } from '@clerk/react';
-import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, ImagePlus, Landmark, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell, BookOpen } from 'lucide-react';
+import { ArrowLeft, BarChart3, BrainCircuit, Building2, ChevronRight, CreditCard, Globe2, Gavel, ImagePlus, Landmark, LayoutDashboard, LineChart, LogOut, Menu, PackageCheck, Route, Settings2, ShieldCheck, Store, Users, UsersRound, Warehouse, X, WalletCards, ShoppingCart, Megaphone, FileText, Bell, BookOpen, Clapperboard } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { ErrorState, LoadingState, Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
@@ -14,6 +14,7 @@ const merchantLinks = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/guide', label: 'Learn & Guide', icon: BookOpen },
   { href: '/commerce-suite', label: 'Commerce Suite', icon: Store },
+  { href: '/ad-studio', label: 'Ad Studio', icon: Clapperboard },
   { href: '/analytics', label: 'Analytics', icon: LineChart },
   { href: '/store', label: 'Storefront builder', icon: Store },
   { href: '/ai', label: 'AI control room', icon: BrainCircuit },

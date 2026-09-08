@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  index,
   jsonb,
   numeric,
   pgTable,
@@ -218,4 +219,91 @@ export const customerEntitlementsTable = pgTable("customer_entitlements", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [
   uniqueIndex("customer_entitlement_unique").on(table.merchantId, table.customerId, table.digitalProductId),
+]);
+
+export const adCampaignsTable = pgTable("ad_campaigns", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  productId: integer("product_id"),
+  goal: text("goal").notNull().default("sales"),
+  audience: text("audience"),
+  offer: text("offer"),
+  status: text("status").notNull().default("draft"),
+  brainSummary: text("brain_summary"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const adCreativesTable = pgTable("ad_creatives", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  campaignId: uuid("campaign_id").notNull(),
+  productId: integer("product_id"),
+  platform: text("platform").notNull(),
+  aspectRatio: text("aspect_ratio").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  title: text("title").notNull(),
+  caption: text("caption"),
+  hashtags: jsonb("hashtags").notNull().default([]),
+  script: jsonb("script").notNull().default([]),
+  mimeType: text("mime_type").notNull().default("video/mp4"),
+  videoData: text("video_data"),
+  status: text("status").notNull().default("queued"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("ad_creatives_campaign_platform_unique").on(table.campaignId, table.platform),
+  index("ad_creatives_merchant_created_idx").on(table.merchantId, table.createdAt),
+]);
+
+export const socialConnectionsTable = pgTable("social_connections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  provider: text("provider").notNull(),
+  accountId: text("account_id"),
+  accountName: text("account_name"),
+  accessTokenEncrypted: text("access_token_encrypted").notNull(),
+  refreshTokenEncrypted: text("refresh_token_encrypted"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  scopes: jsonb("scopes").notNull().default([]),
+  status: text("status").notNull().default("connected"),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("social_connections_merchant_provider_account_unique").on(table.merchantId, table.provider, table.accountId),
+  index("social_connections_merchant_status_idx").on(table.merchantId, table.status),
+]);
+
+export const adMediaAssetsTable = pgTable("ad_media_assets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  mediaType: text("media_type").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  mediaData: text("media_data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ad_media_assets_merchant_created_idx").on(table.merchantId, table.createdAt),
+]);
+
+export const socialPublishJobsTable = pgTable("social_publish_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  merchantId: integer("merchant_id").notNull(),
+  connectionId: uuid("connection_id"),
+  creativeId: uuid("creative_id"),
+  adMediaAssetId: uuid("ad_media_asset_id"),
+  provider: text("provider").notNull(),
+  caption: text("caption"),
+  status: text("status").notNull().default("queued"),
+  externalPostId: text("external_post_id"),
+  errorMessage: text("error_message"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("social_publish_jobs_idempotency_unique").on(table.merchantId, table.idempotencyKey),
+  index("social_publish_jobs_merchant_created_idx").on(table.merchantId, table.createdAt),
 ]);
