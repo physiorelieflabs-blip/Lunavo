@@ -1,15 +1,15 @@
-# TS Commerce
+# Lunavo
 
-TS Commerce is an authenticated merchant workspace for catalog import, public order capture, transaction review, fee holds, withdrawals, and internal dropshipping fulfillment.
+Lunavo is an authenticated merchant workspace for catalog import, public order capture, transaction review, fee holds, withdrawals, and internal dropshipping fulfillment.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server on the configured `PORT`
+- `pnpm --filter @workspace/api-server run dev` — run the full API server on the configured `PORT`
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL`, `PORT`, `SESSION_SECRET`, `CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY`
+- Required runtime env: `DATABASE_URL`, `PORT`, `CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY`; production also requires the strict payment/webhook settings documented by `scripts/production-preflight.mjs`.
 
 ## Stack
 
@@ -52,7 +52,7 @@ TS Commerce is an authenticated merchant workspace for catalog import, public or
 
 ## Feature completeness contract
 
-Do not treat TS Commerce as complete until these product areas are implemented, connected to the tenant-scoped API/database, and smoke-tested through the UI:
+Do not treat Lunavo as complete until these product areas are implemented, connected to the tenant-scoped API/database, and smoke-tested through the UI:
 
 - **Business AI operator:** a real merchant copilot grounded in sales, orders, customers, catalog, inventory, suppliers, marketing, finance, storefront, and subscription data; natural-language business questions; explainable recommendations; citations or source signals; and approval-gated actions with execution and rollback history. AI must never independently publish, send customer messages, change permissions, move money, approve payouts, or claim payment settlement.
 - **Store media library:** merchant image uploads with persistent object storage, file/type/size validation, ownership checks, alt text, ordering, deletion, replacement, and an asset picker usable from products and storefront sections.
