@@ -25,6 +25,7 @@ const migrations = [
   "0014_checkout_pricing",
   "0015_customer_notes",
   "0016_customer_segments",
+  "0016_commerce_growth_sourcing_marketplace",
   "0017_subscription_currency",
   "0018_ai_goals",
   "0019_payment_links",
@@ -56,6 +57,12 @@ const migrations = [
   "0045_payment_settlement_snapshots",
   "0046_payment_destination_attempts",
   "0047_referral_free_month_milestone",
+  "0048_critical_payment_referral_hardening",
+  "0049_subscription_access_window_hardening",
+  "0050_referral_discount_rate",
+  "0051_storefront_entities_and_media_links",
+  "0052_marketplace_ad_payment_link",
+  "0053_commerce_suite_autods",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();
