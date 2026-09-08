@@ -1,6 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertCircle } from 'lucide-react';
-import { Redirect } from 'wouter';
 import SocialHub from '@/pages/social-hub';
 
 export default function NotFound() {
