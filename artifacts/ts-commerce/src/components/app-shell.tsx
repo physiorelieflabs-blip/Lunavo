@@ -23,7 +23,7 @@ const merchantLinks = [
   { href: '/marketplace/manage', label: 'Marketplace', icon: Globe2 },
   { href: '/auctions/manage', label: 'Auctions', icon: Gavel },
   { href: '/orders', label: 'Orders', icon: PackageCheck },
-  { href: '/pos', label: 'TS POS', icon: ShoppingCart },
+  { href: '/pos', label: 'Lunavo POS', icon: ShoppingCart },
   { href: '/customers', label: 'Customers', icon: UsersRound },
   { href: '/dropshipping', label: 'Supplier fulfillment', icon: Route },
   { href: '/withdrawals', label: 'Withdrawals', icon: ShieldCheck },
@@ -86,7 +86,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     }
   }, [currentWorkspace.data?.id, selectedWorkspace]);
   const links = admin ? adminLinks : merchantLinks;
-  const displayName = admin ? 'TS / OPERATIONS' : currentWorkspace.data?.storeName || user?.fullName || 'Your workspace';
+  const displayName = admin ? 'LUNAVO / OPERATIONS' : currentWorkspace.data?.storeName || user?.fullName || 'Your workspace';
   const switchWorkspace = (merchantId: number) => {
     if (merchantId === currentWorkspace.data?.id) return;
     setSelectedWorkspace(String(merchantId));
@@ -113,7 +113,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
     void signOut({ redirectUrl: '/sign-in' });
   };
   const switchToCustomerProfile = () => {
-    window.localStorage.setItem('ts-commerce-role', 'customer');
+    window.localStorage.setItem('lunavo-role', 'customer');
     queryClient.clear();
     setLocation('/general-store');
   };
@@ -198,7 +198,7 @@ export function AppShell({ children, admin = false }: { children: ReactNode; adm
 
 export function PublicHeader() {
   const chooseMerchantProfile = () => {
-    window.localStorage.setItem('ts-commerce-role', 'merchant');
+    window.localStorage.setItem('lunavo-role', 'merchant');
   };
   return <header className="studio-header sticky top-0 z-30 flex items-center justify-between border-b border-border px-5 py-4 md:px-10"><Link href="/" data-testid="link-public-logo"><Logo /></Link><div className="flex items-center gap-1.5"><Link href="/general-store" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted sm:inline-flex" data-testid="link-general-store">General Store</Link><Link href="/leaderboard" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted md:inline-flex">Leaderboard</Link><Link href="/auctions" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted md:inline-flex" data-testid="link-auctions">Auctions</Link><Link href="/dashboard" onClick={chooseMerchantProfile} className="rounded-lg px-3 py-2 text-sm font-extrabold text-muted-foreground hover:bg-muted" data-testid="link-merchant-workspace">Merchant workspace</Link><Link href="/sign-in" className="hidden rounded-lg px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-muted sm:inline-flex" data-testid="link-sign-in">Sign in</Link><Link href="/sign-up" className="rounded-[11px] bg-accent px-4 py-2.5 text-sm font-extrabold text-accent-foreground shadow-[0_8px_18px_hsl(var(--accent)/.2)] transition hover:-translate-y-0.5 hover:bg-[hsl(14_63%_47%)]" data-testid="link-sign-up">Open an account</Link></div></header>;
 }
