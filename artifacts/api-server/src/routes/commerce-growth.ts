@@ -61,7 +61,7 @@ router.get("/growth/sourcing/products/:id/history", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
     const product = await db.query.sourcingProductsTable.findFirst({ where: and(eq(sourcingProductsTable.id, req.params.id), eq(sourcingProductsTable.merchantId, merchantId)) });
-    if (!product) res.status(404).json({ error: "Sourcing product not found" }); return;
+    if (!product) { res.status(404).json({ error: "Sourcing product not found" }); return; }
     const history = await db.select().from(sourcingPriceSnapshotsTable).where(eq(sourcingPriceSnapshotsTable.sourcingProductId, product.id)).orderBy(desc(sourcingPriceSnapshotsTable.capturedAt));
     res.json({ product, history }); return;
   } catch (error) { next(error); }
