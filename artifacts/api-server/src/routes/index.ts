@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import paymentBoundaryRouter from "./payment-boundary";
 import flutterwaveWebhookRouter from "./flutterwave-webhook";
 import marketplacePlatformRouter from "./marketplace-platform";
+import marketplaceLegacyGuardRouter from "./marketplace-legacy-guard";
 import commerceRouter from "./commerce";
 import commerceGrowthRouter from "./commerce-growth";
 import commerceSuiteRouter from "./commerce-suite";
@@ -16,9 +17,10 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
-// Put shopper discovery ahead of the legacy commerce marketplace endpoint so
-// public discovery can never accidentally bypass the paid-ad eligibility gate.
+// Public marketplace routes are mounted before the legacy commerce router so
+// paid-discovery eligibility is enforced consistently at the boundary.
 router.use(marketplacePlatformRouter);
+router.use(marketplaceLegacyGuardRouter);
 router.use(commerceRouter);
 router.use(commerceGrowthRouter);
 router.use(commerceSuiteRouter);
