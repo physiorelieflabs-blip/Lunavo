@@ -53,7 +53,7 @@ router.get("/growth/sourcing/products", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
     const products = await db.select().from(sourcingProductsTable).where(eq(sourcingProductsTable.merchantId, merchantId)).orderBy(desc(sourcingProductsTable.opportunityScore));
-    res.json({ products });
+    return res.json({ products });
   } catch (error) { next(error); }
 });
 
@@ -63,7 +63,7 @@ router.get("/growth/sourcing/products/:id/history", async (req, res, next) => {
     const product = await db.query.sourcingProductsTable.findFirst({ where: and(eq(sourcingProductsTable.id, req.params.id), eq(sourcingProductsTable.merchantId, merchantId)) });
     if (!product) return res.status(404).json({ error: "Sourcing product not found" });
     const history = await db.select().from(sourcingPriceSnapshotsTable).where(eq(sourcingPriceSnapshotsTable.sourcingProductId, product.id)).orderBy(desc(sourcingPriceSnapshotsTable.capturedAt));
-    res.json({ product, history });
+    return res.json({ product, history });
   } catch (error) { next(error); }
 });
 
@@ -79,7 +79,7 @@ router.post("/growth/advertising/campaigns", async (req, res, next) => {
     if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ error: "Valid productId is required" });
     const currency = typeof req.body?.currency === "string" ? req.body.currency.toUpperCase() : "USD";
     const [campaign] = await db.insert(productAdvertisingCampaignsTable).values({ merchantId, productId, storeId: req.body?.storeId || null, feeMinor: USD_CENTS, currency, status: "awaiting_payment", paymentStatus: "pending" }).returning();
-    res.status(201).json({ campaign, payableAmountMinor: USD_CENTS, paymentRequired: true, message: "Campaign created. Complete and verify the $5 advertising payment before placement can activate." });
+    return res.status(201).json({ campaign, payableAmountMinor: USD_CENTS, paymentRequired: true, message: "Campaign created. Complete and verify the $5 advertising payment before placement can activate." });
   } catch (error) { next(error); }
 });
 
@@ -87,7 +87,7 @@ router.get("/growth/advertising/campaigns", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
     const campaigns = await db.select().from(productAdvertisingCampaignsTable).where(eq(productAdvertisingCampaignsTable.merchantId, merchantId)).orderBy(desc(productAdvertisingCampaignsTable.createdAt));
-    res.json({ campaigns });
+    return res.json({ campaigns });
   } catch (error) { next(error); }
 });
 
@@ -98,7 +98,7 @@ router.post("/growth/discovery/events", async (req, res, next) => {
     if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ error: "Valid productId is required" });
     if (!["impression", "click", "view", "add_to_cart", "purchase"].includes(eventType)) return res.status(400).json({ error: "Unsupported discovery event" });
     const [event] = await db.insert(marketplaceDiscoveryEventsTable).values({ productId, campaignId: req.body?.campaignId || null, customerId: Number.isInteger(Number(req.body?.customerId)) ? Number(req.body.customerId) : null, eventType, sessionKey: typeof req.body?.sessionKey === "string" ? req.body.sessionKey.slice(0, 200) : null, metadata: req.body?.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {} }).returning();
-    res.status(201).json({ event });
+    return res.status(201).json({ event });
   } catch (error) { next(error); }
 });
 
