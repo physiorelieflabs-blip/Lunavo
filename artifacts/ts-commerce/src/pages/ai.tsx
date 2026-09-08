@@ -175,6 +175,9 @@ export default function AiControlRoom() {
     asset: { id: number; filename: string; altText: string | null; caption: string | null; url: string };
   } | null>(null);
   const [imagePending, setImagePending] = useState(false);
+  const [ownedStores, setOwnedStores] = useState<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>([]);
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+  const [imageExportMessage, setImageExportMessage] = useState('');
 
   if (overview.isLoading || settings.isLoading || actions.isLoading) {
     return <AppShell><LoadingState label="Loading AI control room" /></AppShell>;
@@ -355,6 +358,33 @@ export default function AiControlRoom() {
       setCopilotPending(false);
     }
   };
+  useEffect(() => {
+    void customFetch<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>('/api/stores', {
+      responseType: 'json',
+    }).then((stores) => {
+      setOwnedStores(stores);
+      setSelectedStoreIds(stores.slice(0, 1).map((store) => store.id));
+    }).catch(() => setOwnedStores([]));
+  }, []);
+
+  const exportGeneratedImage = async () => {
+    if (!generatedImage?.asset?.id || !selectedStoreIds.length) {
+      setImageExportMessage('Select at least one store before exporting the image.');
+      return;
+    }
+    setImageExportMessage('');
+    try {
+      await customFetch('/api/media/' + generatedImage.asset.id + '/export', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ storefrontIds: selectedStoreIds, role: 'storefront' }),
+      });
+      setImageExportMessage(`Image exported to ${selectedStoreIds.length} store${selectedStoreIds.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setImageExportMessage(error instanceof Error ? error.message : 'The image could not be exported to the selected stores.');
+    }
+  };
+
   const generateStoreImage = async () => {
     const prompt = imagePrompt.trim();
     if (prompt.length < 10) {
@@ -555,6 +585,16 @@ export default function AiControlRoom() {
              <div className="flex flex-wrap items-center gap-2"><Badge tone="success">Saved to media library</Badge><Badge tone="info">{generatedImage.model}</Badge></div>
              <p className="mt-4 text-sm font-bold text-[#f8f3e8]">Optimized prompt</p>
              <p className="mt-2 max-h-48 overflow-auto rounded-lg border border-[#536174] bg-[#1b2a39] p-3 text-xs leading-5 text-[#c6d0d9]">{generatedImage.enhancedPrompt ?? 'The original prompt was used because prompt enhancement was unavailable.'}</p>
+             <div className="mt-5 border-t border-[#536174] pt-5">
+               <p className="text-sm font-bold text-[#f8f3e8]">Use this image anywhere in your stores</p>
+               <p className="mt-1 text-xs leading-5 text-[#aeb9c4]">Choose one or more storefronts you own. Exporting creates an assignment; it does not publish the store.</p>
+               <div className="mt-3 grid gap-2 sm:grid-cols-2">{ownedStores.map((store) => <label key={store.id} className="flex items-center gap-3 rounded-lg border border-[#536174] bg-[#1b2a39] p-3 text-xs font-bold text-[#d8e1e3]"><input type="checkbox" checked={selectedStoreIds.includes(store.id)} onChange={(event) => setSelectedStoreIds((current) => event.target.checked ? Array.from(new Set([...current, store.id])) : current.filter((id) => id !== store.id))} />{store.name}<span className="ml-auto text-[10px] text-[#8f9dac]">{store.published ? 'Published' : 'Draft'}</span></label>)}</div>
+               <div className="mt-3 flex flex-wrap gap-2">
+                 <a href={`/api/media/${generatedImage.asset.id}/download`} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#f8f3e8] hover:bg-[#344454]">Download image</a>
+                 <button type="button" onClick={() => void exportGeneratedImage()} disabled={!selectedStoreIds.length} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-[#d6aa46] px-3 py-2 text-xs font-extrabold text-[#182333] disabled:opacity-50">Export to selected stores</button>
+               </div>
+               {imageExportMessage && <p className="mt-2 text-xs leading-5 text-[#aeb9c4]" aria-live="polite">{imageExportMessage}</p>}
+             </div>
            </div>
          </div>}
          <p className="mt-4 text-[11px] leading-5 text-[#92a0ae]">“No usage cap” means TS Commerce does not impose an artificial daily/monthly generation allowance. Your configured AI provider can still enforce its own API limits, billing, safety rules, or availability.</p>
