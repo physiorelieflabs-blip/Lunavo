@@ -1,118 +1,36 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, Download, ExternalLink, Film, Hash, Play, RefreshCw, Sparkles, WandSparkles } from 'lucide-react';
-import { customFetch, useListSupplierProducts } from '@workspace/api-client-react';
-import { AppShell } from '@/components/app-shell';
-import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading } from '@/components/primitives';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Clapperboard, Download, RefreshCw, Share2, Film, Sparkles, UploadCloud, WandSparkles } from "lucide-react";
+import { customFetch, useListSupplierProducts } from "@workspace/api-client-react";
+import { AppShell } from "@/components/app-shell";
+import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading } from "@/components/primitives";
 
-type Product = { id:number; title:string; imageUrl:string|null; description:string|null; category:string|null; brand:string|null; sellingPrice:number|null; currency:string; availability:string|null; price:number|null; };
-type Creative = { id:string; campaignId:string; productId:number|null; platform:string; aspectRatio:string; durationSeconds:number; title:string; caption:string|null; hashtags:string[]; status:string; errorMessage:string|null; createdAt:string; completedAt:string|null; };
-type Campaign = { id:string; productId:number|null; status:string; goal:string; audience:string|null; offer:string|null; brainSummary:string|null; createdAt:string; };
+type Product={id:number;title:string;imageUrl:string|null};
+type Creative={id:string;platform:string;aspectRatio:string;durationSeconds:number;title:string;caption:string|null;status:string};
+type Campaign={id:string;status:string};
+type CustomMedia={id:string;filename:string;mimeType:string;mediaType:string;byteSize:number;createdAt:string};
 
-export default function AdStudio() {
-  const supplierProducts = useListSupplierProducts();
-  const [products,setProducts]=useState<Product[]>([]);
-  const [campaigns,setCampaigns]=useState<Campaign[]>([]);
-  const [creatives,setCreatives]=useState<Creative[]>([]);
-  const [productId,setProductId]=useState('');
-  const [goal,setGoal]=useState('sales');
-  const [audience,setAudience]=useState('');
-  const [offer,setOffer]=useState('');
-  const [loading,setLoading]=useState(true);
-  const [generating,setGenerating]=useState(false);
-  const [message,setMessage]=useState('');
-  const [lastBrain,setLastBrain]=useState<{score:number;hook:string;valueProp:string;proof:string;cta:string;reasoning:string[]}|null>(null);
-  const [stitchIds,setStitchIds]=useState<string[]>([]);
-  const [stitching,setStitching]=useState(false);
-
-  const load=async()=>{
-    setLoading(true);
-    try{
-      const c=await customFetch<{campaigns:Campaign[];creatives:Creative[]}>('/api/ads/generator/campaigns');
-      setProducts((supplierProducts.data ?? []) as Product[]); setCampaigns(c.campaigns||[]); setCreatives(c.creatives||[]);
-      if(!productId && p.products?.[0]) setProductId(String(p.products[0].id));
-    }catch(e){setMessage(e instanceof Error?e.message:'Ad Studio could not be loaded.');}
-    finally{setLoading(false);}
-  };
-  useEffect(()=>{void load();},[]);
-
-  const selected = products.find(p=>String(p.id)===productId)||null;
-  const generateStore=async()=>{
-    setGenerating(true);setMessage('');
-    try{
-      const result=await customFetch<{requested:number;processed:number;results:Array<{productId:number;status:string;reason?:string;variantsCompleted?:number}>}>('/api/ads/generator/generate-store',{
-        method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({limit:10,goal,audience,offer})
-      });
-      setMessage(result.processed+' product(s) processed. '+result.results.filter(r=>r.status==='completed').length+' received rendered ad packs.');
-      await load();
-    }catch(e){setMessage(e instanceof Error?e.message:'Store-wide generation failed.');}
-    finally{setGenerating(false);}
-  };
-
-  const generate=async()=>{
-    if(!selected){setMessage('Choose a real product with a primary image.');return;}
-    setGenerating(true);setMessage('');
-    try{
-      const result=await customFetch<{campaignId:string;brain:{score:number;hook:string;valueProp:string;proof:string;cta:string;reasoning:string[]};creatives:Array<{id:string;platform:string;status:string}>}>('/api/ads/generator/generate',{
-        method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({productId:selected.id,goal,audience,offer})
-      });
-      setLastBrain(result.brain);
-      setMessage('Ad Brain finished and the self-hosted renderer produced the available platform variants.');
-      await load();
-    }catch(e){setMessage(e instanceof Error?e.message:'Video generation failed.');}
-    finally{setGenerating(false);}
-  };
-
-  const completed=useMemo(()=>creatives.filter(c=>c.status==='completed'),[creatives]);
-  const stitchSelected=async()=>{
-    if(stitchIds.length<2){setMessage('Select at least two completed clips with the same aspect ratio.');return;}
-    setStitching(true);setMessage('');
-    try{
-      const response=await fetch('/api/ads/generator/stitch',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({creativeIds:stitchIds})});
-      if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||'Video stitching failed.');}
-      const blob=await response.blob();
-      const url=URL.createObjectURL(blob);
-      const link=document.createElement('a');link.href=url;link.download='ts-commerce-long-ad.mp4';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
-      setMessage('Long-form ad stitched successfully with seamless cross-fade transitions and downloaded to your device.');
-    }catch(e){setMessage(e instanceof Error?e.message:'Video stitching failed.');}
-    finally{setStitching(false);}
-  };
-
-
-  const latestCampaign=campaigns[0];
-
-  if(loading)return <AppShell><LoadingState label="Loading Ad Studio" /></AppShell>;
-  if(!products.length)return <AppShell><ErrorState onRetry={()=>void load()} /></AppShell>;
-
-  return <AppShell>
-    <div className="mx-auto max-w-[1240px]">
-      <div className="flex flex-wrap items-end justify-between gap-5">
-        <div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Self-hosted creative engine</p><h1 className="mt-2 text-4xl font-extrabold tracking-[-.07em]">Turn every product into social ads.</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-[#697687]">TS Commerce Ad Studio uses your real product data to plan the angle, write the hook/caption/CTA, render MP4 videos on your own server, and give you ready-to-share platform variants.</p></div>
-        <Badge tone="success"><Sparkles className="mr-1 inline h-3.5 w-3.5"/>No paid video API required</Badge>
-      </div>
-      {message&&<div className="mt-6"><Notice tone={message.includes('failed')||message.includes('could not')||message.includes('Choose')?'danger':'success'} title="Ad Studio">{message}</Notice></div>}
-
-      <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-8">
-        <div className="flex items-start gap-3"><WandSparkles className="mt-1 h-6 w-6 text-[#d6aa46]"/><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]">Ad Brain</p><h2 className="mt-2 text-2xl font-extrabold">Give it the product. Let it build the angle.</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#b8c2cc]">The planner uses persisted title, description, category, brand, pricing, availability and supplier economics where available. It will not invent discounts, stock, margins, reviews, certifications or customer claims.</p></div></div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-[1.5fr_1fr_1fr]">
-          <label className="text-sm font-bold">Product<select value={productId} onChange={e=>setProductId(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#243344] px-3 text-[#f8f3e8]">{products.map(p=><option key={p.id} value={p.id}>{p.title}{p.imageUrl?'':' — needs image'}</option>)}</select></label>
-          <label className="text-sm font-bold">Goal<select value={goal} onChange={e=>setGoal(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#243344] px-3 text-[#f8f3e8]"><option value="sales">Sales</option><option value="traffic">Traffic</option><option value="awareness">Awareness</option></select></label>
-          <label className="text-sm font-bold">Audience<input value={audience} onChange={e=>setAudience(e.target.value)} placeholder="e.g. busy parents" className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#243344] px-3 text-[#f8f3e8]"/></label>
-        </div>
-        <label className="mt-4 block text-sm font-bold">Offer / CTA context<input value={offer} onChange={e=>setOffer(e.target.value)} placeholder="Optional: Free delivery this week" className="mt-2 h-11 w-full rounded-lg border border-[#536174] bg-[#243344] px-3 text-[#f8f3e8]"/></label>
-        <div className="mt-5 flex flex-wrap items-center gap-3"><Button onClick={generate} disabled={generating||!selected?.imageUrl} className="bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]">{generating?<><RefreshCw className="h-4 w-4 animate-spin"/>Rendering ads…</>:<><Film className="h-4 w-4"/>Generate social ad pack</>}</Button><Button variant="secondary" onClick={generateStore} disabled={generating}><Clapperboard className="h-4 w-4"/>Generate for 10 products</Button><p className="text-xs text-[#aeb9c4]">Creates platform variants from real product media. Store-wide generation processes up to 10 products per request.</p></div>
-      </section>
-
-      {lastBrain&&<section className="mt-8 rounded-2xl border border-[#c4dadd] bg-[#eef7f8] p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#315e6c]">Brain result</p><h2 className="mt-2 text-2xl font-extrabold text-[#182333]">{lastBrain.hook}</h2><p className="mt-2 text-sm leading-6 text-[#477563]">{lastBrain.valueProp}</p></div><div className="rounded-xl bg-white px-4 py-3 text-center"><p className="text-[10px] uppercase tracking-[.12em] text-[#697687]">Creative score</p><p className="mt-1 font-mono text-2xl font-extrabold text-[#182333]">{lastBrain.score}/100</p></div></div><div className="mt-5 grid gap-3 md:grid-cols-3"><div className="rounded-xl bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#697687]">Proof</p><p className="mt-2 text-sm font-extrabold text-[#182333]">{lastBrain.proof}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#697687]">CTA</p><p className="mt-2 text-sm font-extrabold text-[#182333]">{lastBrain.cta}</p></div><div className="rounded-xl bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#697687]">Reasoning</p><p className="mt-2 text-xs leading-5 text-[#536174]">{lastBrain.reasoning.join(' ')}</p></div></div></section>}
-
-      <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Long-form studio</p><h2 className="mt-2 text-xl font-extrabold">Stitch multiple clips into a longer ad</h2><p className="mt-1 text-xs leading-5 text-[#697687]">Select completed clips with the same aspect ratio. TS Commerce renders them together with short cross-fades so the transitions feel continuous.</p></div><Button onClick={stitchSelected} disabled={stitching||stitchIds.length<2}><Clapperboard className="h-4 w-4"/>{stitching?'Stitching…':`Stitch selected (${stitchIds.length})`}</Button></div></section>
-
-      <section className="mt-8"><SectionHeading eyebrow="Ready to share" title="Generated creatives" description="Download an MP4 and use its caption/hashtags on the social channel you choose. Publishing remains your account's action." />{completed.length?<div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">{completed.map(c=><article key={c.id} className="overflow-hidden rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6]"><div className="border-b border-[#d9d2c4] p-3"><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={stitchIds.includes(c.id)} onChange={(e)=>setStitchIds((current)=>e.target.checked?[...new Set([...current,c.id])]:current.filter((id)=>id!==c.id))}/>Use in long-form stitch</label></div><div className="aspect-[9/14] bg-[#101923]"><video controls playsInline preload="metadata" src={`/api/ads/generator/creatives/${c.id}`} className="h-full w-full object-contain"/></div><div className="p-4"><div className="flex items-center justify-between gap-2"><Badge tone="success">{c.platform}</Badge><span className="text-[10px] text-[#697687]">{c.aspectRatio} · {c.durationSeconds}s</span></div><p className="mt-3 text-sm font-extrabold">{c.title}</p><p className="mt-2 line-clamp-3 text-xs leading-5 text-[#697687]">{c.caption}</p><div className="mt-3 flex flex-wrap gap-1">{(c.hashtags||[]).slice(0,5).map(h=><span key={h} className="inline-flex items-center gap-1 rounded-full bg-[#f1eee7] px-2 py-1 text-[10px] text-[#697687]"><Hash className="h-2.5 w-2.5"/>{h.replace('#','')}</span>)}</div><a href={`/api/ads/generator/creatives/${c.id}`} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#182333] px-3 py-2 text-xs font-extrabold text-[#f8f3e8]"><Download className="h-3.5 w-3.5"/>Download MP4</a></div></article>)}</div>:<div className="mt-5 rounded-2xl border border-dashed border-[#cfc7b9] bg-[#fbfaf6] p-10 text-center"><Clapperboard className="mx-auto h-8 w-8 text-[#a2772e]"/><p className="mt-4 text-sm font-extrabold">No rendered creatives yet</p><p className="mt-1 text-xs text-[#697687]">Choose a product above and generate its social pack.</p></div>}</section>
-
-      <section className="mt-8 grid gap-4 md:grid-cols-3"><div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><Play className="h-5 w-5 text-[#a2772e]"/><p className="mt-3 text-sm font-extrabold">Social-first formats</p><p className="mt-1 text-xs leading-5 text-[#697687]">Vertical 9:16 plus square and landscape variants are rendered by the server.</p></div><div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><Hash className="h-5 w-5 text-[#315e6c]"/><p className="mt-3 text-sm font-extrabold">Caption kit</p><p className="mt-1 text-xs leading-5 text-[#697687]">Every creative gets a caption and restrained hashtag set generated from real product context.</p></div><div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><ExternalLink className="h-5 w-5 text-[#8a6826]"/><p className="mt-3 text-sm font-extrabold">You control publishing</p><p className="mt-1 text-xs leading-5 text-[#697687]">Upload to Instagram, TikTok, YouTube Shorts or another network using your own account and permissions.</p></div></section>
-
-      {latestCampaign?.brainSummary&&<section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><p className="text-xs font-mono uppercase tracking-[.14em] text-[#a2772e]">Latest generator record</p><p className="mt-2 text-sm leading-6 text-[#536174]">{latestCampaign.brainSummary}</p></section>}
-    </div>
-  </AppShell>;
+export default function AdStudio(){
+ const productsQuery=useListSupplierProducts(); const inputRef=useRef<HTMLInputElement>(null);
+ const [products,setProducts]=useState<Product[]>([]); const [campaigns,setCampaigns]=useState<Campaign[]>([]); const [creatives,setCreatives]=useState<Creative[]>([]); const [customMedia,setCustomMedia]=useState<CustomMedia[]>([]);
+ const [productId,setProductId]=useState(""); const [goal,setGoal]=useState("sales"); const [audience,setAudience]=useState(""); const [offer,setOffer]=useState(""); const [customPrompt,setCustomPrompt]=useState(""); const [message,setMessage]=useState(""); const [loading,setLoading]=useState(true); const [busy,setBusy]=useState(false); const [stitchIds,setStitchIds]=useState<string[]>([]); const [stitching,setStitching]=useState(false);
+ const load=async()=>{setLoading(true);try{const data=await customFetch<{campaigns:Campaign[];creatives:Creative[];customMedia:CustomMedia[]}>('/api/ads/generator/campaigns');const list=(productsQuery.data??[]) as Product[];setProducts(list);setCampaigns(data.campaigns??[]);setCreatives(data.creatives??[]);setCustomMedia(data.customMedia??[]);if(!productId&&list[0])setProductId(String(list[0].id));}catch(e){setMessage(e instanceof Error?e.message:'Ad Studio could not be loaded.')}finally{setLoading(false)}};
+ useEffect(()=>{void load()},[productsQuery.data]); const selected=useMemo(()=>products.find(p=>String(p.id)===productId)??null,[products,productId]); const completed=useMemo(()=>creatives.filter(c=>c.status==='completed'),[creatives]);
+ const generate=async()=>{if(!selected){setMessage('Choose a catalog product first.');return}setBusy(true);try{await customFetch('/api/ads/generator/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productId:selected.id,goal,audience,offer,customPrompt})});setMessage('Fresh ad variants generated.');await load()}catch(e){setMessage(e instanceof Error?e.message:'Video generation failed.')}finally{setBusy(false)}};
+ const generateStore=async()=>{setBusy(true);try{const r=await customFetch<{processed:number}>('/api/ads/generator/generate-store',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({limit:10,goal,audience,offer,customPrompt})});setMessage(`${r.processed} product(s) processed into ad packs.`);await load()}catch(e){setMessage(e instanceof Error?e.message:'Store-wide generation failed.')}finally{setBusy(false)}};
+ const upload=async(file:File|null)=>{if(!file)return;const allowed=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm'];if(!allowed.includes(file.type)||file.size>25*1024*1024){setMessage('Upload a JPEG, PNG, WebP, GIF, MP4 or WebM file up to 25 MB.');return}setBusy(true);try{const dataUrl=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>typeof reader.result==='string'?resolve(reader.result):reject(new Error('Could not read file'));reader.onerror=()=>reject(reader.error??new Error('Could not read file'));reader.readAsDataURL(file)});const r=await customFetch<{asset:CustomMedia}>('/api/ads/media',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({media:{filename:file.name,mimeType:file.type,data:dataUrl}})});setCustomMedia(v=>[r.asset,...v]);setMessage('Custom media saved. It does not have to come from your store.')}catch(e){setMessage(e instanceof Error?e.message:'Custom media upload failed.')}finally{setBusy(false)}};
+ const stitch=async()=>{if(stitchIds.length<2){setMessage('Select at least two clips with the same aspect ratio.');return}setStitching(true);try{const r=await fetch('/api/ads/generator/stitch',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({creativeIds:stitchIds})});if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error(b.error||'Stitching failed')}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='ts-commerce-long-ad.mp4';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);setMessage('Long-form ad exported.')}catch(e){setMessage(e instanceof Error?e.message:'Stitching failed')}finally{setStitching(false)}};
+ if(loading)return <AppShell><LoadingState label="Loading Ad Studio"/></AppShell>; if(!products.length)return <AppShell><ErrorState onRetry={()=>void load()}/></AppShell>;
+ return <AppShell><div className="mx-auto max-w-[1240px]">
+  <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">Self-hosted creative engine</p><h1 className="mt-2 text-4xl font-extrabold tracking-[-.07em]">Make ads your way.</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-[#697687]">Use TS Commerce intelligence, write your own prompt, or bring completely custom imagery and videos.</p></div><Button type="button" onClick={()=>{window.location.href='/social-hub'}}><Share2 className="h-4 w-4"/>Social Hub</Button></div>
+  {message&&<div className="mt-6"><Notice title="Ad Studio">{message}</Notice></div>}
+  <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-8"><div className="flex items-start gap-3"><WandSparkles className="mt-1 h-6 w-6 text-[#d6aa46]"/><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]">Creative brain</p><h2 className="mt-2 text-2xl font-extrabold">Control the creative.</h2><p className="mt-2 text-sm leading-6 text-[#b8c2cc]">The prompt controls style and direction; product facts remain grounded in your real catalog.</p></div></div>
+   <div className="mt-6 grid gap-4 lg:grid-cols-3"><label className="text-sm font-bold lg:col-span-2">Product<select value={productId} onChange={e=>setProductId(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#243344] px-3 text-[#f8f3e8]">{products.map(p=><option key={p.id} value={p.id}>{p.title}{p.imageUrl?'':' — missing image'}</option>)}</select></label><label className="text-sm font-bold">Goal<select value={goal} onChange={e=>setGoal(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#243344] px-3 text-[#f8f3e8]"><option value="sales">Sales</option><option value="traffic">Traffic</option><option value="awareness">Awareness</option></select></label></div>
+   <div className="mt-4 grid gap-4 md:grid-cols-2"><label className="text-sm font-bold">Audience<input value={audience} onChange={e=>setAudience(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#243344] px-3 text-[#f8f3e8]"/></label><label className="text-sm font-bold">Offer context<input value={offer} onChange={e=>setOffer(e.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#526376] bg-[#243344] px-3 text-[#f8f3e8]"/></label></div>
+   <label className="mt-4 block text-sm font-bold">My custom prompt<textarea value={customPrompt} onChange={e=>setCustomPrompt(e.target.value)} rows={4} placeholder="Describe exactly how you want the ad to feel, sound and flow." className="mt-2 w-full rounded-lg border border-[#526376] bg-[#243344] px-3 py-3 text-sm text-[#f8f3e8]"/></label>
+   <div className="mt-5 flex flex-wrap gap-3"><Button onClick={generate} disabled={busy||!selected?.imageUrl} className="bg-[#d6aa46] text-[#182333]"><Film className="h-4 w-4"/>{busy?'Working…':'Generate this ad'}</Button><Button onClick={generateStore} disabled={busy} variant="secondary">Generate for 10 products</Button><Button onClick={()=>inputRef.current?.click()} disabled={busy} variant="secondary"><UploadCloud className="h-4 w-4"/>Bring my own image/video</Button><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" className="hidden" onChange={e=>void upload(e.target.files?.[0]??null)}/></div>
+  </section>
+  <section className="mt-8"><SectionHeading eyebrow="Custom media" title="Creative assets outside the store" description="Upload your own campaign images or video. These assets are kept separate from catalog media."/><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{customMedia.map(m=><div key={m.id} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-4"><Badge>{m.mediaType}</Badge><p className="mt-2 truncate text-xs font-bold">{m.filename}</p><a href={`/api/ads/media/${m.id}/download`} className="mt-3 inline-flex items-center gap-2 text-xs font-extrabold text-[#8a6826] underline"><Download className="h-3.5 w-3.5"/>Download</a></div>)}</div></section>
+  <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Long-form studio</p><h2 className="mt-2 text-xl font-extrabold">Stitch your best clips</h2><p className="mt-1 text-xs leading-5 text-[#697687]">Select generated clips with the same ratio and export one longer MP4.</p></div><Button onClick={stitch} disabled={stitching||stitchIds.length<2}>{stitching?<><RefreshCw className="h-4 w-4 animate-spin"/>Stitching…</>:<>Stitch selected ({stitchIds.length})</>}</Button></div></section>
+  <section className="mt-8"><SectionHeading eyebrow="Generated ads" title="Preview and download"/><div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">{completed.map(c=><article key={c.id} className="overflow-hidden rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6]"><div className="border-b border-[#d9d2c4] p-3"><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={stitchIds.includes(c.id)} onChange={e=>setStitchIds(v=>e.target.checked?[...new Set([...v,c.id])]:v.filter(id=>id!==c.id))}/>Use for long video</label></div><div className="aspect-[9/14] bg-[#101923]"><video controls playsInline preload="metadata" src={`/api/ads/generator/creatives/${c.id}`} className="h-full w-full object-contain"/></div><div className="p-4"><Badge tone="success">{c.platform}</Badge><p className="mt-3 text-sm font-extrabold">{c.title}</p><p className="mt-2 line-clamp-3 text-xs leading-5 text-[#697687]">{c.caption}</p><a href={`/api/ads/generator/creatives/${c.id}`} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#182333] px-3 py-2 text-xs font-extrabold text-[#f8f3e8]"><Download className="h-3.5 w-3.5"/>Download MP4</a></div></article>)}</div></section>
+ </div></AppShell>;
 }
