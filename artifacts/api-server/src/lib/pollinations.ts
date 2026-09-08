@@ -219,18 +219,20 @@ export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const geminiKey = apiKey("GEMINI_IMAGE_API_KEY") || apiKey("GEMINI_API_KEY");
   const failures: string[] = [];
 
+  // Prefer the current Gemini image model for the highest-quality smart generation.
+  if (geminiKey) {
+    try {
+      return await generateGeminiImage(prompt, geminiKey);
+    } catch (error) {
+      failures.push(`Gemini image: ${error instanceof Error ? error.message : "request failed"}`);
+    }
+  }
+
   if (stabilityKey) {
     try {
       return await generateStabilityImage(prompt, stabilityKey);
     } catch (error) {
       failures.push(`Stability: ${error instanceof Error ? error.message : "request failed"}`);
-    }
-  }
-  if (geminiKey) {
-    try {
-      return await generateGeminiImage(prompt, geminiKey);
-    } catch (error) {
-      failures.push(`Gemini: ${error instanceof Error ? error.message : "request failed"}`);
     }
   }
 
