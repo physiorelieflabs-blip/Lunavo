@@ -174,7 +174,7 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
   const creativeIds = rawIds.filter((value: unknown): value is string => typeof value === "string" && value.length > 0).slice(0, 20);
   if (creativeIds.length < 2) { fail(res, 400, "Choose at least two completed video clips to stitch"); return; }
   const creatives = await db.select().from(adCreativesTable).where(and(eq(adCreativesTable.merchantId, merchant.id), eq(adCreativesTable.status, "completed")));
-  const selected = creativeIds.map((id: string) => creatives.find((creative) => creative.id === id)).filter((item): item is typeof creatives[number] => Boolean(item));
+  const selected: Array<typeof creatives[number]> = creativeIds.map((id: string) => creatives.find((creative: typeof creatives[number]) => creative.id === id)).filter((item): item is typeof creatives[number] => Boolean(item));
   if (selected.length !== creativeIds.length) { fail(res, 404, "One or more video clips are unavailable"); return; }
   const first = selected[0]!;
   if (selected.some((creative) => creative.aspectRatio !== first.aspectRatio)) { fail(res, 422, "Stitch clips with the same aspect ratio"); return; }
