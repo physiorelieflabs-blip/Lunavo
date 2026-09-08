@@ -13,6 +13,7 @@ import {
   paymentRecordsTable,
   paymentsTable,
   subscriptionsTable,
+  supplierProductsTable,
   autoDsSettingsTable,
   fulfillmentJobsTable,
 } from "@workspace/db";
@@ -220,6 +221,9 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
   const [order] = intent.orderId === null ? [] : await db.select().from(ordersTable).where(and(eq(ordersTable.id, intent.orderId), eq(ordersTable.merchantId, intent.merchantId))).limit(1);
   const [customer] = order ? await db.select().from(customersTable).where(and(eq(customersTable.id, order.customerId), eq(customersTable.merchantId, intent.merchantId))).limit(1) : [];
   const [merchant] = await db.select().from(merchantsTable).where(eq(merchantsTable.id, intent.merchantId)).limit(1);
+  const [supplierProduct] = order?.supplierProductId
+    ? await db.select().from(supplierProductsTable).where(and(eq(supplierProductsTable.id, order.supplierProductId), eq(supplierProductsTable.merchantId, intent.merchantId))).limit(1)
+    : [];
   const [record] = await db.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1);
   if (!order || !customer || !merchant || !record) {
     await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: intent.merchantId, orderId: intent.orderId, paymentIntentId: intent.id, reason: "Payment session references missing TS Commerce records", payload: rawPayload });
@@ -298,27 +302,36 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
-    if (order.supplierProductId) {
+    if (order.supplierProductId && supplierProduct) {
       const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
       if (autoDs?.enabled) {
-        await tx.insert(fulfillmentJobsTable).values({
-          merchantId: merchant.id,
-          orderId: order.id,
-          supplierProductId: order.supplierProductId,
-          mode: autoDs.mode,
-          status: autoDs.requireApprovalBeforeExternalOrder ? "ready" : "ready",
-          supplierCheckoutUrl: null,
-          customerSnapshot: {
-            name: customer.name,
-            email: customer.email,
-            phone: customer.phone,
-            shippingAddress: order.shippingAddress,
-          },
-          costMinor: null,
-          currency: order.currency,
-          attempts: 0,
-          idempotencyKey: `autods:order:${order.id}`,
-        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+        const sourceCost = supplierProduct.salePrice ?? supplierProduct.price;
+        const selling = supplierProduct.sellingPrice;
+        const costNumber = sourceCost === null ? null : Number(sourceCost);
+        const sellNumber = selling === null ? null : Number(selling);
+        const marginPercent = costNumber !== null && sellNumber !== null && sellNumber > 0
+          ? ((sellNumber - costNumber) / sellNumber) * 100
+          : null;
+        if (marginPercent === null || marginPercent >= Number(autoDs.minimumMarginPercent)) {
+          await tx.insert(fulfillmentJobsTable).values({
+            merchantId: merchant.id,
+            orderId: order.id,
+            supplierProductId: order.supplierProductId,
+            mode: autoDs.mode,
+            status: "ready",
+            supplierCheckoutUrl: supplierProduct.supplierUrl || supplierProduct.sourceUrl,
+            customerSnapshot: {
+              name: customer.name,
+              email: customer.email,
+              phone: customer.phone,
+              shippingAddress: order.shippingAddress,
+            },
+            costMinor: costNumber === null ? null : Math.round(costNumber * 100) * order.quantity,
+            currency: order.currency,
+            attempts: 0,
+            idempotencyKey: `autods:order:${order.id}`,
+          }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+        }
       }
     }
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: order.id, paymentIntentId: currentIntent.id, entityType: "payment_intent", fromStatus: currentIntent.status, toStatus: "successful", actorId: "flutterwave_webhook", note: "Provider-verified Flutterwave payment" });
