@@ -362,6 +362,7 @@ import {
 } from "../lib/ai";
 import { completeGeminiChat } from "../lib/gemini";
 import { generateImage } from "../lib/pollinations";
+import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
 import { completeGeminiChat } from "../lib/gemini";
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
@@ -7837,22 +7838,75 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Only published, priced products can enter the marketplace" });
     return;
   }
+  const adFx = await getMarketExchangeRate("USD", merchant.currency);
+  if (!Number.isFinite(adFx.rate) || adFx.rate <= 0) {
+    res.status(503).json({ error: "Marketplace advertising price is temporarily unavailable." });
+    return;
+  }
+  const adFeeAmount = Number((5 * adFx.rate).toFixed(2));
   try {
     const result = await db.transaction(async (tx) => {
-      const [listing] = await tx.insert(marketplaceListingsTable).values({
-        merchantId: merchant.id,
-        supplierProductId: product.id,
-        listingFeeCurrency: merchant.currency,
-      }).onConflictDoUpdate({
-        target: [marketplaceListingsTable.merchantId, marketplaceListingsTable.supplierProductId],
-        set: { status: "pending", reviewNote: null, listingFeeStatus: "due", updatedAt: new Date() },
-      }).returning();
+      const existingListing = (
+        await tx.select().from(marketplaceListingsTable)
+          .where(and(
+            eq(marketplaceListingsTable.merchantId, merchant.id),
+            eq(marketplaceListingsTable.supplierProductId, product.id),
+          ))
+          .limit(1)
+      )[0];
+
+      const [listing] = existingListing
+        ? await tx.update(marketplaceListingsTable).set({
+            status: "pending",
+            reviewNote: null,
+            updatedAt: new Date(),
+            listingFeeCurrency: merchant.currency,
+            listingFeeAmount: existingListing.listingFeeStatus === "paid"
+              ? existingListing.listingFeeAmount
+              : adFeeAmount.toFixed(2),
+            listingFeeStatus: existingListing.listingFeeStatus === "paid" ? "paid" : "due",
+          }).where(eq(marketplaceListingsTable.id, existingListing.id)).returning()
+        : await tx.insert(marketplaceListingsTable).values({
+            merchantId: merchant.id,
+            supplierProductId: product.id,
+            listingFeeAmount: adFeeAmount.toFixed(2),
+            listingFeeCurrency: merchant.currency,
+            listingFeeStatus: "due",
+          }).returning();
+
       if (!listing) throw new Error("Marketplace listing could not be created");
+
+      const existingFee = (
+        await tx.select().from(marketplaceBillingRecordsTable)
+          .where(and(
+            eq(marketplaceBillingRecordsTable.merchantId, merchant.id),
+            eq(marketplaceBillingRecordsTable.listingId, listing.id),
+            eq(marketplaceBillingRecordsTable.kind, "listing"),
+          ))
+          .orderBy(desc(marketplaceBillingRecordsTable.createdAt))
+          .limit(1)
+      )[0];
+
+      if (!existingFee) {
+        await tx.insert(marketplaceBillingRecordsTable).values({
+          merchantId: merchant.id,
+          listingId: listing.id,
+          kind: "listing",
+          amount: listing.listingFeeAmount,
+          currency: listing.listingFeeCurrency,
+          status: listing.listingFeeStatus === "paid" ? "paid" : "due",
+          paidAt: listing.listingFeeStatus === "paid" ? new Date() : null,
+        });
+      }
+
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "marketplace_listing_submitted",
         title: `Marketplace listing submitted: ${product.title}`,
-        description: "The listing is pending review. It becomes publicly visible only while the merchant's $5 monthly participation subscription is paid.",
+        description: listing.listingFeeStatus === "paid"
+          ? "The product was resubmitted for marketplace review. Its $5 advertising fee is already verified."
+          : "The product is pending review. A separate $5 product advertising fee must be verified before shoppers can discover it.",
+        amount: listing.listingFeeAmount,
         currency: merchant.currency,
         tone: "neutral",
       });
@@ -7889,6 +7943,153 @@ router.patch("/marketplace/listings/:id", async (req, res): Promise<void> => {
     return;
   }
   res.json(UpdateMarketplaceListingResponse.parse(serializeMarketplaceListing(updated, product)));
+});
+
+router.post("/marketplace/billing/:id/verify", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const billingId = Number(req.params.id);
+  const transactionId = typeof req.body?.transaction_id === "string" ? req.body.transaction_id.trim() : "";
+  if (!Number.isInteger(billingId) || billingId < 1 || !transactionId) {
+    res.status(400).json({ error: "Marketplace billing ID and Flutterwave transaction ID are required." });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const billing = (await db.select().from(marketplaceBillingRecordsTable).where(and(
+    eq(marketplaceBillingRecordsTable.id, billingId),
+    eq(marketplaceBillingRecordsTable.merchantId, merchant.id),
+  )).limit(1))[0];
+  if (!billing) { res.status(404).json({ error: "Marketplace advertising fee not found." }); return; }
+  try {
+    const transaction = await verifyFlutterwaveTransaction(transactionId);
+    const result = await processVerifiedFlutterwaveTransaction(
+      transaction as unknown as Record<string, unknown>,
+      `merchant-verify:${billingId}:${transactionId}`,
+      transaction as unknown as Record<string, unknown>,
+    );
+    res.json({ status: result, message: result === "successful" || result === "duplicate" ? "Advertising payment verified." : "The provider payment is not confirmed yet." });
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : "Advertising payment verification failed." });
+  }
+});
+
+router.post("/marketplace/listings/:id/checkout", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const listingId = Number(req.params.id);
+  if (!Number.isInteger(listingId) || listingId < 1) {
+    res.status(400).json({ error: "Invalid marketplace listing." });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const listing = (await db.select().from(marketplaceListingsTable).where(and(
+    eq(marketplaceListingsTable.id, listingId),
+    eq(marketplaceListingsTable.merchantId, merchant.id),
+  )).limit(1))[0];
+  if (!listing) { res.status(404).json({ error: "Marketplace listing not found." }); return; }
+  if (listing.listingFeeStatus === "paid") {
+    res.json({ status: "paid", listingId, message: "This product advertising fee is already verified." });
+    return;
+  }
+  const billing = (await db.select().from(marketplaceBillingRecordsTable).where(and(
+    eq(marketplaceBillingRecordsTable.listingId, listing.id),
+    eq(marketplaceBillingRecordsTable.kind, "listing"),
+    or(eq(marketplaceBillingRecordsTable.status, "due"), eq(marketplaceBillingRecordsTable.status, "submitted")),
+  )).orderBy(desc(marketplaceBillingRecordsTable.createdAt)).limit(1))[0];
+  if (!billing) { res.status(409).json({ error: "Product advertising fee record is not available." }); return; }
+
+  const attemptKey = randomUUID().replaceAll("-", "").slice(0, 16);
+  const txRef = `TSMKT-AD-${listing.id}-${billing.id}-${attemptKey}`;
+  const origin = requestOrigin(req);
+  if (!origin) { res.status(400).json({ error: "Could not determine the provider return address." }); return; }
+  const intent = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(paymentIntentsTable).values({
+      merchantId: merchant.id,
+      marketplaceBillingRecordId: billing.id,
+      amountMinor: Math.round(Number(billing.amount) * 100),
+      currency: billing.currency,
+      method: "flutterwave",
+      idempotencyKey: `marketplace-ad:${billing.id}`,
+      evidenceReference: txRef,
+      status: "created",
+    }).onConflictDoNothing({ target: paymentIntentsTable.marketplaceBillingRecordId }).returning();
+    return created ?? (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.marketplaceBillingRecordId, billing.id)).limit(1))[0];
+  });
+  if (!intent) { res.status(409).json({ error: "Advertising payment session could not be created." }); return; }
+
+  let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
+  let purchaseUrl: string | null = null;
+  try {
+    if (supportsFlutterwaveDirectBankTransfer(billing.currency)) {
+      destination = await initializeFlutterwaveVirtualAccount({
+        txRef,
+        amount: Number(billing.amount),
+        currency: billing.currency,
+        customer: { email: merchant.email, name: merchant.name },
+        narration: `TS Commerce marketplace advertising fee ${listing.id}`,
+        meta: {
+          provider: "flutterwave",
+          merchant_id: merchant.id,
+          marketplace_listing_id: listing.id,
+          marketplace_billing_id: billing.id,
+          payment_intent_id: intent.id,
+        },
+      });
+    } else {
+      const hosted = await initializeFlutterwavePayment({
+        txRef,
+        amount: Number(billing.amount),
+        currency: billing.currency,
+        redirectUrl: `${origin}/marketplace-management?flutterwave=marketplace&listingId=${listing.id}&transaction_id={transaction_id}`,
+        customer: { email: merchant.email, name: merchant.name },
+        title: "TS Commerce marketplace advertising",
+        meta: {
+          provider: "flutterwave",
+          merchant_id: merchant.id,
+          marketplace_listing_id: listing.id,
+          marketplace_billing_id: billing.id,
+          payment_intent_id: intent.id,
+        },
+      });
+      purchaseUrl = hosted.link;
+    }
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Flutterwave advertising checkout could not be prepared." });
+    return;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.update(paymentIntentsTable).set({ status: "submitted", evidenceReference: txRef, checkoutUrl: purchaseUrl }).where(eq(paymentIntentsTable.id, intent.id));
+    await tx.update(marketplaceBillingRecordsTable).set({ status: "submitted", paymentReference: txRef }).where(eq(marketplaceBillingRecordsTable.id, billing.id));
+    await tx.update(marketplaceListingsTable).set({ listingFeeStatus: "submitted", updatedAt: new Date() }).where(eq(marketplaceListingsTable.id, listing.id));
+    if (destination) {
+      await tx.insert(paymentDestinationsTable).values({
+        merchantId: merchant.id,
+        paymentIntentId: intent.id,
+        provider: "flutterwave",
+        bankName: destination.bankName,
+        accountName: destination.accountName,
+        accountNumber: destination.accountNumber,
+        amountMinor: Math.round(destination.amount * 100),
+        currency: destination.currency,
+        providerReference: destination.providerReference ?? txRef,
+        expiresAt: destination.expiresAt,
+        status: "active",
+        rawProviderMetadata: destination.raw,
+      });
+    }
+  });
+
+  res.status(201).json({
+    listingId,
+    billingId: billing.id,
+    paymentIntentId: intent.id,
+    amount: Number(billing.amount),
+    currency: billing.currency,
+    paymentUrl: purchaseUrl,
+    paymentDestination: destination,
+    status: "submitted",
+  });
 });
 
 router.post("/marketplace/billing/:id/submit", async (req, res): Promise<void> => {
@@ -8407,6 +8608,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     eq(merchantsTable.status, "active"),
     eq(supplierProductsTable.status, "active"),
     eq(marketplaceListingsTable.status, "approved"),
+    eq(marketplaceListingsTable.listingFeeStatus, "paid"),
     exists(
       db.select({ id: marketplaceBillingRecordsTable.id })
         .from(marketplaceBillingRecordsTable)
@@ -8430,7 +8632,11 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     .innerJoin(merchantsTable, eq(supplierProductsTable.merchantId, merchantsTable.id))
     .leftJoin(marketplaceListingsTable, eq(marketplaceListingsTable.supplierProductId, supplierProductsTable.id))
     .where(and(...filters))
-    .orderBy(desc(supplierProductsTable.publishedAt), desc(supplierProductsTable.importedAt))
+    .orderBy(
+    desc(sql`case when ${marketplaceListingsTable.listingFeeStatus} = 'paid' then 1 else 0 end`),
+    desc(supplierProductsTable.publishedAt),
+    desc(supplierProductsTable.importedAt),
+  )
     .limit(100);
    res.json(ListMarketplaceProductsResponse.parse(rows.map(({ product, merchantKey, merchantName }) => ({
     id: product.id,
