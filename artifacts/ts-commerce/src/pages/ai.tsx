@@ -171,6 +171,7 @@ export default function AiControlRoom() {
   const [imageCaption, setImageCaption] = useState('');
   const [generatedImage, setGeneratedImage] = useState<{
     model: string;
+    enhancedPrompt?: string;
     asset: { id: number; filename: string; altText: string | null; caption: string | null; url: string };
   } | null>(null);
   const [imagePending, setImagePending] = useState(false);
@@ -362,7 +363,7 @@ export default function AiControlRoom() {
         }),
       });
       setGeneratedImage(result);
-      setMessage('Image generated and saved to your public media library.');
+      setMessage('Smart image generation completed. Your prompt was optimized with the store context and the finished visual was saved to the public media library.');
     } catch (error) {
       setMessage(error instanceof Error && error.message && !error.message.includes('Failed to fetch')
         ? error.message
@@ -507,6 +508,45 @@ export default function AiControlRoom() {
           <Button className="mt-4" onClick={prepareAd} disabled={createAction.isPending}><Megaphone className="h-4 w-4" />{createAction.isPending ? 'Preparing…' : 'Prepare ad concepts'}</Button>
         </div>
       </section>
+
+       <section className="mt-8 rounded-2xl border border-[#2d3d4d] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
+         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+           <div className="max-w-2xl">
+             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]"><ImagePlus className="h-4 w-4" /> Smart Visual Studio</div>
+             <h2 className="mt-2 text-2xl font-extrabold tracking-[-.04em]">Create storefront visuals with context, not guesswork.</h2>
+             <p className="mt-3 text-sm leading-6 text-[#b8c2cc]">TS Commerce first refines your brief using your store identity and relevant catalog context, then sends the optimized prompt to the image model. This improves composition, product focus, lighting, and ecommerce presentation without inventing product facts.</p>
+           </div>
+           <Badge tone="info">No TS Commerce usage cap</Badge>
+         </div>
+         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_.75fr]">
+           <div className="rounded-xl border border-[#536174] bg-[#243344] p-5">
+             <label className="block text-sm font-bold text-[#f8f3e8]">Describe the visual you need<textarea value={imagePrompt} onChange={(event) => setImagePrompt(event.target.value)} maxLength={1800} rows={5} className="mt-2 h-auto w-full rounded-lg border border-[#536174] bg-[#1b2a39] px-3 py-3 text-sm leading-6 text-[#f8f3e8] outline-none placeholder:text-[#92a0ae] focus:border-[#d6aa46]" placeholder="Example: A premium hero image for a Nigerian fashion store showing a cream linen co-ord on a sunlit modern terrace, editorial but commercially clean." /></label>
+             <div className="mt-4 grid gap-3 sm:grid-cols-2">
+               <label className="block text-xs font-bold uppercase tracking-[.08em] text-[#aeb9c4]">Alt text<input value={imageAltText} onChange={(event) => setImageAltText(event.target.value)} maxLength={160} className="mt-2 h-10 w-full rounded-lg border border-[#536174] bg-[#1b2a39] px-3 text-sm normal-case tracking-normal text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="Describe the finished visual" /></label>
+               <label className="block text-xs font-bold uppercase tracking-[.08em] text-[#aeb9c4]">Caption<input value={imageCaption} onChange={(event) => setImageCaption(event.target.value)} maxLength={500} className="mt-2 h-10 w-full rounded-lg border border-[#536174] bg-[#1b2a39] px-3 text-sm normal-case tracking-normal text-[#f8f3e8] outline-none focus:border-[#d6aa46]" placeholder="Optional media-library caption" /></label>
+             </div>
+             <Button onClick={generateStoreImage} disabled={imagePending || imagePrompt.trim().length < 10} className="mt-4 bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d]"><Sparkles className="h-4 w-4" />{imagePending ? 'Designing…' : 'Generate smart visual'}</Button>
+           </div>
+           <div className="rounded-xl border border-[#536174] bg-[#f7f4ed] p-5 text-[#182333]">
+             <p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#8a6826]">What the studio does</p>
+             <div className="mt-4 space-y-3 text-sm leading-6">
+               <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">01</span><span>Understands the commercial purpose of the image.</span></div>
+               <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">02</span><span>Uses relevant store and catalog context.</span></div>
+               <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">03</span><span>Generates at higher quality with the current Gemini image model when configured.</span></div>
+               <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">04</span><span>Saves the finished asset directly into your media library.</span></div>
+             </div>
+           </div>
+         </div>
+         {generatedImage && <div className="mt-5 grid gap-5 lg:grid-cols-[.9fr_1.1fr] rounded-xl border border-[#536174] bg-[#243344] p-5">
+           <div className="overflow-hidden rounded-xl border border-[#536174] bg-black/20"><img src={generatedImage.asset.url} alt={generatedImage.asset.altText ?? 'Generated storefront visual'} className="aspect-square w-full object-cover" /></div>
+           <div className="min-w-0">
+             <div className="flex flex-wrap items-center gap-2"><Badge tone="success">Saved to media library</Badge><Badge tone="info">{generatedImage.model}</Badge></div>
+             <p className="mt-4 text-sm font-bold text-[#f8f3e8]">Optimized prompt</p>
+             <p className="mt-2 max-h-48 overflow-auto rounded-lg border border-[#536174] bg-[#1b2a39] p-3 text-xs leading-5 text-[#c6d0d9]">{generatedImage.enhancedPrompt ?? 'The original prompt was used because prompt enhancement was unavailable.'}</p>
+           </div>
+         </div>}
+         <p className="mt-4 text-[11px] leading-5 text-[#92a0ae]">“No usage cap” means TS Commerce does not impose an artificial daily/monthly generation allowance. Your configured AI provider can still enforce its own API limits, billing, safety rules, or availability.</p>
+       </section>
 
        <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-7"><SectionHeading eyebrow="AI Product Creator" title="Turn a rough idea into reviewable product copy." description="The creator can draft product-page structure from your brief and existing catalog context. It does not publish or change products." /><div className="mt-5 flex flex-col gap-3 md:flex-row"><textarea value={productBrief} onChange={(event) => setProductBrief(event.target.value)} maxLength={1000} rows={3} className={`${inputClass} h-auto py-3`} placeholder="e.g. Premium linen co-ord for warm-weather workdays, breathable and easy to style" /><Button className="shrink-0 self-start" onClick={prepareProductDraft} disabled={createAction.isPending || productBrief.trim().length < 3}><Sparkles className="h-4 w-4" />Prepare product draft</Button></div><p className="mt-3 text-xs leading-5 text-[#697687]">Generated drafts are stored in the approval history so you can inspect the evidence and rollback the preparation record.</p></section>
 
