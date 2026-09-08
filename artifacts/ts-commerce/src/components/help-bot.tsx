@@ -8,9 +8,11 @@ type Message = Reply & { id: number; from: 'ai' | 'user' };
 type GuideMessage = { role: 'user' | 'assistant'; content: string };
 
 const quickQuestions = [
-  'How do I make a verified sale?',
-  'How do I protect a withdrawal?',
-  'How do I manage inventory holds?',
+  'Teach me how to source my first product',
+  'How do I put a product in the General Store for $5?',
+  'How do I build and publish my storefront?',
+  'How do I make a verified sale and fulfill it?',
+  'How do I understand profit, fees and TS Pay?',
   'What should I do first today?',
 ];
 
@@ -62,12 +64,12 @@ export function HelpBot() {
           <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-[#aab6c2] hover:bg-[#2a3a4d] hover:text-white" aria-label="Close help"><X className="h-4 w-4" /></button>
         </div>
         <div className="max-h-[min(440px,60vh)] space-y-3 overflow-y-auto p-4">
-          <p className="text-xs text-[#697687]">{contextHint}</p>
+          <p className="text-xs text-[#697687]">{contextHint}</p><Link href="/guide" onClick={() => setOpen(false)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-[#8a6826] underline">Open the full TS Commerce manual <ChevronRight className="h-3 w-3" /></Link>
           {messages.map((message) => <div key={message.id} className={`flex ${message.from === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[90%] rounded-2xl px-3 py-2 text-xs leading-5 ${message.from === 'user' ? 'rounded-br-md bg-[#182333] text-[#f8f3e8]' : 'rounded-bl-md border border-[#ded8cd] bg-[#f1eee7] text-[#354357]'}`}>{message.text}{message.href && <Link href={message.href} onClick={() => setOpen(false)} className="mt-2 flex items-center gap-1 font-extrabold text-[#8a6826] underline">Open this feature <ChevronRight className="h-3 w-3" /></Link>}</div></div>)}
            {messages.length === 1 && <div className="grid gap-2">{quickQuestions.map((question) => <button key={question} onClick={() => void ask(question)} disabled={pending} className="flex items-center justify-between rounded-xl border border-[#ded8cd] bg-white px-3 py-2 text-left text-xs font-bold text-[#354357] transition hover:border-[#bba15e] hover:bg-[#fff7df] disabled:cursor-wait disabled:opacity-60">{question}<Sparkles className="h-3.5 w-3.5 text-[#a2772e]" /></button>)}</div>}
         </div>
          <form onSubmit={(event) => { event.preventDefault(); void ask(draft); }} className="flex gap-2 border-t border-[#ded8cd] p-3">
-           <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={pending ? 'TS Guide AI is thinking…' : 'Ask anything about shopping…'} aria-label="Ask TS Guide AI" disabled={pending} className="min-w-0 flex-1 rounded-xl border border-[#d9d2c4] bg-white px-3 py-2 text-xs outline-none focus:border-[#bca26a] disabled:opacity-60" />
+           <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={pending ? 'TS Guide AI is thinking…' : 'Ask how to use TS Commerce…'} aria-label="Ask TS Guide AI" disabled={pending} className="min-w-0 flex-1 rounded-xl border border-[#d9d2c4] bg-white px-3 py-2 text-xs outline-none focus:border-[#bca26a] disabled:opacity-60" />
            <button type="submit" disabled={pending || !draft.trim()} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#d6aa46] text-[#182333] hover:bg-[#e0b95d] disabled:cursor-wait disabled:opacity-60" aria-label="Send question"><Send className="h-4 w-4" /></button>
         </form>
       </section>}
