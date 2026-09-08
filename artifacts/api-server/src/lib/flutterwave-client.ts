@@ -52,8 +52,12 @@ class FlutterwaveRequestError extends Error {
   }
 }
 
+function envValue(primary: string, legacy: string): string {
+  return process.env[primary]?.trim() || process.env[legacy]?.trim() || "";
+}
+
 function secretKey(): string {
-  const value = process.env.FLUTTERWAVE_SECRET_KEY?.trim();
+  const value = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY");
   if (!value) throw new Error("Flutterwave online payments are not configured");
   return value;
 }
@@ -102,11 +106,11 @@ export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean
 }
 
 export function isFlutterwaveConfigured(): boolean {
-  return Boolean(process.env.FLUTTERWAVE_SECRET_KEY?.trim());
+  return Boolean(envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY"));
 }
 
 export function flutterwaveCredentialMode(): "live" | "test" | "unknown" {
-  const key = process.env.FLUTTERWAVE_SECRET_KEY?.trim() ?? "";
+  const key = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY");
   if (key.startsWith("FLWSECK_TEST-")) return "test";
   if (key.startsWith("FLWSECK-")) return "live";
   return "unknown";
@@ -153,7 +157,7 @@ export async function initializeFlutterwavePayment(input: {
       redirect_url: input.redirectUrl,
        payment_options: input.paymentOptions ?? "card,banktransfer,ussd,mobilemoney",
       customer: input.customer,
-      customizations: { title: input.title.slice(0, 120), description: "Secure payment powered by TS Commerce" },
+      customizations: { title: input.title.slice(0, 120), description: "Secure payment powered by Lunavo" },
       meta: input.meta,
     },
   });
@@ -201,7 +205,7 @@ export async function initializeFlutterwaveVirtualAccount(input: {
   narration: string;
   meta: Record<string, string | number>;
 }): Promise<FlutterwaveVirtualAccountDestination> {
-  const [firstName, ...rest] = (input.customer.name ?? "TS Commerce Customer").trim().split(/\s+/);
+  const [firstName, ...rest] = (input.customer.name ?? "Lunavo Customer").trim().split(/\s+/);
   const response = await flutterwaveRequest<FlutterwaveResponse<Record<string, unknown>>>(
     "/virtual-account-numbers",
     {
@@ -301,7 +305,7 @@ export function verifyFlutterwaveWebhookSignature(
   currentSignature: string | undefined,
   legacySignature?: string,
 ): boolean {
-  const secret = process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim();
+  const secret = envValue("FLUTTERWAVE_WEBHOOK_SECRET", "FLW_WEBHOOK_HASH");
   if (!secret) return false;
 
   // Current Flutterwave webhook signing: HMAC-SHA256 over the exact raw body,
