@@ -72,13 +72,32 @@ export async function generateLocalImage(prompt: string, options?: { width?: num
   return Buffer.from(await response.arrayBuffer());
 }
 
+export type LocalVideoOptions = {
+  width?: number;
+  height?: number;
+  seconds?: number;
+  fps?: number;
+  /**
+   * Seamless stitching is enabled by default. The local worker should render
+   * short coherent segments and stitch them with overlap-aware transitions,
+   * temporal continuity and audio-safe boundaries rather than hard cuts.
+   */
+  seamlessStitching?: boolean;
+  /** Number of frames to overlap between adjacent generated segments. */
+  overlapFrames?: number;
+  /** Preferred transition strategy understood by the local video worker. */
+  transition?: "crossfade" | "motion_blend" | "match_cut" | "auto";
+};
+
 /**
- * Local video-generation boundary. Video generation is deliberately an
- * adapter contract rather than a fake implementation: a self-hosted video
- * worker (for example a ComfyUI/FFmpeg-based pipeline) must return an actual
- * video response. No cloud video API key is accepted here.
+ * Local video-generation boundary with seamless stitching.
+ *
+ * The worker may use ComfyUI/FFmpeg or another self-hosted pipeline. The
+ * application sends an explicit stitching contract so longer videos can be
+ * assembled from coherent segments while preserving subject, camera motion,
+ * color, lighting and audio continuity. No cloud video API key is accepted.
  */
-export async function generateLocalVideo(prompt: string, options?: { width?: number; height?: number; seconds?: number; fps?: number }): Promise<Buffer> {
+export async function generateLocalVideo(prompt: string, options?: LocalVideoOptions): Promise<Buffer> {
   const endpoint = process.env.LUNAVO_LOCAL_VIDEO_URL?.trim() || "http://127.0.0.1:8189";
   const response = await fetch(`${endpoint.replace(/\/$/, "")}/api/generate`, {
     method: "POST",
@@ -89,6 +108,16 @@ export async function generateLocalVideo(prompt: string, options?: { width?: num
       height: options?.height ?? 720,
       seconds: options?.seconds ?? 8,
       fps: options?.fps ?? 24,
+      stitching: {
+        enabled: options?.seamlessStitching ?? true,
+        overlap_frames: options?.overlapFrames ?? 12,
+        transition: options?.transition ?? "auto",
+        temporal_consistency: true,
+        subject_consistency: true,
+        camera_continuity: true,
+        color_continuity: true,
+        audio_continuity: true,
+      },
     }),
     signal: AbortSignal.timeout(Math.max(60_000, Number(process.env.LUNAVO_LOCAL_VIDEO_TIMEOUT_MS) || 600_000)),
   });
