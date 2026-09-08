@@ -62,6 +62,39 @@ export const merchantsTable = pgTable("merchants", {
  * inferred from a client supplied merchant id; services resolve it through
  * the authenticated membership's merchant id.
  */
+export const merchantStorefrontsTable = pgTable(
+  "merchant_storefronts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    publicKey: text("public_key").notNull().unique(),
+    description: text("description"),
+    theme: jsonb("theme").notNull().default({
+      accentColor: "#c85d3f",
+      backgroundColor: "#f5f1e8",
+      textColor: "#182333",
+      layout: "editorial",
+      announcement: "",
+      logoUrl: null,
+      heroImageUrl: null,
+    }),
+    sections: jsonb("sections").notNull().default([
+      { id: "hero", type: "hero", enabled: true, heading: "Thoughtful goods, clearly presented.", body: "" },
+      { id: "products", type: "products", enabled: true, heading: "Shop the collection", body: "" },
+    ]),
+    published: boolean("published").notNull().default(false),
+    createdByClerkUserId: text("created_by_clerk_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("merchant_storefronts_merchant_slug_unique").on(table.merchantId, table.slug),
+    index("merchant_storefronts_merchant_idx").on(table.merchantId, table.createdAt),
+  ],
+);
+
 export const merchantLocationsTable = pgTable(
   "merchant_locations",
   {
@@ -433,6 +466,23 @@ export const mediaAssetsTable = pgTable(
   },
   (table) => [
     index("media_assets_merchant_idx").on(table.merchantId, table.createdAt),
+  ],
+);
+
+
+
+export const mediaAssetStorefrontsTable = pgTable(
+  "media_asset_storefronts",
+  {
+    mediaAssetId: integer("media_asset_id").notNull().references(() => mediaAssetsTable.id, { onDelete: "cascade" }),
+    storefrontId: uuid("storefront_id").notNull().references(() => merchantStorefrontsTable.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("library"),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+    assignedByClerkUserId: text("assigned_by_clerk_user_id").notNull(),
+  },
+  (table) => [
+    uniqueIndex("media_asset_storefront_unique").on(table.mediaAssetId, table.storefrontId),
+    index("media_asset_storefront_store_idx").on(table.storefrontId, table.assignedAt),
   ],
 );
 
