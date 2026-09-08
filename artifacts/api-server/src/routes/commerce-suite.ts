@@ -1,0 +1,46 @@
+import { Router, type Request, type Response } from "express";
+import { and, desc, eq } from "drizzle-orm";
+import { getAuth } from "@clerk/express";
+import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
+
+const router = Router();
+async function merchantFor(req: Request) {
+  const userId = getAuth(req).userId;
+  if (!userId) return null;
+  return (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0] ?? null;
+}
+function fail(res: Response, status: number, error: string) { res.status(status).json({ error }); }
+
+router.get("/automation/auto-ds", async (req,res) => {
+  const merchant=await merchantFor(req); if(!merchant) return fail(res,401,"Authentication required");
+  const settings=(await db.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId,merchant.id)).limit(1))[0] ?? null;
+  const jobs=await db.select().from(fulfillmentJobsTable).where(eq(fulfillmentJobsTable.merchantId,merchant.id)).orderBy(desc(fulfillmentJobsTable.createdAt)).limit(100);
+  res.json({settings:settings??{merchantId:merchant.id,enabled:false,mode:"assisted",autoAllocateSupplierCost:false,requireApprovalBeforeExternalOrder:true,minimumMarginPercent:"10",defaultCarrier:null},capabilities:{automaticInternalRouting:true,automaticSupplierApiOrdering:false,reason:"External supplier websites without an order API cannot be treated as APIs. Auto-DS prepares and routes orders; external supplier checkout requires a supported adapter or approval."},jobs});
+});
+
+router.post("/automation/auto-ds", async (req,res) => {
+  const merchant=await merchantFor(req); if(!merchant) return fail(res,401,"Authentication required");
+  const minimum=Number(req.body?.minimumMarginPercent); if(!Number.isFinite(minimum)||minimum<0||minimum>100) return fail(res,400,"Minimum margin must be between 0 and 100");
+  const current=(await db.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId,merchant.id)).limit(1))[0];
+  const values={enabled:req.body?.enabled===true,mode:req.body?.mode==="auto"?"auto":"assisted",autoAllocateSupplierCost:req.body?.autoAllocateSupplierCost===true,requireApprovalBeforeExternalOrder:req.body?.requireApprovalBeforeExternalOrder!==false,minimumMarginPercent:minimum.toFixed(2),defaultCarrier:typeof req.body?.defaultCarrier==="string"?req.body.defaultCarrier.trim().slice(0,120)||null:null,updatedAt:new Date()};
+  const saved=current?(await db.update(autoDsSettingsTable).set(values).where(eq(autoDsSettingsTable.id,current.id)).returning())[0]:(await db.insert(autoDsSettingsTable).values({merchantId:merchant.id,...values}).returning())[0];
+  if(!saved)return fail(res,500,"Auto-DS settings could not be saved");
+  res.json({settings:saved,note:values.mode==="auto"?"Eligible paid supplier-backed orders will be routed automatically into fulfillment jobs. External supplier checkout remains adapter/approval gated.":"Orders are prepared as assisted fulfillment jobs for review."});
+});
+
+router.get("/automation/fulfillment-jobs", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");res.json({jobs:await db.select().from(fulfillmentJobsTable).where(eq(fulfillmentJobsTable.merchantId,m.id)).orderBy(desc(fulfillmentJobsTable.createdAt)).limit(100)});});
+router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const[j]=await db.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0}).where(and(eq(fulfillmentJobsTable.id,req.params.id),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();if(!j)return fail(res,404,"Ready fulfillment job not found");res.json({job:j,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});});
+
+router.get("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");res.json({codes:await db.select().from(discountCodesTable).where(eq(discountCodesTable.merchantId,m.id)).orderBy(desc(discountCodesTable.createdAt))});});
+router.post("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const code=typeof req.body?.code==="string"?req.body.code.trim().toUpperCase():"";const kind=req.body?.kind==="fixed"?"fixed":"percentage";const value=Number(req.body?.value);if(!/^[A-Z0-9_-]{3,40}$/.test(code)||!Number.isFinite(value)||value<=0||(kind==="percentage"&&value>100))return fail(res,400,"Enter a valid discount code and value");const[c]=await db.insert(discountCodesTable).values({merchantId:m.id,code,kind,value:value.toFixed(2),minimumSubtotal:Number(req.body?.minimumSubtotal??0).toFixed(2),currency:m.currency,active:true}).returning();if(!c)return fail(res,409,"Discount code already exists or could not be created");res.status(201).json({code:c});});
+router.post("/commerce/discount-codes/:id/deactivate", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const[c]=await db.update(discountCodesTable).set({active:false,updatedAt:new Date()}).where(and(eq(discountCodesTable.id,Number(req.params.id)),eq(discountCodesTable.merchantId,m.id))).returning();if(!c)return fail(res,404,"Discount code not found");res.json({code:c});});
+
+router.get("/commerce/loyalty", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const accounts=await db.select({id:loyaltyAccountsTable.id,customerId:loyaltyAccountsTable.customerId,pointsBalance:loyaltyAccountsTable.pointsBalance,lifetimePoints:loyaltyAccountsTable.lifetimePoints,tier:loyaltyAccountsTable.tier,customerName:customersTable.name,customerEmail:customersTable.email}).from(loyaltyAccountsTable).innerJoin(customersTable,eq(loyaltyAccountsTable.customerId,customersTable.id)).where(eq(loyaltyAccountsTable.merchantId,m.id)).orderBy(desc(loyaltyAccountsTable.pointsBalance)).limit(200);res.json({accounts});});
+
+router.get("/commerce/affiliate-offers", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const offers=await db.select({id:affiliateOffersTable.id,productId:affiliateOffersTable.supplierProductId,productTitle:supplierProductsTable.title,status:affiliateOffersTable.status,commissionBps:affiliateOffersTable.commissionBps,destinationUrl:affiliateOffersTable.destinationUrl}).from(affiliateOffersTable).innerJoin(supplierProductsTable,eq(affiliateOffersTable.supplierProductId,supplierProductsTable.id)).where(eq(affiliateOffersTable.merchantId,m.id)).orderBy(desc(affiliateOffersTable.createdAt));res.json({offers});});
+router.post("/commerce/affiliate-offers", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const productId=Number(req.body?.productId),pct=Number(req.body?.commissionPercent??30);if(!Number.isInteger(productId)||productId<1||!Number.isFinite(pct)||pct<1||pct>100)return fail(res,400,"Choose a valid product and commission");const p=(await db.select({id:supplierProductsTable.id}).from(supplierProductsTable).where(and(eq(supplierProductsTable.id,productId),eq(supplierProductsTable.merchantId,m.id))).limit(1))[0];if(!p)return fail(res,404,"Product not found");const[o]=await db.insert(affiliateOffersTable).values({merchantId:m.id,supplierProductId:productId,commissionBps:Math.round(pct*100),destinationUrl:"/affiliate/"+m.id+"/"+productId,status:"review"}).onConflictDoNothing().returning();if(!o)return fail(res,409,"Affiliate offer already exists");res.status(201).json({offer:o});});
+
+router.get("/commerce/digital-products", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");res.json({products:await db.select().from(digitalProductsTable).where(eq(digitalProductsTable.merchantId,m.id)).orderBy(desc(digitalProductsTable.createdAt))});});
+router.post("/commerce/digital-products", async(req,res)=>{const m=await merchantFor(req);if(!m)return fail(res,401,"Authentication required");const kind=["digital","course","membership","service"].includes(req.body?.kind)?req.body.kind:"digital";const supplierProductId=Number.isInteger(Number(req.body?.supplierProductId))?Number(req.body.supplierProductId):null;if(supplierProductId){const p=(await db.select({id:supplierProductsTable.id}).from(supplierProductsTable).where(and(eq(supplierProductsTable.id,supplierProductId),eq(supplierProductsTable.merchantId,m.id))).limit(1))[0];if(!p)return fail(res,404,"Source product not found");}const[p]=await db.insert(digitalProductsTable).values({merchantId:m.id,supplierProductId,kind,accessMode:req.body?.accessMode==="membership"?"membership":"purchase",dripEnabled:req.body?.dripEnabled===true,certificateEnabled:req.body?.certificateEnabled===true,curriculumPublic:req.body?.curriculumPublic===true}).returning();res.status(201).json({product:p});});
+
+export default router;
