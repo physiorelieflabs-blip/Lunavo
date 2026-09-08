@@ -76,6 +76,8 @@ import {
   mediaAssetsTable,
   merchantStorefrontsTable,
   mediaAssetStorefrontsTable,
+  adCampaignsTable,
+  adCreativesTable,
   type Merchant as MerchantRecord,
 } from "@workspace/db";
 import {
