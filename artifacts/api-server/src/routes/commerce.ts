@@ -8092,6 +8092,112 @@ router.post("/marketplace/listings/:id/checkout", async (req, res): Promise<void
   });
 });
 
+router.post("/marketplace/billing/:id/checkout", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const billingId = Number(req.params.id);
+  if (!Number.isInteger(billingId) || billingId < 1) {
+    res.status(400).json({ error: "Invalid marketplace billing record." });
+    return;
+  }
+  const merchant = await getOrCreateMerchant(identity);
+  const billing = (await db.select().from(marketplaceBillingRecordsTable).where(and(
+    eq(marketplaceBillingRecordsTable.id, billingId),
+    eq(marketplaceBillingRecordsTable.merchantId, merchant.id),
+  )).limit(1))[0];
+  if (!billing) { res.status(404).json({ error: "Marketplace billing record not found." }); return; }
+  if (billing.status === "paid") {
+    res.json({ billingId, amount: Number(billing.amount), currency: billing.currency, status: "paid", paymentUrl: null, paymentDestination: null });
+    return;
+  }
+  if (!["due", "submitted"].includes(billing.status)) {
+    res.status(409).json({ error: "This marketplace charge is not available for payment." });
+    return;
+  }
+  const attemptKey = randomUUID().replaceAll("-", "").slice(0, 16);
+  const txRef = `TSMKT-${billing.kind.toUpperCase()}-${billing.id}-${attemptKey}`;
+  const origin = requestOrigin(req);
+  if (!origin) { res.status(400).json({ error: "Could not determine the provider return address." }); return; }
+
+  const intent = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(paymentIntentsTable).values({
+      merchantId: merchant.id,
+      marketplaceBillingRecordId: billing.id,
+      amountMinor: Math.round(Number(billing.amount) * 100),
+      currency: billing.currency,
+      method: "flutterwave",
+      idempotencyKey: `marketplace-billing:${billing.id}`,
+      evidenceReference: txRef,
+      status: "created",
+    }).onConflictDoNothing({ target: paymentIntentsTable.marketplaceBillingRecordId }).returning();
+    return created ?? (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.marketplaceBillingRecordId, billing.id)).limit(1))[0];
+  });
+  if (!intent) { res.status(409).json({ error: "Marketplace payment session could not be created." }); return; }
+
+  let destination: Awaited<ReturnType<typeof initializeFlutterwaveVirtualAccount>> | null = null;
+  let paymentUrl: string | null = null;
+  try {
+    if (supportsFlutterwaveDirectBankTransfer(billing.currency)) {
+      destination = await initializeFlutterwaveVirtualAccount({
+        txRef,
+        amount: Number(billing.amount),
+        currency: billing.currency,
+        customer: { email: merchant.email, name: merchant.name },
+        narration: `TS Commerce ${billing.kind} marketplace fee ${billing.id}`,
+        meta: { provider: "flutterwave", merchant_id: merchant.id, marketplace_billing_id: billing.id, payment_intent_id: intent.id },
+      });
+    } else {
+      paymentUrl = (await initializeFlutterwavePayment({
+        txRef,
+        amount: Number(billing.amount),
+        currency: billing.currency,
+        redirectUrl: `${origin}/marketplace-management?flutterwave=marketplace&billingId=${billing.id}&transaction_id={transaction_id}`,
+        customer: { email: merchant.email, name: merchant.name },
+        title: "TS Commerce marketplace fee",
+        meta: { provider: "flutterwave", merchant_id: merchant.id, marketplace_billing_id: billing.id, payment_intent_id: intent.id },
+      })).link;
+    }
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Flutterwave marketplace payment could not be prepared." });
+    return;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.update(paymentIntentsTable).set({ status: "submitted", evidenceReference: txRef, checkoutUrl: paymentUrl }).where(eq(paymentIntentsTable.id, intent.id));
+    await tx.update(marketplaceBillingRecordsTable).set({ status: "submitted", paymentReference: txRef }).where(eq(marketplaceBillingRecordsTable.id, billing.id));
+    if (billing.listingId) {
+      await tx.update(marketplaceListingsTable).set({ listingFeeStatus: "submitted", updatedAt: new Date() }).where(and(
+        eq(marketplaceListingsTable.id, billing.listingId),
+        eq(marketplaceListingsTable.merchantId, merchant.id),
+      ));
+    }
+    if (destination) {
+      await tx.insert(paymentDestinationsTable).values({
+        merchantId: merchant.id,
+        paymentIntentId: intent.id,
+        provider: "flutterwave",
+        bankName: destination.bankName,
+        accountName: destination.accountName,
+        accountNumber: destination.accountNumber,
+        amountMinor: Math.round(destination.amount * 100),
+        currency: destination.currency,
+        providerReference: destination.providerReference ?? txRef,
+        expiresAt: destination.expiresAt,
+        status: "active",
+        rawProviderMetadata: destination.raw,
+      });
+    }
+  });
+  res.status(201).json({
+    billingId,
+    amount: Number(billing.amount),
+    currency: billing.currency,
+    status: "submitted",
+    paymentUrl,
+    paymentDestination: destination,
+  });
+});
+
 router.post("/marketplace/billing/:id/submit", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
