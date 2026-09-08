@@ -23,6 +23,7 @@ import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-pro
 
 const router = Router();
 const PARTICIPATION_DAYS = 30;
+const PRODUCT_AD_DAYS = 30;
 const AD_FEE_USD = 5;
 
 function requestOrigin(req: Request): string {
@@ -66,8 +67,11 @@ async function eligibleProducts(input: { search?: string; category?: string; cur
   const search = input.search?.trim().slice(0, 120) ?? "";
   const category = input.category?.trim().slice(0, 120) ?? "";
   const currency = input.currency?.trim().toUpperCase().slice(0, 3) ?? "";
+  const adCutoff = new Date(Date.now() - PRODUCT_AD_DAYS * 86_400_000);
+  const participationCutoff = new Date(Date.now() - PARTICIPATION_DAYS * 86_400_000);
   const filters = [
     eq(merchantsTable.status, "active"),
+    sql`${merchantsTable.publicStoreKey} is not null`,
     eq(supplierProductsTable.status, "active"),
     eq(supplierProductsTable.visibility, "active"),
     eq(marketplaceListingsTable.status, "approved"),
@@ -76,14 +80,21 @@ async function eligibleProducts(input: { search?: string; category?: string; cur
       eq(marketplaceBillingRecordsTable.merchantId, merchantsTable.id),
       eq(marketplaceBillingRecordsTable.kind, "monthly"),
       eq(marketplaceBillingRecordsTable.status, "paid"),
-      gte(marketplaceBillingRecordsTable.paidAt, new Date(Date.now() - PARTICIPATION_DAYS * 86_400_000)),
+      gte(marketplaceBillingRecordsTable.paidAt, participationCutoff),
+    ))),
+    exists(db.select({ id: marketplaceBillingRecordsTable.id }).from(marketplaceBillingRecordsTable).where(and(
+      eq(marketplaceBillingRecordsTable.merchantId, merchantsTable.id),
+      eq(marketplaceBillingRecordsTable.listingId, marketplaceListingsTable.id),
+      eq(marketplaceBillingRecordsTable.kind, "listing"),
+      eq(marketplaceBillingRecordsTable.status, "paid"),
+      gte(marketplaceBillingRecordsTable.paidAt, adCutoff),
     ))),
     sql`${supplierProductsTable.sellingPrice} is not null`,
   ];
   if (search) filters.push(or(ilike(supplierProductsTable.title, `%${search}%`), ilike(supplierProductsTable.description, `%${search}%`))!);
   if (category) filters.push(eq(supplierProductsTable.category, category));
   if (currency) filters.push(eq(supplierProductsTable.currency, currency));
-  return db.select({ product: supplierProductsTable, listing: marketplaceListingsTable, merchantKey: merchantsTable.publicStoreKey, merchantName: merchantsTable.storeName })
+  return db.select({ product: supplierProductsTable, merchantKey: merchantsTable.publicStoreKey, merchantName: merchantsTable.storeName })
     .from(marketplaceListingsTable)
     .innerJoin(supplierProductsTable, eq(marketplaceListingsTable.supplierProductId, supplierProductsTable.id))
     .innerJoin(merchantsTable, eq(marketplaceListingsTable.merchantId, merchantsTable.id))
@@ -118,7 +129,7 @@ router.get("/shop/products/:id", async (req, res): Promise<void> => {
   });
 });
 
-// Backwards-compatible read path. It uses the exact same paid-discovery filter.
+// Backwards-compatible marketplace read path using the same paid-discovery rules.
 router.get("/marketplace/products", async (req, res): Promise<void> => {
   const rows = await eligibleProducts({
     search: typeof req.query.search === "string" ? req.query.search : "",
@@ -126,10 +137,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     currency: typeof req.query.currency === "string" ? req.query.currency : "",
     limit: 100,
   });
-  res.json(rows.map(({ product, merchantKey, merchantName }) => ({
-    ...publicProduct(product, merchantKey, merchantName),
-    salePrice: null,
-  })));
+  res.json(rows.map(({ product, merchantKey, merchantName }) => ({ ...publicProduct(product, merchantKey, merchantName), salePrice: null })));
 });
 
 router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
@@ -137,15 +145,7 @@ router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
   if (query.length < 3) { res.status(400).json({ error: "Tell the shopping concierge what you are looking for." }); return; }
   try {
     const rows = await eligibleProducts({ limit: 40 });
-    const catalog = rows.map(({ product, merchantName }) => ({
-      id: product.id,
-      merchant: merchantName,
-      title: product.title,
-      description: product.description,
-      category: product.category,
-      price: Number(product.sellingPrice),
-      currency: product.currency,
-    }));
+    const catalog = rows.map(({ product, merchantName }) => ({ id: product.id, merchant: merchantName, title: product.title, description: product.description, category: product.category, price: Number(product.sellingPrice), currency: product.currency }));
     const response = await completeGeminiChat([
       { role: "system", content: [
         "You are the TS Commerce shopper concierge.",
@@ -187,10 +187,7 @@ router.post("/marketplace/advertising/:id/checkout", async (req, res): Promise<v
   if (!billing) { res.status(500).json({ error: "Advertising fee record could not be created." }); return; }
   let intent = (await db.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.marketplaceBillingRecordId, billing.id)).limit(1))[0];
   if (!intent) {
-    const [created] = await db.insert(paymentIntentsTable).values({
-      merchantId: merchant.id, marketplaceBillingRecordId: billing.id, amountMinor: 500, currency: "USD", method: "flutterwave",
-      idempotencyKey: `marketplace-ad:${billing.id}`, evidenceReference: `TSMKT-AD-${listing.id}-${billing.id}-${randomUUID().replaceAll("-", "").slice(0, 16)}`, status: "created",
-    }).returning();
+    const [created] = await db.insert(paymentIntentsTable).values({ merchantId: merchant.id, marketplaceBillingRecordId: billing.id, amountMinor: 500, currency: "USD", method: "flutterwave", idempotencyKey: `marketplace-ad:${billing.id}`, evidenceReference: `TSMKT-AD-${listing.id}-${billing.id}-${randomUUID().replaceAll("-", "").slice(0, 16)}`, status: "created" }).returning();
     intent = created;
   }
   if (!intent) { res.status(409).json({ error: "Advertising payment session could not be created." }); return; }
@@ -200,27 +197,21 @@ router.post("/marketplace/advertising/:id/checkout", async (req, res): Promise<v
   try {
     if (supportsFlutterwaveDirectBankTransfer("USD")) {
       try {
-        destination = await initializeFlutterwaveVirtualAccount({ txRef: reference, amount: 5, currency: "USD", customer: { email: merchant.email, name: merchant.name }, narration: `TS Commerce product advertising ${listing.id}`, meta: { merchant_id: merchant.id, marketplace_listing_id: listing.id, marketplace_billing_id: billing.id, payment_intent_id: intent.id } });
+        destination = await initializeFlutterwaveVirtualAccount({ txRef: reference, amount: AD_FEE_USD, currency: "USD", customer: { email: merchant.email, name: merchant.name }, narration: `TS Commerce product advertising ${listing.id}`, meta: { merchant_id: merchant.id, marketplace_listing_id: listing.id, marketplace_billing_id: billing.id, payment_intent_id: intent.id } });
       } catch { destination = null; }
     }
     if (!destination) {
       const origin = requestOrigin(req);
       if (!origin) throw new Error("Provider return address is unavailable.");
-      const hosted = await initializeFlutterwavePayment({ txRef: reference, amount: 5, currency: "USD", redirectUrl: `${origin}/marketplace-management?advertising=return&listingId=${listing.id}&transaction_id={transaction_id}`, customer: { email: merchant.email, name: merchant.name }, title: "TS Commerce product advertising", meta: { merchant_id: merchant.id, marketplace_listing_id: listing.id, marketplace_billing_id: billing.id, payment_intent_id: intent.id } });
+      const hosted = await initializeFlutterwavePayment({ txRef: reference, amount: AD_FEE_USD, currency: "USD", redirectUrl: `${origin}/marketplace-management?advertising=return&listingId=${listing.id}&transaction_id={transaction_id}`, customer: { email: merchant.email, name: merchant.name }, title: "TS Commerce product advertising", meta: { merchant_id: merchant.id, marketplace_listing_id: listing.id, marketplace_billing_id: billing.id, payment_intent_id: intent.id } });
       paymentUrl = hosted.link;
     }
-  } catch (error) {
-    res.status(503).json({ error: error instanceof Error ? error.message : "Advertising checkout could not be prepared." }); return;
-  }
-  await db.transaction(async (tx) => {
-    await tx.update(paymentIntentsTable).set({ status: "submitted", checkoutUrl: paymentUrl, evidenceReference: reference }).where(eq(paymentIntentsTable.id, intent!.id));
-    await tx.update(marketplaceBillingRecordsTable).set({ status: "submitted", paymentReference: reference }).where(eq(marketplaceBillingRecordsTable.id, billing!.id));
-    await tx.update(marketplaceListingsTable).set({ listingFeeStatus: "submitted" }).where(eq(marketplaceListingsTable.id, listing.id));
-    if (destination) {
-      await tx.insert(paymentDestinationsTable).values({ merchantId: merchant.id, paymentIntentId: intent!.id, provider: "flutterwave", bankName: destination.bankName, accountName: destination.accountName, accountNumber: destination.accountNumber, amountMinor: 500, currency: "USD", providerReference: destination.providerReference ?? reference, expiresAt: destination.expiresAt, status: "active", rawProviderMetadata: destination.raw });
-    }
-  });
-  res.status(201).json({ listingId, billingId: billing.id, paymentIntentId: intent.id, amount: 5, currency: "USD", paymentUrl, paymentDestination: destination, status: "submitted" });
+  } catch (error) { res.status(503).json({ error: error instanceof Error ? error.message : "Advertising checkout could not be prepared." }); return; }
+  await db.update(paymentIntentsTable).set({ status: "submitted", checkoutUrl: paymentUrl, evidenceReference: reference }).where(eq(paymentIntentsTable.id, intent.id));
+  await db.update(marketplaceBillingRecordsTable).set({ status: "submitted", paymentReference: reference }).where(eq(marketplaceBillingRecordsTable.id, billing.id));
+  await db.update(marketplaceListingsTable).set({ listingFeeStatus: "submitted" }).where(eq(marketplaceListingsTable.id, listing.id));
+  if (destination) await db.insert(paymentDestinationsTable).values({ merchantId: merchant.id, paymentIntentId: intent.id, provider: "flutterwave", bankName: destination.bankName, accountName: destination.accountName, accountNumber: destination.accountNumber, amountMinor: 500, currency: "USD", providerReference: destination.providerReference ?? reference, expiresAt: destination.expiresAt, status: "active", rawProviderMetadata: destination.raw });
+  res.status(201).json({ listingId, billingId: billing.id, paymentIntentId: intent.id, amount: AD_FEE_USD, currency: "USD", paymentUrl, paymentDestination: destination, status: "submitted" });
 });
 
 router.post("/marketplace/advertising/:id/verify", async (req, res): Promise<void> => {
@@ -234,10 +225,8 @@ router.post("/marketplace/advertising/:id/verify", async (req, res): Promise<voi
   try {
     const transaction = await verifyFlutterwaveTransaction(transactionId);
     const result = await processVerifiedFlutterwaveTransaction(transaction as unknown as Record<string, unknown>, `merchant-marketplace-verify:${listingId}:${transactionId}`, transaction as unknown as Record<string, unknown>);
-    res.json({ status: result, message: ["successful", "duplicate"].includes(result) ? "Advertising payment verified." : "The provider has not confirmed this payment yet." });
-  } catch (error) {
-    res.status(409).json({ error: error instanceof Error ? error.message : "Advertising payment verification failed." });
-  }
+    res.json({ status: result, message: result === "successful" || result === "duplicate" ? "Product advertising payment verified." : "The provider has not confirmed this payment yet." });
+  } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Advertising payment verification failed." }); }
 });
 
 export default router;
