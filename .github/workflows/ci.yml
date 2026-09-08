@@ -1,8 +1,8 @@
-name: TS Commerce CI
+name: Lunavo CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/social-hub-ui-real]
   pull_request:
     branches: [main]
 
@@ -25,5 +25,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm run typecheck
+      - name: Critical payment and subscription simulation
+        run: node --experimental-strip-types scripts/security-simulation.ts
       - name: Build
         run: pnpm run build
