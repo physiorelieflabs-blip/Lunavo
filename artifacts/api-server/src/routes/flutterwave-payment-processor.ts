@@ -7,6 +7,8 @@ import {
   ledgerEntriesTable,
   merchantsTable,
   ordersTable,
+  marketplaceBillingRecordsTable,
+  marketplaceListingsTable,
   paymentIntentsTable,
   paymentRecordsTable,
   paymentsTable,
@@ -301,6 +303,167 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
   return result;
 }
 
+async function processMarketplaceAdvertisingPayment(
+  transaction: ProviderTransaction,
+  eventId: string,
+  rawPayload: ProviderTransaction,
+  intent: NonNullable<Awaited<ReturnType<typeof findIntentByReference>>>,
+) {
+  if (!intent.marketplaceBillingRecordId) return null;
+  const providerId = flutterwaveTransactionId(transaction as any);
+  const reference = txRef(transaction);
+  const [billing] = await db.select().from(marketplaceBillingRecordsTable)
+    .where(eq(marketplaceBillingRecordsTable.id, intent.marketplaceBillingRecordId))
+    .limit(1);
+  if (!billing) {
+    await recordReconciliationException({
+      eventId,
+      providerTransactionId: providerId,
+      paymentReference: reference || null,
+      merchantId: intent.merchantId,
+      paymentIntentId: intent.id,
+      reason: "Marketplace advertising payment is missing its billing record",
+      payload: rawPayload,
+    });
+    return "reconciliation_required" as const;
+  }
+
+  const amount = flutterwaveAmount(transaction as any);
+  const amountMinor = Number.isFinite(amount) ? Math.round(amount * 100) : null;
+  const currency = text(transaction.currency).toUpperCase();
+  if (
+    amountMinor === null ||
+    amountMinor !== Math.round(Number(billing.amount) * 100) ||
+    currency !== billing.currency.toUpperCase()
+  ) {
+    await recordReconciliationException({
+      eventId,
+      providerTransactionId: providerId,
+      paymentReference: reference || null,
+      merchantId: billing.merchantId,
+      paymentIntentId: intent.id,
+      expectedAmountMinor: Math.round(Number(billing.amount) * 100),
+      observedAmountMinor: amountMinor,
+      expectedCurrency: billing.currency,
+      observedCurrency: currency || null,
+      reason: "Marketplace advertising payment amount or currency mismatch",
+      payload: rawPayload,
+    });
+    await db.update(paymentIntentsTable).set({ status: "reconciliation_required" }).where(eq(paymentIntentsTable.id, intent.id));
+    return "reconciliation_required" as const;
+  }
+
+  const metadata = meta(transaction);
+  for (const [key, expected] of [["merchant_id", billing.merchantId], ["marketplace_billing_id", billing.id]] as const) {
+    const observed = metaNumber(metadata, key);
+    if (observed !== null && observed !== String(expected)) {
+      await recordReconciliationException({
+        eventId,
+        providerTransactionId: providerId,
+        paymentReference: reference || null,
+        merchantId: billing.merchantId,
+        paymentIntentId: intent.id,
+        reason: `Flutterwave marketplace metadata ${key} does not match TS Commerce`,
+        payload: rawPayload,
+      });
+      return "reconciliation_required" as const;
+    }
+  }
+
+  const reversal = providerReversal(transaction);
+  if (reversal === "refunded" || reversal === "charged_back") {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${intent.id} AND merchant_id=${billing.merchantId} FOR UPDATE`);
+      const current = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1))[0];
+      if (!current || current.status === reversal) return;
+      await tx.update(paymentIntentsTable).set({ status: reversal, providerTransactionId: providerId, providerEventId: eventId }).where(eq(paymentIntentsTable.id, intent.id));
+      await tx.update(marketplaceBillingRecordsTable).set({ status: "reversed", reviewNote: `Provider reported ${reversal}` }).where(eq(marketplaceBillingRecordsTable.id, billing.id));
+      if (billing.listingId) {
+        await tx.update(marketplaceListingsTable).set({ listingFeeStatus: "due", updatedAt: new Date() }).where(and(
+          eq(marketplaceListingsTable.id, billing.listingId),
+          eq(marketplaceListingsTable.merchantId, billing.merchantId),
+        ));
+      }
+      await tx.insert(ledgerEntriesTable).values({
+        merchantId: billing.merchantId,
+        paymentRecordId: null,
+        amountMinor: -Math.round(Number(billing.amount) * 100),
+        currency: billing.currency,
+        entryType: "marketplace_advertising_refund",
+        referenceKey: `marketplace-ad:${billing.id}:refund`,
+      }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    });
+    return "reversed" as const;
+  }
+  if (reversal === "disputed") {
+    await db.update(paymentIntentsTable).set({ status: "disputed", providerTransactionId: providerId, providerEventId: eventId }).where(eq(paymentIntentsTable.id, intent.id));
+    return "disputed" as const;
+  }
+
+  const state = flutterwaveStatus(transaction as any);
+  if (state === "failed") {
+    await db.update(paymentIntentsTable).set({ status: "failed", providerTransactionId: providerId, providerEventId: eventId }).where(eq(paymentIntentsTable.id, intent.id));
+    return "failed" as const;
+  }
+  if (state !== "paid") {
+    await db.update(paymentIntentsTable).set({ status: "pending", providerTransactionId: providerId, providerEventId: eventId }).where(eq(paymentIntentsTable.id, intent.id));
+    return "pending" as const;
+  }
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${intent.id} AND merchant_id=${billing.merchantId} FOR UPDATE`);
+    await tx.execute(sql`SELECT id FROM marketplace_billing_records WHERE id=${billing.id} AND merchant_id=${billing.merchantId} FOR UPDATE`);
+    const current = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1))[0];
+    const currentBilling = (await tx.select().from(marketplaceBillingRecordsTable).where(eq(marketplaceBillingRecordsTable.id, billing.id)).limit(1))[0];
+    if (!current || !currentBilling) throw new Error("Marketplace advertising payment state unavailable");
+    if (current.status === "successful" || currentBilling.status === "paid") return "duplicate" as const;
+
+    await tx.update(paymentIntentsTable).set({
+      status: "successful",
+      evidenceReference: providerId ?? reference,
+      providerTransactionId: providerId,
+      providerEventId: eventId,
+    }).where(eq(paymentIntentsTable.id, current.id));
+
+    await tx.update(marketplaceBillingRecordsTable).set({
+      status: "paid",
+      paymentReference: providerId ?? reference,
+      paidAt: new Date(),
+      reviewNote: "Verified by Flutterwave transaction re-query",
+    }).where(eq(marketplaceBillingRecordsTable.id, currentBilling.id));
+
+    if (currentBilling.listingId) {
+      await tx.update(marketplaceListingsTable)
+        .set({ listingFeeStatus: "paid", updatedAt: new Date() })
+        .where(and(
+          eq(marketplaceListingsTable.id, currentBilling.listingId),
+          eq(marketplaceListingsTable.merchantId, billing.merchantId),
+        ));
+    }
+
+    await tx.insert(ledgerEntriesTable).values({
+      merchantId: billing.merchantId,
+      paymentRecordId: null,
+      amountMinor: Math.round(Number(currentBilling.amount) * 100),
+      currency: currentBilling.currency,
+      entryType: "marketplace_advertising_payment",
+      referenceKey: `marketplace-ad:${currentBilling.id}:payment`,
+    }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+
+    await tx.insert(activityTable).values({
+      merchantId: billing.merchantId,
+      type: "marketplace_advertising_paid",
+      title: "Marketplace advertising payment verified",
+      description: "The $5 product advertising fee was verified by Flutterwave. The product can now become publicly discoverable after marketplace approval.",
+      amount: currentBilling.amount,
+      currency: currentBilling.currency,
+      tone: "positive",
+    });
+
+    return "successful" as const;
+  });
+}
+
 async function processSubscriptionPayment(transaction: ProviderTransaction, eventId: string, rawPayload: ProviderTransaction, payment: SubscriptionPayment) {
   const providerId = flutterwaveTransactionId(transaction as any);
   const reference = txRef(transaction);
@@ -404,6 +567,9 @@ export async function processVerifiedFlutterwaveTransaction(
       payload: rawPayload,
     });
     return "reconciliation_required" as const;
+  }
+  if (intent?.marketplaceBillingRecordId) {
+    return processMarketplaceAdvertisingPayment(transaction, eventId, rawPayload, intent);
   }
   if (intent) return processOrderPayment(transaction, eventId, rawPayload, intent);
   return processSubscriptionPayment(transaction, eventId, rawPayload, subscriptionPayment!);
