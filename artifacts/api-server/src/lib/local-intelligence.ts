@@ -46,13 +46,27 @@ export async function generateLocalImage(prompt: string, options?: { width?: num
 export type LocalVideoOptions = {
   width?: number;
   height?: number;
-  /** Final stitched duration. Supported product range: 5-10 minutes. */
+  /** Final stitched duration. Product range is 5-10 minutes. */
   seconds?: number;
+  /** Human-friendly duration such as "7 minutes", "7m", or "420s". */
+  duration?: string | number;
   fps?: number;
   seamlessStitching?: boolean;
   overlapFrames?: number;
   transition?: "crossfade" | "motion_blend" | "match_cut" | "auto";
 };
+
+/** Convert a UI/user duration into seconds while keeping one canonical range. */
+export function parseLocalVideoDuration(duration?: string | number): number {
+  if (duration === undefined || duration === null || duration === "") return 300;
+  if (typeof duration === "number") return duration;
+  const value = duration.trim().toLowerCase();
+  const match = value.match(/^(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m)$/);
+  if (!match) throw new Error("Video duration must be written as seconds or minutes, for example 420s or 7 minutes");
+  const amount = Number(match[1]);
+  const unit = match[2];
+  return unit.startsWith("m") ? amount * 60 : amount;
+}
 
 /**
  * Self-hosted long-form video boundary. The requested duration is the FINAL
@@ -62,7 +76,7 @@ export type LocalVideoOptions = {
  */
 export async function generateLocalVideo(prompt: string, options?: LocalVideoOptions): Promise<Buffer> {
   const endpoint = process.env.LUNAVO_LOCAL_VIDEO_URL?.trim() || "http://127.0.0.1:8189";
-  const requestedSeconds = options?.seconds ?? 300;
+  const requestedSeconds = parseLocalVideoDuration(options?.duration ?? options?.seconds);
   if (!Number.isFinite(requestedSeconds) || requestedSeconds < 300 || requestedSeconds > 600) {
     throw new Error("Self-hosted long-form video duration must be between 5 and 10 minutes");
   }
