@@ -17,6 +17,8 @@ import { renderProductAd } from "../lib/ad-renderer";
 
 const router = Router();
 const generationLocks = new Set<number>();
+const storeGenerationLocks = new Set<number>();
+const MAX_VIDEO_BYTES = 12 * 1024 * 1024;
 
 async function merchantFor(req: Request) {
   const userId = getAuth(req).userId;
@@ -86,6 +88,7 @@ router.post("/ads/generator/generate", async(req,res)=>{
     const outPath=path.join(os.tmpdir(),`ts-commerce-${randomUUID()}.mp4`);
     try{
       const buffer=await renderProductAd({imageUrl:product.imageUrl,title:product.title,hook:plan.hook,proof:plan.proof,cta:plan.cta,durationSeconds:variant.durationSeconds,width:variant.width,height:variant.height,outputPath:outPath});
+      if (buffer.byteLength > MAX_VIDEO_BYTES) throw new Error('Rendered advertisement exceeded the 12 MB storage limit');
       const [done]=await db.update(adCreativesTable).set({status:"completed",videoData:buffer.toString("base64"),completedAt:new Date(),errorMessage:null}).where(and(eq(adCreativesTable.id,creative.id),eq(adCreativesTable.merchantId,merchant.id))).returning();
       outputs.push({id:done?.id??creative.id,platform:variant.platform,status:"completed",downloadUrl:`/api/ads/generator/creatives/${creative.id}`});
     }catch(error){
@@ -100,8 +103,10 @@ router.post("/ads/generator/generate", async(req,res)=>{
 
 router.post("/ads/generator/generate-store", async(req,res)=>{
   const merchant=await merchantFor(req); if(!merchant)return fail(res,401,"Authentication required");
+  if(storeGenerationLocks.has(merchant.id)) return fail(res,409,'A store-wide ad generation job is already running for this merchant.');
+  storeGenerationLocks.add(merchant.id);
   const requestedLimit=Number(req.body?.limit ?? 10);
-  const limit=Math.max(1,Math.min(25,Number.isFinite(requestedLimit)?Math.floor(requestedLimit):10));
+  const limit=Math.max(1,Math.min(10,Number.isFinite(requestedLimit)?Math.floor(requestedLimit):10));
   const products=await db.select().from(supplierProductsTable)
     .where(and(eq(supplierProductsTable.merchantId,merchant.id),eq(supplierProductsTable.status,"active"),eq(supplierProductsTable.visibility,"active")))
     .orderBy(desc(supplierProductsTable.updatedAt)).limit(limit);
@@ -129,6 +134,7 @@ router.post("/ads/generator/generate-store", async(req,res)=>{
     }catch(error){results.push({productId:product.id,status:"failed",reason:error instanceof Error?error.message:"generation failed"});}
   }
   res.status(201).json({requested:products.length,processed:results.length,results});
+  storeGenerationLocks.delete(merchant.id);
 });
 
 export default router;
