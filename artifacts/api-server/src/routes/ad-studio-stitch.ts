@@ -29,7 +29,6 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
   if (selected.length !== creativeIds.length || selected.some((creative) => !creative.videoData)) { res.status(404).json({ error: "One or more video clips are unavailable" }); return; }
   const first = selected[0]!;
   if (selected.some((creative) => creative.aspectRatio !== first.aspectRatio)) { res.status(422).json({ error: "Stitch clips with the same aspect ratio" }); return; }
-  const duration = selected.reduce((sum, creative) => sum + Math.max(1, creative.durationSeconds), 0);
   const work = await mkdtemp(path.join(os.tmpdir(), "ts-commerce-stitch-audio-"));
   const outputPath = path.join(work, "stitched.mp4");
   try {
@@ -50,17 +49,10 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
       filters.push(`[v${i - 1}][v${i}]xfade=transition=fade:duration=${transition}:offset=${offset}[x${i}]`);
       cumulative += durations[i]! - transition;
     }
-    const audioInputs = selected.map((_creative, index) => `[${index}:a]aresample=44100,asetpts=PTS-STARTPTS[a${index}]`).join(";");
-    const audioConcat = selected.map((_creative, index) => `[a${index}]`).join("") + `concat=n=${selected.length}:v=0:a=1[audio]`;
     const finalVideo = `[x${selected.length - 1}]`;
-    const hasAudioMap = selected.every((_creative) => true);
     const videoDuration = Math.max(1, cumulative);
-    const backgroundAudio = `sine=frequency=220:sample_rate=44100,volume=0.025,afade=t=in:st=0:d=0.4,afade=t=out:st=${Math.max(0, duration - 0.8)}:d=0.8`;
-    const filter = hasAudioMap
-      ? `${filters.join(";")};${audioInputs};${audioConcat}`
-      : filters.join(";");
-    const mapArgs = hasAudioMap ? ["-map", finalVideo, "-map", "[audio]"] : ["-map", finalVideo];
-    await execFileAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...inputArgs, "-f", "lavfi", "-t", String(videoDuration), "-i", backgroundAudio, "-filter_complex", filter, ...mapArgs, "-c:v", "libx264", "-preset", process.env.TS_AD_FFMPEG_PRESET || "veryfast", "-crf", process.env.TS_AD_FFMPEG_CRF || "25", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-shortest", "-movflags", "+faststart", outputPath]);
+    const backgroundAudio = `sine=frequency=220:sample_rate=44100,volume=0.025,afade=t=in:st=0:d=0.4,afade=t=out:st=${Math.max(0, videoDuration - 0.8)}:d=0.8`;
+    await execFileAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...inputArgs, "-f", "lavfi", "-t", String(videoDuration), "-i", backgroundAudio, "-filter_complex", filters.join(";"), "-map", finalVideo, "-map", `${selected.length}:a`, "-t", String(videoDuration), "-c:v", "libx264", "-preset", process.env.TS_AD_FFMPEG_PRESET || "veryfast", "-crf", process.env.TS_AD_FFMPEG_CRF || "25", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-shortest", "-movflags", "+faststart", outputPath]);
     const buffer = await readFile(outputPath);
     if (buffer.byteLength > 100 * 1024 * 1024) { res.status(413).json({ error: "Stitched video exceeded the 100 MB export limit" }); return; }
     res.setHeader("Content-Type", "video/mp4");
