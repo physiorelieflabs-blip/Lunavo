@@ -64,7 +64,8 @@ const migrations = [
   "0052_marketplace_ad_payment_link",
   "0053_commerce_suite_autods",
   "0054_self_hosted_ad_studio",
-  "0055_social_publishing_and_custom_ad_media",
+  "0055_social_hub",
+  "0056_social_publishing_and_custom_ad_media",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();
