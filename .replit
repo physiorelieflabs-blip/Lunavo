@@ -3,6 +3,8 @@ modules = ["nodejs-24", "python-base-3.13", "postgresql-16", "ffmpeg"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = "pnpm --filter @workspace/api-server start"
+build = "pnpm build && pnpm --filter @workspace/db run migrate"
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
