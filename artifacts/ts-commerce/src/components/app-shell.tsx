@@ -13,6 +13,7 @@ export { Logo };
 const merchantLinks = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/guide', label: 'Learn & Guide', icon: BookOpen },
+  { href: '/commerce-suite', label: 'Commerce Suite', icon: Store },
   { href: '/analytics', label: 'Analytics', icon: LineChart },
   { href: '/store', label: 'Storefront builder', icon: Store },
   { href: '/ai', label: 'AI control room', icon: BrainCircuit },
