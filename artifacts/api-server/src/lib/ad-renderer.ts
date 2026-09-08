@@ -6,18 +6,11 @@ export type RenderOptions={imageUrl?:string|null;title:string;hook:string;proof:
 function escapeDrawtext(value:string){return value.replace(/\\/g,'\\\\').replace(/:/g,'\\:').replace(/'/g,"\\'").replace(/%/g,'\\%').replace(/,/g,'\\,').replace(/\n/g,' ');}
 async function fetchImage(url:string,target:string){const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol))throw new Error('Ad asset URL must be HTTP(S)');const response=await fetch(parsed,{redirect:'follow'});if(!response.ok)throw new Error('Product image could not be fetched ('+response.status+')');const contentType=response.headers.get('content-type')||'';if(!contentType.startsWith('image/'))throw new Error('Product image URL did not return an image');const length=Number(response.headers.get('content-length')||0);if(length>12*1024*1024)throw new Error('Product image is too large for self-hosted ad rendering');const buffer=Buffer.from(await response.arrayBuffer());if(buffer.byteLength>12*1024*1024)throw new Error('Product image is too large for self-hosted ad rendering');await writeFile(target,buffer);}
 export async function renderProductAd(options:RenderOptions){const work=await mkdtemp(path.join(os.tmpdir(),'ts-commerce-ad-'));const imagePath=path.join(work,'source');try{if(!options.imageUrl)throw new Error('A product image is required for video generation');await fetchImage(options.imageUrl,imagePath);const filter=[
-`scale=${options.width}:${options.height}:force_original_aspect_ratio=increase`
-
-`crop=${options.width}:${options.height}`
-
-eq=saturation=1.05:contrast=1.03
-
-`drawtext=font='${FONT}':text='${escapeDrawtext(options.hook)}':fontcolor=white:fontsize=${Math.max(34,Math.round(options.width/21))}:x=(w-text_w)/2:y=h*0.10:box=1:boxcolor=black@0.48:boxborderw=26:enable='between(t,0,3)'`
-
-`drawtext=font='${FONT}':text='${escapeDrawtext(options.title)}':fontcolor=white:fontsize=${Math.max(26,Math.round(options.width/30))}:x=(w-text_w)/2:y=h*0.73:box=1:boxcolor=black@0.40:boxborderw=20:enable='between(t,3,8)'`
-
-`drawtext=font='${FONT}':text='${escapeDrawtext(options.proof)}':fontcolor=white:fontsize=${Math.max(22,Math.round(options.width/38))}:x=(w-text_w)/2:y=h*0.80:box=1:boxcolor=black@0.35:boxborderw=16:enable='between(t,8,11)'`
-
-`drawtext=font='${FONT}':text='${escapeDrawtext(options.cta)}':fontcolor=white:fontsize=${Math.max(28,Math.round(options.width/26))}:x=(w-text_w)/2:y=h*0.88:box=1:boxcolor=black@0.58:boxborderw=24:enable='gte(t,11)'`
-
+`scale=${options.width}:${options.height}:force_original_aspect_ratio=increase`,
+`crop=${options.width}:${options.height}`,
+'eq=saturation=1.05:contrast=1.03',
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.hook)}':fontcolor=white:fontsize=${Math.max(34,Math.round(options.width/21))}:x=(w-text_w)/2:y=h*0.10:box=1:boxcolor=black@0.48:boxborderw=26:enable='between(t,0,3)'`,
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.title)}':fontcolor=white:fontsize=${Math.max(26,Math.round(options.width/30))}:x=(w-text_w)/2:y=h*0.73:box=1:boxcolor=black@0.40:boxborderw=20:enable='between(t,3,8)'`,
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.proof)}':fontcolor=white:fontsize=${Math.max(22,Math.round(options.width/38))}:x=(w-text_w)/2:y=h*0.80:box=1:boxcolor=black@0.35:boxborderw=16:enable='between(t,8,11)'`,
+`drawtext=font='${FONT}':text='${escapeDrawtext(options.cta)}':fontcolor=white:fontsize=${Math.max(28,Math.round(options.width/26))}:x=(w-text_w)/2:y=h*0.88:box=1:boxcolor=black@0.58:boxborderw=24:enable='gte(t,11)'`,
 ].join(',');await execFileAsync('ffmpeg',['-y','-hide_banner','-loglevel','error','-loop','1','-i',imagePath,'-t',String(options.durationSeconds),'-vf',filter,'-r','30','-an','-c:v','libx264','-preset',process.env.TS_AD_FFMPEG_PRESET||'veryfast','-crf',process.env.TS_AD_FFMPEG_CRF||'25','-pix_fmt','yuv420p','-movflags','+faststart',options.outputPath]);return await readFile(options.outputPath);}catch(error){const stderr=error&&typeof error==='object'&&'stderr' in error?String((error as {stderr?:unknown}).stderr||''):'';throw new Error(stderr.split('\n').filter(Boolean).slice(-3).join(' ')|| (error instanceof Error?error.message:'FFmpeg failed to render the advertisement'));}finally{await rm(work,{recursive:true,force:true});}}
