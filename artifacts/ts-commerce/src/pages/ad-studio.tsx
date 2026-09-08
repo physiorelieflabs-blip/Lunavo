@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Clapperboard, Download, ExternalLink, Film, Hash, Play, RefreshCw, Sparkles, WandSparkles } from 'lucide-react';
-import { customFetch } from '@workspace/api-client-react';
+import { customFetch, useListSupplierProducts } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading } from '@/components/primitives';
 
@@ -9,6 +9,7 @@ type Creative = { id:string; campaignId:string; productId:number|null; platform:
 type Campaign = { id:string; productId:number|null; status:string; goal:string; audience:string|null; offer:string|null; brainSummary:string|null; createdAt:string; };
 
 export default function AdStudio() {
+  const supplierProducts = useListSupplierProducts();
   const [products,setProducts]=useState<Product[]>([]);
   const [campaigns,setCampaigns]=useState<Campaign[]>([]);
   const [creatives,setCreatives]=useState<Creative[]>([]);
@@ -24,11 +25,8 @@ export default function AdStudio() {
   const load=async()=>{
     setLoading(true);
     try{
-      const [p,c]=await Promise.all([
-        customFetch<{products:Product[]}>('/api/supplier-products'),
-        customFetch<{campaigns:Campaign[];creatives:Creative[]}>('/api/ads/generator/campaigns'),
-      ]);
-      setProducts(p.products||[]); setCampaigns(c.campaigns||[]); setCreatives(c.creatives||[]);
+      const c=await customFetch<{campaigns:Campaign[];creatives:Creative[]}>('/api/ads/generator/campaigns');
+      setProducts((supplierProducts.data?.products ?? []) as Product[]); setCampaigns(c.campaigns||[]); setCreatives(c.creatives||[]);
       if(!productId && p.products?.[0]) setProductId(String(p.products[0].id));
     }catch(e){setMessage(e instanceof Error?e.message:'Ad Studio could not be loaded.');}
     finally{setLoading(false);}
