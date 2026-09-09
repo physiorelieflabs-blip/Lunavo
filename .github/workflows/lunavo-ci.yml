@@ -9,15 +9,20 @@ on:
       - feat/lunavo-self-hosted-intelligence
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: lunavo-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   verify:
-    name: Typecheck, build, and configuration preflight
+    name: Typecheck, build, audit, and configuration preflight
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -42,6 +47,9 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Architecture completeness audit
+        run: pnpm run audit:completeness
 
       - name: Configuration preflight
         run: node scripts/production-preflight.mjs
