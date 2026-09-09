@@ -1,0 +1,63 @@
+name: Lunavo CI
+
+on:
+  push:
+    branches:
+      - feat/lunavo-self-hosted-intelligence
+  pull_request:
+    branches:
+      - feat/lunavo-self-hosted-intelligence
+  workflow_dispatch:
+
+concurrency:
+  group: lunavo-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, build, and production preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Production preflight
+        run: pnpm run preflight:production
+        env:
+          CI: true
+
+      - name: Verify generated frontend output
+        run: |
+          test -d artifacts/ts-commerce/dist
+          test -f artifacts/ts-commerce/dist/index.html
+          echo "Lunavo frontend build output verified."
+
+      - name: Debug summary
+        if: always()
+        run: |
+          echo "Commit: $GITHUB_SHA"
+          echo "Node: $(node --version)"
+          echo "pnpm: $(pnpm --version)"
+          echo "Runner: $RUNNER_OS"
