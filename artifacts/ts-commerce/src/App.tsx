@@ -13,6 +13,7 @@ import Dashboard from '@/pages/dashboard';
 import Billing from '@/pages/billing';
 import Customers from '@/pages/customers';
 import Admin from '@/pages/admin';
+import AdminIntegrations from '@/pages/admin-integrations';
 import Merchants from '@/pages/merchants';
 import NotFound from '@/pages/not-found';
 import Orders from '@/pages/orders';
@@ -117,6 +118,7 @@ function AuthRoutes() { return <Switch>
     <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
     <Route path="/team" component={() => <Protected><Team /></Protected>} />
     <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
+    <Route path="/admin/integrations" component={() => <Protected admin><AdminIntegrations /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
     <Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} />
     <Route component={NotFound} />
