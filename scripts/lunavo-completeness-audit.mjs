@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const root = process.cwd();
@@ -34,7 +34,7 @@ requirePattern("Flutterwave integration boundary", /FLUTTERWAVE_SECRET_KEY|FLW_S
 requirePattern("TS Pay/payment state model", /reconciliation_required|provider_confirmed|charged_back/);
 requirePattern("referral period model", /referralPeriodsTable|periodKey/);
 requirePattern("referral fraud controls", /riskScore|riskSignals|riskStatus/);
-requirePattern("CI workflow", /\.github[\\/]workflows[\\/]lunavo-ci\.yml/);
+requirePattern("CI workflow", /name:\s*Lunavo CI/);
 
 warnPattern("LEGACY REFERRAL MILESTONE STILL PRESENT: remove 150-referral/free-month logic", /REFERRAL_FREE_REFERRAL_MILESTONE|150_verified_referrals|REFERRAL_FREE_MONTHS/);
 warnPattern("CLERK AUTH STILL PRESENT: self-hosted auth migration is incomplete", /@clerk\//);
