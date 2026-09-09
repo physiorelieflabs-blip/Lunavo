@@ -9,7 +9,6 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Landing from '@/pages/landing';
-import Dashboard from '@/pages/dashboard';
 import Billing from '@/pages/billing';
 import Customers from '@/pages/customers';
 import Admin from '@/pages/admin';
@@ -51,6 +50,11 @@ import CommerceGrowth from '@/pages/commerce-growth';
 import CommerceSuite from '@/pages/commerce-suite';
 import AdStudio from '@/pages/ad-studio';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
+import LunavoCommandCenter from '@/pages/lunavo-command-center';
+import { LunavoOperationsPage, LunavoLedgerPage } from '@/pages/lunavo-commerce-operations';
+import LunavoPayments from '@/pages/lunavo-payments';
+import LunavoAdmin from '@/pages/lunavo-admin';
+import LunavoSurfacePage, { FrontierLabPage } from '@/pages/lunavo-surface-pages';
 import { setSelectedWorkspaceId, useGetSubscription } from '@workspace/api-client-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -75,7 +79,7 @@ function AuthRoutes() { return <Switch>
     <Route path="/" component={HomeRoute} />
     <Route path="/general-store" component={GeneralStore} />
     <Route path="/leaderboard" component={Leaderboard} />
-        <Route path="/guide" component={() => <Protected><Guide /></Protected>} />
+    <Route path="/guide" component={() => <Protected><Guide /></Protected>} />
     <Route path="/marketplace" component={Marketplace} />
     <Route path="/growth" component={() => <Protected><CommerceGrowth /></Protected>} />
     <Route path="/commerce-suite" component={() => <Protected><CommerceSuite /></Protected>} />
@@ -93,30 +97,52 @@ function AuthRoutes() { return <Switch>
     <Route path="/pay/:token" component={PaymentLinkCheckout} />
     <Route path="/invoice/:token" component={PublicInvoice} />
     <Route path="/invite/:token" component={Invite} />
-    <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
-    <Route path="/analytics" component={() => <Protected><Analytics /></Protected>} />
+
+    <Route path="/dashboard" component={() => <Protected><LunavoCommandCenter /></Protected>} />
+    <Route path="/analytics" component={() => <Protected><LunavoSurfacePage surface="analytics" /></Protected>} />
+    <Route path="/products" component={() => <Protected><LunavoOperationsPage area="products" /></Protected>} />
+    <Route path="/reviews" component={() => <Protected><LunavoSurfacePage surface="marketing" /></Protected>} />
+    <Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} />
+    <Route path="/orders" component={() => <Protected><LunavoOperationsPage area="orders" /></Protected>} />
+    <Route path="/inventory" component={() => <Protected><LunavoOperationsPage area="inventory" /></Protected>} />
+    <Route path="/customers/:id" component={() => <Protected><CustomerContextPage /></Protected>} />
+    <Route path="/customers" component={() => <Protected><LunavoOperationsPage area="customers" /></Protected>} />
+    <Route path="/store-builder" component={() => <Protected><LunavoSurfacePage surface="store-builder" /></Protected>} />
+    <Route path="/themes" component={() => <Protected><LunavoSurfacePage surface="themes" /></Protected>} />
+    <Route path="/digital-products" component={() => <Protected><LunavoSurfacePage surface="digital-products" /></Protected>} />
+    <Route path="/courses" component={() => <Protected><LunavoSurfacePage surface="courses" /></Protected>} />
+    <Route path="/memberships" component={() => <Protected><LunavoSurfacePage surface="memberships" /></Protected>} />
+    <Route path="/services" component={() => <Protected><LunavoSurfacePage surface="services" /></Protected>} />
+    <Route path="/bookings" component={() => <Protected><LunavoSurfacePage surface="bookings" /></Protected>} />
+    <Route path="/events" component={() => <Protected><LunavoSurfacePage surface="events" /></Protected>} />
+    <Route path="/subscriptions" component={() => <Protected><LunavoSurfacePage surface="subscriptions" /></Protected>} />
+    <Route path="/payments" component={() => <Protected><LunavoPayments /></Protected>} />
+    <Route path="/transactions" component={() => <Protected><LunavoLedgerPage title="Transactions" subtitle="A verified transaction view backed by TS Pay evidence and the internal ledger." /></Protected>} />
+    <Route path="/payouts" component={() => <Protected><LunavoLedgerPage title="Payouts" subtitle="Manual payout requests and approval records with KYC and reconciliation controls." /></Protected>} />
+    <Route path="/invoices/:id" component={() => <Protected><InvoiceContextPage /></Protected>} />
+    <Route path="/invoices" component={() => <Protected><LunavoSurfacePage surface="invoices" /></Protected>} />
+    <Route path="/refunds" component={() => <Protected><LunavoSurfacePage surface="refunds" /></Protected>} />
+    <Route path="/shipping" component={() => <Protected><LunavoSurfacePage surface="shipping" /></Protected>} />
+    <Route path="/taxes" component={() => <Protected><LunavoSurfacePage surface="taxes" /></Protected>} />
+    <Route path="/marketing" component={() => <Protected><LunavoSurfacePage surface="marketing" /></Protected>} />
+    <Route path="/domains" component={() => <Protected><LunavoSurfacePage surface="domains" /></Protected>} />
+    <Route path="/integrations" component={() => <Protected><LunavoSurfacePage surface="integrations" /></Protected>} />
+    <Route path="/developer" component={() => <Protected><LunavoSurfacePage surface="developer" /></Protected>} />
+    <Route path="/frontier-lab" component={() => <Protected><FrontierLabPage /></Protected>} />
     <Route path="/settings" component={() => <Protected><Settings /></Protected>} />
     <Route path="/media" component={() => <Protected><Media /></Protected>} />
-    <Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} />
-    <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
     <Route path="/activity" component={() => <Protected><Activity /></Protected>} />
-    <Route path="/customers/:id" component={() => <Protected><CustomerContextPage /></Protected>} />
-    <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
     <Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} />
     <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
     <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
     <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
     <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
     <Route path="/ts-pay" component={() => <Protected><TsPay /></Protected>} />
-    <Route path="/invoices/:id" component={() => <Protected><InvoiceContextPage /></Protected>} />
-    <Route path="/invoices" component={() => <Protected><Invoices /></Protected>} />
-    <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
     <Route path="/store" component={() => <Protected><StorePage /></Protected>} />
     <Route path="/pos" component={() => <Protected><Pos /></Protected>} />
-    <Route path="/marketing" component={() => <Protected><Marketing /></Protected>} />
     <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
     <Route path="/team" component={() => <Protected><Team /></Protected>} />
-    <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
+    <Route path="/admin" component={() => <Protected admin><LunavoAdmin /></Protected>} />
     <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
     <Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} />
     <Route component={NotFound} />
@@ -124,6 +150,6 @@ function AuthRoutes() { return <Switch>
 function BrandedProvider() { const [, setLocation] = useLocation(); return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={{ theme: shadcn, cssLayerName: 'clerk', options: { logoPlacement: 'inside', logoLinkUrl: basePath || '/', logoImageUrl: `${window.location.origin}${basePath}/logo.svg` }, variables: { colorPrimary: '#182333', colorForeground: '#182333', colorMutedForeground: '#697687', colorBackground: '#fbfaf6', colorInput: '#f7f4ed', colorInputForeground: '#182333', colorDanger: '#a33e38', colorNeutral: '#d9d2c4', fontFamily: 'Manrope, sans-serif', borderRadius: '0.75rem' }, elements: { rootBox: 'w-full flex justify-center', cardBox: 'bg-[#fbfaf6] rounded-2xl w-[440px] max-w-full overflow-hidden border border-[#d9d2c4]', card: '!shadow-none !border-0 !bg-transparent', footer: '!shadow-none !border-0 !bg-transparent', headerTitle: 'text-[#182333] font-extrabold', headerSubtitle: 'text-[#697687]', socialButtonsBlockButtonText: 'text-[#182333] font-bold', formFieldLabel: 'text-[#182333] font-bold', footerActionLink: 'text-[#8a6826] font-bold', footerActionText: 'text-[#697687]', dividerText: 'text-[#697687]', formButtonPrimary: 'bg-[#182333] text-[#f8f3e8] hover:bg-[#25354a]', formFieldInput: 'bg-[#f7f4ed] border-[#d9d2c4] text-[#182333]', footerAction: 'text-[#697687]', dividerLine: 'bg-[#d9d2c4]', alert: 'bg-[#fff3f0]', alertText: 'text-[#943b35]' } }} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} localization={{ signIn: { start: { title: 'Welcome back', subtitle: 'Your ledger is waiting.' } }, signUp: { start: { title: 'Open your workspace', subtitle: 'A clearer way to run your commerce.' } } }} routerPush={(to) => setLocation(stripBase(to))} routerReplace={(to) => setLocation(stripBase(to), { replace: true })}><QueryClientProvider client={queryClient}><ClerkQueryCacheInvalidator /><AuthRoutes /></QueryClientProvider></ClerkProvider>; }
 function Router() { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{clerkPubKey ? <BrandedProvider /> : <AuthRoutesWithoutClerk />}</ErrorBoundary>; }
 function AuthRoutesWithoutClerk() { return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/leaderboard" component={Leaderboard} /><Route path="/marketplace" component={Marketplace} /><Route path="/growth" component={CommerceGrowth} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/store/:merchantKey" component={PublicStorefront} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/forgot-password" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>; }
-function AuthUnavailable({ mode }: { mode: string }) { return <main className="noise grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><div className="w-full max-w-md border border-[#d5cdbd] bg-[#fcfaf5] p-8 text-center shadow-[0_18px_38px_rgba(31,43,56,.07)]"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">TS / COMMERCE</p><h1 className="mt-4 text-2xl font-extrabold tracking-[-.05em]">Authentication is being prepared.</h1><p className="mt-3 text-sm leading-6 text-[#697687]">The {mode} service is not configured in this environment yet. Please return to the public site.</p><Link href="/" className="mt-6 inline-flex rounded-[10px] bg-[#1f2b38] px-4 py-3 text-sm font-extrabold text-[#f8f3e8]">Return home</Link></div></main>; }
+function AuthUnavailable({ mode }: { mode: string }) { return <main className="noise grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><div className="w-full max-w-md border border-[#d5cdbd] bg-[#fcfaf5] p-8 text-center shadow-[0_18px_38px_rgba(31,43,56,.07)]"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">LUNAVO</p><h1 className="mt-4 text-2xl font-extrabold tracking-[-.05em]">Authentication is being prepared.</h1><p className="mt-3 text-sm leading-6 text-[#697687]">The {mode} service is not configured in this environment yet. Please return to the public site.</p><Link href="/" className="mt-6 inline-flex rounded-[10px] bg-[#1f2b38] px-4 py-3 text-sm font-extrabold text-[#f8f3e8]">Return home</Link></div></main>; }
 function App() { return <TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><ThemeToggle /><Toaster /></TooltipProvider>; }
 export default App;
