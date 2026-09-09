@@ -66,6 +66,7 @@ const migrations = [
   "0054_self_hosted_ad_studio",
   "0055_social_hub",
   "0056_social_publishing_and_custom_ad_media",
+  "0057_platform_integrations",
 ];
 const pool = new Pool({ connectionString: databaseUrl });
 const client = await pool.connect();
@@ -79,11 +80,17 @@ try {
     const applied = await client.query<{ id: string }>('SELECT id FROM "_ts_commerce_migrations" WHERE id = $1', [migrationId]);
     if (applied.rowCount) { console.log(`Database migration ${migrationId} already applied`); continue; }
     await client.query("BEGIN");
-    try { await client.query(migrationSql); await client.query('INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)', [migrationId]); await client.query("COMMIT"); console.log(`Applied database migration ${migrationId}`); }
-    catch (error) { await client.query("ROLLBACK"); throw error; }
+    try {
+      await client.query(migrationSql);
+      await client.query('INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)', [migrationId]);
+      await client.query("COMMIT");
+      console.log(`Database migration ${migrationId} applied`);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
   }
 } finally {
-  await client.query("SELECT pg_advisory_unlock(hashtext('ts-commerce-schema-migrations'))");
   client.release();
   await pool.end();
 }
