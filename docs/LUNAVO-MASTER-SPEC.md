@@ -10,6 +10,7 @@
 - Every feature must be connected to real server-side data and authoritative validation.
 - Do not silently remove an existing route or feature during a frontend redesign.
 - Do not implement fake counters, fake balances, fake orders, fake reviews, fake inventory or fake payment confirmations as if they were real data.
+- Every feature must be designed to feel exceptionally polished, useful, fast, coherent and production-ready. "Banger/fire" quality means strong UX, complete workflows, thoughtful defaults, excellent states, responsive performance and real functionality rather than decorative mockups.
 
 ## Identity and access
 - Product name: Lunavo.
@@ -44,6 +45,349 @@ Merchant capabilities include:
 - Finance and withdrawals.
 - TS Pay.
 - AI Control Room/business copilot with provider-independent core architecture where technically possible.
+
+## Autopilot — autonomous store/business operator
+Lunavo must include a powerful optional **Autopilot** that can operate a merchant's store/business continuously within explicit permissions, budgets, safety rules and approval settings. It is an assistant/operator, not an uncontrolled agent.
+
+### Autopilot control center
+- Dedicated Autopilot dashboard showing status, goals, tasks completed, recommendations, actions taken, money spent, revenue attributed where measurable, errors, pending approvals and activity timeline.
+- Modes: Off, Assist, Approval Required and Full Autopilot.
+- Merchant-defined goals such as increase sales, improve conversion, clear inventory, grow traffic, maintain margins, promote selected products or reduce operational workload.
+- Merchant-defined limits for advertising spend, discount depth, price changes, supplier ordering, refunds, communications and other financially consequential actions.
+- Product/store/category exclusions and protected items that Autopilot cannot modify.
+- Approval queues for actions requiring human confirmation.
+- Full action log with who/what/when/why, inputs, result and rollback capability where technically possible.
+- Emergency stop/pause-all automation control.
+- Dry-run and preview mode before autonomous execution.
+- Scheduled operating windows and quiet hours.
+- Per-feature permissions so merchants can allow some automations while blocking others.
+
+### Autopilot store operations
+When enabled and permitted, Autopilot can:
+- Monitor store health, sales, conversion, inventory, product availability, supplier changes, fulfillment exceptions, customer issues and campaign performance.
+- Detect operational problems and propose or execute permitted fixes.
+- Create/edit product drafts, descriptions, SEO metadata, collections and merchandising arrangements.
+- Organize products into categories/collections based on merchant rules.
+- Identify weak products, dead stock, low-stock products and opportunities for promotion.
+- Recommend pricing and margin improvements within merchant-defined boundaries.
+- Monitor supplier price/stock changes and trigger configured sync/pause/repricing workflows.
+- Prepare or execute supplier fulfillment workflows where authorized.
+- Monitor orders and flag exceptions, late fulfillment, tracking problems and customer-impacting issues.
+- Prepare customer-service responses using approved policies and escalate sensitive cases to the merchant.
+- Generate reports and explain what changed and why.
+
+### Autopilot advertising and marketing
+- Generate advertising concepts, copy, headlines, descriptions, calls to action and creative variations from real store/product data.
+- Generate or request approved visual creatives and adapt them for supported placements.
+- Build campaigns from merchant-selected products, audiences, objectives and budgets.
+- Create campaign drafts and, where the merchant has explicitly authorized it and the advertising integration supports it, publish campaigns through official platform APIs/integrations.
+- Schedule, pause and optimize campaigns according to merchant-defined budget and performance rules.
+- Generate multiple creative variants and test them where supported.
+- Monitor spend, impressions, clicks, conversions and attributed revenue only from authoritative platform data.
+- Shift budget between campaigns within explicit merchant limits.
+- Detect poor-performing creatives and recommend/pause them according to configured rules.
+- Never claim an ad was published if an external platform did not confirm publication.
+- Never fabricate ad spend, reach, clicks or conversions.
+
+### Autopilot social/content publishing
+- Generate product posts, promotional posts, educational content, captions and content calendars.
+- Adapt content to supported social channels while respecting each channel's rules and API capabilities.
+- Draft, schedule and, where officially supported and authorized, publish posts through real integrations.
+- Maintain a content calendar and publishing history.
+- Track confirmed publication status and errors.
+- Never pretend to post to a platform without a successful provider response.
+
+### Autopilot customer growth
+- Detect abandoned carts and trigger approved recovery workflows.
+- Create customer segments based on real purchase/engagement data.
+- Recommend upsells, cross-sells and related products.
+- Suggest or execute eligible promotions within merchant rules.
+- Identify repeat customers, high-value customers and customers at risk of churn.
+- Generate personalized but policy-compliant customer communications.
+- Respect opt-outs, communication permissions and applicable privacy/marketing requirements.
+
+### Autopilot analytics and decision-making
+- Continuously analyze real store metrics.
+- Explain changes in revenue, conversion, average order value, margins, inventory and campaign performance.
+- Detect anomalies and notify the merchant.
+- Recommend prioritized actions with estimated impact where defensible.
+- Learn from merchant-approved decisions without silently changing critical business rules.
+- Provide daily/weekly business briefings.
+- Maintain an auditable reason for consequential automated actions.
+
+### Autopilot safety and financial controls
+- No autonomous action may bypass authentication, authorization, payment verification, inventory controls, fraud checks, privacy permissions or platform policy.
+- Never invent money, payment confirmations, customers, reviews, ad metrics or sales.
+- Financially consequential actions require explicit configurable limits and, where appropriate, approval.
+- Advertising spend must remain within configured budgets.
+- Supplier purchases must remain within configured purchasing limits.
+- Price changes must respect minimum margin and maximum-change rules.
+- Discounts must respect minimum price/margin floors.
+- Refunds, account changes and sensitive customer communications can require approval.
+- Secrets, payment credentials and private keys are never exposed to the AI model or client UI unnecessarily.
+- All automated actions must be attributable, logged and reviewable.
+
+## Advanced commerce capability catalogue
+Lunavo should continue to include the major capabilities expected of a serious all-in-one commerce operating system, including:
+
+### CRM and customer intelligence
+- Unified customer profiles with orders, lifetime value, refunds, interactions, consent and notes.
+- Customer segmentation, tags, cohorts and saved audiences.
+- Customer timeline and internal activity history.
+- Customer import/export and duplicate merging.
+- Saved searches and operational customer views.
+- Customer groups, VIP tiers and account-specific pricing.
+- Churn-risk and retention signals based on real data.
+- Consent and communication-preference management.
+
+### Advanced catalog and merchandising
+- Product options, variants, bundles, kits and related products.
+- Collections, smart collections and manual merchandising.
+- Product badges, labels and promotional pricing windows.
+- Bulk product editing.
+- Product templates and reusable field sets.
+- SKU/barcode/GTIN support.
+- Product metafields/custom attributes.
+- Draft, scheduled, active, archived and unpublished states.
+- Catalog import/export with validation and error reports.
+- Product-level SEO, structured metadata and canonical URL controls.
+- Product comparison and merchandising rules.
+
+### Checkout and conversion
+- Server-authoritative cart and checkout calculations.
+- Guest and account checkout.
+- Saved addresses and customer checkout preferences.
+- Coupon, discount, gift-card and store-credit logic where enabled.
+- Shipping/tax/fee calculation before payment.
+- Checkout recovery and abandoned-cart workflows.
+- Idempotent order creation and duplicate-submission protection.
+- Inventory reservation/oversell prevention.
+- Order notes and delivery instructions.
+- Checkout analytics and conversion-funnel reporting.
+
+### Promotions, loyalty and retention
+- Coupon codes, automatic discounts and promotion rules.
+- Buy-X-get-Y and quantity-break patterns.
+- Gift cards and store credit with proper ledger accounting.
+- Loyalty points and rewards.
+- Referral and affiliate tracking.
+- Customer-specific offers.
+- Promotion scheduling and eligibility rules.
+- Promotion usage limits and abuse controls.
+
+### Reviews and user-generated content
+- Verified-purchase review signals where order data supports them.
+- Ratings, review text, media and moderation queues.
+- Merchant replies.
+- Report/flag abuse.
+- Spam/rating-manipulation controls.
+- Review request campaigns subject to consent and applicable rules.
+
+### Support and communications
+- Customer support inbox/helpdesk architecture.
+- Tickets, statuses, priorities, assignments and internal notes.
+- Order-aware customer support context.
+- Saved replies and response templates.
+- Email notification templates.
+- Transactional versus marketing communication separation.
+- Provider adapters for email/SMS/push where required.
+- Delivery status and failure handling.
+- Notification preference center.
+
+### Workflow automation engine
+- Event-trigger-condition-action automation framework.
+- Triggers for orders, payments, inventory, customers, products, supplier changes, campaigns and schedules.
+- Conditions, branching and delays.
+- Actions such as notifications, tags, status updates, drafts and integrations.
+- Retry and failure handling.
+- Idempotency and job history.
+- Human approval checkpoints.
+- Automation templates and reusable recipes.
+- Per-store enable/disable controls.
+
+### Subscriptions and recurring revenue
+- Subscription products and plans.
+- Billing schedules and renewal states.
+- Failed-payment handling/dunning hooks.
+- Cancellation, pause and resume workflows.
+- Upgrade/downgrade/proration-ready architecture.
+- Subscription invoices and payment history.
+- Customer self-service subscription management where configured.
+
+### Digital products, courses and memberships
+- Secure digital-file delivery.
+- Download limits/expiration where configured.
+- Course modules, lessons and completion tracking.
+- Membership tiers and gated content.
+- Access grants/revocation based on authoritative subscription/payment state.
+- Certificates/completion records where enabled.
+
+### Services, appointments and bookings
+- Service catalog.
+- Staff/provider calendars.
+- Availability rules and blackout dates.
+- Appointment booking, rescheduling and cancellation.
+- Resources/rooms/equipment allocation.
+- Time zones and localized scheduling.
+- Booking confirmations/reminders.
+- Deposits and payment-state integration.
+- No-double-booking protection.
+
+### B2B and wholesale
+- Business customer accounts.
+- Wholesale catalogs and price lists.
+- Quantity breaks and negotiated pricing.
+- Purchase orders and payment terms where enabled.
+- Tax/business identity fields.
+- Approval workflows.
+- Sales-rep/team access.
+- Customer-specific catalogs and visibility rules.
+
+### Purchasing and supplier operations
+- Purchase orders.
+- Supplier bills/cost records.
+- Receiving and partial receiving.
+- Supplier return workflows.
+- Cost history and landed-cost allocation.
+- Supplier scorecards based only on real recorded performance.
+
+### Warehouse and inventory operations
+- Multi-location inventory.
+- Warehouse bins/locations.
+- Stock transfers.
+- Stock reservations.
+- Cycle counts and adjustments with audit trails.
+- Barcode/QR workflows.
+- Pick/pack/ship workflows.
+- Low-stock/reorder rules.
+- Inventory valuation-ready records.
+- Lot/batch/serial tracking architecture where applicable.
+
+### Returns and after-sales
+- Return/RMA requests.
+- Eligibility rules.
+- Return reasons and inspection status.
+- Refund/exchange/store-credit choices.
+- Supplier-return tracking for dropship orders.
+- Return shipping tracking.
+- Full financial distinction between customer refund, supplier refund and merchant/platform effects.
+
+### Finance and accounting readiness
+- Transaction ledger.
+- Merchant balance and available/pending states.
+- Fees, refunds, disputes and adjustments.
+- Payout requests and payout history.
+- Reconciliation workflows.
+- Financial period reporting.
+- CSV/accounting export readiness.
+- Revenue, fees, refunds, taxes and cost reporting.
+- Never represent internal ledger balances as bank balances unless backed by actual provider/account records.
+
+### POS and omnichannel
+- Retail POS checkout.
+- Barcode scanning readiness.
+- Cash/card/approved payment methods.
+- Receipts and refunds.
+- Register/session management.
+- Staff permissions.
+- Offline-safe draft transaction handling where technically appropriate, with later authoritative synchronization.
+- Unified online/offline customer and inventory records.
+
+### Marketplace and auctions expansion
+- Seller onboarding and verification states.
+- Listing quality checks.
+- Marketplace search, categories and ranking signals.
+- Seller analytics.
+- Listing fees and sale fees using authoritative records.
+- Auction start/end times, bid increments, reserves and bid history.
+- Winner/payment/fulfillment states.
+- Anti-abuse and bid-integrity controls.
+
+### Content, CMS and SEO
+- Store pages and reusable sections.
+- Blog/article content.
+- Navigation/menu management.
+- Redirect management.
+- SEO title/description/OG metadata.
+- Sitemap and robots controls.
+- Structured data readiness.
+- Image optimization and alt text.
+- Draft/publish/schedule workflow.
+
+### Domains and storefront infrastructure
+- Lunavo subdomain provisioning architecture.
+- Custom-domain connection workflow.
+- Domain verification and DNS guidance.
+- SSL status/readiness.
+- Store email/domain settings readiness.
+- White-label storefront option where enabled.
+
+### Analytics, BI and experimentation
+- Real-time/recent operational dashboards where data freshness permits.
+- Sales, conversion, AOV, margin, retention and cohort analytics.
+- Product and category performance.
+- Customer and geographic analytics.
+- Marketing attribution where source data supports it.
+- Funnel analysis.
+- Scheduled reports.
+- Exportable reports.
+- Anomaly detection.
+- Goal/KPI tracking.
+- A/B testing/experimentation architecture with statistically responsible reporting and no fabricated uplift.
+
+### Search and recommendations
+- Fast catalog search.
+- Filters/facets and sorting.
+- Typo-tolerant search readiness.
+- Synonyms and merchandising rules.
+- Related products.
+- Frequently bought together.
+- Recently viewed.
+- Personalized recommendations only when supported by real behavioral data and privacy settings.
+
+### Internationalization
+- Multiple countries and currencies.
+- Transaction currency versus settlement currency separation.
+- Locale-aware number/date/address formatting.
+- Time-zone-aware scheduling.
+- Multi-language-ready storefront/content architecture.
+- Country-specific availability/shipping rules.
+- Currency conversion with source/rate timestamps where external rates are used.
+
+### Developer ecosystem
+- Versioned REST/API-ready architecture.
+- Webhooks with signing, replay protection and event logs.
+- API keys/tokens with scoped permissions and rotation.
+- OAuth/integration readiness.
+- App/integration registry architecture.
+- Import/export APIs.
+- Rate limits and usage visibility.
+- Developer documentation readiness.
+
+### Reliability and observability
+- Structured server logs without secrets.
+- Error tracking hooks.
+- Health/readiness checks.
+- Background-job monitoring.
+- Retry/backoff/dead-letter patterns where appropriate.
+- Idempotency for external side effects.
+- Database migration discipline.
+- Backup/restore planning.
+- Incident/audit trail.
+- Feature flags and safe rollout controls.
+
+### Security, privacy and trust
+- Tenant isolation at every data-access layer.
+- Least-privilege permissions.
+- Secure secret storage.
+- CSRF/XSS/injection-safe patterns appropriate to the stack.
+- Input validation and output encoding.
+- Rate limiting and abuse controls.
+- Login/security-event auditing.
+- Data export/deletion workflows.
+- Consent and communication preferences.
+- Sensitive-action confirmation and step-up authentication where appropriate.
+- No secrets in logs, URLs or client bundles.
 
 ## Normal application essentials
 Lunavo should include the ordinary product-quality capabilities users expect from a modern production SaaS/mobile/web application, even when not separately requested:
