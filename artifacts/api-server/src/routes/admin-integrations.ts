@@ -7,7 +7,6 @@ import {
   checkFlutterwaveConnection,
   flutterwaveCredentialMode,
   isFlutterwaveConfigured,
-  setFlutterwaveSecretKey,
 } from "../lib/flutterwave-client";
 
 const router: IRouter = Router();
@@ -60,7 +59,7 @@ router.put("/admin/integrations/flutterwave", async (req, res, next) => {
       return;
     }
 
-    setFlutterwaveSecretKey(apiKey);
+    process.env.FLUTTERWAVE_SECRET_KEY = apiKey;
     const connection = await checkFlutterwaveConnection();
     const mode = apiKey.startsWith("FLWSECK_TEST-") ? "test" : apiKey.startsWith("FLWSECK-") ? "live" : "unknown";
     const encrypted = encryptSecret(apiKey);
@@ -75,7 +74,6 @@ router.put("/admin/integrations/flutterwave", async (req, res, next) => {
 
     res.json({ connected: true, mode, provider: "flutterwave", status: connection.status, updatedAt: new Date().toISOString() });
   } catch (error) {
-    setFlutterwaveSecretKey("");
     const message = error instanceof Error ? error.message : "Flutterwave connection failed";
     res.status(400).json({ error: message });
   }
