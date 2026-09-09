@@ -1,0 +1,1 @@
+export const LUNAVO_BUILD_RULE = "Navigation and visual surfaces never count as implementation by themselves; every capability must remain backed by its existing or newly implemented API, persistence, authorization and business rules before it is considered complete.";
