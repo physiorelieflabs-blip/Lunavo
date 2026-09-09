@@ -23,6 +23,8 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Self-hosted core policy
+        run: pnpm run check:self-hosted
       - name: Typecheck
         run: pnpm run typecheck
       - name: Critical payment and subscription simulation
