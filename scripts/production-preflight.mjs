@@ -25,10 +25,28 @@ function requireUrl(name) {
   }
 }
 
+// Third-party AI/maps/messaging/search keys are deliberately forbidden as
+// core dependencies. If one is present, it is a configuration smell that can
+// accidentally turn an optional integration into a hard runtime dependency.
+const forbiddenCoreKeys = new Set([
+  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'GOOGLE_MAPS_API_KEY',
+  'MAPBOX_ACCESS_TOKEN',
+  'TWILIO_AUTH_TOKEN',
+  'SENDGRID_API_KEY',
+  'MAILGUN_API_KEY',
+  'RESEND_API_KEY',
+  'ALGOLIA_API_KEY',
+  'PINECONE_API_KEY',
+]);
+
 if (strict) {
   requireEnv('DATABASE_URL');
-  requireEnv('CLERK_SECRET_KEY');
-  requireEnv('CLERK_PUBLISHABLE_KEY');
+  // Authentication, AI, search, media, notifications, analytics and other
+  // non-payment capabilities must remain self-hosted/API-independent.
   requireAnyEnv('FLUTTERWAVE_SECRET_KEY', 'FLW_SECRET_KEY');
   requireAnyEnv('FLUTTERWAVE_WEBHOOK_SECRET', 'FLW_WEBHOOK_HASH');
   requireUrl('APP_BASE_URL');
@@ -36,7 +54,12 @@ if (strict) {
 
 for (const [name, value] of Object.entries(process.env)) {
   if (!value) continue;
-  if (/^(FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|CLERK_SECRET_KEY|DATABASE_URL|SOCIAL_TOKEN_ENCRYPTION_KEY|SOCIAL_OAUTH_STATE_SECRET)$/.test(name)) {
+
+  if (forbiddenCoreKeys.has(name)) {
+    errors.push(`${name} must not be required by Lunavo core; use the self-hosted capability instead.`);
+  }
+
+  if (/^(FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|DATABASE_URL|SOCIAL_TOKEN_ENCRYPTION_KEY|SOCIAL_OAUTH_STATE_SECRET)$/.test(name)) {
     if (/^(changeme|replace_me|your_|test_|example)/i.test(value)) errors.push(`${name} contains a placeholder value.`);
   }
 }
