@@ -6,6 +6,7 @@ import adminIntegrationsRouter from "./admin-integrations";
 import marketplacePlatformRouter from "./marketplace-platform";
 import marketplaceLegacyGuardRouter from "./marketplace-legacy-guard";
 import marketplaceAdvertisingCompatRouter from "./marketplace-advertising-compat";
+import auctionIntegrityRouter from "./auction-integrity";
 import commerceRouter from "./commerce";
 import commerceGrowthRouter from "./commerce-growth";
 import commerceSuiteRouter from "./commerce-suite";
@@ -25,6 +26,9 @@ router.use(adminIntegrationsRouter);
 router.use(marketplacePlatformRouter);
 router.use(marketplaceLegacyGuardRouter);
 router.use(marketplaceAdvertisingCompatRouter);
+// Must precede commerceRouter: this is the authoritative concurrency/risk gate
+// for public auction bids and prevents the legacy handler from bypassing it.
+router.use(auctionIntegrityRouter);
 router.use(commerceRouter);
 router.use(commerceGrowthRouter);
 router.use(commerceSuiteRouter);
