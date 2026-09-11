@@ -115,4 +115,38 @@ router.delete("/domains/:id", async (req, res): Promise<void> => {
   res.status(204).end();
 });
 
+router.get("/public/domains/resolve", async (req, res): Promise<void> => {
+  const hostname = normalizeHostname(req.query.hostname);
+  if (!hostname) { res.status(400).json({ error: "Valid hostname is required" }); return; }
+  const row = (await db.select({
+    id: merchantStorefrontDomainsTable.id,
+    storefrontId: merchantStorefrontDomainsTable.storefrontId,
+    hostname: merchantStorefrontDomainsTable.hostname,
+    merchantId: merchantStorefrontDomainsTable.merchantId,
+    isPrimary: merchantStorefrontDomainsTable.isPrimary,
+  }).from(merchantStorefrontDomainsTable).where(and(
+    eq(merchantStorefrontDomainsTable.hostname, hostname),
+    eq(merchantStorefrontDomainsTable.status, "verified"),
+  )).limit(1))[0];
+  if (!row || !row.storefrontId) { res.status(404).json({ error: "Verified storefront domain not found" }); return; }
+  const storefront = (await db.select({
+    id: merchantStorefrontsTable.id,
+    merchantId: merchantStorefrontsTable.merchantId,
+    name: merchantStorefrontsTable.name,
+    slug: merchantStorefrontsTable.slug,
+    publicKey: merchantStorefrontsTable.publicKey,
+    description: merchantStorefrontsTable.description,
+    theme: merchantStorefrontsTable.theme,
+    sections: merchantStorefrontsTable.sections,
+    published: merchantStorefrontsTable.published,
+  }).from(merchantStorefrontsTable).where(and(
+    eq(merchantStorefrontsTable.id, row.storefrontId),
+    eq(merchantStorefrontsTable.merchantId, row.merchantId),
+    eq(merchantStorefrontsTable.published, true),
+  )).limit(1))[0];
+  if (!storefront) { res.status(404).json({ error: "Storefront is not published" }); return; }
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  res.json({ domain: { id: row.id, hostname: row.hostname, isPrimary: row.isPrimary }, storefront });
+});
+
 export default router;
