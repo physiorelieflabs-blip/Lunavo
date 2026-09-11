@@ -14,6 +14,7 @@ import adStudioRouter from "./ad-studio";
 import socialHubRouter from "./social-hub";
 import subscriptionOptionsRouter from "./subscription-options";
 import storefrontDomainsRouter from "./storefront-domains";
+import storefrontPublishingRouter from "./storefront-publishing";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(adStudioRouter);
 router.use(socialHubRouter);
 router.use(subscriptionOptionsRouter);
 router.use(storefrontDomainsRouter);
+router.use(storefrontPublishingRouter);
 
 export default router;
