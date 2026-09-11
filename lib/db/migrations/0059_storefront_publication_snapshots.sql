@@ -7,7 +7,19 @@ CREATE TABLE IF NOT EXISTS "storefront_publication_snapshots" (
   "sections" jsonb NOT NULL,
   "content_hash" text NOT NULL,
   "published_by_clerk_user_id" text NOT NULL,
-  "published_at" timestamptz NOT NULL DEFAULT now()
+  "published_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "storefront_publication_snapshots_storefront_version_unique" UNIQUE ("storefront_id", "version")
 );
-CREATE INDEX IF NOT EXISTS "storefront_publication_snapshots_storefront_version_idx" ON "storefront_publication_snapshots" ("storefront_id", "version");
 CREATE INDEX IF NOT EXISTS "storefront_publication_snapshots_merchant_idx" ON "storefront_publication_snapshots" ("merchant_id", "published_at");
+
+-- Existing published storefronts must have an immutable published snapshot so
+-- later draft edits cannot silently change what customers see.
+INSERT INTO "storefront_publication_snapshots" ("storefront_id", "merchant_id", "version", "theme", "sections", "content_hash", "published_by_clerk_user_id")
+SELECT s."id", s."merchant_id", 1, s."theme", s."sections",
+       encode(digest(convert_to((json_build_object('theme', s."theme", 'sections', s."sections"))::text, 'UTF8'), 'sha256'), 'hex'),
+       s."created_by_clerk_user_id"
+FROM "merchant_storefronts" s
+WHERE s."published" = true
+  AND NOT EXISTS (
+    SELECT 1 FROM "storefront_publication_snapshots" p WHERE p."storefront_id" = s."id"
+  );
