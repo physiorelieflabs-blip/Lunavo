@@ -8,6 +8,7 @@ import {
   merchantRolesTable,
   merchantsTable,
 } from "@workspace/db";
+import { isMasterAdmin } from "./master-admin";
 
 /**
  * Permission keys are intentionally stable API policy identifiers. UI labels
@@ -33,10 +34,6 @@ export const roleTemplates: Record<string, readonly PermissionKey[]> = {
   analyst: ["orders.read", "inventory.read", "customers.read", "finance.read"],
 };
 
-/**
- * Lazily creates a tenant's built-ins and legacy owner membership. This keeps
- * pre-membership merchant accounts operational while moving authority to DB.
- */
 export async function ensureTenantOwnerMembership(merchantId: number, clerkUserId: string) {
   await db.transaction(async (tx) => {
     for (const [key, permissions] of Object.entries(roleTemplates)) {
@@ -66,14 +63,29 @@ export type TenantAccess = {
   roleKey: string;
   permissions: Set<string>;
   locationIds: Set<string> | null;
+  isMasterAdmin?: boolean;
 };
 
 export class TenantAuthorizationError extends Error {
   readonly statusCode = 403;
 }
 
-/** Resolves authorization solely from Clerk identity and durable tenant state. */
+/** Resolves authorization from Clerk identity and durable tenant state. */
 export async function getTenantAccess(clerkUserId: string, merchantId: number): Promise<TenantAccess | null> {
+  // Supreme platform authority: the master admin can operate any tenant and
+  // is not constrained by merchant membership or location scope. This bypass
+  // is server-side only and cannot be activated by a client role field.
+  if (await isMasterAdmin(clerkUserId)) {
+    return {
+      merchantId,
+      membershipId: "master-admin",
+      roleKey: "master_admin",
+      permissions: new Set(permissionKeys),
+      locationIds: null,
+      isMasterAdmin: true,
+    };
+  }
+
   const merchant = (await db.select({ clerkUserId: merchantsTable.clerkUserId }).from(merchantsTable)
     .where(eq(merchantsTable.id, merchantId)).limit(1))[0];
   if (merchant?.clerkUserId === clerkUserId) await ensureTenantOwnerMembership(merchantId, clerkUserId);
@@ -91,33 +103,24 @@ export async function getTenantAccess(clerkUserId: string, merchantId: number): 
   return {
     merchantId, membershipId: membership.id, roleKey: membership.roleKey,
     permissions: new Set(permissionRows.map((row) => row.permission)),
-    // An empty mapping means tenant-wide scope; a populated mapping is restrictive.
     locationIds: scopeRows.length ? new Set(scopeRows.map((row) => row.locationId)) : null,
+    isMasterAdmin: false,
   };
 }
 
 export function hasPermission(access: TenantAccess, permission: PermissionKey) {
-  return access.permissions.has(permission);
+  return access.isMasterAdmin === true || access.permissions.has(permission);
 }
 
-/**
- * Route services use this after deriving a merchant from server-owned state.
- * It deliberately accepts no client merchant or location identifiers.
- */
-export async function requirePermission(
-  clerkUserId: string,
-  merchantId: number,
-  permission: PermissionKey,
-): Promise<TenantAccess> {
+export async function requirePermission(clerkUserId: string, merchantId: number, permission: PermissionKey): Promise<TenantAccess> {
   const access = await getTenantAccess(clerkUserId, merchantId);
   if (!access) throw new TenantAuthorizationError("Active tenant membership required");
-  if (!hasPermission(access, permission)) {
-    throw new TenantAuthorizationError(`Missing required permission: ${permission}`);
-  }
+  if (!hasPermission(access, permission)) throw new TenantAuthorizationError(`Missing required permission: ${permission}`);
   return access;
 }
 
 export async function requireLocationScope(access: TenantAccess, locationId: string) {
+  if (access.isMasterAdmin) return true;
   const location = (await db.select({ id: merchantLocationsTable.id }).from(merchantLocationsTable)
     .where(and(eq(merchantLocationsTable.id, locationId), eq(merchantLocationsTable.merchantId, access.merchantId))).limit(1))[0];
   return Boolean(location) && (access.locationIds === null || access.locationIds.has(locationId));

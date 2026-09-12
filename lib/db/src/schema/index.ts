@@ -2,3 +2,5 @@
 export * from "./commerce";
 export * from "./commerce-growth";
 export * from "./commerce-suite";
+export * from "./storefront-domains";
+export * from "./storefront-publishing";

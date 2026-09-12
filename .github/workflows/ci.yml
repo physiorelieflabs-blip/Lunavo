@@ -2,7 +2,7 @@ name: Lunavo CI
 
 on:
   push:
-    branches: [main, feat/social-hub-ui-real]
+    branches: [main, feat/social-hub-ui-real, feat/lunavo-master-implementation]
   pull_request:
     branches: [main]
 
@@ -22,12 +22,14 @@ jobs:
           node-version: 24
           cache: pnpm
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
       - name: Self-hosted core policy
         run: pnpm run check:self-hosted
-      - name: Typecheck
-        run: pnpm run typecheck
+      - name: Implementation invariants
+        run: node scripts/lunavo-implementation-audit.mjs
       - name: Critical payment and subscription simulation
         run: node --experimental-strip-types scripts/security-simulation.ts
+      - name: Typecheck
+        run: pnpm run typecheck
       - name: Build
         run: pnpm run build

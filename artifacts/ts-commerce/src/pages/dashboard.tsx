@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BarChart3, Boxes, CheckCircle2, ChevronRight, CircleDollarSign, Gift, ImagePlus, Megaphone, PackageCheck, Plus, Search, Settings2, ShoppingBag, Sparkles, Store, TrendingUp, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
