@@ -8,6 +8,7 @@ import marketplaceLegacyGuardRouter from "./marketplace-legacy-guard";
 import marketplaceAdvertisingCompatRouter from "./marketplace-advertising-compat";
 import auctionIntegrityRouter from "./auction-integrity";
 import merchantControlPlaneRouter from "./merchant-control-plane";
+import storeAuctionsRouter from "./store-auctions";
 import commerceRouter from "./commerce";
 import commerceGrowthRouter from "./commerce-growth";
 import commerceSuiteRouter from "./commerce-suite";
@@ -26,9 +27,9 @@ router.use(adminIntegrationsRouter);
 router.use(marketplacePlatformRouter);
 router.use(marketplaceLegacyGuardRouter);
 router.use(marketplaceAdvertisingCompatRouter);
-// Authoritative concurrency/risk gate before legacy commerce routes.
 router.use(auctionIntegrityRouter);
 router.use(merchantControlPlaneRouter);
+router.use(storeAuctionsRouter);
 router.use(commerceRouter);
 router.use(commerceGrowthRouter);
 router.use(commerceSuiteRouter);
