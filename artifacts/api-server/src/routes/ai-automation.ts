@@ -41,7 +41,7 @@ router.post("/merchant/ai/opportunities/score", async (req, res, next) => {
 });
 
 router.post("/merchant/ai/pricing/recommend", async (req,res,next)=>{
-  try {
+  try{
     const ctx=await context(req,res); if(!ctx)return;
     const inputs=req.body as PricingInputs;
     const result=recommendDynamicPrice(inputs);
@@ -58,11 +58,24 @@ router.post("/merchant/ai/actions/reserve", async(req,res,next)=>{
   try{
     const ctx=await context(req,res);if(!ctx)return;
     const kind=req.body?.kind === "ad" ? "ad" : "action";
-    const reservation=await reserveAutomationAction(db,ctx.merchantId,kind);
     const idempotencyKey=String(req.body?.idempotencyKey ?? "").trim().slice(0,255);
     if(!idempotencyKey){res.status(400).json({error:"idempotencyKey required"});return;}
-    await db.execute(sql`INSERT INTO merchant_automation_audit (merchant_id,action_type,status,idempotency_key,reason,metadata) VALUES (${ctx.merchantId},${kind},'planned',${idempotencyKey},${String(req.body?.reason??"").slice(0,1000)},${JSON.stringify(req.body?.metadata ?? {})}::jsonb) ON CONFLICT (idempotency_key) DO NOTHING`);
-    res.json({reserved:true,...reservation});
+
+    // Check the unique operation key before consuming a daily quota. Retries of
+    // an already accepted operation must be side-effect free.
+    const existing=await db.execute(sql`SELECT id,status,metadata FROM merchant_automation_audit WHERE idempotency_key=${idempotencyKey} LIMIT 1`);
+    if(existing.rows.length){res.status(200).json({reserved:true,replayed:true,audit:existing.rows[0]});return;}
+
+    const reservation=await reserveAutomationAction(db,ctx.merchantId,kind);
+    const inserted=await db.execute(sql`INSERT INTO merchant_automation_audit (merchant_id,action_type,status,idempotency_key,reason,metadata) VALUES (${ctx.merchantId},${kind},'planned',${idempotencyKey},${String(req.body?.reason??"").slice(0,1000)},${JSON.stringify(req.body?.metadata ?? {})}::jsonb) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id,status`);
+    if(!inserted.rows.length){
+      // A concurrent request won the unique-key race. The quota reservation made
+      // by this request cannot be safely rolled back outside the reservation
+      // transaction, so expose the race rather than claiming a second operation.
+      res.status(409).json({error:"Automation operation was created concurrently; retry with the same idempotency key"});
+      return;
+    }
+    res.json({reserved:true,...reservation,audit:inserted.rows[0]});
   }catch(e){next(e);}
 });
 
