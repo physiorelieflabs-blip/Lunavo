@@ -35,6 +35,7 @@ import PaymentLinkCheckout from '@/pages/payment-link-checkout';
 import MarketplaceManagement from '@/pages/marketplace-management';
 import Auctions from '@/pages/auctions';
 import AuctionManagement from '@/pages/auction-management';
+import StoreAuction from '@/pages/store-auction';
 import Invoices from '@/pages/invoices';
 import PublicInvoice from '@/pages/invoice-public';
 import PublicPaymentReturn from '@/pages/public-payment-return';
@@ -60,7 +61,6 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const ADMIN_EMAIL = 'ifeoluwaolowu4@gmail.com';
-
 function stripBase(path: string) { return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path; }
 function HomeRoute() { return <><Show when="signed-in"><HomeRedirect /></Show><Show when="signed-out"><Landing /></Show></>; }
 function HomeRedirect() { const { user, isLoaded } = useUser(); if (!isLoaded) return <Landing />; const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified'; const preferredRole = window.localStorage.getItem('lunavo-role'); return <Redirect to={isAdmin ? '/admin' : preferredRole === 'customer' ? '/general-store' : '/dashboard'} />; }
@@ -73,60 +73,11 @@ function SubscriptionGate({ children }: { children: ReactNode }) { const [locati
 function AdminGate({ children }: { children: ReactNode }) { const { user } = useUser(); const isAdmin = user?.primaryEmailAddress?.emailAddress?.toLowerCase() === ADMIN_EMAIL && user.primaryEmailAddress.verification?.status === 'verified'; return isAdmin ? <>{children}</> : <Redirect to="/dashboard" />; }
 function ClerkQueryCacheInvalidator() { const { addListener } = useClerk(); const client = useQueryClient(); const previous = useRef<string | null | undefined>(undefined); useEffect(() => { const unsubscribe = addListener(({ user }) => { const id = user?.id ?? null; if (previous.current !== undefined && previous.current !== id) { client.clear(); setSelectedWorkspaceId(undefined, id); } previous.current = id; }); return unsubscribe; }, [addListener, client]); return null; }
 function AuthRoutes() { return <Switch>
-    <Route path="/" component={HomeRoute} />
-    <Route path="/general-store" component={GeneralStore} />
-    <Route path="/leaderboard" component={Leaderboard} />
-    <Route path="/guide" component={() => <Protected><Guide /></Protected>} />
-    <Route path="/marketplace" component={Marketplace} />
-    <Route path="/growth" component={() => <Protected><CommerceGrowth /></Protected>} />
-    <Route path="/commerce-suite" component={() => <Protected><CommerceSuite /></Protected>} />
-    <Route path="/ad-studio" component={() => <Protected><AdStudio /></Protected>} />
-    <Route path="/auctions/:id" component={Auctions} />
-    <Route path="/auctions" component={Auctions} />
-    <Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} />
-    <Route path="/auctions/manage" component={() => <Protected><AuctionManagement /></Protected>} />
-    <Route path="/sign-in/forgot-password" component={PasswordReset} />
-    <Route path="/sign-in/*?" component={SignInPage} />
-    <Route path="/sign-up/*?" component={SignUpPage} />
-    <Route path="/checkout/payment-return" component={PublicPaymentReturn} />
-    <Route path="/store/:merchantKey" component={PublicStorefront} />
-    <Route path="/checkout/:merchantKey" component={Checkout} />
-    <Route path="/pay/:token" component={PaymentLinkCheckout} />
-    <Route path="/invoice/:token" component={PublicInvoice} />
-    <Route path="/invite/:token" component={Invite} />
-    <Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} />
-    <Route path="/analytics" component={() => <Protected><Analytics /></Protected>} />
-    <Route path="/settings" component={() => <Protected><Settings /></Protected>} />
-    <Route path="/media" component={() => <Protected><Media /></Protected>} />
-    <Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} />
-    <Route path="/orders" component={() => <Protected><Orders /></Protected>} />
-    <Route path="/activity" component={() => <Protected><Activity /></Protected>} />
-    <Route path="/customers/:id" component={() => <Protected><CustomerContextPage /></Protected>} />
-    <Route path="/customers" component={() => <Protected><Customers /></Protected>} />
-    <Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} />
-    <Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} />
-    <Route path="/sourcing" component={() => <Protected><Suppliers /></Protected>} />
-    <Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} />
-    <Route path="/billing" component={() => <Protected><Billing /></Protected>} />
-    <Route path="/finance" component={() => <Protected><Finance /></Protected>} />
-    <Route path="/ts-pay" component={() => <Protected><TsPay /></Protected>} />
-    <Route path="/invoices/:id" component={() => <Protected><InvoiceContextPage /></Protected>} />
-    <Route path="/invoices" component={() => <Protected><Invoices /></Protected>} />
-    <Route path="/inventory" component={() => <Protected><Inventory /></Protected>} />
-    <Route path="/store" component={() => <Protected><StorePage /></Protected>} />
-    <Route path="/pos" component={() => <Protected><Pos /></Protected>} />
-    <Route path="/marketing" component={() => <Protected><Marketing /></Protected>} />
-    <Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} />
-    <Route path="/team" component={() => <Protected><Team /></Protected>} />
-    <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} />
-    <Route path="/admin/integrations" component={() => <Protected admin><AdminIntegrations /></Protected>} />
-    <Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} />
-    <Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} />
-    <Route component={NotFound} />
+    <Route path="/" component={HomeRoute} /><Route path="/general-store" component={GeneralStore} /><Route path="/leaderboard" component={Leaderboard} /><Route path="/guide" component={() => <Protected><Guide /></Protected>} /><Route path="/marketplace" component={Marketplace} /><Route path="/growth" component={() => <Protected><CommerceGrowth /></Protected>} /><Route path="/commerce-suite" component={() => <Protected><CommerceSuite /></Protected>} /><Route path="/ad-studio" component={() => <Protected><AdStudio /></Protected>} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/store-auctions/:id" component={StoreAuction} /><Route path="/marketplace/manage" component={() => <Protected><MarketplaceManagement /></Protected>} /><Route path="/auctions/manage" component={() => <Protected><AuctionManagement /></Protected>} /><Route path="/sign-in/forgot-password" component={PasswordReset} /><Route path="/sign-in/*?" component={SignInPage} /><Route path="/sign-up/*?" component={SignUpPage} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/store/:merchantKey" component={PublicStorefront} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/invite/:token" component={Invite} /><Route path="/dashboard" component={() => <Protected><Dashboard /></Protected>} /><Route path="/analytics" component={() => <Protected><Analytics /></Protected>} /><Route path="/settings" component={() => <Protected><Settings /></Protected>} /><Route path="/media" component={() => <Protected><Media /></Protected>} /><Route path="/orders/:id" component={() => <Protected><OrderContextPage /></Protected>} /><Route path="/orders" component={() => <Protected><Orders /></Protected>} /><Route path="/activity" component={() => <Protected><Activity /></Protected>} /><Route path="/customers/:id" component={() => <Protected><CustomerContextPage /></Protected>} /><Route path="/customers" component={() => <Protected><Customers /></Protected>} /><Route path="/withdrawals" component={() => <Protected><Withdrawals /></Protected>} /><Route path="/suppliers" component={() => <Protected><Suppliers /></Protected>} /><Route path="/sourcing" component={() => <Protected><Suppliers /></Protected>} /><Route path="/dropshipping" component={() => <Protected><Dropshipping /></Protected>} /><Route path="/billing" component={() => <Protected><Billing /></Protected>} /><Route path="/finance" component={() => <Protected><Finance /></Protected>} /><Route path="/ts-pay" component={() => <Protected><TsPay /></Protected>} /><Route path="/invoices/:id" component={() => <Protected><InvoiceContextPage /></Protected>} /><Route path="/invoices" component={() => <Protected><Invoices /></Protected>} /><Route path="/inventory" component={() => <Protected><Inventory /></Protected>} /><Route path="/store" component={() => <Protected><StorePage /></Protected>} /><Route path="/pos" component={() => <Protected><Pos /></Protected>} /><Route path="/marketing" component={() => <Protected><Marketing /></Protected>} /><Route path="/ai" component={() => <Protected><AiControlRoom /></Protected>} /><Route path="/team" component={() => <Protected><Team /></Protected>} /><Route path="/admin" component={() => <Protected admin><Admin /></Protected>} /><Route path="/admin/integrations" component={() => <Protected admin><AdminIntegrations /></Protected>} /><Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} /><Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} /><Route component={NotFound} />
   </Switch>; }
 function BrandedProvider() { const [, setLocation] = useLocation(); return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={{ theme: shadcn, cssLayerName: 'clerk', options: { logoPlacement: 'inside', logoLinkUrl: basePath || '/', logoImageUrl: `${window.location.origin}${basePath}/logo.svg` }, variables: { colorPrimary: '#182333', colorForeground: '#182333', colorMutedForeground: '#697687', colorBackground: '#fbfaf6', colorInput: '#f7f4ed', colorInputForeground: '#182333', colorDanger: '#a33e38', colorNeutral: '#d9d2c4', fontFamily: 'Manrope, sans-serif', borderRadius: '0.75rem' }, elements: { rootBox: 'w-full flex justify-center', cardBox: 'bg-[#fbfaf6] rounded-2xl w-[440px] max-w-full overflow-hidden border border-[#d9d2c4]', card: '!shadow-none !border-0 !bg-transparent', footer: '!shadow-none !border-0 !bg-transparent', headerTitle: 'text-[#182333] font-extrabold', headerSubtitle: 'text-[#697687]', socialButtonsBlockButtonText: 'text-[#182333] font-bold', formFieldLabel: 'text-[#182333] font-bold', footerActionLink: 'text-[#8a6826] font-bold', footerActionText: 'text-[#697687]', dividerText: 'text-[#697687]', formButtonPrimary: 'bg-[#182333] text-[#f8f3e8] hover:bg-[#25354a]', formFieldInput: 'bg-[#f7f4ed] border-[#d9d2c4] text-[#182333]', footerAction: 'text-[#697687]', dividerLine: 'bg-[#d9d2c4]', alert: 'bg-[#fff3f0]', alertText: 'text-[#943b35]' } }} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} localization={{ signIn: { start: { title: 'Welcome back', subtitle: 'Your ledger is waiting.' } }, signUp: { start: { title: 'Open your workspace', subtitle: 'A clearer way to run your commerce.' } } }} routerPush={(to) => setLocation(stripBase(to))} routerReplace={(to) => setLocation(stripBase(to), { replace: true })}><QueryClientProvider client={queryClient}><ClerkQueryCacheInvalidator /><AuthRoutes /></QueryClientProvider></ClerkProvider>; }
 function Router() { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{clerkPubKey ? <BrandedProvider /> : <AuthRoutesWithoutClerk />}</ErrorBoundary>; }
-function AuthRoutesWithoutClerk() { return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/leaderboard" component={Leaderboard} /><Route path="/marketplace" component={Marketplace} /><Route path="/growth" component={CommerceGrowth} /><Route path="/commerce-suite" component={CommerceSuite} /><Route path="/ad-studio" component={AdStudio} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/store/:merchantKey" component={PublicStorefront} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/forgot-password" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>; }
+function AuthRoutesWithoutClerk() { return <Switch><Route path="/" component={Landing} /><Route path="/general-store" component={GeneralStore} /><Route path="/leaderboard" component={Leaderboard} /><Route path="/marketplace" component={Marketplace} /><Route path="/growth" component={CommerceGrowth} /><Route path="/commerce-suite" component={CommerceSuite} /><Route path="/ad-studio" component={AdStudio} /><Route path="/auctions/:id" component={Auctions} /><Route path="/auctions" component={Auctions} /><Route path="/store-auctions/:id" component={StoreAuction} /><Route path="/checkout/payment-return" component={PublicPaymentReturn} /><Route path="/store/:merchantKey" component={PublicStorefront} /><Route path="/checkout/:merchantKey" component={Checkout} /><Route path="/pay/:token" component={PaymentLinkCheckout} /><Route path="/invoice/:token" component={PublicInvoice} /><Route path="/sign-in/forgot-password" component={() => <AuthUnavailable mode="sign in" />} /><Route path="/sign-up/*?" component={() => <AuthUnavailable mode="sign up" />} /><Route component={NotFound} /></Switch>; }
 function AuthUnavailable({ mode }: { mode: string }) { return <main className="noise grid min-h-[100dvh] place-items-center bg-[#f5f1e8] px-5"><div className="w-full max-w-md border border-[#d5cdbd] bg-[#fcfaf5] p-8 text-center shadow-[0_18px_38px_rgba(31,43,56,.07)]"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">LUNAVO</p><h1 className="mt-4 text-2xl font-extrabold tracking-[-.05em]">Authentication is being prepared.</h1><p className="mt-3 text-sm leading-6 text-[#697687]">The {mode} service is not configured in this environment yet. Please return to the public site.</p><Link href="/" className="mt-6 inline-flex rounded-[10px] bg-[#1f2b38] px-4 py-3 text-sm font-extrabold text-[#f8f3e8]">Return home</Link></div></main>; }
 function App() { return <TooltipProvider><WouterRouter base={basePath}><Router /></WouterRouter><ThemeToggle /><Toaster /></TooltipProvider>; }
 export default App;
