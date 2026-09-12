@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { ArrowRight, BarChart3, Boxes, CheckCircle2, CircleDollarSign, Gift, ImagePlus, Megaphone, PackageCheck, Search, Settings2, ShoppingBag, Sparkles, Store, TrendingUp, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowRight, BarChart3, Boxes, CheckCircle2, CircleDollarSign, Gift, ImagePlus, Megaphone, PackageCheck, Plus, Search, Settings2, ShoppingBag, Sparkles, Store, TrendingUp, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'wouter';
 import { customFetch, useGetDashboardOverview, useListDashboardActivity } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
