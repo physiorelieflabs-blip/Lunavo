@@ -35,46 +35,54 @@ export function buildAuctioneerStrategy(input: AuctioneerInputs, strategy: Aucti
   const traffic = Math.max(0, input.traffic ?? 0);
   const conversion = clamp(input.conversionRate ?? 0, 0, 1);
   const history = [...(input.bidHistory ?? [])]
-    .filter(b => Number.isFinite(b.amount) && b.amount > 0)
+    .filter(b => Number.isFinite(b.amount) && b.amount > 0 && Number.isFinite(new Date(b.createdAt).getTime()))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   const bidCount = Math.max(input.bidCount, history.length);
   const last = history.at(-1)?.amount ?? current;
   const previous = history.at(-2)?.amount ?? null;
-  const lastIncrement = previous == null ? null : Math.max(0, last - previous);
   const first = history[0]?.amount ?? ask;
+  const lastIncrement = previous == null ? null : Math.max(0, last - previous);
   const priceLift = Math.max(0, current - ask) / ask;
-  const recentWindowMs = 60 * 60 * 1000;
   const now = Date.now();
-  const recentBids = history.filter(b => now - new Date(b.createdAt).getTime() <= recentWindowMs).length;
-  const recentVelocity = recentBids / Math.max(1, Math.min(1, hours === 0 ? 1 : 1));
-  const acceleration = velocity > 0 ? recentVelocity / velocity : recentBids > 0 ? 2 : 0;
-  const uniqueBidders = new Set(history.map(b => b.bidderKey).filter(Boolean)).size;
+  const recentBids = history.filter(b => now - new Date(b.createdAt).getTime() <= 60 * 60 * 1000).length;
+  const elapsedHours = history.length > 1
+    ? Math.max(1 / 60, (new Date(history.at(-1)!.createdAt).getTime() - new Date(history[0]!.createdAt).getTime()) / 3600000)
+    : Math.max(1 / 60, hours > 0 ? Math.min(24, 72 - hours) : 1 / 60);
+  const observedVelocity = history.length > 1 ? (history.length - 1) / elapsedHours : velocity;
+  const recentVelocity = recentBids;
+  const baselineVelocity = velocity > 0 ? velocity : observedVelocity;
+  const acceleration = baselineVelocity > 0 ? recentVelocity / baselineVelocity : recentBids > 0 ? 2 : 0;
+  const bidderKeys = history.map(b => b.bidderKey).filter((key): key is string => Boolean(key));
+  const uniqueBidders = new Set(bidderKeys).size;
   const bidderDiversity = uniqueBidders > 0 ? uniqueBidders / Math.max(1, bidCount) : 0;
 
   const demandSignal = clamp(
-    bidCount * 7 + velocity * 18 + traffic / 100 + conversion * 40 + priceLift * 35 + uniqueBidders * 5,
+    bidCount * 7 + observedVelocity * 18 + traffic / 100 + conversion * 40 + priceLift * 35 + uniqueBidders * 5,
     0, 100,
   );
   const momentumSignal = clamp(
-    35 + Math.min(40, recentBids * 10) + Math.min(25, Math.max(0, acceleration - 1) * 25),
+    30 + Math.min(40, recentBids * 10) + Math.min(30, Math.max(0, acceleration - 1) * 30),
     0, 100,
   );
   const urgencySignal = hours <= 2 ? 100 : hours <= 6 ? 90 : hours <= 24 ? 70 : hours <= 72 ? 40 : 15;
   const stallSignal = bidCount === 0 ? 100 : hours > 0 && recentBids === 0 ? 80 : lastIncrement === 0 ? 70 : 10;
   const competitiveSignal = clamp(uniqueBidders * 14 + bidderDiversity * 35 + Math.min(30, bidCount * 2), 0, 100);
 
-  // The recommended increment responds to actual bid spacing and momentum instead
-  // of applying a single hard-coded percentage to every auction.
+  // Learn the next increment from actual bid spacing, then adjust it modestly for momentum.
+  // This avoids pretending that every auction has the same bidding pattern.
   const baselineIncrement = Math.max(ask * 0.005, current * 0.005, 0.01);
   const observedIncrement = lastIncrement && lastIncrement > 0 ? lastIncrement : baselineIncrement;
-  const momentumMultiplier = momentumSignal >= 75 ? 1.2 : momentumSignal >= 50 ? 1.05 : 0.9;
-  const recommendedIncrement = roundMoney(Math.max(0.01, observedIncrement * momentumMultiplier));
+  const momentumMultiplier = momentumSignal >= 80 ? 1.2 : momentumSignal >= 60 ? 1.08 : momentumSignal <= 30 ? 0.9 : 1;
+  const recommendedIncrement = roundMoney(observedIncrement * momentumMultiplier);
 
   const strategyMultiplier = strategy === "maximize_value" ? 1.15 : strategy === "balanced" ? 1.08 : 1.03;
-  const momentumUplift = momentumSignal >= 75 ? 0.05 : momentumSignal >= 50 ? 0.025 : 0;
+  const momentumUplift = momentumSignal >= 80 ? 0.05 : momentumSignal >= 60 ? 0.025 : 0;
   const competitionUplift = competitiveSignal >= 65 ? 0.035 : 0;
-  const targetBid = target ?? roundMoney(Math.max(ask, current) * (strategyMultiplier + momentumUplift + competitionUplift));
+  const calculatedTarget = roundMoney(Math.max(ask, current) * (strategyMultiplier + momentumUplift + competitionUplift));
+  const targetBid = target ?? calculatedTarget;
+  const effectiveTarget = Math.max(targetBid, floor ?? 0, ask);
+  const nextBid = roundMoney(Math.max(current + recommendedIncrement, ask + recommendedIncrement));
 
   let posture: "build_interest" | "hold_value" | "capitalize_momentum" | "protect_floor" | "close_strong";
   let nextMove: string;
@@ -101,14 +109,15 @@ export function buildAuctioneerStrategy(input: AuctioneerInputs, strategy: Aucti
     momentumSignal >= 65 ? "Prioritize the strongest verified value points while bidding is active." : "Refresh the listing presentation and target qualified buyers through authorized channels.",
     hours <= 6 ? "Use truthful closing-time reminders; never claim that other buyers are bidding unless that activity is actually recorded." : "Do not manufacture urgency; let genuine demand signals drive the strategy.",
     strategy === "maximize_value" ? "Protect the seller's economic value and avoid unnecessary discounts." : strategy === "balanced" ? "Balance conversion probability with price preservation." : "Prioritize qualified exposure and reduce buyer friction without inventing incentives.",
+    effectiveTarget > current ? `Work toward the seller target of ${effectiveTarget.toFixed(2)} ${input.currency} only through genuine buyer demand.` : "The current bid has reached the configured target/floor; prioritize conversion and a clean close.",
   ];
 
   return {
     strategy,
     posture,
-    recommendedNextBid: roundMoney(Math.max(current + recommendedIncrement, ask + recommendedIncrement)),
+    recommendedNextBid: nextBid,
     recommendedBidIncrement: recommendedIncrement,
-    targetBid,
+    targetBid: roundMoney(effectiveTarget),
     demandSignal: round(demandSignal),
     momentumSignal: round(momentumSignal),
     competitiveSignal: round(competitiveSignal),
@@ -118,9 +127,11 @@ export function buildAuctioneerStrategy(input: AuctioneerInputs, strategy: Aucti
       bidCount,
       uniqueBidders,
       latestBid: round(last),
+      firstBid: round(first),
       previousBid: previous == null ? null : round(previous),
       latestIncrement: lastIncrement == null ? null : round(lastIncrement),
       recentBidsLastHour: recentBids,
+      observedVelocity: round(observedVelocity),
       acceleration: round(acceleration),
       priceLiftFromAsk: round(priceLift * 100),
     },
