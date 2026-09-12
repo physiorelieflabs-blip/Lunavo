@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db, paymentWebhookEventsTable } from "@workspace/db";
 import { verifyFlutterwaveTransaction, verifyFlutterwaveWebhookSignature } from "../lib/flutterwave-client";
 import { settleVerifiedProductAuctionPayment } from "../lib/product-auction-settlement";
+import { settleVerifiedStoreAuctionPayment } from "../lib/store-auction-settlement";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
 
 const router = Router();
@@ -41,13 +42,14 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
       res.status(200).json({ received: true, status: "reconciliation_required" }); return;
     }
 
-    // Webhooks are signals only. Re-query Flutterwave, then route auction payments
-    // through the same authoritative settlement boundary used by the trusted adapter.
+    // Webhooks are signals only. Re-query Flutterwave, then route store/product
+    // auctions through their authoritative settlement boundaries.
     const verified = await verifyFlutterwaveTransaction(providerTransactionId) as unknown as Payload;
-    const auctionOutcome = await settleVerifiedProductAuctionPayment(verified);
-    const outcome = auctionOutcome
-      ? auctionOutcome.status
-      : await processVerifiedFlutterwaveTransaction(verified, eventId, payload);
+    const storeAuctionOutcome = await settleVerifiedStoreAuctionPayment(verified);
+    const productAuctionOutcome = storeAuctionOutcome
+      ? null
+      : await settleVerifiedProductAuctionPayment(verified);
+    const outcome = storeAuctionOutcome ?? productAuctionOutcome ?? await processVerifiedFlutterwaveTransaction(verified, eventId, payload);
     await db.update(paymentWebhookEventsTable).set({ status: outcome === "reconciliation_required" ? "reconciliation_required" : "processed", processedAt: new Date() }).where(and(eq(paymentWebhookEventsTable.provider, "flutterwave"), eq(paymentWebhookEventsTable.webhookId, eventId)));
     res.status(200).json({ received: true, status: outcome });
   } catch (error) {
