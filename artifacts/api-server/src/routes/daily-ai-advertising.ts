@@ -1,0 +1,99 @@
+import { Router, type Request, type Response } from "express";
+import { getAuth } from "@clerk/express";
+import { sql } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { reserveAutomationAction } from "../lib/automation-guard";
+import { createHash } from "node:crypto";
+
+const router = Router();
+const CHANNELS = new Set(["instagram", "facebook", "tiktok", "youtube", "linkedin", "pinterest", "x"]);
+
+async function merchantIdFor(req: Request, res: Response): Promise<number | null> {
+  const userId = getAuth(req).userId;
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
+  const result = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id = ${userId} LIMIT 1`);
+  const merchantId = Number((result.rows[0] as { id?: number } | undefined)?.id);
+  if (!Number.isInteger(merchantId)) { res.status(404).json({ error: "Merchant workspace not found" }); return null; }
+  return merchantId;
+}
+
+function idem(parts: string[]) { return createHash("sha256").update(parts.join("|")).digest("hex"); }
+
+router.get("/merchant/ai-ads/schedule", async (req, res, next) => {
+  try {
+    const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
+    const schedule = await db.execute(sql`SELECT * FROM ai_ad_schedules WHERE merchant_id=${merchantId}`);
+    const plans = await db.execute(sql`SELECT * FROM ai_daily_ad_plans WHERE merchant_id=${merchantId} AND plan_date=CURRENT_DATE ORDER BY slot_index`);
+    res.json({ schedule: schedule.rows[0] ?? { merchant_id: merchantId, daily_ad_limit: 3, enabled: true, channels: [] }, plans: plans.rows });
+  } catch (e) { next(e); }
+});
+
+router.put("/merchant/ai-ads/schedule", async (req, res, next) => {
+  try {
+    const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
+    const limit = Number(req.body?.dailyAdLimit);
+    const enabled = req.body?.enabled !== false;
+    const channels = Array.isArray(req.body?.channels) ? req.body.channels.filter((v: unknown): v is string => typeof v === "string" && CHANNELS.has(v)).slice(0, 7) : [];
+    if (!Number.isInteger(limit) || limit < 0 || limit > 100) { res.status(400).json({ error: "dailyAdLimit must be an integer from 0 to 100" }); return; }
+    await db.execute(sql`INSERT INTO ai_ad_schedules (merchant_id,daily_ad_limit,enabled,channels,updated_at) VALUES (${merchantId},${limit},${enabled},${JSON.stringify(channels)}::jsonb,now()) ON CONFLICT (merchant_id) DO UPDATE SET daily_ad_limit=EXCLUDED.daily_ad_limit,enabled=EXCLUDED.enabled,channels=EXCLUDED.channels,updated_at=now()`);
+    res.json({ saved: true, dailyAdLimit: limit, enabled, channels });
+  } catch (e) { next(e); }
+});
+
+router.post("/merchant/ai-ads/plan", async (req, res, next) => {
+  try {
+    const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
+    const scheduleResult = await db.execute(sql`SELECT daily_ad_limit,enabled,channels FROM ai_ad_schedules WHERE merchant_id=${merchantId}`);
+    const schedule = scheduleResult.rows[0] as { daily_ad_limit?: number; enabled?: boolean; channels?: unknown } | undefined;
+    const limit = Number(schedule?.daily_ad_limit ?? 3);
+    if (schedule && schedule.enabled === false) { res.status(409).json({ error: "AI advertising is disabled" }); return; }
+    const configuredChannels = Array.isArray(schedule?.channels) ? schedule.channels.filter((v): v is string => typeof v === "string" && CHANNELS.has(v)) : [];
+    if (!configuredChannels.length) { res.status(409).json({ error: "Connect at least one authorized advertising channel before planning external ads" }); return; }
+    const products = await db.execute(sql`SELECT id,title FROM supplier_products WHERE merchant_id=${merchantId} AND status='active' AND visibility='active' ORDER BY updated_at DESC LIMIT 100`);
+    const productRows = products.rows as Array<{ id: number; title: string }>;
+    await db.execute(sql`DELETE FROM ai_daily_ad_plans WHERE merchant_id=${merchantId} AND plan_date=CURRENT_DATE AND status='planned'`);
+    const slots: unknown[] = [];
+    for (let i = 1; i <= limit; i++) {
+      const product = productRows[(i - 1) % Math.max(1, productRows.length)];
+      const channel = configuredChannels[(i - 1) % configuredChannels.length];
+      if (!product) break;
+      const scheduledAt = new Date(Date.now() + Math.round((i / (limit + 1)) * 18 * 60 * 60 * 1000));
+      const key = idem([String(merchantId), new Date().toISOString().slice(0, 10), String(i), channel, String(product.id)]);
+      const result = await db.execute(sql`INSERT INTO ai_daily_ad_plans (merchant_id,plan_date,slot_index,scheduled_at,product_id,channel,status,reason) VALUES (${merchantId},CURRENT_DATE,${i},${scheduledAt.toISOString()},${product.id},${channel},'planned',${`Automated slot ${i}: ${product.title}`}) ON CONFLICT (merchant_id,plan_date,slot_index) DO UPDATE SET scheduled_at=EXCLUDED.scheduled_at,product_id=EXCLUDED.product_id,channel=EXCLUDED.channel,status='planned',reason=EXCLUDED.reason RETURNING id,slot_index,scheduled_at,product_id,channel,status`);
+      await db.execute(sql`INSERT INTO merchant_automation_audit (merchant_id,action_type,status,entity_type,entity_id,idempotency_key,reason,metadata) VALUES (${merchantId},'daily_ad_plan','planned','ai_daily_ad_plan',${String((result.rows[0] as { id?: string })?.id ?? '')},${key},'Daily AI advertising plan',{ "slot": ${i}, "channel": ${channel} }::jsonb) ON CONFLICT (idempotency_key) DO NOTHING`);
+      slots.push(result.rows[0]);
+    }
+    await db.execute(sql`UPDATE ai_ad_schedules SET last_planned_at=now(),updated_at=now() WHERE merchant_id=${merchantId}`);
+    res.status(201).json({ date: new Date().toISOString().slice(0, 10), planned: slots.length, limit, slots, publicationRequiresAuthorizedConnection: true });
+  } catch (e) { next(e); }
+});
+
+router.post("/merchant/ai-ads/:id/queue", async (req, res, next) => {
+  try {
+    const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
+    const id = Number(req.params.id); if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid plan id" }); return; }
+    const result = await db.transaction(async tx => {
+      const planResult = await tx.execute(sql`SELECT * FROM ai_daily_ad_plans WHERE id=${id} AND merchant_id=${merchantId} FOR UPDATE`);
+      const plan = planResult.rows[0] as Record<string, any> | undefined;
+      if (!plan) throw Object.assign(new Error("Ad plan not found"), { status: 404 });
+      if (!["planned","failed"].includes(String(plan.status))) throw Object.assign(new Error("Ad plan is not queueable"), { status: 409 });
+      const connections = await tx.execute(sql`SELECT id,provider,status FROM social_connections WHERE merchant_id=${merchantId} AND provider=${plan.channel} AND status='connected' LIMIT 1`);
+      if (!connections.rows.length) throw Object.assign(new Error("The selected channel is not connected/authorized"), { status: 409 });
+      await reserveAutomationAction(db as any, merchantId, "ad");
+      await tx.execute(sql`UPDATE ai_daily_ad_plans SET status='queued' WHERE id=${id} AND merchant_id=${merchantId}`);
+      return { id, channel: plan.channel, status: "queued" };
+    });
+    res.status(202).json(result);
+  } catch (e: any) { if (e?.status) { res.status(e.status).json({ error: e.message }); return; } next(e); }
+});
+
+router.get("/merchant/ai-ads/report", async (req, res, next) => {
+  try {
+    const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
+    const report = await db.execute(sql`SELECT * FROM ai_ad_daily_reports WHERE merchant_id=${merchantId} ORDER BY report_date DESC LIMIT 30`);
+    const performance = await db.execute(sql`SELECT channel,SUM(impressions)::bigint impressions,SUM(clicks)::bigint clicks,SUM(conversions)::bigint conversions,SUM(sales_minor)::bigint sales_minor,SUM(spend_minor)::bigint spend_minor,SUM(engagements)::bigint engagements FROM ai_ad_performance_daily WHERE merchant_id=${merchantId} GROUP BY channel ORDER BY sales_minor DESC`);
+    res.json({ reports: report.rows, channelPerformance: performance.rows });
+  } catch (e) { next(e); }
+});
+
+export default router;
