@@ -60,7 +60,7 @@ router.post("/merchant/ai-ads/plan", async (req, res, next) => {
       const scheduledAt = new Date(Date.now() + Math.round((i / (limit + 1)) * 18 * 60 * 60 * 1000));
       const key = idem([String(merchantId), new Date().toISOString().slice(0, 10), String(i), channel, String(product.id)]);
       const result = await db.execute(sql`INSERT INTO ai_daily_ad_plans (merchant_id,plan_date,slot_index,scheduled_at,product_id,channel,status,reason) VALUES (${merchantId},CURRENT_DATE,${i},${scheduledAt.toISOString()},${product.id},${channel},'planned',${`Automated slot ${i}: ${product.title}`}) ON CONFLICT (merchant_id,plan_date,slot_index) DO UPDATE SET scheduled_at=EXCLUDED.scheduled_at,product_id=EXCLUDED.product_id,channel=EXCLUDED.channel,status='planned',reason=EXCLUDED.reason RETURNING id,slot_index,scheduled_at,product_id,channel,status`);
-      await db.execute(sql`INSERT INTO merchant_automation_audit (merchant_id,action_type,status,entity_type,entity_id,idempotency_key,reason,metadata) VALUES (${merchantId},'daily_ad_plan','planned','ai_daily_ad_plan',${String((result.rows[0] as { id?: string })?.id ?? '')},${key},'Daily AI advertising plan',{ "slot": ${i}, "channel": ${channel} }::jsonb) ON CONFLICT (idempotency_key) DO NOTHING`);
+      await db.execute(sql`INSERT INTO merchant_automation_audit (merchant_id,action_type,status,entity_type,entity_id,idempotency_key,reason,metadata) VALUES (${merchantId},'daily_ad_plan','planned','ai_daily_ad_plan',${String((result.rows[0] as { id?: string })?.id ?? '')},${key},'Daily AI advertising plan',${JSON.stringify({ slot: i, channel })}::jsonb) ON CONFLICT (idempotency_key) DO NOTHING`);
       slots.push(result.rows[0]);
     }
     await db.execute(sql`UPDATE ai_ad_schedules SET last_planned_at=now(),updated_at=now() WHERE merchant_id=${merchantId}`);
@@ -72,19 +72,17 @@ router.post("/merchant/ai-ads/:id/queue", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
     const id = Number(req.params.id); if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid plan id" }); return; }
-    const result = await db.transaction(async tx => {
-      const planResult = await tx.execute(sql`SELECT * FROM ai_daily_ad_plans WHERE id=${id} AND merchant_id=${merchantId} FOR UPDATE`);
-      const plan = planResult.rows[0] as Record<string, any> | undefined;
-      if (!plan) throw Object.assign(new Error("Ad plan not found"), { status: 404 });
-      if (!["planned","failed"].includes(String(plan.status))) throw Object.assign(new Error("Ad plan is not queueable"), { status: 409 });
-      const connections = await tx.execute(sql`SELECT id,provider,status FROM social_connections WHERE merchant_id=${merchantId} AND provider=${plan.channel} AND status='connected' LIMIT 1`);
-      if (!connections.rows.length) throw Object.assign(new Error("The selected channel is not connected/authorized"), { status: 409 });
-      await reserveAutomationAction(db as any, merchantId, "ad");
-      await tx.execute(sql`UPDATE ai_daily_ad_plans SET status='queued' WHERE id=${id} AND merchant_id=${merchantId}`);
-      return { id, channel: plan.channel, status: "queued" };
-    });
-    res.status(202).json(result);
-  } catch (e: any) { if (e?.status) { res.status(e.status).json({ error: e.message }); return; } next(e); }
+    const planResult = await db.execute(sql`SELECT * FROM ai_daily_ad_plans WHERE id=${id} AND merchant_id=${merchantId}`);
+    const plan = planResult.rows[0] as Record<string, any> | undefined;
+    if (!plan) { res.status(404).json({ error: "Ad plan not found" }); return; }
+    if (!["planned","failed"].includes(String(plan.status))) { res.status(409).json({ error: "Ad plan is not queueable" }); return; }
+    const connection = await db.execute(sql`SELECT id FROM social_connections WHERE merchant_id=${merchantId} AND provider=${plan.channel} AND status='connected' LIMIT 1`);
+    if (!connection.rows.length) { res.status(409).json({ error: "The selected channel is not connected/authorized" }); return; }
+    await reserveAutomationAction(db as any, merchantId, "ad");
+    const updated = await db.execute(sql`UPDATE ai_daily_ad_plans SET status='queued' WHERE id=${id} AND merchant_id=${merchantId} AND status IN ('planned','failed') RETURNING id,channel,status`);
+    if (!updated.rows.length) { res.status(409).json({ error: "Ad plan changed concurrently; no ad was queued" }); return; }
+    res.status(202).json(updated.rows[0]);
+  } catch (e: any) { if (e?.message?.includes("Daily ad automation limit")) { res.status(429).json({ error: e.message }); return; } next(e); }
 });
 
 router.get("/merchant/ai-ads/report", async (req, res, next) => {
