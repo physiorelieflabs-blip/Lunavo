@@ -19,7 +19,6 @@ import storefrontDomainsRouter from "./storefront-domains";
 import storefrontPublishingRouter from "./storefront-publishing";
 
 const router: IRouter = Router();
-
 router.use(healthRouter);
 router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
@@ -27,9 +26,8 @@ router.use(adminIntegrationsRouter);
 router.use(marketplacePlatformRouter);
 router.use(marketplaceLegacyGuardRouter);
 router.use(marketplaceAdvertisingCompatRouter);
-// Public auction writes must pass the concurrency/risk gate before legacy commerce routes.
+// Authoritative concurrency/risk gate before legacy commerce routes.
 router.use(auctionIntegrityRouter);
-// Merchant automation, abuse checks and store-auction eligibility are server-authoritative.
 router.use(merchantControlPlaneRouter);
 router.use(commerceRouter);
 router.use(commerceGrowthRouter);
@@ -40,5 +38,4 @@ router.use(socialHubRouter);
 router.use(subscriptionOptionsRouter);
 router.use(storefrontDomainsRouter);
 router.use(storefrontPublishingRouter);
-
 export default router;
