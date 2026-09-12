@@ -13,6 +13,7 @@ import adStudioStitchRouter from "./ad-studio-stitch";
 import adStudioRouter from "./ad-studio";
 import socialHubRouter from "./social-hub";
 import subscriptionOptionsRouter from "./subscription-options";
+import publicHostStoreRouter from "./public-host-store";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(adStudioStitchRouter);
 router.use(adStudioRouter);
 router.use(socialHubRouter);
 router.use(subscriptionOptionsRouter);
+router.use(publicHostStoreRouter);
 
 export default router;
