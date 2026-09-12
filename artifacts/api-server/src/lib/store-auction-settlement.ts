@@ -20,8 +20,7 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
   return db.transaction(async tx => {
     const auctionResult = await tx.execute(sql`SELECT id,storefront_id,seller_merchant_id,currency,status,payment_status,payment_reference FROM store_auction_listings WHERE id=${auctionId} FOR UPDATE`);
     const auction = auctionResult.rows[0] as Record<string, any> | undefined;
-    if (!auction) return "reconciliation_required" as const;
-    if (String(auction.payment_reference ?? "") !== txRef) return "reconciliation_required" as const;
+    if (!auction || String(auction.payment_reference ?? "") !== txRef) return "reconciliation_required" as const;
 
     const bidResult = await tx.execute(sql`SELECT id,auction_id,bidder_merchant_id,amount,currency,risk_status FROM store_auction_bids WHERE id=${bidId} AND auction_id=${auctionId} FOR UPDATE`);
     const bid = bidResult.rows[0] as Record<string, any> | undefined;
@@ -37,8 +36,11 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
     const grossMinor = Math.round(amount * 100);
     const lunavoFeeMinor = Math.floor(grossMinor * 0.01);
     const rawProviderFee = (transaction as Record<string, unknown>).app_fee;
-    const providerFeeMinor = rawProviderFee == null || rawProviderFee === "" ? 0 : Math.max(0, Math.round(Number(rawProviderFee) * 100));
-    const sellerNetMinor = Math.max(0, grossMinor - lunavoFeeMinor - providerFeeMinor);
+    const parsedProviderFee = rawProviderFee == null || rawProviderFee === "" ? 0 : Number(rawProviderFee);
+    if (!Number.isFinite(parsedProviderFee) || parsedProviderFee < 0) return "reconciliation_required" as const;
+    const providerFeeMinor = Math.round(parsedProviderFee * 100);
+    const sellerNetMinor = grossMinor - lunavoFeeMinor - providerFeeMinor;
+    if (sellerNetMinor < 0) return "reconciliation_required" as const;
 
     const duplicateReference = await tx.execute(sql`SELECT id,status,auction_id,bid_id FROM store_auction_payment_verifications WHERE provider='flutterwave' AND provider_reference=${providerTransactionId} FOR UPDATE`);
     const duplicate = duplicateReference.rows[0] as Record<string, any> | undefined;
@@ -49,7 +51,7 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
     if (status === "failed") {
       if (existingRow?.status === "verified") return "paid" as const;
       await tx.execute(sql`UPDATE store_auction_listings SET payment_status='failed' WHERE id=${auctionId} AND payment_status <> 'verified'`);
-      await tx.execute(sql`UPDATE lunavo_dashboard_transactions SET status='failed',updated_at=now() WHERE idempotency_key=${`store-auction:${auctionId}:${bidId}`}`);
+      await tx.execute(sql`UPDATE lunavo_dashboard_transactions SET status='failed',verification_state='reversed',updated_at=now() WHERE idempotency_key=${`store-auction-sale:${auctionId}:${bidId}`}`);
       return "failed" as const;
     }
 
@@ -63,16 +65,20 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
     const store = storeResult.rows[0] as Record<string, any> | undefined;
     if (!store || Number(store.merchant_id) !== Number(auction.seller_merchant_id)) return "reconciliation_required" as const;
 
-    // TS Pay is the internal source of truth: the seller receives a ledger sale
-    // net of the platform fee/provider fee; the buyer's dashboard records the
-    // acquisition. Neither record is treated as an external bank transfer.
+    // TS Pay ledger: record gross sale once, then separately debit actual
+    // provider/platform fees. This prevents fee double-counting.
     const sellerSaleKey = `store-auction-sale:${auctionId}:${bidId}`;
-    const sellerFeeKey = `store-auction-fee:${auctionId}:${bidId}`;
-    await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${sellerNetMinor},${currency},'sale',${sellerSaleKey}) ON CONFLICT (reference_key) DO NOTHING`);
-    if (lunavoFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${-lunavoFeeMinor},${currency},'fee',${sellerFeeKey}) ON CONFLICT (reference_key) DO NOTHING`);
+    const lunavoFeeKey = `store-auction-lunavo-fee:${auctionId}:${bidId}`;
+    const providerFeeKey = `store-auction-provider-fee:${auctionId}:${bidId}`;
+    await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${grossMinor},${currency},'sale',${sellerSaleKey}) ON CONFLICT (reference_key) DO NOTHING`);
+    if (lunavoFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${-lunavoFeeMinor},${currency},'fee',${lunavoFeeKey}) ON CONFLICT (reference_key) DO NOTHING`);
+    if (providerFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${-providerFeeMinor},${currency},'fee',${providerFeeKey}) ON CONFLICT (reference_key) DO NOTHING`);
 
-    await tx.execute(sql`UPDATE lunavo_dashboard_transactions SET status='confirmed',lunavo_fee_minor=${lunavoFeeMinor},provider_fee_minor=${providerFeeMinor},merchant_net_minor=${-grossMinor},provider='flutterwave',provider_reference=${providerTransactionId},updated_at=now() WHERE idempotency_key=${`store-auction:${auctionId}:${bidId}`}`);
-    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,counterparty_merchant_id,transaction_type,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,metadata) VALUES (${auction.seller_merchant_id},${bid.bidder_merchant_id},'store_auction_sale','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${providerTransactionId},${`STORE-AUC-SALE-${auctionId}-${bidId}`},${`store-auction-sale:${auctionId}:${bidId}`},'ts_pay',${JSON.stringify({auctionId,bidId,txRef,providerTransactionId,role:'seller',sellerNetMinor})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
+    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,counterparty_merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${auction.seller_merchant_id},${bid.bidder_merchant_id},'store_auction_sale','auction_acquisition','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${providerTransactionId},${`STORE-AUC-SALE-${auctionId}-${bidId}`},${`store-auction-sale:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,txRef,providerTransactionId,role:'seller',sellerNetMinor})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',verification_state='verified',verified_at=now(),provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
+
+    // The buyer's provider payment is also represented in their dashboard, but
+    // it is not treated as a credit/debit against an internal balance.
+    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,counterparty_merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${bid.bidder_merchant_id},${auction.seller_merchant_id},'store_auction_acquisition','auction_acquisition','confirmed',${grossMinor},${currency},0,${providerFeeMinor},${-grossMinor},'flutterwave',${providerTransactionId},${`STORE-AUC-BUY-${auctionId}-${bidId}`},${`store-auction-buyer:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,txRef,providerTransactionId,role:'buyer'})}::jsonb) ON CONFLICT (idempotency_key) DO NOTHING`);
 
     if (String(auction.status) !== "transferred") {
       await tx.execute(sql`UPDATE merchant_storefronts SET merchant_id=${bid.bidder_merchant_id},updated_at=now() WHERE id=${auction.storefront_id} AND merchant_id=${auction.seller_merchant_id}`);
