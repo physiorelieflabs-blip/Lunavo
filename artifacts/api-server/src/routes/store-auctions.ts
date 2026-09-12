@@ -22,11 +22,12 @@ async function merchantIdFor(req: Request, res: Response): Promise<number | null
   return id;
 }
 
-async function isMasterAdmin(userId: string): Promise<boolean> {
-  const configured = process.env.LUNAVO_MASTER_ADMIN_CLERK_USER_ID;
-  if (!configured) return false;
+function internalPaymentSecretMatches(req: Request): boolean {
+  const configured = process.env.LUNAVO_AUCTION_PAYMENT_WEBHOOK_SECRET;
+  const supplied = String(req.get("x-lunavo-payment-secret") ?? "");
+  if (!configured || !supplied) return false;
   const a = Buffer.from(configured);
-  const b = Buffer.from(userId);
+  const b = Buffer.from(supplied);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
@@ -63,21 +64,13 @@ async function verifiedMetrics(tx: any, auctionId: number, merchantId: number, c
   const revenue = Number(row?.revenue ?? 0);
   const orders = Number(row?.orders_count ?? 0);
   const snapshot = {
-    revenueMinor: Math.round(revenue * 100),
-    verifiedProfitMinor: verifiedProfit,
-    ordersCount: orders,
-    customersCount: Number(row?.customers_count ?? 0),
-    aovMinor: Math.round(Number(row?.aov ?? 0) * 100),
-    growthPercent: 0,
-    trafficCount: 0,
-    conversionPercent: 0,
+    revenueMinor: Math.round(revenue * 100), verifiedProfitMinor: verifiedProfit, ordersCount: orders,
+    customersCount: Number(row?.customers_count ?? 0), aovMinor: Math.round(Number(row?.aov ?? 0) * 100),
+    growthPercent: 0, trafficCount: 0, conversionPercent: 0,
     expensesMinor: Math.max(0, Math.round(revenue * 100) - verifiedProfit),
-    adSpendMinor: Number(row?.ad_spend ?? 0),
-    adRevenueMinor: Number(row?.ad_revenue ?? 0),
-    storeAgeDays: Math.max(0, Number(row?.store_age_days ?? 0)),
-    inventoryUnits: Number(row?.units ?? 0),
-    valuationIndicatorMinor: Math.max(0, verifiedProfit * 3),
-    currency,
+    adSpendMinor: Number(row?.ad_spend ?? 0), adRevenueMinor: Number(row?.ad_revenue ?? 0),
+    storeAgeDays: Math.max(0, Number(row?.store_age_days ?? 0)), inventoryUnits: Number(row?.units ?? 0),
+    valuationIndicatorMinor: Math.max(0, verifiedProfit * 3), currency,
   };
   const evidenceHash = hash(JSON.stringify(snapshot));
   await tx.execute(sql`
@@ -91,7 +84,6 @@ async function verifiedMetrics(tx: any, auctionId: number, merchantId: number, c
 router.post("/merchant/store-auctions", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
-    const userId = getAuth(req).userId!;
     const storefrontId = String(req.body?.storefrontId ?? "");
     const askingPrice = Number(req.body?.askingPrice);
     const currency = String(req.body?.currency ?? "USD").toUpperCase();
@@ -104,7 +96,7 @@ router.post("/merchant/store-auctions", async (req, res, next) => {
       const store = await tx.execute(sql`SELECT id, merchant_id, name, master_admin_created FROM merchant_storefronts WHERE id = ${storefrontId} FOR UPDATE`);
       const row = store.rows[0] as { id?: string; merchant_id?: number; name?: string; master_admin_created?: boolean } | undefined;
       if (!row || Number(row.merchant_id) !== merchantId) throw Object.assign(new Error("Store not found or not owned by merchant"), { status: 404 });
-      const financial = await tx.execute(sql`SELECT verified_profit_minor, currency FROM merchant_verified_financials WHERE merchant_id = ${merchantId} AND currency = 'USD' FOR SHARE`);
+      const financial = await tx.execute(sql`SELECT verified_profit_minor FROM merchant_verified_financials WHERE merchant_id = ${merchantId} AND currency = 'USD' FOR SHARE`);
       const profit = Number((financial.rows[0] as { verified_profit_minor?: string } | undefined)?.verified_profit_minor ?? 0);
       const exempt = Boolean(row.master_admin_created);
       if (!exempt && (!Number.isSafeInteger(profit) || profit < PROFIT_THRESHOLD_MINOR)) throw Object.assign(new Error("Store auction requires at least $500,000 verified profit"), { status: 403 });
@@ -123,8 +115,7 @@ router.post("/merchant/store-auctions", async (req, res, next) => {
 router.post("/store-auctions/:id/bids", async (req, res, next) => {
   try {
     const bidderId = await merchantIdFor(req, res); if (!bidderId) return;
-    const auctionId = Number(req.params.id);
-    const amount = Number(req.body?.amount);
+    const auctionId = Number(req.params.id); const amount = Number(req.body?.amount);
     if (!Number.isInteger(auctionId) || !Number.isFinite(amount) || amount <= 0) { res.status(400).json({ error: "Invalid bid" }); return; }
     const result = await db.transaction(async tx => {
       const auctionResult = await tx.execute(sql`SELECT id, seller_merchant_id, asking_price, currency, status, starts_at, ends_at FROM store_auction_listings WHERE id = ${auctionId} FOR UPDATE`);
@@ -163,13 +154,50 @@ router.get("/public/store-auctions/:id", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Payment adapters/webhook handlers call this boundary only after they have
+ * independently verified the provider transaction. The browser and seller
+ * close endpoint cannot mark a payment verified.
+ */
+router.post("/internal/store-auctions/:id/payment-verification", async (req, res, next) => {
+  try {
+    if (!internalPaymentSecretMatches(req)) { res.status(401).json({ error: "Unauthorized payment verification source" }); return; }
+    const auctionId = Number(req.params.id);
+    const bidId = Number(req.body?.bidId);
+    const provider = String(req.body?.provider ?? "").trim().toLowerCase();
+    const providerReference = String(req.body?.providerReference ?? "").trim();
+    const amount = Number(req.body?.amount);
+    const currency = String(req.body?.currency ?? "").trim().toUpperCase();
+    if (!Number.isInteger(auctionId) || !Number.isInteger(bidId) || !provider || providerReference.length < 3 || !Number.isFinite(amount) || amount <= 0 || !/^[A-Z]{3}$/.test(currency)) {
+      res.status(400).json({ error: "Invalid payment verification payload" }); return;
+    }
+    const result = await db.transaction(async tx => {
+      const auctionResult = await tx.execute(sql`SELECT id,seller_merchant_id,currency,status FROM store_auction_listings WHERE id=${auctionId} FOR UPDATE`);
+      const auction = auctionResult.rows[0] as Record<string, any> | undefined;
+      if (!auction) throw Object.assign(new Error("Auction not found"), { status: 404 });
+      const bidResult = await tx.execute(sql`SELECT id,auction_id,bidder_merchant_id,amount,currency,risk_status FROM store_auction_bids WHERE id=${bidId} AND auction_id=${auctionId} FOR UPDATE`);
+      const bid = bidResult.rows[0] as Record<string, any> | undefined;
+      if (!bid || bid.risk_status !== "accepted") throw Object.assign(new Error("Accepted winning bid not found"), { status: 409 });
+      if (String(bid.currency).toUpperCase() !== currency || Math.abs(Number(bid.amount) - amount) > 0.005) throw Object.assign(new Error("Verified payment does not match winning bid"), { status: 409 });
+      const existing = await tx.execute(sql`SELECT id,status FROM store_auction_payment_verifications WHERE provider=${provider} AND provider_reference=${providerReference} FOR UPDATE`);
+      if (existing.rows.length) {
+        const row = existing.rows[0] as Record<string, any>;
+        if (row.status === "verified") return { id: Number(row.id), idempotent: true };
+        throw Object.assign(new Error("Payment reference already exists with a non-verified status"), { status: 409 });
+      }
+      const inserted = await tx.execute(sql`INSERT INTO store_auction_payment_verifications (auction_id,bid_id,provider,provider_reference,amount,currency,status,verified_at,evidence_hash) VALUES (${auctionId},${bidId},${provider},${providerReference},${amount},${currency},'verified',now(),${hash(JSON.stringify({ auctionId, bidId, provider, providerReference, amount, currency }))}) RETURNING id`);
+      await tx.execute(sql`UPDATE store_auction_listings SET payment_status='verified',payment_reference=${providerReference},winning_bid_id=${bidId} WHERE id=${auctionId}`);
+      return { id: Number((inserted.rows[0] as { id: string }).id), idempotent: false };
+    });
+    res.status(201).json({ verified: true, ...result });
+  } catch (e: any) { if (e?.status) { res.status(e.status).json({ error: e.message }); return; } next(e); }
+});
+
 router.post("/merchant/store-auctions/:id/close", async (req, res, next) => {
   try {
     const sellerId = await merchantIdFor(req, res); if (!sellerId) return;
     const auctionId = Number(req.params.id);
-    const paymentReference = String(req.body?.paymentReference ?? "").trim();
-    const paymentStatus = String(req.body?.paymentStatus ?? "");
-    if (!Number.isInteger(auctionId) || paymentStatus !== "verified" || paymentReference.length < 6) { res.status(400).json({ error: "A verified payment reference is required; client claims are not accepted as payment proof" }); return; }
+    if (!Number.isInteger(auctionId)) { res.status(400).json({ error: "Invalid auction id" }); return; }
     const result = await db.transaction(async tx => {
       const aResult = await tx.execute(sql`SELECT * FROM store_auction_listings WHERE id=${auctionId} FOR UPDATE`);
       const auction = aResult.rows[0] as Record<string, any> | undefined;
@@ -179,16 +207,18 @@ router.post("/merchant/store-auctions/:id/close", async (req, res, next) => {
       const winnerResult = await tx.execute(sql`SELECT b.* FROM store_auction_bids b WHERE b.auction_id=${auctionId} AND b.risk_status='accepted' ORDER BY b.amount DESC,b.created_at ASC LIMIT 1`);
       const winner = winnerResult.rows[0] as Record<string, any> | undefined;
       if (!winner) throw Object.assign(new Error("No accepted winning bid"), { status: 409 });
-      if (String(auction.payment_status) !== "verified") throw Object.assign(new Error("Ownership transfer is blocked until the payment boundary records a verified settlement"), { status: 409 });
-      if (String(auction.payment_reference) !== paymentReference) throw Object.assign(new Error("Payment reference does not match the verified settlement record"), { status: 409 });
+      const payment = await tx.execute(sql`SELECT id,provider,provider_reference,amount,currency FROM store_auction_payment_verifications WHERE auction_id=${auctionId} AND bid_id=${winner.id} AND status='verified' ORDER BY verified_at DESC LIMIT 1`);
+      const verifiedPayment = payment.rows[0] as Record<string, any> | undefined;
+      if (!verifiedPayment) throw Object.assign(new Error("Ownership transfer is blocked until the payment adapter records a verified settlement"), { status: 409 });
+      if (Math.abs(Number(verifiedPayment.amount) - Number(winner.amount)) > 0.005 || String(verifiedPayment.currency).toUpperCase() !== String(winner.currency).toUpperCase()) throw Object.assign(new Error("Verified settlement does not match the winning bid"), { status: 409 });
       const storeResult = await tx.execute(sql`SELECT id,merchant_id FROM merchant_storefronts WHERE id=${auction.storefront_id} FOR UPDATE`);
       const store = storeResult.rows[0] as { id?: string; merchant_id?: number } | undefined;
       if (!store || Number(store.merchant_id) !== sellerId) throw Object.assign(new Error("Store ownership changed; auction transfer aborted"), { status: 409 });
       await tx.execute(sql`UPDATE merchant_storefronts SET merchant_id=${winner.bidder_merchant_id}, updated_at=now() WHERE id=${auction.storefront_id}`);
       await tx.execute(sql`UPDATE merchant_storefront_domains SET merchant_id=${winner.bidder_merchant_id} WHERE storefront_id=${auction.storefront_id}`);
-      await tx.execute(sql`INSERT INTO store_ownership_transfers (storefront_id,from_merchant_id,to_merchant_id,auction_id,reason,payment_reference) VALUES (${auction.storefront_id},${sellerId},${winner.bidder_merchant_id},${auctionId},'store auction acquisition',${paymentReference})`);
-      await tx.execute(sql`UPDATE store_auction_listings SET status='transferred',winning_bid_id=${winner.id},payment_reference=${paymentReference},closed_at=now(),transferred_at=now() WHERE id=${auctionId}`);
-      return { auctionId, storefrontId: auction.storefront_id, newOwnerMerchantId: Number(winner.bidder_merchant_id) };
+      await tx.execute(sql`INSERT INTO store_ownership_transfers (storefront_id,from_merchant_id,to_merchant_id,auction_id,reason,payment_reference) VALUES (${auction.storefront_id},${sellerId},${winner.bidder_merchant_id},${auctionId},'store auction acquisition',${verifiedPayment.provider_reference})`);
+      await tx.execute(sql`UPDATE store_auction_listings SET status='transferred',winning_bid_id=${winner.id},payment_reference=${verifiedPayment.provider_reference},closed_at=now(),transferred_at=now() WHERE id=${auctionId}`);
+      return { auctionId, storefrontId: auction.storefront_id, newOwnerMerchantId: Number(winner.bidder_merchant_id), paymentProvider: verifiedPayment.provider };
     });
     res.json({ transferred: true, ...result, privateCustomerRecordsTransferred: false });
   } catch (e: any) { if (e?.status) { res.status(e.status).json({ error: e.message }); return; } next(e); }
