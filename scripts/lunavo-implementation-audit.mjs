@@ -29,6 +29,7 @@ const requiredFiles = [
 ];
 const failures = [];
 const read = async (path) => { try { return await readFile(path, "utf8"); } catch { failures.push(`Missing required file: ${path}`); return ""; } };
+const readOptional = async (path) => { try { return await readFile(path, "utf8"); } catch { return ""; } };
 const packageJson = JSON.parse(await read("package.json"));
 if (packageJson.name !== "lunavo") failures.push("Root package must be named lunavo");
 if (JSON.stringify(packageJson).includes("@replit/")) failures.push("Root package still contains a Replit runtime dependency");
@@ -59,7 +60,7 @@ for (const marker of ["/merchant/ai/opportunities/score", "/merchant/ai/pricing/
 const storeSettlement = await read(requiredFiles[17]);
 for (const marker of ["store-auction-sale:", "ledger_entries", "store_auction_payment_verifications", "transaction_kind", "verification_state", "merchant_net_minor"]) if (!storeSettlement.includes(marker)) failures.push(`Store-auction TS Pay settlement invariant missing: ${marker}`);
 const productSettlement = await read(requiredFiles[18]);
-for (const marker of ["product-auction:", "ledger_entries", "product_auction_settlements", "product_auction_sale", "merchant_net_minor"]) if (!productSettlement.includes(marker)) failures.push(`Product-auction TS Pay settlement invariant missing: ${marker}`);
+for (const marker of ["product-auction:", "ledger_entries", "product_auction_settlements", "product-auction", "merchant_net_minor"]) if (!productSettlement.includes(marker)) failures.push(`Product-auction TS Pay settlement invariant missing: ${marker}`);
 const adWorker = await read(requiredFiles[19]);
 for (const marker of ["runDailyAiAdvertisingPlanner", "ai_daily_ad_plans", "merchant_automation_audit", "ON CONFLICT"]) if (!adWorker.includes(marker)) failures.push(`Daily advertising worker invariant missing: ${marker}`);
 const migration = await read(requiredFiles[20]);
@@ -70,7 +71,6 @@ const internalTransfer = await read(requiredFiles[22]);
 for (const marker of ["internal_transfer_out", "internal_transfer_in", "ledger_entries_entry_type_check"]) if (!internalTransfer.includes(marker)) failures.push(`TS Pay internal-transfer ledger invariant missing: ${marker}`);
 const migrationRunner = await read(requiredFiles[23]);
 for (const marker of ['"0070_ts_pay_transaction_boundary"','"0071_ts_pay_internal_transfer_ledger"']) if (!migrationRunner.includes(marker)) failures.push(`Migration runner does not include ${marker}`);
-const legacyReplit = await read("artifacts/ts-commerce/.replit-artifact/artifact.toml");
-if (legacyReplit) failures.push("Legacy artifacts/ts-commerce/.replit-artifact/artifact.toml still exists");
+if (await readOptional("artifacts/ts-commerce/.replit-artifact/artifact.toml")) failures.push("Legacy artifacts/ts-commerce/.replit-artifact/artifact.toml still exists");
 if (failures.length) { console.error("Lunavo implementation audit: FAIL"); for (const failure of failures) console.error(`- ${failure}`); process.exit(1); }
 console.log("Lunavo implementation audit: PASS");
