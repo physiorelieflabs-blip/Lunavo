@@ -1,0 +1,18 @@
+{
+  "name": "Lunavo Commerce",
+  "short_name": "Lunavo",
+  "description": "The commerce operating system for independent merchants.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f1e8",
+  "theme_color": "#182333",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
