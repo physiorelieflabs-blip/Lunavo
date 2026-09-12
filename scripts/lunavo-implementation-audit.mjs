@@ -15,8 +15,11 @@ const requiredFiles = [
   "artifacts/api-server/src/lib/auctioneer-ai.ts",
   "artifacts/api-server/src/routes/auctioneer-ai.ts",
   "artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/lib/store-auction-settlement.ts",
+  "artifacts/api-server/src/lib/product-auction-settlement.ts",
   "lib/db/migrations/0068_auctioneer_ai_and_dashboard_transactions.sql",
   "lib/db/migrations/0070_ts_pay_transaction_boundary.sql",
+  "lib/db/src/migrate.ts",
 ];
 const failures = [];
 const read = async (path) => { try { return await readFile(path, "utf8"); } catch { failures.push(`Missing required file: ${path}`); return ""; } };
@@ -38,10 +41,16 @@ for (const marker of ["maximize_value", "buildAuctioneerStrategy", "fake bidders
 const auctioneerRoute = await read(requiredFiles[11]);
 for (const marker of ["/merchant/store-auctions/:id/auctioneer-ai", "enabled", "strategyMode"]) if (!auctioneerRoute.includes(marker)) failures.push(`Auctioneer AI control route missing: ${marker}`);
 const dashboard = await read(requiredFiles[12]);
-for (const marker of ["/merchant/dashboard/transactions", "TS Pay ledger + verified provider settlement", "not an external bank account"]) if (!dashboard.includes(marker)) failures.push(`Dashboard transaction boundary missing: ${marker}`);
-const migration = await read(requiredFiles[13]);
+for (const marker of ["/merchant/dashboard/transactions", "TS Pay ledger + verified provider settlement", "not an external bank account", "ledger_entries", "availableBalanceMinor"]) if (!dashboard.includes(marker)) failures.push(`Dashboard transaction boundary missing: ${marker}`);
+const storeSettlement = await read(requiredFiles[13]);
+for (const marker of ["store-auction-sale:", "ledger_entries", "store_auction_payment_verifications", "transaction_kind", "verification_state", "merchant_net_minor"]) if (!storeSettlement.includes(marker)) failures.push(`Store-auction TS Pay settlement invariant missing: ${marker}`);
+const productSettlement = await read(requiredFiles[14]);
+for (const marker of ["product-auction:", "ledger_entries", "product_auction_settlements", "product_auction_sale", "merchant_net_minor"]) if (!productSettlement.includes(marker)) failures.push(`Product-auction TS Pay settlement invariant missing: ${marker}`);
+const migration = await read(requiredFiles[15]);
 for (const marker of ["auctioneer_ai_settings", "auctioneer_ai_recommendations", "lunavo_dashboard_transactions"]) if (!migration.includes(marker)) failures.push(`Transaction/auctioneer schema missing: ${marker}`);
-const transactionBoundary = await read(requiredFiles[14]);
+const transactionBoundary = await read(requiredFiles[16]);
 for (const marker of ["transaction_kind", "verification_state", "verified_at", "ts_pay_ledger_projection"]) if (!transactionBoundary.includes(marker)) failures.push(`TS Pay transaction control-plane invariant missing: ${marker}`);
+const migrationRunner = await read(requiredFiles[17]);
+if (!migrationRunner.includes('"0070_ts_pay_transaction_boundary"')) failures.push("Migration runner does not include 0070_ts_pay_transaction_boundary");
 if (failures.length) { console.error("Lunavo implementation audit: FAIL"); for (const failure of failures) console.error(`- ${failure}`); process.exit(1); }
 console.log("Lunavo implementation audit: PASS");
