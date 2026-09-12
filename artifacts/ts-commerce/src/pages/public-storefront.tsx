@@ -1,19 +1,50 @@
+import { useEffect, useState } from 'react';
 import { ArrowRight, Mail, MapPin, Phone, ShoppingBag } from 'lucide-react';
 import { Link, useRoute } from 'wouter';
-import { useGetPublicStore } from '@workspace/api-client-react';
+import { customFetch, useGetPublicStore } from '@workspace/api-client-react';
 import { PublicHeader } from '@/components/app-shell';
 import { EmptyState, ErrorState, LoadingState } from '@/components/primitives';
 import { money } from '@/lib/format';
 
-export default function PublicStorefront() {
-  const [, params] = useRoute('/store/:merchantKey');
-  const merchantKey = params?.merchantKey ?? '';
-  const store = useGetPublicStore(merchantKey);
+type StoreData = {
+  merchantKey: string;
+  storeName: string;
+  storeDescription?: string | null;
+  storeContactEmail?: string | null;
+  storePhone?: string | null;
+  storeAddress?: unknown;
+  storefrontTheme: {
+    accentColor: string;
+    backgroundColor: string;
+    textColor: string;
+    layout: string;
+    announcement?: string | null;
+    logoUrl?: string | null;
+    heroImageUrl?: string | null;
+  };
+  storefrontSections: Array<{
+    id: string;
+    type: string;
+    enabled: boolean;
+    heading?: string | null;
+    body?: string | null;
+    imageUrl?: string | null;
+    imageAlt?: string | null;
+  }>;
+  products: Array<{
+    id: number;
+    title: string;
+    description?: string | null;
+    category?: string | null;
+    price: string | number;
+    currency: string;
+    imageUrl?: string | null;
+    inventoryStatus?: string | null;
+    inventoryQuantity?: number | null;
+  }>;
+};
 
-  if (store.isLoading) return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8"><LoadingState label="Loading storefront" /></main>;
-  if (store.isError || !store.data) return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8"><ErrorState onRetry={() => void store.refetch()} /></main>;
-
-  const data = store.data;
+function StorefrontView({ data }: { data: StoreData }) {
   const theme = data.storefrontTheme;
   const sections = data.storefrontSections.filter((section) => section.enabled);
   const hero = sections.find((section) => section.type === 'hero');
@@ -24,17 +55,44 @@ export default function PublicStorefront() {
   return <main className="min-h-[100dvh]" style={{ backgroundColor: theme.backgroundColor, color: theme.textColor }}>
     <PublicHeader />
     {theme.announcement && <div className="border-y px-5 py-2.5 text-center text-xs font-bold" style={{ borderColor: `${theme.accentColor}44`, backgroundColor: `${theme.accentColor}12`, color: theme.textColor }}>{theme.announcement}</div>}
-     {announcement?.body && <div className="mx-auto max-w-[1200px] px-5 pt-5 md:px-10"><div className="overflow-hidden rounded-2xl" style={{ backgroundColor: `${theme.accentColor}18` }}>{announcement.imageUrl && <img src={announcement.imageUrl} alt={announcement.imageAlt || announcement.heading || 'Store announcement'} className="max-h-56 w-full object-cover" />}{<div className="px-5 py-4 text-sm font-bold">{announcement.body}</div>}</div></div>}
+    {announcement?.body && <div className="mx-auto max-w-[1200px] px-5 pt-5 md:px-10"><div className="overflow-hidden rounded-2xl" style={{ backgroundColor: `${theme.accentColor}18` }}>{announcement.imageUrl && <img src={announcement.imageUrl} alt={announcement.imageAlt || announcement.heading || 'Store announcement'} className="max-h-56 w-full object-cover" />}{<div className="px-5 py-4 text-sm font-bold">{announcement.body}</div>}</div></div>}
     <div className="mx-auto max-w-[1200px] px-5 pb-20 pt-8 md:px-10 md:pt-12">
-       <section className={`relative overflow-hidden rounded-[2rem] border px-6 py-12 md:px-12 md:py-20 ${theme.layout === 'minimal' ? 'bg-white/40' : 'bg-[#182333] text-[#f8f3e8]'}`} style={{ ...(theme.layout === 'minimal' ? { borderColor: `${theme.accentColor}44` } : {}), ...(theme.heroImageUrl || hero?.imageUrl ? { backgroundImage: `linear-gradient(90deg, ${theme.layout === 'minimal' ? `${theme.backgroundColor}ee` : '#182333dd'} 0%, ${theme.layout === 'minimal' ? `${theme.backgroundColor}99` : '#18233366'} 100%), url(${hero?.imageUrl ?? theme.heroImageUrl})`, backgroundPosition: 'center', backgroundSize: 'cover' } : {}) }}>
+      <section className={`relative overflow-hidden rounded-[2rem] border px-6 py-12 md:px-12 md:py-20 ${theme.layout === 'minimal' ? 'bg-white/40' : 'bg-[#182333] text-[#f8f3e8]'}`} style={{ ...(theme.layout === 'minimal' ? { borderColor: `${theme.accentColor}44` } : {}), ...(theme.heroImageUrl || hero?.imageUrl ? { backgroundImage: `linear-gradient(90deg, ${theme.layout === 'minimal' ? `${theme.backgroundColor}ee` : '#182333dd'} 0%, ${theme.layout === 'minimal' ? `${theme.backgroundColor}99` : '#18233366'} 100%), url(${hero?.imageUrl ?? theme.heroImageUrl})`, backgroundPosition: 'center', backgroundSize: 'cover' } : {}) }}>
         <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full border-[46px]" style={{ borderColor: `${theme.accentColor}55` }} />
-         <div className="relative max-w-3xl">{theme.logoUrl && <img src={theme.logoUrl} alt={`${data.storeName} logo`} className="mb-6 max-h-12 max-w-48 object-contain object-left" />}{<p className="font-mono text-[10px] uppercase tracking-[.2em]" style={{ color: theme.accentColor }}>Independent storefront</p>}<h1 className="mt-4 text-4xl font-extrabold tracking-[-.07em] md:text-7xl">{hero?.heading || data.storeName}</h1><p className={`mt-5 max-w-2xl text-sm leading-7 md:text-base ${theme.layout === 'minimal' ? 'opacity-70' : 'text-[#c8d0d5]'}`}>{hero?.body || data.storeDescription || `Explore the collection from ${data.storeName}.`}</p><a href="#collection" className="mt-8 inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-extrabold shadow-lg" style={{ backgroundColor: theme.accentColor, color: theme.layout === 'minimal' ? '#fff' : theme.textColor }}>Shop the collection <ArrowRight className="h-4 w-4" /></a></div>
+        <div className="relative max-w-3xl">{theme.logoUrl && <img src={theme.logoUrl} alt={`${data.storeName} logo`} className="mb-6 max-h-12 max-w-48 object-contain object-left" />}<p className="font-mono text-[10px] uppercase tracking-[.2em]" style={{ color: theme.accentColor }}>Independent storefront</p><h1 className="mt-4 text-4xl font-extrabold tracking-[-.07em] md:text-7xl">{hero?.heading || data.storeName}</h1><p className={`mt-5 max-w-2xl text-sm leading-7 md:text-base ${theme.layout === 'minimal' ? 'opacity-70' : 'text-[#c8d0d5]'}`}>{hero?.body || data.storeDescription || `Explore the collection from ${data.storeName}.`}</p><a href="#collection" className="mt-8 inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-extrabold shadow-lg" style={{ backgroundColor: theme.accentColor, color: theme.layout === 'minimal' ? '#fff' : theme.textColor }}>Shop the collection <ArrowRight className="h-4 w-4" /></a></div>
       </section>
-       {story && <section className="mx-auto max-w-3xl py-16 text-center"><p className="font-mono text-[10px] uppercase tracking-[.18em]" style={{ color: theme.accentColor }}>Our point of view</p><h2 className="mt-3 text-3xl font-extrabold tracking-[-.05em]">{story.heading || 'Made with intention'}</h2>{story.body && <p className="mx-auto mt-4 max-w-xl text-sm leading-7 opacity-70">{story.body}</p>}{story.imageUrl && <img src={story.imageUrl} alt={story.imageAlt || story.heading || 'Store story'} className="mx-auto mt-7 max-h-80 w-full rounded-2xl object-cover" />}</section>}
+      {story && <section className="mx-auto max-w-3xl py-16 text-center"><p className="font-mono text-[10px] uppercase tracking-[.18em]" style={{ color: theme.accentColor }}>Our point of view</p><h2 className="mt-3 text-3xl font-extrabold tracking-[-.05em]">{story.heading || 'Made with intention'}</h2>{story.body && <p className="mx-auto mt-4 max-w-xl text-sm leading-7 opacity-70">{story.body}</p>}{story.imageUrl && <img src={story.imageUrl} alt={story.imageAlt || story.heading || 'Store story'} className="mx-auto mt-7 max-h-80 w-full rounded-2xl object-cover" />}</section>}
       <section id="collection" className="scroll-mt-8 pt-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.18em]" style={{ color: theme.accentColor }}>{productsSection?.type === 'products' ? 'Collection' : 'Available now'}</p><h2 className="mt-2 text-3xl font-extrabold tracking-[-.06em]">{productsSection?.heading || 'Shop the collection'}</h2></div><p className="text-xs opacity-60">{data.products.length} published product{data.products.length === 1 ? '' : 's'}</p></div>
         {data.products.length ? <div className={`mt-7 grid gap-5 ${theme.layout === 'catalog' ? 'sm:grid-cols-3 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>{data.products.map((product) => { const unavailable = product.inventoryStatus === 'out_of_stock' || product.inventoryQuantity === 0; return <article key={product.id} className="overflow-hidden rounded-2xl border bg-white/65 shadow-[0_12px_30px_rgba(24,35,51,.06)]" style={{ borderColor: `${theme.accentColor}33` }}><div className="aspect-[4/3] bg-black/5">{product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center opacity-50"><ShoppingBag className="h-9 w-9" /></div>}</div><div className="p-5"><div className="flex items-center justify-between gap-3">{product.category && <p className="text-[10px] font-bold uppercase tracking-[.14em] opacity-55">{product.category}</p>}{unavailable && <span className="text-[10px] font-bold uppercase tracking-[.1em] text-[#a33e38]">Sold out</span>}</div><h3 className="mt-2 text-lg font-extrabold">{product.title}</h3>{product.description && <p className="mt-2 line-clamp-3 text-xs leading-5 opacity-65">{product.description}</p>}<div className="mt-5 flex items-center justify-between gap-3"><p className="font-mono text-lg font-bold">{money(product.price, product.currency)}</p><Link href={`/checkout/${data.merchantKey}?productId=${product.id}`} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-extrabold" style={{ backgroundColor: unavailable ? '#d9d2c4' : theme.accentColor, color: unavailable ? '#697687' : theme.textColor, pointerEvents: unavailable ? 'none' : undefined }}>View & order <ArrowRight className="h-3.5 w-3.5" /></Link></div></div></article>})}</div> : <div className="mt-7"><EmptyState title="The collection is being prepared" description="This store has not published any priced products yet." /></div>}
       </section>
       <footer className="mt-16 flex flex-wrap items-start justify-between gap-6 border-t pt-7 text-xs opacity-65" style={{ borderColor: `${theme.accentColor}33` }}><div><p className="font-extrabold">{data.storeName}</p>{data.storeDescription && <p className="mt-2 max-w-sm leading-5">{data.storeDescription}</p>}</div><div className="space-y-2">{data.storeContactEmail && <a href={`mailto:${data.storeContactEmail}`} className="flex items-center gap-2 hover:opacity-100"><Mail className="h-3.5 w-3.5" />{data.storeContactEmail}</a>}{data.storePhone && <a href={`tel:${data.storePhone}`} className="flex items-center gap-2 hover:opacity-100"><Phone className="h-3.5 w-3.5" />{data.storePhone}</a>}{data.storeAddress && typeof data.storeAddress === 'object' && 'formatted' in data.storeAddress && <span className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5" />{String(data.storeAddress.formatted)}</span>}</div></footer>
     </div>
   </main>;
+}
+
+function HostStorefront() {
+  const [state, setState] = useState<{ loading: boolean; data?: StoreData; error?: string }>({ loading: true });
+  useEffect(() => {
+    let active = true;
+    void customFetch<StoreData>('/api/public/store/by-host', { responseType: 'json' })
+      .then((data) => { if (active) setState({ loading: false, data }); })
+      .catch((error) => { if (active) setState({ loading: false, error: error instanceof Error ? error.message : 'Storefront not found' }); });
+    return () => { active = false; };
+  }, []);
+  if (state.loading) return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8"><LoadingState label="Loading storefront" /></main>;
+  if (!state.data) return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8"><ErrorState onRetry={() => window.location.reload()} /></main>;
+  return <StorefrontView data={state.data} />;
+}
+
+function KeyStorefront({ merchantKey }: { merchantKey: string }) {
+  const store = useGetPublicStore(merchantKey);
+  if (store.isLoading) return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8"><LoadingState label="Loading storefront" /></main>;
+  if (store.isError || !store.data) return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8"><ErrorState onRetry={() => void store.refetch()} /></main>;
+  return <StorefrontView data={store.data as StoreData} />;
+}
+
+export default function PublicStorefront() {
+  const [, params] = useRoute('/store/:merchantKey');
+  const merchantKey = params?.merchantKey ?? '';
+  return merchantKey === 'by-host' ? <HostStorefront /> : <KeyStorefront merchantKey={merchantKey} />;
 }
