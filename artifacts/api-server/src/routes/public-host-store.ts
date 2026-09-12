@@ -15,11 +15,7 @@ function normalizeHost(value: string): string {
   }
 }
 
-function configuredHost(value: string | null): string {
-  return value ? normalizeHost(value) : "";
-}
-
-router.get("/api/public/store/by-host", async (req, res): Promise<void> => {
+router.get("/public/store/by-host", async (req, res): Promise<void> => {
   const host = normalizeHost(req.hostname || "");
   if (!host || host === "localhost" || host === "127.0.0.1") {
     res.status(404).json({ error: "No public storefront is mapped to this host" });
@@ -30,7 +26,10 @@ router.get("/api/public/store/by-host", async (req, res): Promise<void> => {
     .select()
     .from(merchantsTable)
     .where(eq(merchantsTable.status, "active"));
-  const merchant = merchants.find((candidate) => configuredHost(candidate.storeWebsite) === host);
+  const merchant = merchants.find((candidate) => {
+    if (!candidate.storeWebsite) return false;
+    return normalizeHost(candidate.storeWebsite) === host;
+  });
   if (!merchant || !merchant.publicStoreKey || !merchant.storefrontPublished) {
     res.status(404).json({ error: "No public storefront is mapped to this host" });
     return;
