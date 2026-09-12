@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS "merchant_security_events" (
 CREATE INDEX IF NOT EXISTS "merchant_security_events_merchant_time_idx" ON "merchant_security_events" ("merchant_id", "created_at" DESC);
 CREATE INDEX IF NOT EXISTS "merchant_security_events_type_time_idx" ON "merchant_security_events" ("event_type", "created_at" DESC);
 
+CREATE TABLE IF NOT EXISTS "merchant_verified_financials" (
+  "merchant_id" integer PRIMARY KEY REFERENCES "merchants"("id") ON DELETE CASCADE,
+  "currency" text NOT NULL CHECK ("currency" = upper("currency") AND char_length("currency") = 3),
+  "verified_profit_minor" bigint NOT NULL DEFAULT 0 CHECK ("verified_profit_minor" >= 0),
+  "verified_through" timestamptz,
+  "source_hash" text,
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS "store_auction_listings" (
   "id" bigserial PRIMARY KEY,
   "storefront_id" text NOT NULL,
