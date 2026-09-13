@@ -29,6 +29,7 @@ import socialHubRouter from "./social-hub";
 import subscriptionOptionsRouter from "./subscription-options";
 import storefrontDomainsRouter from "./storefront-domains";
 import storefrontPublishingRouter from "./storefront-publishing";
+import tsPayTransfersRouter from "./ts-pay-transfers";
 
 const router: IRouter = Router();
 router.use(healthRouter);
@@ -61,4 +62,5 @@ router.use(socialHubRouter);
 router.use(subscriptionOptionsRouter);
 router.use(storefrontDomainsRouter);
 router.use(storefrontPublishingRouter);
+router.use(tsPayTransfersRouter);
 export default router;
