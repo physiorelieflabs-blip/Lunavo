@@ -86,7 +86,12 @@ export function buildAuctioneerStrategy(input: AuctioneerInputs, strategy: Aucti
 
   let posture: "build_interest" | "hold_value" | "capitalize_momentum" | "protect_floor" | "close_strong";
   let nextMove: string;
-  if (hours <= 2 && momentumSignal >= 65 && competitiveSignal >= 45) {
+  // Floor protection takes precedence over stall/urgency signals. A stalled auction
+  // must never be interpreted as permission to concede below the seller floor.
+  if (floor != null && current < floor) {
+    posture = "protect_floor";
+    nextMove = "Current bidding is below the seller floor. Do not lower the floor automatically; increase qualified exposure instead.";
+  } else if (hours <= 2 && momentumSignal >= 65 && competitiveSignal >= 45) {
     posture = "close_strong";
     nextMove = "Keep the auction open through its scheduled close and concentrate truthful buyer-facing promotion now; bidding momentum is strong.";
   } else if (momentumSignal >= 75 && competitiveSignal >= 55) {
@@ -95,9 +100,6 @@ export function buildAuctioneerStrategy(input: AuctioneerInputs, strategy: Aucti
   } else if (stallSignal >= 70 && hours > 6) {
     posture = "build_interest";
     nextMove = "The auction is stalling. Improve verified listing value, widen authorized exposure and monitor for renewed bidding before changing price.";
-  } else if (floor != null && current < floor) {
-    posture = "protect_floor";
-    nextMove = "Current bidding is below the seller floor. Do not lower the floor automatically; increase qualified exposure instead.";
   } else {
     posture = "hold_value";
     nextMove = "Maintain value positioning and monitor bid spacing, bidder diversity and momentum before making the next adjustment.";
