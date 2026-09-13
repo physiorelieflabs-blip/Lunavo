@@ -17,3 +17,27 @@ SET growth_percent = NULL,
     conversion_percent = NULL,
     expenses_minor = NULL,
     valuation_indicator_minor = NULL;
+
+-- The current snapshot producer still supplies legacy placeholder fields. Keep
+-- the database as the final integrity boundary so future callers cannot
+-- accidentally reintroduce them as verified metrics.
+CREATE OR REPLACE FUNCTION lunavo_sanitize_store_auction_metrics()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.growth_percent := NULL;
+  NEW.traffic_count := NULL;
+  NEW.conversion_percent := NULL;
+  NEW.expenses_minor := NULL;
+  NEW.valuation_indicator_minor := NULL;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS lunavo_sanitize_store_auction_metrics_trigger
+  ON store_auction_metric_snapshots;
+CREATE TRIGGER lunavo_sanitize_store_auction_metrics_trigger
+BEFORE INSERT OR UPDATE ON store_auction_metric_snapshots
+FOR EACH ROW
+EXECUTE FUNCTION lunavo_sanitize_store_auction_metrics();
