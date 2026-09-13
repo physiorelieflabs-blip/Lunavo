@@ -27,16 +27,32 @@ function parseJson(text:string):ResearchResult{
   return value as ResearchResult;
 }
 
+async function geminiGenerate(key:string,contents:unknown,config:Record<string,unknown>){
+  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({contents,...config})});
+  const payload=await response.json() as any;
+  if(!response.ok) throw new Error(`Gemini research failed: ${String(payload?.error?.message||response.status).slice(0,500)}`);
+  return payload;
+}
+
 async function geminiResearch(niche:string|null):Promise<ResearchResult>{
   const key=process.env.GEMINI_API_KEY?.trim();
   if(!key) throw new Error("Gemini is not configured");
-  const prompt=`Research a new global commerce store for Lunavo. Niche: ${niche||"choose the strongest current opportunity"}. Use current web evidence. Return ONLY valid JSON with exactly these fields: executiveSummary, targetCustomer, productOpportunities (array of objects with name, reason, demandSignal, competitionSignal, risks array), competitorSignals array, supplierResearch array, pricingGuidance array, launchPlan array, risks array, sources (array of title,url). Do not invent suppliers, prices, demand, competitors, URLs or statistics. If evidence is unavailable, say so explicitly. Prefer opportunities with high demand, defensible differentiation, manageable supplier risk and healthy margins. This research will be used as a planning artifact, not as proof of financial performance.`;
-  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],tools:[{google_search:{}}],generationConfig:{responseMimeType:"application/json",temperature:0.2}})});
-  const payload=await response.json() as any;
-  if(!response.ok) throw new Error(`Gemini research failed: ${String(payload?.error?.message||response.status).slice(0,500)}`);
-  const text=payload?.candidates?.[0]?.content?.parts?.map((part:any)=>typeof part?.text==="string"?part.text:"").join("").trim();
-  if(!text) throw new Error("Gemini returned no research content");
-  return parseJson(text);
+  const researchPrompt=`Research a new global commerce store for Lunavo. Niche: ${niche||"choose the strongest current opportunity"}. Search the web for current demand, competition, supplier and pricing evidence. Be explicit about uncertainty. Do not invent suppliers, prices, demand, competitors, URLs or statistics. Return a concise research memo with product opportunities, competitor signals, supplier evidence, pricing observations, risks and launch recommendations.`;
+  // Grounding and controlled JSON are deliberately split into two calls. This
+  // prevents a structured-output request from silently disabling web grounding
+  // on Gemini generateContent and gives Lunavo an auditable evidence pass.
+  const grounded=await geminiGenerate(key,[{role:"user",parts:[{text:researchPrompt}]}],{tools:[{google_search:{}}],generationConfig:{temperature:0.2}});
+  const groundedText=grounded?.candidates?.[0]?.content?.parts?.map((part:any)=>typeof part?.text==="string"?part.text:"").join("").trim();
+  if(!groundedText) throw new Error("Gemini returned no grounded research content");
+  const chunks=Array.isArray(grounded?.candidates?.[0]?.groundingMetadata?.groundingChunks)?grounded.candidates[0].groundingMetadata.groundingChunks:[];
+  const groundedSources=chunks.map((chunk:any)=>chunk?.web).filter((web:any)=>web&&typeof web.uri==="string").map((web:any)=>({title:typeof web.title==="string"?web.title:"Web source",url:web.uri}));
+  const structurePrompt=`Convert the following grounded research memo into ONLY valid JSON with exactly these fields: executiveSummary, targetCustomer, productOpportunities (array of objects with name, reason, demandSignal, competitionSignal, risks array), competitorSignals array, supplierResearch array, pricingGuidance array, launchPlan array, risks array, sources array of title,url. Preserve uncertainty and do not add facts absent from the memo. Include the supplied sources where relevant. MEMO:\n${groundedText}\nSOURCES:\n${JSON.stringify(groundedSources)}`;
+  const structured=await geminiGenerate(key,[{role:"user",parts:[{text:structurePrompt}]}],{generationConfig:{responseMimeType:"application/json",temperature:0}});
+  const structuredText=structured?.candidates?.[0]?.content?.parts?.map((part:any)=>typeof part?.text==="string"?part.text:"").join("").trim();
+  if(!structuredText) throw new Error("Gemini returned no structured research content");
+  const parsed=parseJson(structuredText);
+  parsed.sources=[...parsed.sources,...groundedSources].filter((source,index,array)=>source?.url&&array.findIndex(item=>item.url===source.url)===index);
+  return parsed;
 }
 
 async function deepSeekResearch(niche:string|null):Promise<ResearchResult>{
