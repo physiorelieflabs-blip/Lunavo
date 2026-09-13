@@ -10,37 +10,36 @@ export type ProductOpportunity = {
   riskScore: number;
 };
 
-/**
- * Product opportunity prioritisation: demand and low competition are primary
- * signals, while margin, supplier quality, growth and risk protect against
- * choosing a merely popular but commercially poor product.
- */
-export function scoreProductOpportunity(input: ProductOpportunity): number {
+export type OpportunityLabel = "excellent" | "strong" | "watch" | "avoid";
+
+/** Product opportunity prioritisation. Higher competition reduces the score. */
+export function scoreProductOpportunity(input: ProductOpportunity): { total: number; label: OpportunityLabel } {
   const demand = clamp(input.demandScore);
   const lowCompetition = 100 - clamp(input.competitionScore);
   const margin = clamp(input.marginScore);
   const supplier = clamp(input.supplierScore);
   const growth = clamp(input.growthScore);
   const risk = clamp(input.riskScore);
-  return Number((demand * 0.30 + lowCompetition * 0.25 + margin * 0.18 + supplier * 0.12 + growth * 0.10 + risk * 0.05).toFixed(2));
+  const total = Number((demand * 0.30 + lowCompetition * 0.25 + margin * 0.18 + supplier * 0.12 + growth * 0.10 + risk * 0.05).toFixed(2));
+  return { total, label: total >= 80 ? "excellent" : total >= 65 ? "strong" : total >= 45 ? "watch" : "avoid" };
 }
 
 /**
- * Calculates a commercially sensible price ceiling from real market and cost
- * inputs. It intentionally refuses to invent a price when authoritative cost
- * or market data is unavailable.
+ * Calculates a commercially sensible price ceiling from authoritative cost and
+ * observed market inputs. Missing evidence deliberately produces null.
  */
 export function calculatePriceCeiling(input: {
-  landedCost: number;
-  marketLow: number;
-  marketHigh: number;
-  targetMarginRate: number;
+  landedCostMinor: number;
+  marketLowMinor: number | null;
+  marketHighMinor: number | null;
+  targetMarginPercent: number;
 }): number | null {
-  if (![input.landedCost, input.marketLow, input.marketHigh, input.targetMarginRate].every(Number.isFinite)) return null;
-  if (input.landedCost <= 0 || input.marketLow <= 0 || input.marketHigh < input.marketLow) return null;
-  const marginRate = Math.min(Math.max(input.targetMarginRate, 0), 0.95);
-  const marginCeiling = input.landedCost / (1 - marginRate);
-  return Number(Math.min(input.marketHigh, Math.max(input.marketLow, marginCeiling)).toFixed(2));
+  if (![input.landedCostMinor, input.targetMarginPercent].every(Number.isFinite)) return null;
+  if (input.landedCostMinor <= 0 || input.marketLowMinor == null || input.marketHighMinor == null) return null;
+  if (!Number.isFinite(input.marketLowMinor) || !Number.isFinite(input.marketHighMinor) || input.marketLowMinor <= 0 || input.marketHighMinor < input.marketLowMinor) return null;
+  const marginRate = Math.min(Math.max(input.targetMarginPercent / 100, 0), 0.95);
+  const marginCeiling = input.landedCostMinor / (1 - marginRate);
+  return Math.round(Math.min(input.marketHighMinor, Math.max(input.marketLowMinor, marginCeiling)));
 }
 
 export function canMerchantAuctionStore(verifiedProfitUsd: number, isAdminCreatedStore = false): boolean {
@@ -52,6 +51,4 @@ export function normalizeDailyAdCount(value: number): number {
   return Math.max(0, Math.min(10_000, Math.floor(value)));
 }
 
-function clamp(value: number): number {
-  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
-}
+function clamp(value: number): number { return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0)); }
