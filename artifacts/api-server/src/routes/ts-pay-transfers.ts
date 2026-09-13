@@ -56,7 +56,7 @@ router.post("/merchant/ts-pay/transfers", async (req, res, next) => {
       return { replay:false, row:inserted.rows[0] };
     });
     return res.status(result.replay ? 200 : 201).json({ transfer:result.row, replayed:result.replay, sourceOfTruth:"TS Pay ledger", message:"Transfer recorded through Lunavo's dashboard control plane." });
-  } catch (error) { next(error); }
+  } catch (error) { return next(error); }
 });
 
 router.get("/merchant/ts-pay/transfers", async (req, res, next) => {
@@ -67,8 +67,8 @@ router.get("/merchant/ts-pay/transfers", async (req, res, next) => {
     const merchantId = Number((merchant.rows[0] as { id?: number } | undefined)?.id);
     if (!Number.isInteger(merchantId)) return res.status(404).json({ error:"Merchant workspace not found" });
     const result = await db.execute(sql`SELECT id,from_merchant_id,to_merchant_id,amount_minor,currency,status,reference_key,note,created_at,completed_at FROM ts_pay_transfers WHERE from_merchant_id=${merchantId} OR to_merchant_id=${merchantId} ORDER BY created_at DESC LIMIT 100`);
-    res.json({ transfers:result.rows, sourceOfTruth:"TS Pay ledger" });
-  } catch (error) { next(error); }
+    return res.json({ transfers:result.rows, sourceOfTruth:"TS Pay ledger" });
+  } catch (error) { return next(error); }
 });
 
 export default router;
