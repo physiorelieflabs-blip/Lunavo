@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 
@@ -38,9 +39,6 @@ async function geminiResearch(niche:string|null):Promise<ResearchResult>{
   const key=process.env.GEMINI_API_KEY?.trim();
   if(!key) throw new Error("Gemini is not configured");
   const researchPrompt=`Research a new global commerce store for Lunavo. Niche: ${niche||"choose the strongest current opportunity"}. Search the web for current demand, competition, supplier and pricing evidence. Be explicit about uncertainty. Do not invent suppliers, prices, demand, competitors, URLs or statistics. Return a concise research memo with product opportunities, competitor signals, supplier evidence, pricing observations, risks and launch recommendations.`;
-  // Grounding and controlled JSON are deliberately split into two calls. This
-  // prevents a structured-output request from silently disabling web grounding
-  // on Gemini generateContent and gives Lunavo an auditable evidence pass.
   const grounded=await geminiGenerate(key,[{role:"user",parts:[{text:researchPrompt}]}],{tools:[{google_search:{}}],generationConfig:{temperature:0.2}});
   const groundedText=grounded?.candidates?.[0]?.content?.parts?.map((part:any)=>typeof part?.text==="string"?part.text:"").join("").trim();
   if(!groundedText) throw new Error("Gemini returned no grounded research content");
@@ -72,18 +70,66 @@ async function executeResearch(niche:string|null){
   return deepSeekResearch(niche);
 }
 
+function slugify(value:string){
+  const slug=value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,70);
+  return slug||`lunavo-store-${Date.now()}`;
+}
+
+function safeText(value:string,max=500){return value.replace(/\s+/g," ").trim().slice(0,max);}
+
+async function buildStoreDraft(jobId:number,requestedBy:string,niche:string|null,research:ResearchResult){
+  const merchant=await db.execute(sql`SELECT id,store_name FROM merchants WHERE clerk_user_id=${requestedBy} LIMIT 1`);
+  const owner=(merchant.rows as Array<{id:number;store_name:string}>)[0];
+  if(!owner) throw new Error("The master-admin identity is not attached to a merchant workspace; AI store creation cannot create an ownerless store");
+
+  const leadName=safeText(niche||research.productOpportunities[0]?.name||"AI Commerce Store",120);
+  const baseSlug=slugify(leadName);
+  const publicKey=`lunavo_${randomUUID().replace(/-/g,"")}`;
+  const theme={accentColor:"#7c3aed",backgroundColor:"#fafafa",textColor:"#111827",layout:"editorial",announcement:"AI-built store draft — review before publishing.",logoUrl:null,heroImageUrl:null};
+  const opportunities=research.productOpportunities.slice(0,12).map((item)=>({name:safeText(item.name,120),reason:safeText(item.reason),demandSignal:safeText(item.demandSignal),competitionSignal:safeText(item.competitionSignal),risks:item.risks.map((risk)=>safeText(risk,180)).slice(0,5)}));
+  const sections=[
+    {id:"hero",type:"hero",enabled:true,heading:leadName,body:safeText(research.executiveSummary,700)},
+    {id:"audience",type:"rich_text",enabled:true,heading:"Who this store is for",body:safeText(research.targetCustomer,700)},
+    {id:"products",type:"products",enabled:true,heading:"Research-backed opportunities",body:"No products are published automatically until supplier, cost, availability and product evidence are verified."},
+    {id:"launch",type:"rich_text",enabled:true,heading:"Launch plan",body:research.launchPlan.slice(0,8).map((item,index)=>`${index+1}. ${safeText(item,220)}`).join("\n")},
+  ];
+
+  for(let attempt=0;attempt<5;attempt++){
+    const slug=attempt===0?baseSlug:`${baseSlug}-${attempt+1}`;
+    try{
+      const inserted=await db.execute(sql`INSERT INTO merchant_storefronts (merchant_id,name,slug,public_key,description,theme,sections,published,created_by_clerk_user_id) VALUES (${owner.id},${leadName},${slug},${publicKey},${safeText(research.executiveSummary,1000)},${JSON.stringify(theme)}::jsonb,${JSON.stringify(sections)}::jsonb,false,${requestedBy}) RETURNING id,slug`);
+      const storefront=(inserted.rows as Array<{id:string;slug:string}>)[0];
+      if(!storefront) throw new Error("AI store draft was not persisted");
+      return {ownerId:owner.id,storefrontId:storefront.id,slug:storefront.slug,opportunities};
+    }catch(error){
+      if(attempt===4||!String(error).toLowerCase().includes("unique")) throw error;
+    }
+  }
+  throw new Error("Unable to allocate a unique AI store slug");
+}
+
 export async function runAdminAiStoreWorker(){
  if(running)return; running=true;
  try{
-  const jobs=await db.execute(sql`SELECT id,niche,status FROM admin_ai_store_jobs WHERE status IN ('queued','researching') ORDER BY created_at ASC LIMIT 5`);
-  for(const job of jobs.rows as Array<{id:number;niche:string|null;status:string}>){
+  const jobs=await db.execute(sql`SELECT id,requested_by,niche,status FROM admin_ai_store_jobs WHERE status IN ('queued','researching','building') ORDER BY created_at ASC LIMIT 5`);
+  for(const job of jobs.rows as Array<{id:number;requested_by:string;niche:string|null;status:string}>){
    try{
     if(!providerConfigured()){await db.execute(sql`UPDATE admin_ai_store_jobs SET status='failed',error_message='No configured AI research provider is available. Configure Gemini or DeepSeek securely before this job can execute.',updated_at=now() WHERE id=${job.id} AND status IN ('queued','researching')`);continue;}
-    await db.execute(sql`UPDATE admin_ai_store_jobs SET status='researching',updated_at=now() WHERE id=${job.id} AND status='queued'`);
-    const research=await executeResearch(job.niche);
-    const buildPlan={state:"research_complete",requiresVerifiedInputs:true,noFakeData:true,productSelection:research.productOpportunities.slice(0,20),launchPlan:research.launchPlan,pricingGuidance:research.pricingGuidance,nextSteps:["Validate supplier availability and landed costs","Create store draft from approved research","Require real external authorization before social publishing or paid advertising"]};
-    await db.execute(sql`UPDATE admin_ai_store_jobs SET status='ready_for_review',research=${JSON.stringify(research)}::jsonb,build_plan=${JSON.stringify(buildPlan)}::jsonb,error_message=NULL,updated_at=now() WHERE id=${job.id} AND status='researching'`);
-   }catch(error){await db.execute(sql`UPDATE admin_ai_store_jobs SET status='failed',error_message=${String(error instanceof Error?error.message:'AI store worker failed').slice(0,2000)},updated_at=now() WHERE id=${job.id} AND status IN ('queued','researching')`);}
+    if(job.status==='queued') await db.execute(sql`UPDATE admin_ai_store_jobs SET status='researching',updated_at=now() WHERE id=${job.id} AND status='queued'`);
+    const current=await db.execute(sql`SELECT status,research,build_plan FROM admin_ai_store_jobs WHERE id=${job.id} LIMIT 1`);
+    const row=(current.rows as Array<{status:string;research:ResearchResult;build_plan:any}>)[0];
+    let research=row?.research;
+    if(!research||!Array.isArray(research.productOpportunities)||research.productOpportunities.length===0){
+      research=await executeResearch(job.niche);
+      const buildPlan={state:"research_complete",requiresVerifiedInputs:true,noFakeData:true,productSelection:research.productOpportunities.slice(0,20),launchPlan:research.launchPlan,pricingGuidance:research.pricingGuidance,nextSteps:["Validate supplier availability and landed costs","Create store draft from approved research","Require real external authorization before social publishing or paid advertising"]};
+      await db.execute(sql`UPDATE admin_ai_store_jobs SET status='building',research=${JSON.stringify(research)}::jsonb,build_plan=${JSON.stringify(buildPlan)}::jsonb,error_message=NULL,updated_at=now() WHERE id=${job.id} AND status IN ('researching','building')`);
+    }else if(row?.status==='researching'){
+      await db.execute(sql`UPDATE admin_ai_store_jobs SET status='building',updated_at=now() WHERE id=${job.id} AND status='researching'`);
+    }
+    const built=await buildStoreDraft(job.id,job.requested_by,job.niche,research);
+    const finalPlan={...(row?.build_plan||{}),state:"store_draft_created",storefrontId:built.storefrontId,ownerMerchantId:built.ownerId,slug:built.slug,verifiedProductCandidates:built.opportunities,publicationRequiresReview:true,noFakeProducts:true};
+    await db.execute(sql`UPDATE admin_ai_store_jobs SET status='ready_for_review',build_plan=${JSON.stringify(finalPlan)}::jsonb,error_message=NULL,completed_at=now(),updated_at=now() WHERE id=${job.id} AND status='building'`);
+   }catch(error){await db.execute(sql`UPDATE admin_ai_store_jobs SET status='failed',error_message=${String(error instanceof Error?error.message:'AI store worker failed').slice(0,2000)},updated_at=now() WHERE id=${job.id} AND status IN ('queued','researching','building')`);}
   }
  }finally{running=false;}
 }
