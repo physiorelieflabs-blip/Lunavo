@@ -75,7 +75,7 @@ router.post("/merchant/store-auctions/:id/auctioneer-ai/live-recommendation", as
           (${auctionId},${merchantId},'timing',${JSON.stringify(recommendation)},${recommendation.recommendedNextBid},${row.currency},${JSON.stringify({ ...recommendation, observedBids: bidHistory.length })})
         RETURNING id,created_at
       `);
-      return { recommendation, observedBids: bidHistory.length, id: Number((rec.rows[0] as any).id), createdAt: (rec.rows[0] as any).created_at };
+      return { recommendation, observedBids: bidHistory.length, seller_merchant_id: merchantId, id: Number((rec.rows[0] as any).id), createdAt: (rec.rows[0] as any).created_at };
     });
     res.status(201).json(result);
   } catch (e: any) {
