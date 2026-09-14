@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import authRouter from "./auth";
 import paymentBoundaryRouter from "./payment-boundary";
 import flutterwaveWebhookRouter from "./flutterwave-webhook";
 import adminIntegrationsRouter from "./admin-integrations";
@@ -30,9 +31,9 @@ import subscriptionOptionsRouter from "./subscription-options";
 import storefrontDomainsRouter from "./storefront-domains";
 import storefrontPublishingRouter from "./storefront-publishing";
 import tsPayTransfersRouter from "./ts-pay-transfers";
-
 const router: IRouter = Router();
 router.use(healthRouter);
+router.use(authRouter);
 router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
 router.use(adminIntegrationsRouter);
