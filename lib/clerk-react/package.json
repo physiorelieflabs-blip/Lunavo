@@ -1,0 +1,8 @@
+{
+  "name": "@clerk/react",
+  "version": "0.0.0-local",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./legacy": "./src/legacy.tsx" },
+  "dependencies": { "react": "catalog:" }
+}
