@@ -1,0 +1,4 @@
+ALTER TABLE ai_ad_schedules DROP CONSTRAINT IF EXISTS ai_ad_schedules_daily_ad_limit_check;
+ALTER TABLE ai_ad_schedules ADD CONSTRAINT ai_ad_schedules_daily_ad_limit_check CHECK (daily_ad_limit BETWEEN 0 AND 10000);
+ALTER TABLE merchant_automation_policies DROP CONSTRAINT IF EXISTS merchant_automation_policies_daily_ad_limit_check;
+ALTER TABLE merchant_automation_policies ADD CONSTRAINT merchant_automation_policies_daily_ad_limit_check CHECK (daily_ad_limit BETWEEN 0 AND 10000);
