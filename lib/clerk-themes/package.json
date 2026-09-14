@@ -1,0 +1,7 @@
+{
+  "name": "@clerk/themes",
+  "version": "0.0.0-local",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}
