@@ -57,8 +57,9 @@ async function callGemini(niche: string | null): Promise<Research> {
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const prompt = `You are Lunavo's commerce research analyst. Research the requested store niche using current, verifiable market information where your tools allow it. Do not invent suppliers, prices, demand, competitors, sales, URLs, or statistics. Clearly distinguish observed evidence from inference. Return ONLY valid JSON with this shape: {"executiveSummary":"...","opportunities":[{"product":"...","demand":"high|medium|low|unknown","competition":"low|medium|high|unknown","rationale":"..."}],"risks":["..."],"evidence":["source or observation..."]}. Recommend only products with a defensible commercial rationale. Niche: ${niche || "choose a broadly viable commerce niche"}`;
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`, {
-      method: "POST", signal: controller.signal, headers: { "content-type": "application/json" },
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST", signal: controller.signal,
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], tools: [{ google_search: {} }], generationConfig: { temperature: 0.2, responseMimeType: "application/json" } }),
     });
     if (!response.ok) throw new Error(`Gemini research request failed (${response.status})`);
@@ -77,8 +78,9 @@ async function callDeepSeek(niche: string | null): Promise<Research> {
   try {
     const prompt = `You are Lunavo's commerce research analyst. Use only information you can responsibly support from your model knowledge. Do not claim live web research, current prices, supplier availability, demand statistics or competitor facts unless you can support them. Clearly label uncertainty. Return ONLY valid JSON with this shape: {"executiveSummary":"...","opportunities":[{"product":"...","demand":"high|medium|low|unknown","competition":"low|medium|high|unknown","rationale":"..."}],"risks":["..."],"evidence":["basis or limitation..."]}. Niche: ${niche || "choose a broadly viable commerce niche"}`;
     const response = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST", signal: controller.signal, headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: "deepseek-chat", temperature: 0.2, messages: [{ role: "system", content: "You produce structured, non-fabricated commerce research." }, { role: "user", content: prompt }], response_format: { type: "json_object" } }),
+      method: "POST", signal: controller.signal,
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash", temperature: 0.2, messages: [{ role: "system", content: "You produce structured, non-fabricated commerce research." }, { role: "user", content: prompt }], response_format: { type: "json_object" } }),
     });
     if (!response.ok) throw new Error(`DeepSeek research request failed (${response.status})`);
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
