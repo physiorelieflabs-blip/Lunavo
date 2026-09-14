@@ -1,14 +1,17 @@
-CREATE TABLE IF NOT EXISTS whop_webhook_events (
-  id serial PRIMARY KEY,
-  webhook_id text NOT NULL UNIQUE,
-  event_type text NOT NULL,
-  provider_payment_id text,
-  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status text NOT NULL DEFAULT 'received',
-  error text,
-  received_at timestamptz NOT NULL DEFAULT now(),
-  processed_at timestamptz
+-- Migration 0034: Provider webhook events
+CREATE TABLE lunavo.payment_webhook_events (
+  id VARCHAR(40) PRIMARY KEY,
+  provider VARCHAR(50) NOT NULL,
+  webhook_id VARCHAR(255) NOT NULL,
+  event_type VARCHAR(100) NOT NULL,
+  provider_payment_id VARCHAR(255),
+  payload JSONB NOT NULL,
+  status VARCHAR(50) DEFAULT 'received',
+  error TEXT,
+  processed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(provider, webhook_id)
 );
 
-CREATE INDEX IF NOT EXISTS whop_webhook_events_payment_idx
-  ON whop_webhook_events (provider_payment_id);
+CREATE INDEX idx_payment_webhooks_provider ON lunavo.payment_webhook_events(provider);
+CREATE INDEX idx_payment_webhooks_status ON lunavo.payment_webhook_events(status);

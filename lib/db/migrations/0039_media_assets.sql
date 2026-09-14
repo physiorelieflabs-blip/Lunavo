@@ -1,17 +1,16 @@
-CREATE TABLE IF NOT EXISTS "media_assets" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "merchant_id" integer NOT NULL REFERENCES "merchants"("id"),
-  "uploaded_by_clerk_user_id" text NOT NULL,
-  "filename" text NOT NULL,
-  "mime_type" text NOT NULL,
-  "byte_size" integer NOT NULL,
-  "image_data" text NOT NULL,
-  "alt_text" text,
-  "caption" text,
-  "visibility" text NOT NULL DEFAULT 'private',
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
+-- Migration 0039: Media library
+CREATE TABLE lunavo.media_assets (
+  id VARCHAR(40) PRIMARY KEY,
+  merchant_id VARCHAR(40) NOT NULL,
+  filename VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(100) NOT NULL,
+  size INT NOT NULL,
+  url VARCHAR(500) NOT NULL,
+  alt_text VARCHAR(500),
+  source VARCHAR(50) DEFAULT 'upload',
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (merchant_id) REFERENCES lunavo.merchants(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS "media_assets_merchant_idx"
-  ON "media_assets" ("merchant_id", "created_at");
+CREATE INDEX idx_media_assets_merchant_id ON lunavo.media_assets(merchant_id);

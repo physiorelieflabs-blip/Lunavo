@@ -1,2 +1,2 @@
-alter table merchants
-  add column if not exists currency text not null default 'USD';
+-- Migration 0008: Multi-currency support (already in core schema)
+ALTER TABLE lunavo.merchants ADD COLUMN IF NOT EXISTS preferred_currency VARCHAR(3) DEFAULT 'USD';

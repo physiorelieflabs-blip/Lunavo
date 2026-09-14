@@ -1,35 +1,45 @@
-CREATE TABLE IF NOT EXISTS "auction_listings" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "merchant_id" integer NOT NULL REFERENCES "merchants"("id"),
-  "supplier_product_id" integer NOT NULL REFERENCES "supplier_products"("id"),
-  "title" text NOT NULL,
-  "description" text,
-  "image_url" text,
-  "currency" text NOT NULL,
-  "starting_price" numeric(12, 2) NOT NULL,
-  "reserve_price" numeric(12, 2),
-  "starts_at" timestamp with time zone DEFAULT now() NOT NULL,
-  "ends_at" timestamp with time zone NOT NULL,
-  "status" text DEFAULT 'active' NOT NULL,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+-- Migration 0029: Auction system
+CREATE TABLE lunavo.auctions (
+  id VARCHAR(40) PRIMARY KEY,
+  store_id VARCHAR(40),
+  seller_merchant_id VARCHAR(40) NOT NULL,
+  auction_type VARCHAR(50) NOT NULL,
+  status VARCHAR(50) DEFAULT 'draft',
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  currency_code VARCHAR(3) NOT NULL,
+  starting_price DECIMAL(14, 2) NOT NULL,
+  floor_price DECIMAL(14, 2),
+  current_high_bid DECIMAL(14, 2) DEFAULT 0,
+  current_high_bidder_id VARCHAR(40),
+  start_time TIMESTAMPTZ NOT NULL,
+  end_time TIMESTAMPTZ NOT NULL,
+  total_bids INT DEFAULT 0,
+  settled_at TIMESTAMPTZ,
+  settled_transaction_id VARCHAR(40),
+  winning_bid_id VARCHAR(40),
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (seller_merchant_id) REFERENCES lunavo.merchants(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS "auction_listings_merchant_status_idx"
-  ON "auction_listings" ("merchant_id", "status");
-CREATE INDEX IF NOT EXISTS "auction_listings_status_ends_idx"
-  ON "auction_listings" ("status", "ends_at");
+CREATE INDEX idx_auctions_seller_merchant_id ON lunavo.auctions(seller_merchant_id);
+CREATE INDEX idx_auctions_status ON lunavo.auctions(status);
+CREATE INDEX idx_auctions_end_time ON lunavo.auctions(end_time);
 
-CREATE TABLE IF NOT EXISTS "auction_bids" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "auction_id" integer NOT NULL REFERENCES "auction_listings"("id") ON DELETE CASCADE,
-  "bidder_name" text NOT NULL,
-  "bidder_email" text NOT NULL,
-  "amount" numeric(12, 2) NOT NULL,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE lunavo.auction_bids (
+  id VARCHAR(40) PRIMARY KEY,
+  auction_id VARCHAR(40) NOT NULL,
+  bidder_merchant_id VARCHAR(40),
+  bidder_id VARCHAR(40),
+  bid_amount DECIMAL(14, 2) NOT NULL,
+  bid_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  is_winning BOOLEAN DEFAULT FALSE,
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (auction_id) REFERENCES lunavo.auctions(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS "auction_bids_auction_amount_idx"
-  ON "auction_bids" ("auction_id", "amount");
-CREATE INDEX IF NOT EXISTS "auction_bids_email_created_idx"
-  ON "auction_bids" ("bidder_email", "created_at");
+CREATE INDEX idx_auction_bids_auction_id ON lunavo.auction_bids(auction_id);
+CREATE INDEX idx_auction_bids_bidder_id ON lunavo.auction_bids(bidder_id);

@@ -1,13 +1,19 @@
-ALTER TABLE orders
-  ADD COLUMN IF NOT EXISTS public_payment_token text;
+-- Migration 0032: Public checkout sessions
+CREATE TABLE lunavo.checkout_sessions (
+  id VARCHAR(40) PRIMARY KEY,
+  store_id VARCHAR(40) NOT NULL,
+  cart_id VARCHAR(40),
+  status VARCHAR(50) DEFAULT 'active',
+  customer_email VARCHAR(255),
+  customer_data JSONB,
+  line_items JSONB NOT NULL,
+  total_amount DECIMAL(14, 2),
+  currency_code VARCHAR(3),
+  payment_intent_id VARCHAR(255),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+  FOREIGN KEY (store_id) REFERENCES lunavo.stores(id) ON DELETE CASCADE
+);
 
-CREATE UNIQUE INDEX IF NOT EXISTS orders_public_payment_token_unique
-  ON orders(public_payment_token)
-  WHERE public_payment_token IS NOT NULL;
-
-ALTER TABLE payment_intents
-  DROP CONSTRAINT IF EXISTS payment_intents_method_check;
-
-ALTER TABLE payment_intents
-  ADD CONSTRAINT payment_intents_method_check
-  CHECK (method IN ('manual_bank_transfer','manual_cash','manual_other','whop_hosted'));
+CREATE INDEX idx_checkout_sessions_store_id ON lunavo.checkout_sessions(store_id);
+CREATE INDEX idx_checkout_sessions_payment_intent_id ON lunavo.checkout_sessions(payment_intent_id);

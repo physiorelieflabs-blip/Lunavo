@@ -1,15 +1,14 @@
-CREATE TABLE IF NOT EXISTS payment_links (
-  id SERIAL PRIMARY KEY,
-  merchant_id INTEGER NOT NULL REFERENCES merchants(id),
-  token TEXT NOT NULL UNIQUE,
-  title TEXT NOT NULL,
+-- Migration 0019: Payment links
+CREATE TABLE lunavo.payment_links (
+  id VARCHAR(40) PRIMARY KEY,
+  merchant_id VARCHAR(40) NOT NULL,
+  store_id VARCHAR(40),
+  name VARCHAR(255),
   description TEXT,
-  amount NUMERIC(12, 2) NOT NULL,
-  currency TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active',
-  expires_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  amount DECIMAL(14, 2),
+  currency_code VARCHAR(3) NOT NULL,
+  url_slug VARCHAR(100) UNIQUE,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (merchant_id) REFERENCES lunavo.merchants(id) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS payment_links_merchant_status_idx
-  ON payment_links (merchant_id, status);

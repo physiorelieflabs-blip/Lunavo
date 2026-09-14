@@ -1,20 +1,10 @@
-ALTER TABLE payment_intents
-  ALTER COLUMN order_id DROP NOT NULL;
-
-ALTER TABLE payment_intents
-  ADD COLUMN IF NOT EXISTS invoice_payment_submission_id integer
-  REFERENCES invoice_payment_submissions(id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS payment_intents_invoice_submission_unique
-  ON payment_intents(invoice_payment_submission_id);
-
-ALTER TABLE payment_records
-  ALTER COLUMN order_id DROP NOT NULL;
-
-ALTER TABLE payment_records
-  ADD COLUMN IF NOT EXISTS invoice_payment_submission_id integer
-  REFERENCES invoice_payment_submissions(id);
-
-ALTER TABLE ledger_entries
-  ADD COLUMN IF NOT EXISTS invoice_id integer
-  REFERENCES invoices(id);
+-- Migration 0022: Invoice line items
+CREATE TABLE lunavo.invoice_line_items (
+  id VARCHAR(40) PRIMARY KEY,
+  invoice_id VARCHAR(40) NOT NULL,
+  description TEXT NOT NULL,
+  quantity INT DEFAULT 1,
+  unit_price DECIMAL(14, 2) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (invoice_id) REFERENCES lunavo.invoices(id) ON DELETE CASCADE
+);

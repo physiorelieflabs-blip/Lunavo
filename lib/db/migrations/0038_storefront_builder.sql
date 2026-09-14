@@ -1,15 +1,18 @@
-ALTER TABLE merchants
-  ADD COLUMN IF NOT EXISTS public_store_key TEXT,
-  ADD COLUMN IF NOT EXISTS storefront_theme JSONB NOT NULL DEFAULT '{"accentColor":"#c85d3f","backgroundColor":"#f5f1e8","textColor":"#182333","layout":"editorial","announcement":""}'::jsonb,
-  ADD COLUMN IF NOT EXISTS storefront_sections JSONB NOT NULL DEFAULT '[{"id":"hero","type":"hero","enabled":true,"heading":"Thoughtful goods, clearly presented.","body":""},{"id":"products","type":"products","enabled":true,"heading":"Shop the collection","body":""}]'::jsonb,
-  ADD COLUMN IF NOT EXISTS storefront_published BOOLEAN NOT NULL DEFAULT TRUE;
+-- Migration 0038: Storefront page builder
+CREATE TABLE lunavo.storefront_pages (
+  id VARCHAR(40) PRIMARY KEY,
+  store_id VARCHAR(40) NOT NULL,
+  page_type VARCHAR(50),
+  title VARCHAR(255),
+  slug VARCHAR(100),
+  sections JSONB,
+  status VARCHAR(50) DEFAULT 'draft',
+  published_at TIMESTAMPTZ,
+  published_version INT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (store_id) REFERENCES lunavo.stores(id) ON DELETE CASCADE,
+  UNIQUE(store_id, slug)
+);
 
-UPDATE merchants
-SET public_store_key = md5(random()::text || clock_timestamp()::text || id::text)
-WHERE public_store_key IS NULL;
-
-ALTER TABLE merchants
-  ALTER COLUMN public_store_key SET NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS merchants_public_store_key_unique
-  ON merchants (public_store_key);
+CREATE INDEX idx_storefront_pages_store_id ON lunavo.storefront_pages(store_id);
