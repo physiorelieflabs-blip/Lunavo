@@ -3,79 +3,11 @@ import { getAuth } from "@clerk/express";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { isMasterAdmin } from "../lib/master-admin";
-
-const router = Router();
-
-async function requireMasterAdmin(req: any, res: any) {
-  const userId = getAuth(req).userId;
-  if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
-  if (!(await isMasterAdmin(userId))) { res.status(403).json({ error: "Master Admin authority required" }); return null; }
-  return userId;
-}
-
-function slugify(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70) || "ai-store";
-}
-
-router.post("/admin/ai-stores", async (req, res, next) => {
-  try {
-    const userId = await requireMasterAdmin(req, res); if (!userId) return;
-    const niche = String(req.body?.niche ?? "").trim().slice(0, 1000) || null;
-    const result = await db.execute(sql`INSERT INTO admin_ai_store_jobs (requested_by,niche,status) VALUES (${userId},${niche},'queued') RETURNING id,requested_by,niche,status,created_at,updated_at`);
-    res.status(202).json({ job: result.rows[0], executionBoundary: "The job is durable and server-controlled. Research, supplier discovery and external publishing require real provider/connector authorization; no fake products or connections are created." });
-  } catch (e) { next(e); }
-});
-
-router.get("/admin/ai-stores", async (req, res, next) => {
-  try {
-    const userId = await requireMasterAdmin(req, res); if (!userId) return;
-    const result = await db.execute(sql`SELECT id,niche,status,research,build_plan,error_message,created_at,updated_at,completed_at FROM admin_ai_store_jobs ORDER BY created_at DESC LIMIT 100`);
-    res.json({ jobs: result.rows, requestedBy: userId });
-  } catch (e) { next(e); }
-});
-
-router.post("/admin/ai-stores/:id/build", async (req, res, next) => {
-  try {
-    const userId = await requireMasterAdmin(req, res); if (!userId) return;
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid job id" }); return; }
-    const built = await db.transaction(async (tx) => {
-      const jobResult = await tx.execute(sql`SELECT id,niche,status,research,build_plan FROM admin_ai_store_jobs WHERE id=${id} FOR UPDATE`);
-      const job = jobResult.rows[0] as { id:number; niche:string|null; status:string; research:Record<string,unknown>; build_plan:Record<string,unknown> } | undefined;
-      if (!job) return { status:404, body:{error:"AI store job not found"} };
-      if (!["ready_for_review","building","published"].includes(job.status)) return { status:409, body:{error:"AI store is not ready to build",currentStatus:job.status} };
-      const existing = await tx.execute(sql`SELECT id,name,slug,public_key,published FROM merchant_storefronts WHERE ai_creation_job_id=${id} LIMIT 1`);
-      if (existing.rows.length) return { status:200, body:{job,storefront:existing.rows[0],idempotent:true} };
-      const merchantResult = await tx.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);
-      const merchant = merchantResult.rows[0] as { id:number } | undefined;
-      if (!merchant) return { status:409, body:{error:"Master Admin has no merchant workspace available for AI store creation"} };
-      const research = job.research || {};
-      const opportunities = Array.isArray(research.opportunities) ? research.opportunities : [];
-      if (!String(research.executiveSummary || "").trim() || opportunities.length === 0) return { status:409, body:{error:"Evidence-backed AI research is required before building the store"} };
-      const base = slugify(job.niche || "lunavo-ai-store");
-      const name = (job.niche ? `${job.niche.slice(0,80)} AI Store` : "Lunavo AI Store").slice(0,160);
-      const slug = `${base}-${id}`.slice(0,100);
-      const description = String(research.executiveSummary).slice(0,4000);
-      const theme = JSON.stringify({accentColor:"#c85d3f",backgroundColor:"#f5f1e8",textColor:"#182333",layout:"editorial",announcement:"",logoUrl:null,heroImageUrl:null});
-      const sections = JSON.stringify([{id:"hero",type:"hero",enabled:true,heading:name,body:description},{id:"products",type:"products",enabled:true,heading:"Shop the collection",body:"Verified products will appear here after supplier and product validation."}]);
-      const storefrontResult = await tx.execute(sql`INSERT INTO merchant_storefronts (merchant_id,name,slug,public_key,description,theme,sections,published,created_by_clerk_user_id,ai_creation_job_id) VALUES (${merchant.id},${name},${slug},concat('ai-',${id},'-',substr(md5(random()::text),1,20)),${description},${theme}::jsonb,${sections}::jsonb,false,${userId},${id}) RETURNING id,name,slug,public_key,published`);
-      const storefront = storefrontResult.rows[0];
-      await tx.execute(sql`UPDATE admin_ai_store_jobs SET status='ready_for_review',build_plan=${JSON.stringify({state:"store_shell_created",storefrontId:storefront?.id,evidenceBacked:true,requiresVerifiedSupplierAndProductData:true})}::jsonb,error_message=NULL,updated_at=now() WHERE id=${id}`);
-      return { status:201, body:{job:{...job,status:"ready_for_review"},storefront,idempotent:false} };
-    });
-    res.status(built.status).json(built.body);
-  } catch (e) { next(e); }
-});
-
-router.post("/admin/ai-stores/:id/cancel", async (req, res, next) => {
-  try {
-    const userId = await requireMasterAdmin(req, res); if (!userId) return;
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid job id" }); return; }
-    const result = await db.execute(sql`UPDATE admin_ai_store_jobs SET status='cancelled',updated_at=now() WHERE id=${id} AND status IN ('queued','researching','ready_for_review','building') RETURNING id,status,updated_at`);
-    if (!result.rows.length) { res.status(404).json({ error: "Active AI store job not found" }); return; }
-    res.json({ job: result.rows[0], cancelledBy: userId });
-  } catch (e) { next(e); }
-});
-
+const router=Router();
+async function requireMasterAdmin(req:any,res:any){const userId=getAuth(req).userId;if(!userId){res.status(401).json({error:"Authentication required"});return null;}if(!(await isMasterAdmin(userId))){res.status(403).json({error:"Master Admin authority required"});return null;}return userId;}
+router.post("/admin/ai-stores",async(req,res,next)=>{try{const userId=await requireMasterAdmin(req,res);if(!userId)return;const niche=String(req.body?.niche??"").trim().slice(0,1000)||null;const result=await db.execute(sql`INSERT INTO admin_ai_store_jobs (requested_by,niche,status) VALUES (${userId},${niche},'queued') RETURNING id,requested_by,niche,status,created_at,updated_at`);res.status(202).json({job:result.rows[0]});}catch(e){next(e);}});
+router.get("/admin/ai-stores",async(req,res,next)=>{try{const userId=await requireMasterAdmin(req,res);if(!userId)return;const result=await db.execute(sql`SELECT id,niche,status,research,build_plan,error_message,created_at,updated_at,completed_at FROM admin_ai_store_jobs ORDER BY created_at DESC LIMIT 100`);res.json({jobs:result.rows,requestedBy:userId});}catch(e){next(e);}});
+router.get("/admin/ai-stores/:id/artifact",async(req,res,next)=>{try{const userId=await requireMasterAdmin(req,res);if(!userId)return;const id=Number(req.params.id);if(!Number.isInteger(id)||id<1){res.status(400).json({error:"Invalid job id"});return;}const result=await db.execute(sql`SELECT * FROM admin_ai_store_build_artifacts WHERE job_id=${id} LIMIT 1`);if(!result.rows.length){res.status(404).json({error:"AI store build artifact not found"});return;}res.json({artifact:result.rows[0]});}catch(e){next(e);}});
+router.post("/admin/ai-stores/:id/build",async(req,res,next)=>{try{const userId=await requireMasterAdmin(req,res);if(!userId)return;const id=Number(req.params.id);if(!Number.isInteger(id)||id<1){res.status(400).json({error:"Invalid job id"});return;}const result=await db.transaction(async tx=>{const jr=await tx.execute(sql`SELECT id,niche,status,research,build_plan FROM admin_ai_store_jobs WHERE id=${id} FOR UPDATE`);const job=jr.rows[0] as any;if(!job)return{status:404,body:{error:"AI store job not found"}};const existing=await tx.execute(sql`SELECT id,name,slug,public_key,published FROM merchant_storefronts WHERE ai_creation_job_id=${id} LIMIT 1`);if(existing.rows.length)return{status:200,body:{job,storefront:existing.rows[0],idempotent:true}};if(!["ready_for_review","building"].includes(String(job.status)))return{status:409,body:{error:"AI store research is not ready for building",currentStatus:job.status}};const research=job.research??{};const opportunities=Array.isArray(research.productOpportunities)?research.productOpportunities:Array.isArray(research.opportunities)?research.opportunities:[];if(!String(research.executiveSummary??"").trim()||opportunities.length===0)return{status:409,body:{error:"Evidence-backed AI research is required before building the store"}};const merchant=await tx.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);const owner=merchant.rows[0] as {id:number}|undefined;if(!owner)return{status:409,body:{error:"Master Admin merchant workspace not found"}};const name=(String(job.niche??opportunities[0]?.name??"Lunavo AI Store").slice(0,120)+" AI Store").slice(0,160);const base=String(job.niche??"lunavo-ai-store").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,70)||"lunavo-ai-store";const slug=`${base}-${id}`.slice(0,100);const description=String(research.executiveSummary).slice(0,4000);const theme=JSON.stringify({accentColor:"#7c3aed",backgroundColor:"#fafafa",textColor:"#111827",layout:"editorial",announcement:"AI-built draft — verify products and suppliers before publishing."});const sections=JSON.stringify([{id:"hero",type:"hero",enabled:true,heading:name,body:description},{id:"products",type:"products",enabled:true,heading:"Research-backed opportunities",body:"Only products with verified supplier, cost and availability evidence may be published."}]);const sr=await tx.execute(sql`INSERT INTO merchant_storefronts (merchant_id,name,slug,public_key,description,theme,sections,published,created_by_clerk_user_id,ai_creation_job_id) VALUES (${owner.id},${name},${slug},concat('ai-',${id},'-',substr(md5(random()::text),1,20)),${description},${theme}::jsonb,${sections}::jsonb,false,${userId},${id}) RETURNING id,name,slug,public_key,published`);const storefront=sr.rows[0];await tx.execute(sql`INSERT INTO admin_ai_store_build_artifacts (job_id,requested_by,store_name,store_slug,niche,description,brand,catalog,sourcing_evidence,pricing_strategy,seo,status) VALUES (${id},${userId},${name},${slug},${job.niche},${description},${theme}::jsonb,${JSON.stringify(opportunities)}::jsonb,${JSON.stringify(research.supplierResearch??[])}::jsonb,${JSON.stringify(research.pricingGuidance??[])}::jsonb,${JSON.stringify({targetCustomer:research.targetCustomer??null,competitors:research.competitorSignals??[],sources:research.sources??[]})}::jsonb,'draft') ON CONFLICT (job_id) DO NOTHING`);await tx.execute(sql`UPDATE admin_ai_store_jobs SET status='ready_for_review',build_plan=${JSON.stringify({state:"store_draft_created",storefrontId:storefront?.id,evidenceBacked:true,publicationRequiresReview:true,noFakeProducts:true})}::jsonb,error_message=NULL,completed_at=now(),updated_at=now() WHERE id=${id}`);return{status:201,body:{job:{...job,status:"ready_for_review"},storefront,idempotent:false}};});res.status(result.status).json(result.body);}catch(e){next(e);}});
+router.post("/admin/ai-stores/:id/cancel",async(req,res,next)=>{try{const userId=await requireMasterAdmin(req,res);if(!userId)return;const id=Number(req.params.id);if(!Number.isInteger(id)||id<1){res.status(400).json({error:"Invalid job id"});return;}const result=await db.execute(sql`UPDATE admin_ai_store_jobs SET status='cancelled',updated_at=now() WHERE id=${id} AND status IN ('queued','researching','ready_for_review','building') RETURNING id,status,updated_at`);if(!result.rows.length){res.status(404).json({error:"Active AI store job not found"});return;}res.json({job:result.rows[0],cancelledBy:userId});}catch(e){next(e);}});
 export default router;
