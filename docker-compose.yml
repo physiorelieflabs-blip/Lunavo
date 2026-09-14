@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lunavo
+      POSTGRES_USER: lunavo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - lunavo_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lunavo -d lunavo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  lunavo:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5000}
+      DATABASE_URL: postgres://lunavo:${POSTGRES_PASSWORD}@postgres:5432/lunavo
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+      LUNAVO_MASTER_ADMIN_SETUP_TOKEN: ${LUNAVO_MASTER_ADMIN_SETUP_TOKEN:-}
+      LUNAVO_LOCAL_LLM_URL: ${LUNAVO_LOCAL_LLM_URL:-}
+      LUNAVO_LOCAL_LLM_MODEL: ${LUNAVO_LOCAL_LLM_MODEL:-local-model}
+      LUNAVO_LOCAL_SEARCH_URL: ${LUNAVO_LOCAL_SEARCH_URL:-}
+      LUNAVO_LOCAL_OBJECT_STORAGE_PATH: /data/lunavo
+      FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
+      FLUTTERWAVE_WEBHOOK_SECRET: ${FLUTTERWAVE_WEBHOOK_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports:
+      - "${LUNAVO_PORT:-5000}:5000"
+    volumes:
+      - lunavo_data:/data/lunavo
+
+volumes:
+  lunavo_postgres:
+  lunavo_data:
