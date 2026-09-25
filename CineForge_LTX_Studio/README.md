@@ -1,24 +1,38 @@
-# CineForge LTX Studio
+# CineForge Studio
 
-A local-first AI filmmaking studio combining KupkaProd-style movie orchestration with the official LTX-2.3 local generation pipeline.
+**Made by LN**
 
-## Pipeline
+CineForge is the movie-studio layer for combining established local/open-source video-generation projects into one long-form filmmaking workflow.
 
-Prompt / screenplay -> scene planning -> continuity anchors -> self-contained LTX-2.3 shot prompts -> local generation -> FFmpeg stitching -> final movie.
+## Selected upstream stack
 
-The application does not pretend that one model call creates a multi-hour movie. Long-form output is assembled from many scene/shot generations.
+- **Wan 2.2** — primary video generation engine
+  - https://github.com/Wan-Video/Wan2.2
+- **KupkaProd Cinema Pipeline** — production/orchestration reference
+  - https://github.com/vladimirvalcourt/kupkaprod-cinema-pipeline
+- **HunyuanVideo 1.5** — alternate video engine
+  - https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5
+- **LTX-2** — alternate synchronized audio/video engine
+  - https://github.com/Lightricks/LTX-2
 
-## Run
+## Integration rule
 
-1. Install Python 3.10+ and FFmpeg.
-2. Install this project's requirements.
-3. Install the official LTX-2 repository separately and its LTX-2.3 model assets.
-4. Configure CINEFORGE_LTX_REPO, CINEFORGE_LTX_PYTHON, CINEFORGE_LTX_CHECKPOINT, CINEFORGE_LTX_GEMMA and CINEFORGE_LTX_UPSCALER.
-5. Start the FastAPI app with uvicorn backend.main:app --host 127.0.0.1 --port 8000.
-6. Open the web UI.
+CineForge does **not** replace, rewrite, or retrain these upstream projects. The project is intended to preserve their upstream implementations and licenses while using them as the generation/production building blocks.
 
-The UI footer says Made by LN.
+Long-form films are produced as many shots/scenes and then assembled; a single model inference is not treated as a multi-hour movie generator.
 
-## Important license note
+## GitHub publication
 
-This project is an integration layer. KupkaProd and LTX-2.3 have separate license terms. Keep their original licenses and model terms with any redistribution. Model weights are not included here.
+This project is published in the cineforge-ltx-studio branch of:
+
+https://github.com/physiorelieflabs-blip/Lunavo/tree/cineforge-ltx-studio
+
+The repository is the source-control home for the CineForge integration work. Model weights are not included.
+
+## Licensing
+
+Each upstream project keeps its own license and terms. In particular, KupkaProd has separate commercial licensing terms, and LTX-2 has its own LTX-2 Community License Agreement. Do not redistribute upstream code, weights, or commercial use rights as though they were covered by one common license.
+
+## Current scope
+
+This publication records the selected upstream stack and integration direction without introducing a new, rewritten video-generation implementation.
