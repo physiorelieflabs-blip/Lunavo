@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
 
 from .base import GenerationResult, ProviderError, VideoProvider
 from ..core.models import FilmProject, Shot
@@ -26,7 +29,7 @@ class HFSpaceProvider(VideoProvider):
         if not space:
             raise ProviderError("CINEFORGE_HF_SPACE is required")
 
-        raw_args = os.getenv("CINEFORGE_HF_ARGS_JSON", "[\"__PROMPT__\"]")
+        raw_args = os.getenv("CINEFORGE_HF_ARGS_JSON", '["__PROMPT__"]')
         template = json.loads(raw_args)
         args = []
         for value in template:
@@ -48,12 +51,35 @@ class HFSpaceProvider(VideoProvider):
         client = Client(space)
         result = client.predict(*args, api_name=api_name)
         candidate = result[0] if isinstance(result, (tuple, list)) else result
+
         candidate_path = None
+        candidate_url = None
         if isinstance(candidate, str):
-            candidate_path = candidate
+            parsed = urlparse(candidate)
+            if parsed.scheme in {"http", "https"}:
+                candidate_url = candidate
+            else:
+                candidate_path = Path(candidate)
         elif isinstance(candidate, dict):
-            candidate_path = candidate.get("path") or candidate.get("url")
-        if not candidate_path or not Path(candidate_path).exists():
-            raise ProviderError("HF Space returned no local media path")
-        Path(candidate_path).replace(output)
+            raw_path = candidate.get("path")
+            raw_url = candidate.get("url")
+            if raw_path:
+                candidate_path = Path(raw_path)
+            elif raw_url:
+                candidate_url = raw_url
+
+        if candidate_path and candidate_path.exists():
+            candidate_path.replace(output)
+        elif candidate_url:
+            with httpx.stream("GET", candidate_url, follow_redirects=True, timeout=300.0) as response:
+                response.raise_for_status()
+                with output.open("wb") as handle:
+                    for chunk in response.iter_bytes():
+                        handle.write(chunk)
+        else:
+            raise ProviderError("HF Space returned no usable media path or URL")
+
+        if not output.exists() or output.stat().st_size == 0:
+            raise ProviderError("HF Space completed without a usable media file")
+
         return GenerationResult(provider=self.provider_id, output_path=str(output))
