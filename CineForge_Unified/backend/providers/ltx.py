@@ -13,10 +13,11 @@ class LTXProvider(VideoProvider):
     provider_id = "ltx-2"
 
     def info(self):
-        entry = os.getenv("CINEFORGE_LTX_ENTRY", "")
+        entry = os.getenv("CINEFORGE_LTX_ENTRY", "ltx_pipelines.distilled")
         checkpoint = os.getenv("CINEFORGE_LTX_DISTILLED_CHECKPOINT", "")
         gemma = os.getenv("CINEFORGE_LTX_GEMMA_ROOT", "")
-        return bool(entry and checkpoint and gemma), "Official LTX-2 pipeline CLI adapter"
+        spatial = os.getenv("CINEFORGE_LTX_SPATIAL_UPSAMPLER", "")
+        return bool(entry and checkpoint and gemma and spatial), "Official LTX-2 distilled pipeline adapter"
 
     def generate(self, project: FilmProject, shot: Shot, project_root: Path) -> GenerationResult:
         entry = os.getenv("CINEFORGE_LTX_ENTRY", "ltx_pipelines.distilled")
@@ -31,10 +32,10 @@ class LTXProvider(VideoProvider):
 
         output = project_root / "outputs" / f"shot_{shot.index + 1:04d}.mp4"
         output.parent.mkdir(parents=True, exist_ok=True)
+
         command = [
             os.getenv("CINEFORGE_LTX_PYTHON", sys.executable),
-            "-m",
-            entry,
+            "-m", entry,
             "--distilled-checkpoint-path", checkpoint,
             "--gemma-root", gemma,
             "--spatial-upsampler-path", spatial,
@@ -45,6 +46,16 @@ class LTXProvider(VideoProvider):
             "--output-path", str(output),
             "--prompt", shot.prompt,
         ]
+
+        # The official LTX image-conditioning CLI accepts path/frame/strength.
+        if shot.input_image:
+            command.extend([
+                "--image",
+                shot.input_image,
+                os.getenv("CINEFORGE_LTX_IMAGE_FRAME", "0"),
+                os.getenv("CINEFORGE_LTX_IMAGE_STRENGTH", "1.0"),
+            ])
+
         completed = subprocess.run(command, capture_output=True, text=True)
         if completed.returncode != 0 or not output.exists():
             raise ProviderError(
