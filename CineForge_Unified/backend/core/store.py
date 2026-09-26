@@ -13,12 +13,20 @@ class ProjectStore:
     # Resume-safe persistence pattern adapted from the documented
     # Continuity Studio and Podframes workflows.
     def __init__(self, root: str | None = None):
-        self.root = Path(root or os.getenv("CINEFORGE_DATA_DIR", "data/projects"))
+        self.root = Path(root or os.getenv("CINEFORGE_DATA_DIR", "data/projects")).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
+    def _project_dir(self, project_id: str) -> Path:
+        if not project_id or project_id in {".", ".."} or "/" in project_id or "\" in project_id:
+            raise ValueError("Invalid project id")
+        path = (self.root / project_id).resolve()
+        if path != self.root and self.root not in path.parents:
+            raise ValueError("Invalid project path")
+        return path
+
     def _path(self, project_id: str) -> Path:
-        return self.root / project_id / "project.json"
+        return self._project_dir(project_id) / "project.json"
 
     def save(self, project: FilmProject) -> FilmProject:
         with self._lock:
@@ -34,7 +42,10 @@ class ProjectStore:
         return project
 
     def get(self, project_id: str) -> FilmProject | None:
-        path = self._path(project_id)
+        try:
+            path = self._path(project_id)
+        except ValueError:
+            return None
         if not path.exists():
             return None
         return FilmProject.model_validate_json(path.read_text(encoding="utf-8"))
@@ -55,6 +66,6 @@ class ProjectStore:
         return None
 
     def project_root(self, project_id: str) -> Path:
-        root = self.root / project_id
+        root = self._project_dir(project_id)
         root.mkdir(parents=True, exist_ok=True)
         return root
