@@ -24,22 +24,25 @@ class Renderer:
         ]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0 or not Path(destination).exists():
-            raise RuntimeError(result.stderr[-2000:])
+            raise RuntimeError(result.stderr[-2000:] or "FFmpeg boundary extraction failed")
         return destination
 
     def assemble(self, project: FilmProject) -> str:
-        completed = [
-            s for s in sorted(project.shots, key=lambda x: x.index)
-            if s.status == ShotStatus.COMPLETE and s.output_path
-        ]
-        if not completed:
-            raise RuntimeError("No completed shots are available")
+        ordered = sorted(project.shots, key=lambda x: x.index)
+        if not ordered or any(s.status != ShotStatus.COMPLETE or not s.output_path for s in ordered):
+            raise RuntimeError("Cannot assemble until every shot is complete")
+
+        indexes = [s.index for s in ordered]
+        if indexes != list(range(len(ordered))):
+            raise RuntimeError("Shot indexes are not contiguous from zero")
 
         root = self.store.project_root(project.id)
         concat = root / "concat.txt"
         lines = []
-        for shot in completed:
+        for shot in ordered:
             media = Path(shot.output_path).resolve()
+            if not media.exists() or not media.is_file():
+                raise RuntimeError(f"Missing rendered media for shot {shot.index + 1}")
             escaped = str(media).replace("'", "'\\''")
             lines.append("file '" + escaped + "'")
         concat.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -51,7 +54,7 @@ class Renderer:
             capture_output=True,
             text=True,
         )
-        if direct.returncode == 0:
+        if direct.returncode == 0 and output.exists() and output.stat().st_size > 0:
             return str(output)
 
         fallback = subprocess.run(
@@ -63,6 +66,6 @@ class Renderer:
             capture_output=True,
             text=True,
         )
-        if fallback.returncode != 0:
-            raise RuntimeError(fallback.stderr[-3000:])
+        if fallback.returncode != 0 or not output.exists() or output.stat().st_size == 0:
+            raise RuntimeError(fallback.stderr[-3000:] or "FFmpeg assembly failed")
         return str(output)
