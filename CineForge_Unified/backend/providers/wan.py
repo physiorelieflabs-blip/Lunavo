@@ -14,7 +14,8 @@ class WanProvider(VideoProvider):
 
     def info(self):
         root = os.getenv("CINEFORGE_WAN_ROOT", "")
-        return bool(root), "Wan 2.2 official generate.py adapter"
+        ckpt = os.getenv("CINEFORGE_WAN_CKPT_DIR", "")
+        return bool(root and ckpt), "Wan 2.2 official generate.py adapter"
 
     def generate(self, project: FilmProject, shot: Shot, project_root: Path) -> GenerationResult:
         root = os.getenv("CINEFORGE_WAN_ROOT", "")
