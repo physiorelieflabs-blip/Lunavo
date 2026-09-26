@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +13,8 @@ from .core.planner import build_project
 from .core.store import ProjectStore
 from .providers.comfyui import ComfyUIProvider
 from .providers.hf_space import HFSpaceProvider
+from .providers.hunyuan import HunyuanProvider
+from .providers.ltx import LTXProvider
 from .providers.wan import WanProvider
 from .runner import CineForgeRunner
 
@@ -20,7 +23,21 @@ BASE = Path(__file__).resolve().parent.parent
 WEB = BASE / "web"
 
 store = ProjectStore()
-providers = [WanProvider(), ComfyUIProvider(), HFSpaceProvider()]
+_provider_map = {
+    "huggingface": HFSpaceProvider(),
+    "huggingface-space": HFSpaceProvider(),
+    "comfyui": ComfyUIProvider(),
+    "wan2.2": WanProvider(),
+    "ltx-2": LTXProvider(),
+    "hunyuanvideo-1.5": HunyuanProvider(),
+}
+providers = [
+    _provider_map["huggingface-space"],
+    _provider_map["comfyui"],
+    _provider_map["wan2.2"],
+    _provider_map["ltx-2"],
+    _provider_map["hunyuanvideo-1.5"],
+]
 runner = CineForgeRunner(store, providers)
 
 app = FastAPI(title="CineForge Unified", version="1.0.0")
