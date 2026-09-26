@@ -21,6 +21,7 @@ button.secondary{background:#232c39;color:#edf1f7}
 .shots{display:grid;gap:10px;max-height:560px;overflow:auto}
 .shot{padding:12px;border:1px solid #27303c;border-radius:12px;background:#0d1118}
 .bar{height:8px;border-radius:99px;background:#222936;overflow:hidden}.fill{height:100%;background:#89a9ff}
+a.download{display:inline-block;padding:11px 15px;border-radius:10px;background:#7ea5ff;color:#07101f;text-decoration:none;font-weight:800}
 </style>
 </head>
 <body>
@@ -51,6 +52,7 @@ button.secondary{background:#232c39;color:#edf1f7}
 <div class="bar"><div id="fill" class="fill" style="width:0%"></div></div>
 <div id="status" class="sub" style="margin:8px 0 14px"></div>
 <div id="shots" class="shots"></div>
+<div id="download"></div>
 <pre id="log"></pre>
 </section>
 </div>
@@ -74,6 +76,9 @@ function render(){
   shots.innerHTML=current.shots.map(function(s){
     return '<div class="shot"><b>Shot '+(s.index+1)+'</b> <span class="pill">'+s.status+'</span><div class="sub">'+s.duration_seconds+'s · '+s.continuation_mode+'</div><div>'+s.prompt.slice(0,280)+'</div></div>';
   }).join("");
+  download.innerHTML=current.assembly_path && current.status==="complete"
+    ? '<a class="download" href="/api/projects/'+encodeURIComponent(current.id)+'/final">Download final movie</a>'
+    : '';
 }
 async function loadProviders(){
   const p=await api("/api/providers");
@@ -106,8 +111,12 @@ next.onclick=async function(){
 };
 assemble.onclick=async function(){
   if(!current)return;
-  try{const r=await api("/api/projects/"+current.id+"/assemble",{method:"POST"});log.textContent="Final movie: "+r.output_path;}
-  catch(e){log.textContent=e.message;}
+  try{
+    const r=await api("/api/projects/"+current.id+"/assemble",{method:"POST"});
+    log.textContent="Final movie ready.";
+    current=await api("/api/projects/"+current.id);
+    render();
+  }catch(e){log.textContent=e.message;}
 };
 loadProviders();loadProjects();
 </script>
