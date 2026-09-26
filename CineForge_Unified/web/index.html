@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CineForge Unified</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#080a0f;color:#f5f7fb}
+body{margin:0;background:radial-gradient(circle at top,#192334,#080a0f 55%);min-height:100vh}
+main{max-width:1200px;margin:auto;padding:32px}
+h1{font-size:42px;margin:0 0 8px}.sub{color:#9ca8bb}
+.grid{display:grid;grid-template-columns:360px 1fr;gap:20px;margin-top:24px}
+.card{background:#11161f;border:1px solid #283141;border-radius:18px;padding:20px;box-shadow:0 12px 40px #0005}
+label{display:block;margin:12px 0 6px;color:#b9c2d0}
+input,textarea{width:100%;box-sizing:border-box;background:#0a0e14;border:1px solid #303948;color:#fff;border-radius:10px;padding:11px}
+textarea{min-height:140px;resize:vertical}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+button{border:0;border-radius:10px;padding:11px 15px;background:#edf1f7;color:#111;font-weight:800;cursor:pointer}
+button.secondary{background:#232c39;color:#edf1f7}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#202a38;color:#b8c3d4;font-size:12px}
+.shots{display:grid;gap:10px;max-height:560px;overflow:auto}
+.shot{padding:12px;border:1px solid #27303c;border-radius:12px;background:#0d1118}
+.bar{height:8px;border-radius:99px;background:#222936;overflow:hidden}.fill{height:100%;background:#89a9ff}
+</style>
+</head>
+<body>
+<main>
+<h1>🎬 CineForge</h1>
+<div class="sub">Long-form AI filmmaking · continuity memory · resume-safe generation · Made by LN</div>
+<div class="grid">
+<section class="card">
+<h2>Create film</h2>
+<label>Title</label><input id="title" value="My AI Movie">
+<label>Story / script / brief</label><textarea id="brief" placeholder="Describe the movie..."></textarea>
+<label>Movie length in seconds</label><input id="duration" type="number" min="1" value="60">
+<label>Shot length in seconds</label><input id="shot" type="number" min="2" max="20" value="8">
+<label>Visual style</label><input id="style" value="cinematic realism">
+<div class="row" style="margin-top:14px">
+<button id="create">Create project</button>
+<button class="secondary" id="refresh">Refresh</button>
+</div>
+<hr style="border-color:#283141;margin:20px 0">
+<h3>Backends</h3><div id="providers"></div>
+<div class="sub" style="margin-top:10px">GPU is optional for the CineForge studio. Generation can run on a configured remote provider.</div>
+</section>
+<section class="card">
+<div class="row" style="justify-content:space-between;align-items:center">
+<div><h2 id="projectTitle">No project</h2><div id="projectMeta" class="sub"></div></div>
+<div class="row"><button id="next">Generate next</button><button class="secondary" id="assemble">Assemble</button></div>
+</div>
+<div class="bar"><div id="fill" class="fill" style="width:0%"></div></div>
+<div id="status" class="sub" style="margin:8px 0 14px"></div>
+<div id="shots" class="shots"></div>
+<pre id="log"></pre>
+</section>
+</div>
+<div class="sub" style="margin-top:22px">Model weights and provider credentials are not bundled.</div>
+</main>
+<script>
+let current=null;
+async function api(url,options){
+  const r=await fetch(url,options||{});
+  const text=await r.text();
+  if(!r.ok) throw new Error(text||("HTTP "+r.status));
+  return text?JSON.parse(text):{};
+}
+function render(){
+  if(!current) return;
+  projectTitle.textContent=current.title;
+  projectMeta.textContent=current.duration_seconds+"s movie · "+current.shots.length+" shots · "+current.status;
+  const done=current.shots.filter(function(s){return s.status==="complete";}).length;
+  fill.style.width=(done/Math.max(1,current.shots.length)*100)+"%";
+  status.textContent="Progress: "+done+"/"+current.shots.length+" shots";
+  shots.innerHTML=current.shots.map(function(s){
+    return '<div class="shot"><b>Shot '+(s.index+1)+'</b> <span class="pill">'+s.status+'</span><div class="sub">'+s.duration_seconds+'s · '+s.continuation_mode+'</div><div>'+s.prompt.slice(0,280)+'</div></div>';
+  }).join("");
+}
+async function loadProviders(){
+  const p=await api("/api/providers");
+  providers.innerHTML=p.map(function(x){
+    return '<div class="shot"><b>'+x.id+'</b><br><span class="pill">'+(x.available?"READY":"NOT CONFIGURED")+'</span><div class="sub">'+x.description+'</div></div>';
+  }).join("");
+}
+async function loadProjects(){
+  const p=await api("/api/projects");
+  if(!current && p.length){current=p[0];render();}
+}
+create.onclick=async function(){
+  if(!brief.value.trim()) return alert("Enter a story or brief.");
+  try{
+    current=await api("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      title:title.value,brief:brief.value,duration_seconds:Number(duration.value),
+      shot_seconds:Number(shot.value),style:style.value
+    })});
+    render();
+  }catch(e){log.textContent=e.message;}
+};
+refresh.onclick=async function(){
+  try{await loadProviders();await loadProjects();if(current){current=await api("/api/projects/"+current.id);render();}}catch(e){log.textContent=e.message;}
+};
+next.onclick=async function(){
+  if(!current)return alert("Create a project first.");
+  log.textContent="Generating next incomplete shot...";
+  try{current=await api("/api/projects/"+current.id+"/next",{method:"POST"});render();}
+  catch(e){log.textContent=e.message;current=await api("/api/projects/"+current.id);render();}
+};
+assemble.onclick=async function(){
+  if(!current)return;
+  try{const r=await api("/api/projects/"+current.id+"/assemble",{method:"POST"});log.textContent="Final movie: "+r.output_path;}
+  catch(e){log.textContent=e.message;}
+};
+loadProviders();loadProjects();
+</script>
+</body>
+</html>
