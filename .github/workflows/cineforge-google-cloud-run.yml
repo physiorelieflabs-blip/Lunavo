@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -41,6 +41,8 @@ jobs:
             --timeout=3600s
             --memory=1Gi
             --cpu=1
+            --max=1
+            --add-volume=mount-path=/app/data,type=cloud-storage,bucket=${{ vars.GCP_DATA_BUCKET }},readonly=false
 
       - name: Show live URL
         run: echo "CineForge URL: ${{ steps.deploy.outputs.url }}"
