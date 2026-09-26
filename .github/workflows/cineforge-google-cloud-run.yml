@@ -1,0 +1,46 @@
+name: Deploy CineForge to Google Cloud Run
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "CineForge_Unified/**"
+      - ".github/workflows/cineforge-google-cloud-run.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy CineForge
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: cineforge
+          source: ./CineForge_Unified
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          region: ${{ vars.GCP_REGION || 'europe-west1' }}
+          flags: >-
+            --allow-unauthenticated
+            --execution-environment=gen2
+            --timeout=3600s
+            --memory=1Gi
+            --cpu=1
+
+      - name: Show live URL
+        run: echo "CineForge URL: ${{ steps.deploy.outputs.url }}"
