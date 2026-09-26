@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -51,6 +50,21 @@ app.add_middleware(
 
 if WEB.exists():
     app.mount("/assets", StaticFiles(directory=WEB), name="assets")
+
+
+def _safe_project_file(project_id: str, stored_path: str | None) -> Path:
+    if not stored_path:
+        raise HTTPException(404, "Movie has not been assembled")
+    try:
+        root = store.project_root(project_id).resolve()
+    except ValueError:
+        raise HTTPException(404, "Project not found")
+    candidate = Path(stored_path).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise HTTPException(403, "File is outside project workspace")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(404, "Movie file not found")
+    return candidate
 
 
 @app.get("/")
@@ -118,3 +132,16 @@ def assemble(project_id: str):
         raise HTTPException(404, "Project not found")
     except Exception as exc:
         raise HTTPException(409, str(exc))
+
+
+@app.get("/api/projects/{project_id}/final")
+def final_movie(project_id: str):
+    project = store.get(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    media = _safe_project_file(project_id, project.assembly_path)
+    return FileResponse(
+        media,
+        media_type="video/mp4",
+        filename=f"{project.title or 'cineforge_movie'}.mp4",
+    )
