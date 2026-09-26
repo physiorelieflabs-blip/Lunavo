@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..core.models import FilmProject, Shot
 
@@ -11,7 +11,7 @@ from ..core.models import FilmProject, Shot
 class GenerationResult(BaseModel):
     provider: str
     output_path: str
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
 
 
 class ProviderError(RuntimeError):
