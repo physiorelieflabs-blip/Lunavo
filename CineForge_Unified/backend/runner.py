@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import threading
 
 from .core.models import Attempt, ProjectStatus, ShotStatus
 from .core.store import ProjectStore
@@ -13,6 +14,16 @@ class CineForgeRunner:
         self.store = store
         self.providers = providers
         self.renderer = Renderer(store)
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, project_id: str) -> threading.Lock:
+        with self._locks_guard:
+            lock = self._locks.get(project_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[project_id] = lock
+            return lock
 
     def choose_provider(self) -> VideoProvider:
         for provider in self.providers:
@@ -20,10 +31,15 @@ class CineForgeRunner:
             if available:
                 return provider
         raise ProviderError(
-            "No configured provider. Configure Wan 2.2, ComfyUI, or a Hugging Face Space."
+            "No configured provider. Configure Wan 2.2, ComfyUI, "
+            "Hugging Face Space, LTX-2, or HunyuanVideo."
         )
 
     def generate_next(self, project_id: str):
+        with self._lock_for(project_id):
+            return self._generate_next_locked(project_id)
+
+    def _generate_next_locked(self, project_id: str):
         project = self.store.get(project_id)
         if not project:
             raise KeyError(project_id)
@@ -86,10 +102,12 @@ class CineForgeRunner:
             raise
 
     def assemble(self, project_id: str) -> str:
-        project = self.store.get(project_id)
-        if not project:
-            raise KeyError(project_id)
-        output = self.renderer.assemble(project)
-        project.assembly_path = output
-        self.store.save(project)
-        return output
+        with self._lock_for(project_id):
+            project = self.store.get(project_id)
+            if not project:
+                raise KeyError(project_id)
+            output = self.renderer.assemble(project)
+            project.assembly_path = output
+            project.status = ProjectStatus.COMPLETE
+            self.store.save(project)
+            return output
