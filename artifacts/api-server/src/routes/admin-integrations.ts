@@ -13,6 +13,25 @@ const router: IRouter = Router();
 const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
+async function getFlutterwaveStatus() {
+  const result = await db.execute(sql`
+    SELECT credential_mode, updated_at
+    FROM platform_integrations
+    WHERE provider = 'flutterwave'
+    LIMIT 1
+  `);
+  const row = result.rows[0] as { credential_mode?: string; updated_at?: string } | undefined;
+  const configured = Boolean(row) || isFlutterwaveConfigured();
+
+  return {
+    connected: configured,
+    needsSetup: !configured,
+    mode: row?.credential_mode ?? flutterwaveCredentialMode(),
+    updatedAt: row?.updated_at ?? null,
+    provider: "flutterwave",
+  };
+}
+
 async function requireAdmin(req: Request, res: Response) {
   const auth = getAuth(req);
   if (!auth?.userId) {
@@ -30,24 +49,18 @@ async function requireAdmin(req: Request, res: Response) {
   return true;
 }
 
+router.get("/setup/status", async (_req, res, next) => {
+  try {
+    res.json(await getFlutterwaveStatus());
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/admin/integrations/flutterwave", async (req, res, next) => {
   try {
     if (!(await requireAdmin(req, res))) return;
-
-    const result = await db.execute(sql`
-      SELECT credential_mode, updated_at
-      FROM platform_integrations
-      WHERE provider = 'flutterwave'
-      LIMIT 1
-    `);
-    const row = result.rows[0] as { credential_mode?: string; updated_at?: string } | undefined;
-
-    res.json({
-      connected: Boolean(row) || isFlutterwaveConfigured(),
-      mode: row?.credential_mode ?? flutterwaveCredentialMode(),
-      updatedAt: row?.updated_at ?? null,
-      provider: "flutterwave",
-    });
+    res.json(await getFlutterwaveStatus());
   } catch (error) {
     next(error);
   }
@@ -94,6 +107,7 @@ router.put("/admin/integrations/flutterwave", async (req, res, next) => {
 
       res.json({
         connected: true,
+        needsSetup: false,
         mode,
         provider: "flutterwave",
         status: connection.status,
