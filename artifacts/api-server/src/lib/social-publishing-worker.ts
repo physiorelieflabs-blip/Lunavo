@@ -95,11 +95,27 @@ async function refreshAccessToken(connection: Connection): Promise<{ connection:
     if (!clientId || !clientSecret) throw new SocialPublishError("TikTok OAuth refresh is not configured");
     tokenUrl = "https://open.tiktokapis.com/v2/oauth/token/";
     body = new URLSearchParams({ client_key: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" });
+  } else if (connection.provider === "x") {
+    const clientId = process.env.SOCIAL_X_CLIENT_ID?.trim();
+    const clientSecret = process.env.SOCIAL_X_CLIENT_SECRET?.trim();
+    if (!clientId || !clientSecret) throw new SocialPublishError("X OAuth refresh is not configured");
+    tokenUrl = "https://api.x.com/2/oauth2/token";
+    body = new URLSearchParams({ client_id: clientId, refresh_token: refreshToken, grant_type: "refresh_token" });
   } else {
     return { connection, accessToken };
   }
 
+  const refreshHeaders: Record<string,string> = { "content-type": "application/x-www-form-urlencoded" };
+  if (connection.provider === "x") {
+    const clientId = process.env.SOCIAL_X_CLIENT_ID?.trim();
+    const clientSecret = process.env.SOCIAL_X_CLIENT_SECRET?.trim();
+    if (clientId && clientSecret) refreshHeaders.authorization = "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  }
   const payload = await providerRequest(tokenUrl, {
+    method: "POST",
+    headers: refreshHeaders,
+    body,
+  });
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
@@ -151,6 +167,21 @@ async function loadMedia(job: Job): Promise<{ bytes: Buffer; mimeType: string; f
     return { bytes: base64Bytes(creative.videoData), mimeType: creative.mimeType || "video/mp4", filename: `${(creative.title || "lunavo-creative").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 80)}.mp4` };
   }
   return null;
+}
+
+async function publishX(token: string, job: Job, media: { bytes: Buffer; mimeType: string; filename: string } | null): Promise<string> {
+  if (media) throw new SocialPublishError("X publishing currently supports text-only jobs; media remains provider-gated");
+  const text = (job.caption || "").trim();
+  if (!text) throw new SocialPublishError("X publishing requires a caption");
+  if (Array.from(text).length > 280) throw new SocialPublishError("X text posts are limited to 280 characters in Lunavo");
+  const payload = await providerRequest("https://api.x.com/2/tweets", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  const data = payload.data && typeof payload.data === "object" ? payload.data as Record<string, unknown> : {};
+  if (typeof data.id !== "string") throw new SocialPublishError("X did not return a post id");
+  return data.id;
 }
 
 async function publishYouTube(token: string, job: Job, media: { bytes: Buffer; mimeType: string; filename: string }): Promise<string> {
@@ -304,6 +335,8 @@ async function publishJob(job: Job, connection: Connection, token: string, media
     case "linkedin":
       if (media) throw new SocialPublishError("LinkedIn media publishing is not enabled in this queue yet; use a text-only LinkedIn job");
       return publishLinkedIn(token, connection, job);
+    case "x":
+      return publishX(token, job, media);
     case "facebook":
     case "instagram":
     case "pinterest":
