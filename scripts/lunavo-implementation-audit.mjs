@@ -60,6 +60,26 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){
 }
 for(const p of authSurfaceFiles){const source=await optional(p);if(/from ["'](clerk\/express|clerk\/react|clerk\/shared)["']/.test(source))failures.push(`Non-workspace hosted auth package import remains: ${p}`)}
 const transferRoute=await optional("artifacts/api-server/src/routes/ts-pay-transfers.ts");for(const m of ["tsPayAvailableMinor","ORDER BY id FOR UPDATE","ledger_entries"])if(!transferRoute.includes(m))failures.push(`TS Pay hold-safe transfer invariant missing: ${m}`);
+const orderRoute=await read("artifacts/api-server/src/routes/commerce.ts");
+for(const m of [
+  'const supplierProductId = parsed.data.supplierProductId',
+  'supplierProduct.sellingPrice',
+  'const totalMinor = unitPriceMinor * quantity',
+  'submittedTotalMinor !== totalMinor',
+  'inventoryReservationsTable',
+  'status: "pending"',
+]) if(!orderRoute.includes(m)) failures.push(`Merchant order pricing/inventory invariant missing: ${m}`);
+if((orderRoute.match(/router\.post\\("\/auth\/verify-email"/g) || []).length > 1) failures.push("Duplicate email verification route remains");
+const providerClient=await read("artifacts/api-server/src/lib/flutterwave-client.ts");
+for(const m of ["getStoredFlutterwaveCredentials","secretKeyOverride","verifyFlutterwaveWebhookSignatureAsync"]) if(!providerClient.includes(m)) failures.push(`Flutterwave runtime credential invariant missing: ${m}`);
+if(providerClient.includes('process.env.FLUTTERWAVE_SECRET_KEY=') || providerClient.includes('process.env.FLUTTERWAVE_WEBHOOK_SECRET=')) failures.push("Flutterwave client must not mutate process.env at runtime");
+const providerRuntime=await read("artifacts/api-server/src/lib/flutterwave-runtime.ts");
+for(const m of ["primeFlutterwaveCredentialCache","cachedFlutterwaveSecretKey","CACHE_TTL_MS"]) if(!providerRuntime.includes(m)) failures.push(`Flutterwave vault cache invariant missing: ${m}`);
+const providerAdmin=await read("artifacts/api-server/src/routes/admin-integrations.ts");
+for(const m of ["checkFlutterwaveConnection(apiKey)","primeFlutterwaveCredentialCache","flutterwave_credentials_rotated"]) if(!providerAdmin.includes(m)) failures.push(`Flutterwave credential rotation invariant missing: ${m}`);
+if(/process\.env\.FLUTTERWAVE_(SECRET_KEY|WEBHOOK_SECRET)\s*=/.test(providerAdmin)) failures.push("Admin integration must not mutate process.env during credential rotation");
+const webConfig=await read("artifacts/ts-commerce/vite.config.ts");
+if(webConfig.includes("allowedHosts: true")) failures.push("Vite host allowlisting must not allow every host");
 const processor=await optional("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");for(const m of ["marketplace-ad-dashboard","subscription-dashboard","balanceImpact"])if(!processor.includes(m))failures.push(`External expense dashboard invariant missing: ${m}`);
 // Post-hardening invariants: these are source-level contracts, not feature counts.
 const localAuth=await read("artifacts/api-server/src/lib/local-auth.ts");
