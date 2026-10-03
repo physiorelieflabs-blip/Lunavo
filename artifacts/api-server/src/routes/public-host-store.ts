@@ -46,7 +46,7 @@ router.get("/public/store/by-host", async (req, res, next): Promise<void> => {
         .limit(1)
     )[0];
 
-    if (!domain) {
+    if (!domain || !domain.storefrontId) {
       res.status(404).json({ error: "No public storefront is mapped to this host" });
       return;
     }
