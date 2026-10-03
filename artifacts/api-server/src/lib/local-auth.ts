@@ -68,7 +68,7 @@ async function deliverEmailVerificationCode(email:string,code:string){
       // SMTP is optional; fall through to the self-hosted local outbox rather than leaving a newly-created account unverifiable.
     }
   }
-  const root=process.env.LUNAVO_LOCAL_OBJECT_STORAGE_PATH?.trim()||"./data/lunavo";
+  const root=process.env.LUNAVO_LOCAL_OBJECT_STORAGE_PATH?.trim()||(process.env.NODE_ENV==="production"?"/data/lunavo":"./data/lunavo");
   const outbox=path.join(root,"mail-outbox");
   await mkdir(outbox,{recursive:true});
   await writeFile(path.join(outbox,Date.now()+"-"+randomUUID()+".eml"),"From: "+from+"\nTo: "+email+"\nSubject: "+subject+"\n\n"+text+"\n",{mode:0o600});
