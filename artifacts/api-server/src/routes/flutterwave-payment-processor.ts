@@ -9,6 +9,7 @@ import {
   ordersTable,
   marketplaceBillingRecordsTable,
   marketplaceListingsTable,
+  marketplaceDiscoveryEventsTable,
   paymentIntentsTable,
   paymentRecordsTable,
   paymentsTable,
@@ -338,6 +339,15 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
+    if (order.supplierProductId) {
+      await tx.insert(marketplaceDiscoveryEventsTable).values({
+        productId: String(order.supplierProductId),
+        orderId: order.id,
+        customerId: order.customerId,
+        eventType: "purchase",
+        metadata: { source: "verified_flutterwave_payment", paymentIntentId: currentIntent.id, amountMinor: intent.amountMinor, currency },
+      }).onConflictDoNothing();
+    }
     if (order.supplierProductId && supplierProduct) {
       const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
       if (autoDs?.enabled) {
