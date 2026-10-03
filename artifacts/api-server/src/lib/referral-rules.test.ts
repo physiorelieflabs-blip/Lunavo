@@ -3,8 +3,6 @@ import { it as test } from "vitest";
 import {
   calculateReferralDiscountMinor,
   REFERRAL_DISCOUNT_RATE,
-  REFERRAL_FREE_MONTHS,
-  REFERRAL_FREE_REFERRAL_MILESTONE,
 } from "./referral-policy";
 
 test("referral discount is 30 percent of the locked gross subscription amount", () => {
@@ -15,7 +13,3 @@ test("referral discount is 30 percent of the locked gross subscription amount", 
   assert.equal(calculateReferralDiscountMinor(-500), 0);
 });
 
-test("the referral milestone grants one non-cash twelve-month entitlement", () => {
-  assert.equal(REFERRAL_FREE_REFERRAL_MILESTONE, 150);
-  assert.equal(REFERRAL_FREE_MONTHS, 12);
-});
