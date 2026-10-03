@@ -1137,7 +1137,6 @@ export const CreateOrderBody = zod.object({
   "customerPhone": zod.string().max(createOrderBodyCustomerPhoneMax).optional(),
   "total": zod.number().gt(createOrderBodyTotalExclusiveMin),
   "quantity": zod.int().min(1).max(createOrderBodyQuantityMax).optional(),
-  "status": zod.enum(['pending', 'paid', 'fulfilled']).optional(),
   "orderNumber": zod.string().min(createOrderBodyOrderNumberMin).max(createOrderBodyOrderNumberMax).optional(),
   "idempotencyKey": zod.string().min(createOrderBodyIdempotencyKeyMin).max(createOrderBodyIdempotencyKeyMax).optional(),
   "supplierProductId": zod.int().min(1).optional(),
@@ -1169,7 +1168,7 @@ export const CreateOrderResponse = zod.object({
 
 
 /**
- * @summary Confirm or cancel a recorded customer order
+ * @summary Cancel a recorded customer order
  */
 export const UpdateOrderStatusParams = zod.object({
   "id": zod.coerce.number().int()
