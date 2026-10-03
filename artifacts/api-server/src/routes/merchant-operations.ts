@@ -117,7 +117,7 @@ router.post("/merchant/operations/bookings",async(req,res,next)=>{
       const result=await db.execute(sql`INSERT INTO service_bookings (merchant_id,customer_id,service_name,starts_at,ends_at,timezone,status,notes,idempotency_key,created_by) VALUES (${ctx.merchantId},${customerId},${serviceName},${startsAt},${endsAt},${timezone},'requested',${notes},${key},${ctx.userId}) ON CONFLICT (merchant_id,idempotency_key) DO NOTHING RETURNING id`);
       if(!result.rows.length){const prior=await db.execute(sql`SELECT id FROM service_bookings WHERE merchant_id=${ctx.merchantId} AND idempotency_key=${key} LIMIT 1`);return res.json({id:(prior.rows[0] as any)?.id,replayed:true});}
       const id=String((result.rows[0] as any).id);await audit(ctx.merchantId,ctx.userId,"booking.created","service_booking",id);res.status(201).json({id});
-    }catch(e:any){if(String(e?.message||e).includes("service_bookings_no_overlap"))return fail(res,409,"The requested time overlaps an active booking");throw e;}
+    }catch(e:any){if(String(e?.message||e).includes("overlaps an active booking"))return fail(res,409,"The requested time overlaps an active booking");throw e;}
   }catch(e){next(e);}
 });
 router.patch("/merchant/operations/bookings/:id",async(req,res,next)=>{
