@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { it as test } from "vitest";
 import {
   flutterwaveAmount,
+  flutterwavePaymentOptionsForCurrency,
   flutterwaveCredentialMode,
   flutterwaveStatus,
   flutterwaveTransactionId,
@@ -42,4 +43,14 @@ test("Flutterwave webhook signatures accept the configured hash and HMAC form on
   assert.equal(verifyFlutterwaveWebhookSignature(rawBody, undefined, "wrong-secret"), false);
   if (previous === undefined) delete process.env.FLUTTERWAVE_WEBHOOK_SECRET;
   else process.env.FLUTTERWAVE_WEBHOOK_SECRET = previous;
+});
+
+test("Flutterwave payment capabilities are currency-specific", () => {
+  assert.equal(flutterwavePaymentOptionsForCurrency("NGN"), "card,account,banktransfer,ussd,nqr,opay");
+  assert.equal(flutterwavePaymentOptionsForCurrency("GHS"), "card,mobilemoneyghana");
+  assert.equal(flutterwavePaymentOptionsForCurrency("KES"), "card,mpesa");
+  assert.equal(flutterwavePaymentOptionsForCurrency("GBP"), "card,account");
+  assert.equal(flutterwavePaymentOptionsForCurrency("EUR"), "card,account");
+  assert.equal(flutterwavePaymentOptionsForCurrency("ZAR"), "card,account");
+  assert.equal(flutterwavePaymentOptionsForCurrency("UNKNOWN"), "card");
 });
