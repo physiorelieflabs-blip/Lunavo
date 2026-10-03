@@ -98,6 +98,21 @@ async function flutterwaveRequest<T>(
   return payload as T;
 }
 
+export const FLUTTERWAVE_PAYMENT_METHODS_BY_CURRENCY: Record<string, readonly string[]> = {
+  NGN: ["card","account","banktransfer","ussd","nqr","opay"],
+  GHS: ["card","mobilemoneyghana"],
+  KES: ["card","mpesa"],
+  ZAR: ["card","account"],
+  GBP: ["card","account"],
+  EUR: ["card","account"],
+  USD: ["card","account"],
+} as const;
+
+export function flutterwavePaymentOptionsForCurrency(currency: string): string {
+  const code = currency.trim().toUpperCase();
+  return [...(FLUTTERWAVE_PAYMENT_METHODS_BY_CURRENCY[code] ?? ["card"])].join(",");
+}
+
 export const FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES = ["NGN", "GHS"] as const;
 
 export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean {
@@ -159,7 +174,7 @@ export async function initializeFlutterwavePayment(input: {
       amount: Number(input.amount.toFixed(2)),
       currency: input.currency.toUpperCase(),
       redirect_url: input.redirectUrl,
-       payment_options: input.paymentOptions ?? "card,banktransfer,ussd,mobilemoney",
+       payment_options: input.paymentOptions ?? flutterwavePaymentOptionsForCurrency(input.currency),
       customer: input.customer,
       customizations: { title: input.title.slice(0, 120), description: "Secure payment powered by Lunavo" },
       meta: input.meta,
