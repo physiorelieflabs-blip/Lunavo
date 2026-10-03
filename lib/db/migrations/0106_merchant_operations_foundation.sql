@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS service_bookings_merchant_starts_idx ON service_booki
 CREATE OR REPLACE FUNCTION lunavo_guard_service_booking_overlap()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   IF NEW.status IN ('requested','confirmed','rescheduled') THEN
     PERFORM pg_advisory_xact_lock(18427, NEW.merchant_id);
@@ -73,7 +73,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS service_bookings_overlap_guard ON service_bookings;
 CREATE TRIGGER service_bookings_overlap_guard
