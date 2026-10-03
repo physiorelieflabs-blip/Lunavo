@@ -5,8 +5,6 @@
  * TS Commerce Plattform merchant and master-admin operations
  * OpenAPI spec version: 0.1.0
  */
-import type { CreateOrderInputStatus } from './createOrderInputStatus';
-
 export interface CreateOrderInput {
   /**
      * @minLength 2
@@ -23,7 +21,6 @@ export interface CreateOrderInput {
      * @maximum 100
      */
   quantity?: number;
-  status?: CreateOrderInputStatus;
   /**
      * @minLength 2
      * @maxLength 80
