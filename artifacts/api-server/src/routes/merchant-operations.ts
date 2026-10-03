@@ -132,9 +132,21 @@ router.get("/merchant/operations/returns",async(req,res,next)=>{
 router.post("/merchant/operations/returns",async(req,res,next)=>{
   try{const ctx=await merchantFor(req,res,"orders.manage");if(!ctx)return;const orderId=integerValue(req.body?.orderId,1,2147483647), reason=textValue(req.body?.reason,1,2000);const amount=integerValue(req.body?.amountMinor,1,2147483647);
     if(!orderId||!reason||!amount)return fail(res,400,"Order, reason, and a positive requested amount are required");
-    const order=await orderForMerchant(ctx.merchantId,orderId);if(!order)return fail(res,404,"Order not found");
-    const totalMinor=Math.round(Number(order.total)*100);if(!Number.isSafeInteger(totalMinor)||amount>totalMinor)return fail(res,400,"Requested return amount cannot exceed the order total");
-    const id=randomUUID();await db.execute(sql`INSERT INTO return_requests (id,merchant_id,order_id,customer_id,reason,requested_amount_minor,currency,requested_by) VALUES (${id},${ctx.merchantId},${orderId},${order.customer_id},${reason},${amount},${String(order.currency).toUpperCase()},${ctx.userId})`);
+    const id=randomUUID();
+    const result=await db.transaction(async (tx)=>{
+      const order=(await tx.execute(sql`SELECT id,customer_id,total,currency FROM orders WHERE id=${orderId} AND merchant_id=${ctx.merchantId} LIMIT 1 FOR UPDATE`)).rows[0] as any;
+      if(!order) return {kind:"not_found" as const};
+      const totalMinor=Math.round(Number(order.total)*100);
+      if(!Number.isSafeInteger(totalMinor)||amount>totalMinor) return {kind:"invalid_amount" as const};
+      const active=(await tx.execute(sql`SELECT COALESCE(SUM(requested_amount_minor),0)::bigint AS requested_minor FROM return_requests WHERE merchant_id=${ctx.merchantId} AND order_id=${orderId} AND status IN ('requested','approved','inspection')`)).rows[0] as any;
+      const alreadyRequested=Number(active?.requested_minor ?? 0);
+      if(!Number.isSafeInteger(alreadyRequested)||alreadyRequested+amount>totalMinor) return {kind:"aggregate_limit" as const};
+      await tx.execute(sql`INSERT INTO return_requests (id,merchant_id,order_id,customer_id,reason,requested_amount_minor,currency,requested_by) VALUES (${id},${ctx.merchantId},${orderId},${order.customer_id},${reason},${amount},${String(order.currency).toUpperCase()},${ctx.userId})`);
+      return {kind:"created" as const};
+    });
+    if(result.kind==="not_found") return fail(res,404,"Order not found");
+    if(result.kind==="invalid_amount") return fail(res,400,"Requested return amount cannot exceed the order total");
+    if(result.kind==="aggregate_limit") return fail(res,400,"Open return requests already reserve the available order refund amount");
     await audit(ctx.merchantId,ctx.userId,"return.requested","return_request",id);res.status(201).json({id,status:"requested",refundBoundary:"TS Pay/provider refund flow"});
   }catch(e){next(e);}
 });
