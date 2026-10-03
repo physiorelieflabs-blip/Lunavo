@@ -16,6 +16,7 @@ setInterval(()=>{const cutoff=Date.now()-10*60*1000;for(const[key,value]of rateB
 const customDomainCache=new Map<string,{found:boolean;expiresAt:number}>();
 function normalizeHost(value:string){const raw=value.trim().toLowerCase();if(!raw)return "";try{return new URL(raw.includes("://")?raw:`https://${raw}`).hostname.replace(/^www\./,"");}catch{return raw.replace(/^https?:\/\//,"").split("/")[0].replace(/^www\./,"");}}
 app.disable("x-powered-by");
+app.use(authenticateRequest);
 app.use((req,res,next)=>{
   if((req.method==="GET"||req.method==="HEAD"||req.method==="OPTIONS") || req.path.startsWith("/api/webhooks/")) { next(); return; }
   const fetchSite=req.get("sec-fetch-site")?.toLowerCase();
