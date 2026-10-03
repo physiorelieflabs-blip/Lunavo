@@ -136,3 +136,8 @@ CREATE TABLE IF NOT EXISTS b2b_price_rules (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS b2b_price_rules_unique ON b2b_price_rules(b2b_account_id,supplier_product_id,minimum_quantity);
 CREATE INDEX IF NOT EXISTS b2b_price_rules_merchant_idx ON b2b_price_rules(merchant_id,b2b_account_id);
+
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS idempotency_key text;
+UPDATE purchase_orders SET idempotency_key = gen_random_uuid()::text WHERE idempotency_key IS NULL;
+ALTER TABLE purchase_orders ALTER COLUMN idempotency_key SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS purchase_orders_merchant_idempotency_unique ON purchase_orders(merchant_id,idempotency_key);
