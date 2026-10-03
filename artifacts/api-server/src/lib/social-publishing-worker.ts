@@ -116,10 +116,6 @@ async function refreshAccessToken(connection: Connection): Promise<{ connection:
     headers: refreshHeaders,
     body,
   });
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
-  });
   if (typeof payload.access_token !== "string") throw new SocialPublishError("Provider token refresh returned no access token");
   const nextToken = payload.access_token;
   const nextRefresh = typeof payload.refresh_token === "string" ? payload.refresh_token : refreshToken;
