@@ -21,6 +21,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
+import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
 import {
   activityTable,
@@ -5088,43 +5089,6 @@ router.put("/ai/settings", async (req, res): Promise<void> => {
         .where(eq(aiSettingsTable.id, settings.id))
         .returning();
       if (!saved) throw new Error("AI settings could not be saved");
-      // Merchant-created product orders follow the same reservation boundary as public checkout.
-      // The product row is locked above, so simultaneous order creation cannot oversell manual stock.
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-      const [reservation] = await tx
-        .insert(inventoryReservationsTable)
-        .values({
-          merchantId: merchant.id,
-          locationId: order.locationId,
-          supplierProductId: supplierProduct.id,
-          orderId: order.id,
-          quantity,
-          status: "reserved",
-          expiresAt,
-        })
-        .onConflictDoNothing({
-          target: [inventoryReservationsTable.orderId, inventoryReservationsTable.supplierProductId],
-        })
-        .returning();
-      if (!reservation) {
-        throw new Error("Inventory reservation could not be created");
-      }
-      await emitDomainEvent(tx, {
-        merchantId: merchant.id,
-        eventType: "inventory.reserved",
-        aggregateType: "inventory_reservation",
-        aggregateId: reservation.id,
-        actorType: "merchant",
-        actorId: identity.clerkUserId,
-        source: "merchant_api",
-        idempotencyKey: `inventory-reservation:${reservation.id}:reserved`,
-        payload: {
-          orderId: order.id,
-          supplierProductId: supplierProduct.id,
-          quantity,
-          expiresAt: reservation.expiresAt.toISOString(),
-        },
-      });
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "ai_settings_updated",
