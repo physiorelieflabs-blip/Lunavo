@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 
 export const REFERRAL_DISCOUNT_RATE = 0.30;
-export const REFERRAL_FREE_REFERRAL_MILESTONE = 150;
-export const REFERRAL_FREE_MONTHS = 12;
 
 export function normalizeReferralCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, "");
