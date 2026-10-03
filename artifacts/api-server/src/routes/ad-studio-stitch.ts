@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import { and, eq } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
+import { requirePermission } from "../lib/tenant-access";
 import { db, merchantsTable, adCreativesTable, adMediaAssetsTable } from "@workspace/db";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,7 +15,10 @@ const execFileAsync = promisify(execFile);
 async function merchantFor(req: Request) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  return (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0] ?? null;
+  const merchant = (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0] ?? null;
+  if (!merchant) return null;
+  await requirePermission(userId, merchant.id, "ai.execute");
+  return merchant;
 }
 
 router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
