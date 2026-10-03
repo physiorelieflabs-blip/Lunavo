@@ -397,7 +397,7 @@ export async function rollSubscriptionPeriod(
     .where(and(eq(subscriptionsTable.id, subscription.id), eq(subscriptionsTable.billingPeriodKey, subscription.billingPeriodKey)))
     .returning();
   if (!nextSubscription) return subscription;
-  if (reward && !usesFreeMonth) {
+  if (reward) {
     await tx
       .update(referralRewardsTable)
       .set({
