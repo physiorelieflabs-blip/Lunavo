@@ -63,3 +63,56 @@ DROP TRIGGER IF EXISTS ledger_entries_dashboard_projection ON ledger_entries;
 CREATE TRIGGER ledger_entries_dashboard_projection
 AFTER INSERT ON ledger_entries
 FOR EACH ROW EXECUTE FUNCTION lunavo_project_ledger_to_dashboard();
+
+CREATE OR REPLACE FUNCTION lunavo_revoke_previous_store_owner_access()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF OLD.merchant_id IS DISTINCT FROM NEW.merchant_id THEN
+    INSERT INTO store_ownership_access_revocations
+      (storefront_id, revoked_merchant_id, reason)
+    VALUES
+      (NEW.id, OLD.merchant_id, 'Store ownership changed; previous owner immediately loses owner-level store access');
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS merchant_storefront_owner_access_revocation ON merchant_storefronts;
+CREATE TRIGGER merchant_storefront_owner_access_revocation
+AFTER UPDATE OF merchant_id ON merchant_storefronts
+FOR EACH ROW EXECUTE FUNCTION lunavo_revoke_previous_store_owner_access();
+
+CREATE OR REPLACE FUNCTION lunavo_sanitize_store_auction_metrics()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  merchant_currency text;
+BEGIN
+  NEW.growth_percent := NULL;
+  NEW.traffic_count := NULL;
+  NEW.conversion_percent := NULL;
+  NEW.expenses_minor := NULL;
+  NEW.valuation_indicator_minor := NULL;
+  SELECT m.currency INTO merchant_currency
+  FROM store_auction_listings a
+  JOIN merchants m ON m.id = a.seller_merchant_id
+  WHERE a.id = NEW.auction_id;
+  IF merchant_currency IS NULL OR upper(merchant_currency) <> upper(NEW.currency) THEN
+    NEW.revenue_minor := NULL;
+    NEW.verified_profit_minor := NULL;
+    NEW.aov_minor := NULL;
+    NEW.ad_spend_minor := NULL;
+    NEW.ad_revenue_minor := NULL;
+  END IF;
+  IF upper(NEW.currency) <> 'USD' THEN
+    NEW.verified_profit_minor := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS lunavo_sanitize_store_auction_metrics_trigger ON store_auction_metric_snapshots;
+CREATE TRIGGER lunavo_sanitize_store_auction_metrics_trigger
+BEFORE INSERT OR UPDATE ON store_auction_metric_snapshots
+FOR EACH ROW EXECUTE FUNCTION lunavo_sanitize_store_auction_metrics();
