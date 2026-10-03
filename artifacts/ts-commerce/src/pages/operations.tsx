@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, ClipboardList, Headphones, PackageCheck, Plus, RefreshCw, ShieldCheck, UsersRound } from "lucide-react";
+import { CalendarDays, CheckCircle2, ClipboardList, Headphones, PackageCheck, Plus, RefreshCw, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { customFetch } from "@workspace/api-client-react";
 
@@ -121,13 +121,13 @@ export default function Operations() {
 
     {loading ? <section className={panel + " p-8"}>Loading operations…</section> : <>
       {tab==="overview" && <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {[
+        {([
           ["Open support",overview?.open_tickets??0,Headphones],
           ["Upcoming bookings",overview?.upcoming_bookings??0,CalendarDays],
           ["Open returns",overview?.open_returns??0,RefreshCw],
           ["Open purchase orders",overview?.open_purchase_orders??0,PackageCheck],
           ["Approved B2B",overview?.approved_b2b_accounts??0,UsersRound],
-        ].map(([label,value,I])=><article key={String(label)} className={panel + " p-5"}><I className="h-5 w-5 text-[#a2772e]"/><p className="mt-5 text-xs font-bold text-[#697687]">{String(label)}</p><b className="mt-1 block text-3xl font-black">{String(value)}</b></article>)}
+        ] as Array<[string, number, LucideIcon]>).map(([label,value,I])=><article key={String(label)} className={panel + " p-5"}><I className="h-5 w-5 text-[#a2772e]"/><p className="mt-5 text-xs font-bold text-[#697687]">{String(label)}</p><b className="mt-1 block text-3xl font-black">{String(value)}</b></article>)}
         <article className="sm:col-span-2 lg:col-span-5 rounded-2xl border border-[#cad6ea] bg-[#f1f5fb] p-5"><div className="flex gap-3"><ShieldCheck className="h-5 w-5 text-[#2f5c9f]"/><div><b className="text-[#203f73]">Financial boundary</b><p className="mt-1 text-sm leading-6 text-[#536a8c]">Returns never issue a refund here. Purchase orders never create a debit here. Booking/support/B2B actions cannot change a ledger balance. Customer payments remain provider-verified through TS Pay.</p></div></div></article>
       </section>}
 
