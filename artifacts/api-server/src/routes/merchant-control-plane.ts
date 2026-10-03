@@ -55,14 +55,8 @@ router.put("/merchant/autopilot/mode", async (req, res, next) => {
         VALUES (${ctx.merchantId},${level},${level === 4},${trainingOptIn},${req.body?.goal ? String(req.body.goal).trim().slice(0,180) : null},${req.body?.goalTarget == null ? null : Number(req.body.goalTarget).toFixed(2)})
         ON CONFLICT (merchant_id) DO UPDATE SET autonomy_level=EXCLUDED.autonomy_level,run_my_business=EXCLUDED.run_my_business,training_opt_in=EXCLUDED.training_opt_in,goal=EXCLUDED.goal,goal_target=EXCLUDED.goal_target,updated_at=now()`);
       await tx.execute(sql`INSERT INTO merchant_automation_policies (merchant_id,enabled,daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish,updated_at)
-        SELECT ${ctx.merchantId},${level !== 0},daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish,now()
-        FROM merchant_automation_policies WHERE merchant_id=${ctx.merchantId}
+        VALUES (${ctx.merchantId},${level !== 0},500,3,15,3,false,true,now())
         ON CONFLICT (merchant_id) DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=now()`);
-      if (level !== 0) {
-        await tx.execute(sql`INSERT INTO merchant_automation_policies (merchant_id,enabled,daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish)
-          VALUES (${ctx.merchantId},true,500,3,15,3,false,true)
-          ON CONFLICT (merchant_id) DO NOTHING`);
-      }
       const settings = (await tx.execute(sql`SELECT autonomy_level,run_my_business,training_opt_in,goal,goal_target FROM ai_settings WHERE merchant_id=${ctx.merchantId} LIMIT 1`)).rows[0];
       const policy = (await tx.execute(sql`SELECT merchant_id,enabled,daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish FROM merchant_automation_policies WHERE merchant_id=${ctx.merchantId} LIMIT 1`)).rows[0];
       return { settings, policy };
