@@ -143,22 +143,14 @@ export default function Autopilot() {
     setError(false);
     setMessage('');
     try {
-      await customFetch('/api/merchant/automation-policy', {
-        method: 'PUT',
+      const result = await customFetch<{ stopped: boolean; message: string }>('/api/merchant/autopilot/emergency-stop', {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          enabled: false,
-          dailyActionLimit: Number(dailyActions) || 0,
-          dailyAdLimit: Number(dailyAds) || 0,
-          minMarginPercent: Number(minMargin) || 0,
-          maxPriceMultiplier: Number(maxMultiplier) || 1,
-          requireApprovalForPriceChanges: true,
-          requireApprovalForExternalPublish: true,
-        }),
         responseType: 'json',
       });
-      setPolicy((current) => current ? { ...current, enabled: false, require_approval_for_price_changes: true, require_approval_for_external_publish: true } : current);
-      setMessage('Emergency stop is active. Server-side automation reservations are disabled for this merchant.');
+      setPolicy((current) => current ? { ...current, enabled: false, require_approval_for_price_changes: true, require_approval_for_external_publish: true, daily_action_limit: 0, daily_ad_limit: 0 } : current);
+      setSettings((current) => current ? { ...current, autonomyLevel: 0, runMyBusiness: false } : current);
+      setMessage(result.message || 'Emergency stop is active.');
     } catch (e) {
       setError(true);
       setMessage(e instanceof Error ? e.message : 'Emergency stop could not be activated.');
