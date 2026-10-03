@@ -518,7 +518,7 @@ paths:
     patch:
       operationId: updateOrderStatus
       tags: [dashboard]
-      summary: Confirm or cancel a recorded customer order
+      summary: Cancel a recorded customer order
       parameters:
         - name: id
           in: path
@@ -2628,9 +2628,6 @@ components:
         customerPhone: { type: string, maxLength: 40 }
         total: { type: number, exclusiveMinimum: 0 }
         quantity: { type: integer, minimum: 1, maximum: 100 }
-        status:
-          type: string
-          enum: [pending, paid, fulfilled]
         orderNumber: { type: string, minLength: 2, maxLength: 80 }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
         supplierProductId: { type: integer, minimum: 1 }
