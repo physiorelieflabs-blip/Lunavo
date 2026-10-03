@@ -46,7 +46,6 @@ export default function Operations() {
   const [b2bProductId,setB2bProductId]=useState("");
   const [b2bMinimumQty,setB2bMinimumQty]=useState("1");
   const [b2bUnitPrice,setB2bUnitPrice]=useState("");
-  const [b2bRuleCurrency,setB2bRuleCurrency]=useState("USD");
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -152,7 +151,7 @@ export default function Operations() {
   const addB2bRule = (id:string) => submit(async()=>{
     const productId=Number(b2bProductId), minimum=Number(b2bMinimumQty), price=Number(b2bUnitPrice);
     if(!Number.isInteger(productId)||productId<1||!Number.isInteger(minimum)||minimum<1||!Number.isInteger(price)||price<1) throw new Error("Enter a valid product, minimum quantity, and unit price in minor units.");
-    await api("/api/merchant/operations/b2b-accounts/"+id+"/price-rules",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({supplierProductId:productId,minimumQuantity:minimum,unitPriceMinor:price,currency:b2bRuleCurrency})});
+    await api("/api/merchant/operations/b2b-accounts/"+id+"/price-rules",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({supplierProductId:productId,minimumQuantity:minimum,unitPriceMinor:price,currency:"USD"})});
     setB2bProductId(""); setB2bMinimumQty("1"); setB2bUnitPrice("");
   },"B2B wholesale price rule saved.");
 
