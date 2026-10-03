@@ -819,7 +819,6 @@ export interface CreateOrderInput {
      * @maximum 100
      */
   quantity?: number;
-  status?: CreateOrderInputStatus;
   /**
      * @minLength 2
      * @maxLength 80
@@ -841,7 +840,6 @@ export type OrderStatusInputStatus = typeof OrderStatusInputStatus[keyof typeof 
 
 
 export const OrderStatusInputStatus = {
-  paid: 'paid',
   cancelled: 'cancelled',
 } as const;
 
