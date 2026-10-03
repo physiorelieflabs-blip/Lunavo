@@ -36,7 +36,7 @@ async function bootstrapPublicSchemaIfNeeded(client: import("pg").PoolClient): P
   return true;
 }
 
-const BOOTSTRAP_RUNTIME_MIGRATIONS = ["0084_local_auth","0085_local_auth_recovery","0086_public_audit_log","0087_master_admin_mfa","0088_fulfillment_tracking","0089_local_auth_session_metadata","0090_platform_integrations_runtime","0091_social_publish_job_processing","0092_social_publish_options","0093_runtime_security_repair","0094_ts_pay_transfer_idempotency","0095_growth_product_reference_uuid","0096_local_auth_lockout","0097_merchant_kyc","0098_local_auth_email_verification","0099_verified_purchase_discovery_attribution","0100_payment_reconciliation_exceptions","0101_ledger_immutable_guard","0102_ledger_immutable_fail_closed","0103_order_payment_integrity","0104_payment_intent_integrity"] as const;
+const BOOTSTRAP_RUNTIME_MIGRATIONS = ["0084_local_auth","0085_local_auth_recovery","0086_public_audit_log","0087_master_admin_mfa","0088_fulfillment_tracking","0089_local_auth_session_metadata","0090_platform_integrations_runtime","0091_social_publish_job_processing","0092_social_publish_options","0093_runtime_security_repair","0094_ts_pay_transfer_idempotency","0095_growth_product_reference_uuid","0096_local_auth_lockout","0097_merchant_kyc","0098_local_auth_email_verification","0099_verified_purchase_discovery_attribution","0100_payment_reconciliation_exceptions","0101_ledger_immutable_guard","0102_ledger_immutable_fail_closed","0103_order_payment_integrity","0104_payment_intent_integrity","0105_provider_idempotency_unique_indexes"] as const;
 
 export async function runMigrations() {
   const databaseUrl=process.env.DATABASE_URL;if(!databaseUrl)throw new Error("DATABASE_URL is required to run database migrations");
