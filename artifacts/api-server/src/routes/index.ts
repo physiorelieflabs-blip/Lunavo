@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import adminHealthRouter from "./admin-health";
+import adminFinancialTraceRouter from "./admin-financial-trace";
 import authRouter from "./auth";
 import paymentBoundaryRouter from "./payment-boundary";
 import flutterwaveWebhookRouter from "./flutterwave-webhook";
@@ -34,6 +36,8 @@ import tsPayTransfersRouter from "./ts-pay-transfers";
 import publicHostStoreRouter from "./public-host-store";
 const router: IRouter = Router();
 router.use(healthRouter);
+router.use(adminHealthRouter);
+router.use(adminFinancialTraceRouter);
 router.use(authRouter);
 router.use(paymentBoundaryRouter);
 router.use(flutterwaveWebhookRouter);
