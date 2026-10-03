@@ -5087,6 +5087,43 @@ router.put("/ai/settings", async (req, res): Promise<void> => {
         .where(eq(aiSettingsTable.id, settings.id))
         .returning();
       if (!saved) throw new Error("AI settings could not be saved");
+      // Merchant-created product orders follow the same reservation boundary as public checkout.
+      // The product row is locked above, so simultaneous order creation cannot oversell manual stock.
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      const [reservation] = await tx
+        .insert(inventoryReservationsTable)
+        .values({
+          merchantId: merchant.id,
+          locationId: order.locationId,
+          supplierProductId: supplierProduct.id,
+          orderId: order.id,
+          quantity,
+          status: "reserved",
+          expiresAt,
+        })
+        .onConflictDoNothing({
+          target: [inventoryReservationsTable.orderId, inventoryReservationsTable.supplierProductId],
+        })
+        .returning();
+      if (!reservation) {
+        throw new Error("Inventory reservation could not be created");
+      }
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "inventory.reserved",
+        aggregateType: "inventory_reservation",
+        aggregateId: reservation.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `inventory-reservation:${reservation.id}:reserved`,
+        payload: {
+          orderId: order.id,
+          supplierProductId: supplierProduct.id,
+          quantity,
+          expiresAt: reservation.expiresAt.toISOString(),
+        },
+      });
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
         type: "ai_settings_updated",
@@ -7593,10 +7630,79 @@ router.post("/orders", async (req, res): Promise<void> => {
             )
             .limit(1)
         )[0];
-        if (existing) return existing;
+        if (existing) {
+          const existingCustomerEmail = existing.customer.email.trim().toLowerCase();
+          const existingTotalMinor = Math.round(Number(existing.order.total) * 100);
+          if (
+            existing.order.supplierProductId !== supplierProduct.id ||
+            existing.order.quantity !== quantity ||
+            existingTotalMinor !== totalMinor ||
+            existingCustomerEmail !== customerEmail
+          ) {
+            throw new Error("This idempotency key is already bound to a different order");
+          }
+          return existing;
+        }
       }
 
       const customerEmail = parsed.data.customerEmail.trim().toLowerCase();
+      const quantity = parsed.data.quantity ?? 1;
+      const supplierProductId = parsed.data.supplierProductId;
+      if (!supplierProductId) {
+        throw new Error("Select an active catalog product. Use an invoice or payment link for a custom amount.");
+      }
+
+      // Lock the catalog source of truth before calculating the order total.
+      // A browser-supplied price is never authoritative.
+      await tx.execute(
+        sql`select id from ${supplierProductsTable} where id=${supplierProductId} and merchant_id=${merchant.id} for update`,
+      );
+      const supplierProduct = (
+        await tx
+          .select()
+          .from(supplierProductsTable)
+          .where(
+            and(
+              eq(supplierProductsTable.id, supplierProductId),
+              eq(supplierProductsTable.merchantId, merchant.id),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (
+        !supplierProduct ||
+        supplierProduct.status !== "active" ||
+        supplierProduct.visibility !== "active" ||
+        supplierProduct.sellingPrice === null
+      ) {
+        throw new Error("That catalog product is not available for sale");
+      }
+      const unitPrice = Number(supplierProduct.sellingPrice);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new Error("That catalog product does not have a valid selling price");
+      }
+      if (supplierProduct.currency.toUpperCase() !== merchant.currency.toUpperCase()) {
+        throw new Error("The catalog product currency must match the merchant currency");
+      }
+      const unitPriceMinor = Math.round(unitPrice * 100);
+      const totalMinor = unitPriceMinor * quantity;
+      const MAX_ORDER_TOTAL_MINOR = 999_999_999_999;
+      if (!Number.isSafeInteger(totalMinor) || totalMinor <= 0 || totalMinor > MAX_ORDER_TOTAL_MINOR) {
+        throw new Error("The calculated order total is outside the supported range");
+      }
+      const submittedTotalMinor = Math.round(Number(parsed.data.total) * 100);
+      if (submittedTotalMinor !== totalMinor) {
+        throw new Error("Sale total does not match the active catalog price. Reload the product and try again.");
+      }
+
+      if (
+        supplierProduct.inventoryStrategy !== "source_based" &&
+        supplierProduct.availabilityQuantity !== null &&
+        supplierProduct.availabilityQuantity < quantity
+      ) {
+        throw new Error("Not enough available inventory for that quantity");
+      }
+
       let customer = (
         await tx
           .select()
@@ -7648,7 +7754,7 @@ router.post("/orders", async (req, res): Promise<void> => {
       }
       if (!customer) throw new Error("Could not save customer");
 
-      const total = parsed.data.total.toFixed(2);
+      const total = (totalMinor / 100).toFixed(2);
       const orderNumber =
         parsed.data.orderNumber?.trim().toUpperCase() ||
         `ORD-${randomUUID().slice(0, 8).toUpperCase()}`;
@@ -7656,24 +7762,6 @@ router.post("/orders", async (req, res): Promise<void> => {
       // created orders enter the ledger as pending and must be paid through
       // the payment-intent verification flow.
       const status = "pending";
-      let supplierProduct: typeof supplierProductsTable.$inferSelect | undefined;
-      if (parsed.data.supplierProductId) {
-        supplierProduct = (
-          await tx
-            .select()
-            .from(supplierProductsTable)
-            .where(
-              and(
-                eq(supplierProductsTable.id, parsed.data.supplierProductId),
-                eq(supplierProductsTable.merchantId, merchant.id),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (!supplierProduct) {
-          throw new Error("That supplier product is not in your catalog");
-        }
-      }
       const [order] = await tx
         .insert(ordersTable)
         .values({
