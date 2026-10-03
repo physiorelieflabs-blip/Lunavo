@@ -7667,6 +7667,43 @@ router.post("/orders", async (req, res): Promise<void> => {
         throw new Error("Not enough available inventory for that quantity");
       }
 
+      if (idempotencyKey) {
+        const existing = (
+          await tx
+            .select({
+              order: ordersTable,
+              customer: customersTable,
+              product: supplierProductsTable,
+            })
+            .from(ordersTable)
+            .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+            .leftJoin(
+              supplierProductsTable,
+              eq(ordersTable.supplierProductId, supplierProductsTable.id),
+            )
+            .where(
+              and(
+                eq(ordersTable.merchantId, merchant.id),
+                eq(ordersTable.idempotencyKey, idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (existing) {
+          const existingCustomerEmail = existing.customer.email.trim().toLowerCase();
+          const existingTotalMinor = Math.round(Number(existing.order.total) * 100);
+          if (
+            existing.order.supplierProductId !== supplierProduct.id ||
+            existing.order.quantity !== quantity ||
+            existingTotalMinor !== totalMinor ||
+            existingCustomerEmail !== customerEmail
+          ) {
+            throw new Error("This idempotency key is already bound to a different order");
+          }
+          return existing;
+        }
+      }
+
       let customer = (
         await tx
           .select()
@@ -7739,11 +7776,9 @@ router.post("/orders", async (req, res): Promise<void> => {
           total,
           currency: merchant.currency,
           status,
-          supplierProductId: supplierProduct?.id ?? null,
+          supplierProductId: supplierProduct.id,
           shippingAddress: parsed.data.shippingAddress?.trim() || null,
-          fulfillmentStatus: supplierProduct
-            ? "awaiting_supplier"
-            : "not_applicable",
+          fulfillmentStatus: "awaiting_supplier",
           idempotencyKey,
         })
         .onConflictDoNothing({
@@ -7773,10 +7808,52 @@ router.post("/orders", async (req, res): Promise<void> => {
               )
               .limit(1)
           )[0];
-          if (replay) return replay;
+          if (replay) {
+            const replayTotalMinor = Math.round(Number(replay.order.total) * 100);
+            if (
+              replay.order.supplierProductId !== supplierProduct.id ||
+              replay.order.quantity !== quantity ||
+              replayTotalMinor !== totalMinor ||
+              replay.customer.email.trim().toLowerCase() !== customerEmail
+            ) {
+              throw new Error("This idempotency key is already bound to a different order");
+            }
+            return replay;
+          }
         }
         throw new Error("Order number is already in use");
       }
+
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      const [reservation] = await tx
+        .insert(inventoryReservationsTable)
+        .values({
+          merchantId: merchant.id,
+          locationId: order.locationId,
+          supplierProductId: supplierProduct.id,
+          orderId: order.id,
+          quantity,
+          status: "reserved",
+          expiresAt,
+        })
+        .returning();
+      if (!reservation) throw new Error("Inventory reservation could not be created");
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "inventory.reserved",
+        aggregateType: "inventory_reservation",
+        aggregateId: reservation.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `inventory-reservation:${reservation.id}:reserved`,
+        payload: {
+          orderId: order.id,
+          supplierProductId: supplierProduct.id,
+          quantity,
+          expiresAt: reservation.expiresAt.toISOString(),
+        },
+      });
 
       await tx.insert(activityTable).values({
         merchantId: merchant.id,
