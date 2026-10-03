@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
+import { requirePermission } from "../lib/tenant-access";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { db, merchantsTable, socialConnectionsTable, socialPublishJobsTable } from "@workspace/db";
 
@@ -16,7 +17,7 @@ const PROVIDERS = {
 } as const;
 type Provider = keyof typeof PROVIDERS;
 
-async function merchantFor(req: Request) { const userId=getAuth(req).userId; if(!userId)return null; return(await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId,userId)).limit(1))[0]??null; }
+async function merchantFor(req: Request) { const userId=getAuth(req).userId; if(!userId)return null; const merchant=(await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId,userId)).limit(1))[0]??null; if(!merchant)return null; await requirePermission(userId,merchant.id,"team.manage"); return merchant; }
 function fail(res: Response,status:number,error:string){res.status(status).json({error});}
 function validProvider(value:string):value is Provider{return Object.prototype.hasOwnProperty.call(PROVIDERS,value);}
 function tokenKey(){const value=process.env.SOCIAL_TOKEN_ENCRYPTION_KEY;if(!value)throw new Error("SOCIAL_TOKEN_ENCRYPTION_KEY is not configured");const key=/^[a-f0-9]{64}$/i.test(value)?Buffer.from(value,"hex"):Buffer.from(value,"base64");if(key.length!==32)throw new Error("SOCIAL_TOKEN_ENCRYPTION_KEY must decode to 32 bytes");return key;}
