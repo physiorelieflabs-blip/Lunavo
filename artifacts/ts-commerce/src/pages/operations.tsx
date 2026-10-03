@@ -22,6 +22,12 @@ const tabs:[Tab,string,React.ReactNode][] = [
 ];
 const panel = "rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6]";
 
+function statusMessage(status:string) {
+  return status==="approved" ? "Return approved for processing." :
+    status==="inspection" ? "Return moved to inspection." :
+    status==="denied" ? "Return denied." :
+    "Return request closed.";
+}
 async function api<T>(path:string, options?:RequestInit) {
   return customFetch<T>(path, { ...(options ?? {}), responseType:"json" });
 }
@@ -35,6 +41,12 @@ export default function Operations() {
   const [purchaseOrders,setPurchaseOrders]=useState<PurchaseOrder[]>([]);
   const [poItems,setPoItems]=useState<PoItem[]>([]);
   const [b2b,setB2b]=useState<B2b[]>([]);
+  const [replyFor,setReplyFor]=useState("");
+  const [replyText,setReplyText]=useState("");
+  const [b2bProductId,setB2bProductId]=useState("");
+  const [b2bMinimumQty,setB2bMinimumQty]=useState("1");
+  const [b2bUnitPrice,setB2bUnitPrice]=useState("");
+  const [b2bRuleCurrency,setB2bRuleCurrency]=useState("USD");
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -110,6 +122,39 @@ export default function Operations() {
     await api("/api/merchant/operations/b2b-accounts",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({companyName,customerId:Number(b2bCustomerId),paymentTermsDays:Number(terms)})});
     setCompanyName(""); setB2bCustomerId(""); setTerms("0");
   },"B2B account created in pending state.");
+
+  const updateTicket = (id:string,status:string) => submit(async()=>{
+    await api("/api/merchant/operations/tickets/"+id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({status})});
+  },"Support ticket updated.");
+
+  const sendTicketMessage = (id:string) => submit(async()=>{
+    if(!replyText.trim()) throw new Error("Message is required.");
+    await api("/api/merchant/operations/tickets/"+id+"/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({body:replyText})});
+    setReplyFor(""); setReplyText("");
+  },"Reply added to the support ticket.");
+
+  const updateBooking = (id:string,status:string) => submit(async()=>{
+    await api("/api/merchant/operations/bookings/"+id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({status})});
+  },"Booking status updated.");
+
+  const updateReturn = (id:string,status:string) => submit(async()=>{
+    await api("/api/merchant/operations/returns/"+id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({status})});
+  },statusMessage(status));
+
+  const receivePurchaseItem = (item:PoItem) => submit(async()=>{
+    await api("/api/merchant/operations/purchase-orders/"+item.purchase_order_id+"/receive",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({items:[{id:item.id,quantity:1}]})});
+  },"One unit received and the purchase-order status recalculated.");
+
+  const updateB2bAccount = (id:string,status:string) => submit(async()=>{
+    await api("/api/merchant/operations/b2b-accounts/"+id,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({status})});
+  },"B2B account status updated.");
+
+  const addB2bRule = (id:string) => submit(async()=>{
+    const productId=Number(b2bProductId), minimum=Number(b2bMinimumQty), price=Number(b2bUnitPrice);
+    if(!Number.isInteger(productId)||productId<1||!Number.isInteger(minimum)||minimum<1||!Number.isInteger(price)||price<1) throw new Error("Enter a valid product, minimum quantity, and unit price in minor units.");
+    await api("/api/merchant/operations/b2b-accounts/"+id+"/price-rules",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({supplierProductId:productId,minimumQuantity:minimum,unitPriceMinor:price,currency:b2bRuleCurrency})});
+    setB2bProductId(""); setB2bMinimumQty("1"); setB2bUnitPrice("");
+  },"B2B wholesale price rule saved.");
 
   return <AppShell><main className="mx-auto max-w-[1260px] space-y-6">
     <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
