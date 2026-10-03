@@ -148,7 +148,7 @@ This document is the canonical implementation checklist for the Lunavo rebuild. 
 - Customer-facing store experience.
 - Help center and support contact workflows.
 - Connected customer/order/invoice record views.
-- Public customer payment evidence remains unverified until merchant approval where direct bank transfer is used.
+- Public checkout never exposes a merchant-owned withdrawal bank account. Bank-transfer checkout uses only a provider-returned destination tied to the payment session, and evidence remains unverified until server-side provider verification and ledger posting.
 
 ## 15. Admin / platform operations
 - Separate general/master admin workspace.
