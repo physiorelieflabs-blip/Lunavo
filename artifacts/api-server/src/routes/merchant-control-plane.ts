@@ -56,12 +56,6 @@ router.put("/merchant/autopilot/mode", async (req, res, next) => {
     const rawGoalTarget = req.body?.goalTarget;
     const goalTarget = rawGoalTarget == null ? null : Number(rawGoalTarget);
     if (goalTarget !== null && (!Number.isFinite(goalTarget) || goalTarget < 0 || goalTarget > 1_000_000_000)) return res.status(400).json({ error: "Autopilot goal target is invalid" });
-    const rawGoal = req.body?.goal;
-    const goal = rawGoal == null ? null : typeof rawGoal === "string" ? rawGoal.trim().slice(0, 180) : "";
-    if (rawGoal != null && !goal) return res.status(400).json({ error: "Autopilot goal must be a non-empty string when provided" });
-    const rawGoalTarget = req.body?.goalTarget;
-    const goalTarget = rawGoalTarget == null ? null : Number(rawGoalTarget);
-    if (goalTarget !== null && (!Number.isFinite(goalTarget) || goalTarget < 0 || goalTarget > 1_000_000_000)) return res.status(400).json({ error: "Autopilot goal target is invalid" });
     const result = await db.transaction(async (tx): Promise<{ settings: any; policy: any }> => {
       await tx.execute(sql`INSERT INTO ai_settings (merchant_id,autonomy_level,run_my_business,training_opt_in,goal,goal_target)
         VALUES (${ctx.merchantId},${level},${level === 4},${trainingOptIn},${goal},${goalTarget === null ? null : goalTarget.toFixed(2)})
