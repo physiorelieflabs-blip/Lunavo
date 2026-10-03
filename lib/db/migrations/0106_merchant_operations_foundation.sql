@@ -141,3 +141,25 @@ ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS idempotency_key text;
 UPDATE purchase_orders SET idempotency_key = gen_random_uuid()::text WHERE idempotency_key IS NULL;
 ALTER TABLE purchase_orders ALTER COLUMN idempotency_key SET NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS purchase_orders_merchant_idempotency_unique ON purchase_orders(merchant_id,idempotency_key);
+
+CREATE OR REPLACE FUNCTION lunavo_guard_purchase_order_item_tenant()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE po_merchant integer;
+BEGIN
+  SELECT merchant_id INTO po_merchant FROM purchase_orders WHERE id=NEW.purchase_order_id;
+  IF po_merchant IS NULL OR po_merchant <> NEW.merchant_id THEN
+    RAISE EXCEPTION 'purchase order item tenant does not match purchase order tenant'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS purchase_order_item_tenant_guard ON purchase_order_items;
+CREATE TRIGGER purchase_order_item_tenant_guard
+BEFORE INSERT OR UPDATE OF purchase_order_id, merchant_id
+ON purchase_order_items
+FOR EACH ROW
+EXECUTE FUNCTION lunavo_guard_purchase_order_item_tenant();
