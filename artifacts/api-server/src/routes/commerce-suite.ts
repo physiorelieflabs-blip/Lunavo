@@ -23,7 +23,7 @@ router.get("/automation/auto-ds", async (req,res) => {
 });
 
 router.post("/automation/auto-ds", async (req,res) => {
-  const merchant=await merchantFor(req, "team.manage"); if(!merchant) return fail(res,401,"Authentication required");
+  const merchant=await merchantFor(req, "fulfillment.manage"); if(!merchant) return fail(res,401,"Authentication required");
   const minimum=Number(req.body?.minimumMarginPercent); if(!Number.isFinite(minimum)||minimum<0||minimum>100) return fail(res,400,"Minimum margin must be between 0 and 100");
   const current=(await db.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId,merchant.id)).limit(1))[0];
   const values={enabled:req.body?.enabled===true,mode:req.body?.mode==="auto"?"auto":"assisted",autoAllocateSupplierCost:req.body?.autoAllocateSupplierCost===true,requireApprovalBeforeExternalOrder:req.body?.requireApprovalBeforeExternalOrder!==false,minimumMarginPercent:minimum.toFixed(2),defaultCarrier:typeof req.body?.defaultCarrier==="string"?req.body.defaultCarrier.trim().slice(0,120)||null:null,updatedAt:new Date()};
@@ -32,10 +32,10 @@ router.post("/automation/auto-ds", async (req,res) => {
   res.json({settings:saved,note:values.mode==="auto"?"Eligible paid supplier-backed orders will be routed automatically into fulfillment jobs. External supplier checkout remains adapter/approval gated.":"Orders are prepared as assisted fulfillment jobs for review."});
 });
 
-router.get("/automation/fulfillment-jobs", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");res.json({jobs:await db.select().from(fulfillmentJobsTable).where(eq(fulfillmentJobsTable.merchantId,m.id)).orderBy(desc(fulfillmentJobsTable.createdAt)).limit(100)});});
+router.get("/automation/fulfillment-jobs", async(req,res)=>{const m=await merchantFor(req, "fulfillment.manage");if(!m)return fail(res,401,"Authentication required");res.json({jobs:await db.select().from(fulfillmentJobsTable).where(eq(fulfillmentJobsTable.merchantId,m.id)).orderBy(desc(fulfillmentJobsTable.createdAt)).limit(100)});});
 
 router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
-  const m=await merchantFor(req, "team.manage"); if(!m) return fail(res,401,"Authentication required");
+  const m=await merchantFor(req, "fulfillment.manage"); if(!m) return fail(res,401,"Authentication required");
   const jobId=String(req.params.id ?? "").trim(); if(!/^[0-9a-fA-F-]{36}$/.test(jobId)) return fail(res,400,"Invalid fulfillment job id");
   const nextStatus=typeof req.body?.status==="string"?req.body.status.trim():"";
   const allowed:Record<string,string[]>={
@@ -64,7 +64,7 @@ router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
   res.json({job});
 });
 
-router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const jobId=String(req.params.id ?? "").trim();if(!/^[0-9a-fA-F-]{36}$/.test(jobId))return fail(res,400,"Invalid fulfillment job id");const[j]=await db.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0}).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();if(!j)return fail(res,404,"Ready fulfillment job not found");res.json({job:j,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});});
+router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{const m=await merchantFor(req, "fulfillment.manage");if(!m)return fail(res,401,"Authentication required");const jobId=String(req.params.id ?? "").trim();if(!/^[0-9a-fA-F-]{36}$/.test(jobId))return fail(res,400,"Invalid fulfillment job id");const[j]=await db.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0}).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();if(!j)return fail(res,404,"Ready fulfillment job not found");res.json({job:j,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});});
 
 router.get("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");res.json({codes:await db.select().from(discountCodesTable).where(eq(discountCodesTable.merchantId,m.id)).orderBy(desc(discountCodesTable.createdAt))});});
 router.post("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const code=typeof req.body?.code==="string"?req.body.code.trim().toUpperCase():"";const kind=req.body?.kind==="fixed"?"fixed":"percentage";const value=Number(req.body?.value);if(!/^[A-Z0-9_-]{3,40}$/.test(code)||!Number.isFinite(value)||value<=0||(kind==="percentage"&&value>100))return fail(res,400,"Enter a valid discount code and value");const[c]=await db.insert(discountCodesTable).values({merchantId:m.id,code,kind,value:value.toFixed(2),minimumSubtotal:Number(req.body?.minimumSubtotal??0).toFixed(2),currency:m.currency,active:true}).returning();if(!c)return fail(res,409,"Discount code already exists or could not be created");res.status(201).json({code:c});});
