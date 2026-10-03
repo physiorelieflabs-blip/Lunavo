@@ -164,5 +164,13 @@ const appSecurity=await read("artifacts/api-server/src/app.ts");for(const m of [
 const vite=await read("artifacts/ts-commerce/vite.config.ts");if(vite.includes("allowedHosts: true"))failures.push("Vite must not allow arbitrary hosts");
 const manifest=await optional("artifacts/ts-commerce/public/manifest.webmanifest");if(!manifest.includes('"display": "standalone"'))failures.push("Installable PWA manifest invariant missing");
 const sw=await optional("artifacts/ts-commerce/public/sw.js");if(!sw.includes("url.pathname.startsWith('/api/')")&&!sw.includes("url.pathname.startsWith(\"/api/\")"))failures.push("PWA service worker must not cache API responses");
+const referralPolicy=await read("artifacts/api-server/src/lib/referral-policy.ts");
+for(const legacy of ["REFERRAL_FREE_REFERRAL_MILESTONE","REFERRAL_FREE_MONTHS"]) if(referralPolicy.includes(legacy)) failures.push(`Legacy referral milestone constant remains: ${legacy}`);
+const referralEngine=await read("artifacts/api-server/src/lib/referrals.ts");
+for(const legacy of ["grantReferralFreeMonthsMilestone","usesFreeMonth","referralMilestonesTable"]) if(referralEngine.includes(legacy)) failures.push(`Legacy referral free-month execution remains: ${legacy}`);
+const referralUi=await read("artifacts/ts-commerce/src/pages/billing.tsx");
+for(const legacy of ["150+ unlocks 12 months free","Build toward 12 free months"]) if(referralUi.includes(legacy)) failures.push(`Legacy referral UI remains: ${legacy}`);
+const referralMigration=await read("lib/db/migrations/0105_remove_legacy_referral_free_months.sql");
+for(const marker of ["referral_free_months = 0","status = 'reversed'"]) if(!referralMigration.includes(marker)) failures.push(`Referral retirement migration missing: ${marker}`);
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
