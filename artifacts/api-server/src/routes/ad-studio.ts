@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
+import { requirePermission } from "../lib/tenant-access";
 import { randomUUID } from "node:crypto";
 import { unlink, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -12,7 +13,7 @@ import { planAdWithBrain } from "../lib/ad-brain";
 import { renderProductAd } from "../lib/ad-renderer";
 import { AD_VARIANTS } from "../lib/ad-variants";
 const execFileAsync=promisify(execFile); const router=Router(); const generationLocks=new Set<string>(); const MAX_VIDEO_BYTES=12*1024*1024; const MAX_CUSTOM_MEDIA_BYTES=25*1024*1024; const MAX_STORE_PRODUCTS=10; const ALLOWED_MEDIA=new Set(["image/jpeg","image/png","image/webp","image/gif","video/mp4","video/webm"]);
-async function merchantFor(req:Request){const userId=getAuth(req).userId;if(!userId)return null;return(await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId,userId)).limit(1))[0]??null;}
+async function merchantFor(req:Request){const userId=getAuth(req).userId;if(!userId)return null;const merchant=(await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId,userId)).limit(1))[0]??null;if(!merchant)return null;await requirePermission(userId,merchant.id,"ai.execute");return merchant;}
 function fail(res:Response,status:number,error:string){res.status(status).json({error});}
 function text(value:unknown,max:number){return typeof value==='string'?value.trim().slice(0,max):"";}
 function parseCustomMedia(value:unknown){if(!value||typeof value!=="object")return null;const input=value as Record<string,unknown>;const filename=text(input.filename,120).replace(/[^a-zA-Z0-9._-]/g,"-");const mimeType=text(input.mimeType,80).toLowerCase();const data=typeof input.data==='string'?input.data:"";if(!filename||!ALLOWED_MEDIA.has(mimeType)||!data.startsWith(`data:${mimeType};base64,`))return null;const encoded=data.slice(data.indexOf(",")+1);if(!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)||encoded.length%4===1)return null;const bytes=Buffer.from(encoded,"base64");if(!bytes.length||bytes.length>MAX_CUSTOM_MEDIA_BYTES)return null;const isVideo=mimeType.startsWith("video/");const extension=filename.toLowerCase().split(".").pop();const expected=isVideo?(mimeType==='video/mp4'?'mp4':'webm'):( {"image/jpeg":"jpg","image/png":"png","image/webp":"webp","image/gif":"gif"} as Record<string,string>)[mimeType];if(!extension||extension!==expected)return null;if(!isVideo&&mimeType==='image/png'&&!bytes.subarray(0,8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a])))return null;if(!isVideo&&mimeType==='image/jpeg'&&!(bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff))return null;if(!isVideo&&mimeType==='image/gif'&&!['GIF87a','GIF89a'].includes(bytes.subarray(0,6).toString('ascii')))return null;if(!isVideo&&mimeType==='image/webp'&&(bytes.subarray(0,4).toString('ascii')!=='RIFF'||bytes.subarray(8,12).toString('ascii')!=='WEBP'))return null;return{filename,mimeType,bytes,mediaType:isVideo?'video':'image'};}
