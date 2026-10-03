@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "../lib/auth-compat";
+import { requirePermission } from "../lib/tenant-access";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { reserveAutomationActionInTransaction } from "../lib/automation-guard";
