@@ -84,6 +84,7 @@ export const marketplaceDiscoveryEventsTable = pgTable("marketplace_discovery_ev
   productId: text("product_id").notNull(),
   campaignId: uuid("campaign_id"),
   customerId: integer("customer_id"),
+  orderId: integer("order_id"),
   eventType: text("event_type").notNull(),
   sessionKey: text("session_key"),
   metadata: jsonb("metadata").notNull().default({}),
