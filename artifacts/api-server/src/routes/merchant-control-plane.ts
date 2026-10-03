@@ -43,7 +43,7 @@ router.put("/merchant/automation-policy", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put("/merchant/autopilot/mode", async (req, res, next) => {
+router.put("/merchant/autopilot/mode", async (req, res, next): Promise<void> => {
   try {
     const ctx = await merchantContext(req, res); if (!ctx) return;
     const level = Number(req.body?.autonomyLevel);
