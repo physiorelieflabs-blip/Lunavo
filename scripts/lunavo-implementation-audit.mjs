@@ -113,7 +113,11 @@ const emailVerification=await read("artifacts/api-server/src/routes/auth.ts");fo
 const emailAuth=await read("artifacts/api-server/src/lib/local-auth.ts");for(const m of ["createEmailVerification","verifyEmailVerificationCode","resendEmailVerification","local_auth_email_verifications","email_verified,role","false,"] )if(!emailAuth.includes(m))failures.push(`Local email verification invariant missing: ${m}`);
 const authRoutes=await read("artifacts/api-server/src/routes/auth.ts");
 for(const m of ['router.get("/auth/sessions"','router.delete("/auth/sessions/:id"','router.post("/auth/sessions/revoke-others"'])if(!authRoutes.includes(m))failures.push(`Session management route missing: ${m}`);
-const aiProvider=await read("artifacts/api-server/src/lib/ai-provider.ts");
+const localAuthSecurity=await read("artifacts/api-server/src/lib/local-auth.ts");for(const m of ["isLoginContextAnomalous","sendMasterAdminLoginAlert","local_sign_in_failed"])if(!localAuthSecurity.includes(m))failures.push(`Admin login security invariant missing: ${m}`);
+const authSecurityRoutes=await read("artifacts/api-server/src/routes/auth.ts");for(const m of ["master_admin_suspicious_login","sendMasterAdminLoginAlert","mfaCompleted"])if(!authSecurityRoutes.includes(m))failures.push(`Master Admin login alert invariant missing: ${m}`);
+const routeIndex=await read("artifacts/api-server/src/routes/index.ts");for(const m of ["admin-health","admin-financial-trace"])if(!routeIndex.includes(m))failures.push(`Admin safeguard route is not mounted: ${m}`);
+const registry=await read("artifacts/api-server/src/lunavo-feature-registry.ts");if(!registry.includes("X OAuth 2 PKCE text publishing","implemented"))failures.push("Feature registry does not record implemented X PKCE text publishing");
+const adminSecurityApp=await read("artifacts/api-server/src/app.ts");for(const m of ["sec-fetch-site","referer","Cross-site state-changing request rejected"])if(!adminSecurityApp.includes(m))failures.push(`Browser security invariant missing: ${m}`);const aiProvider=await read("artifacts/api-server/src/lib/ai-provider.ts");
 for(const m of ["completeDeepSeekChat","deepSeekConfigured","completeGeminiChat"])if(!aiProvider.includes(m))failures.push(`Primary AI provider invariant missing: ${m}`);
 const deepseek=await read("artifacts/api-server/src/lib/deepseek.ts");
 for(const m of ["deepseek-v4-pro","deepseek-flash","response_format","thinking"])if(!deepseek.includes(m))failures.push(`DeepSeek provider invariant missing: ${m}`);
