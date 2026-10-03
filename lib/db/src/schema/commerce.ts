@@ -1496,6 +1496,31 @@ export const reconciliationRecordsTable = pgTable("reconciliation_records", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const paymentReconciliationExceptionsTable = pgTable("payment_reconciliation_exceptions", {
+  id: serial("id").primaryKey(),
+  provider: text("provider").notNull(),
+  eventId: text("event_id").notNull(),
+  providerTransactionId: text("provider_transaction_id"),
+  paymentReference: text("payment_reference"),
+  merchantId: integer("merchant_id").references(() => merchantsTable.id, { onDelete: "set null" }),
+  orderId: integer("order_id").references(() => ordersTable.id, { onDelete: "set null" }),
+  paymentIntentId: integer("payment_intent_id").references(() => paymentIntentsTable.id, { onDelete: "set null" }),
+  expectedAmountMinor: bigint("expected_amount_minor", { mode: "number" }),
+  observedAmountMinor: bigint("observed_amount_minor", { mode: "number" }),
+  expectedCurrency: text("expected_currency"),
+  observedCurrency: text("observed_currency"),
+  reason: text("reason").notNull(),
+  rawPayload: jsonb("raw_payload").notNull().default({}),
+  status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolvedBy: text("resolved_by"),
+}, (table) => [
+  uniqueIndex("payment_reconciliation_exceptions_provider_event_unique").on(table.provider, table.eventId),
+  index("payment_reconciliation_exceptions_provider_tx_idx").on(table.provider, table.providerTransactionId),
+  index("payment_reconciliation_exceptions_payment_ref_idx").on(table.paymentReference),
+  index("payment_reconciliation_exceptions_status_idx").on(table.status, table.createdAt),
+]);
 export const insertMerchantSchema = createInsertSchema(merchantsTable).omit({
   id: true,
   registeredAt: true,
