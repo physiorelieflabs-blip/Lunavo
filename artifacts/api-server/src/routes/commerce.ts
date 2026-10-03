@@ -20,7 +20,8 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { createClerkClient, getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
+import { isMasterAdmin } from "../lib/master-admin";
 import {
   activityTable,
   aiActionsTable,
@@ -75,6 +76,7 @@ import {
   tsPayTransfersTable,
   mediaAssetsTable,
   merchantStorefrontsTable,
+  storefrontPublicationSnapshotsTable,
   mediaAssetStorefrontsTable,
   adCampaignsTable,
   adCreativesTable,
@@ -334,7 +336,7 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
-import { enhanceImagePrompt } from "../lib/gemini";
+import { enhanceImagePrompt, researchWithGemini } from "../lib/gemini";
 import { DASHBOARD_EARNING_WINDOW_DAYS, calculateDashboardWindow } from "../lib/critical-payment-rules";
 import {
   buildTsPayLedgerPostings,
@@ -362,7 +364,8 @@ import {
   trainMerchantAiModel,
   simulateMerchantScenario,
 } from "../lib/ai";
-import { completeGeminiChat } from "../lib/gemini";
+import { completePrimaryReasoning } from "../lib/ai-provider";
+import { enrichSupplierProduct } from "../lib/supplier-ai";
 import { generateImage } from "../lib/pollinations";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
 
@@ -389,6 +392,36 @@ import {
   reverseReferralReward,
   rollSubscriptionPeriod,
 } from "../lib/referrals";
+
+async function auditLog(
+  userId: string | null,
+  merchantId: number | null,
+  action: string,
+  resourceType: string | null,
+  resourceId: string | number | null,
+  changes: Record<string, unknown>,
+  ipAddress: string | undefined,
+  userAgent: string | undefined,
+  executor: { execute: (query: unknown) => Promise<unknown> } = db,
+) {
+  await executor.execute(sql`
+    INSERT INTO audit_logs (
+      user_id, merchant_id, action, resource_type, resource_id,
+      changes, ip_address, user_agent, status, created_at
+    ) VALUES (
+      ${userId},
+      ${merchantId == null ? null : String(merchantId)},
+      ${action},
+      ${resourceType},
+      ${resourceId == null ? null : String(resourceId)},
+      ${JSON.stringify(changes ?? {})}::jsonb,
+      ${ipAddress ?? null},
+      ${userAgent?.slice(0, 500) ?? null},
+      'success',
+      now()
+    )
+  `);
+}
 
 const router: IRouter = Router();
 class CommerceAuthorizationError extends Error {
@@ -433,6 +466,7 @@ router.use((req, _res, next) => {
     /^\/invoices(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
     /^\/payment-links(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
     /^\/customers(?:\/|$)/.test(path) ? (req.method === "GET" ? "customers.read" : "customers.manage") :
+    /^\/kyc(?:\/|$)/.test(path) ? (req.method === "GET" ? "finance.read" : "finance.manage") :
     /^\/exports(?:\/|$)/.test(path) ? "customers.export" :
     /^\/supplier-products|^\/supplier-import-history|^\/suppliers(?:\/|$)/.test(path) ? "marketplace.manage" :
     /^\/dropship(?:\/|$)/.test(path) ? "fulfillment.manage" :
@@ -444,7 +478,6 @@ router.use((req, _res, next) => {
   const blocksLocationScoped = !(/^\/marketplace\/products/.test(path) && req.method === "GET") && /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/ts-pay|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
   workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
 });
-const ADMIN_EMAIL = "ifeoluwaolowu4@gmail.com";
 const SUPPORTED_CURRENCIES = [
   "USD",
   "NGN",
@@ -458,7 +491,6 @@ const SUPPORTED_CURRENCIES = [
 ] as const;
 const FLUTTERWAVE_PAYMENT_CURRENCIES = [...SUPPORTED_CURRENCIES] as const;
 const MONTHLY_FEE = 30;
-const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
 const SUPPLIER_IMPORT_LIMIT = 60;
 const supplierImportQuota = new Map<string, { startedAt: number; count: number }>();
@@ -484,6 +516,13 @@ router.use(async (req, res, next) => {
     }
     if (ACCESS_BYPASS_ROUTES.some((route) => route.test(req.path))) {
       next();
+      return;
+    }
+    if (!identity.emailVerified) {
+      res.status(403).json({
+        error: "Verify your email before using the merchant workspace.",
+        code: "EMAIL_VERIFICATION_REQUIRED",
+      });
       return;
     }
 
@@ -711,6 +750,12 @@ function storefrontTheme(value: unknown) {
     announcement: typeof candidate.announcement === "string" ? candidate.announcement.slice(0, 160) : "",
     logoUrl: imageUrl(candidate.logoUrl),
     heroImageUrl: imageUrl(candidate.heroImageUrl),
+    seoTitle: typeof candidate.seoTitle === "string" ? candidate.seoTitle.trim().slice(0, 70) : "",
+    seoDescription: typeof candidate.seoDescription === "string" ? candidate.seoDescription.trim().slice(0, 160) : "",
+    shippingPolicy: typeof candidate.shippingPolicy === "string" ? candidate.shippingPolicy.slice(0, 5000) : "",
+    returnsPolicy: typeof candidate.returnsPolicy === "string" ? candidate.returnsPolicy.slice(0, 5000) : "",
+    privacyPolicy: typeof candidate.privacyPolicy === "string" ? candidate.privacyPolicy.slice(0, 5000) : "",
+    termsPolicy: typeof candidate.termsPolicy === "string" ? candidate.termsPolicy.slice(0, 5000) : "",
   };
 }
 
@@ -720,7 +765,7 @@ function storefrontSections(value: unknown) {
     if (!item || typeof item !== "object") return [];
     const section = item as Record<string, unknown>;
     const type = section.type;
-    if (!["hero", "products", "story", "announcement"].includes(String(type))) return [];
+    if (!["announcement","header","hero","featured_collection","product_grid","category_grid","image_with_text","video","testimonials","reviews","benefits","faq","newsletter","countdown","logo_cloud","rich_text","spacer","contact","footer","policies","custom_code","products","story"].includes(String(type))) return [];
     return [{
       id: typeof section.id === "string" && section.id.trim() ? section.id.trim().slice(0, 40) : randomUUID().slice(0, 8),
       type: String(type),
@@ -729,6 +774,7 @@ function storefrontSections(value: unknown) {
       body: typeof section.body === "string" ? section.body.slice(0, 500) : "",
       imageUrl: imageUrl(section.imageUrl),
       imageAlt: typeof section.imageAlt === "string" ? section.imageAlt.slice(0, 160) : "",
+      settings: section.settings && typeof section.settings === "object" && !Array.isArray(section.settings) ? section.settings : undefined,
     }];
   });
 }
@@ -809,28 +855,30 @@ async function getIdentity(req: Request): Promise<Identity | null> {
   const auth = getAuth(req);
   if (!auth?.userId) return null;
 
-  const user = await clerk.users.getUser(auth.userId);
-  const primary =
-    user.emailAddresses.find(
-      (address) => address.id === user.primaryEmailAddressId,
-    ) ?? user.emailAddresses[0];
-  const email = primary?.emailAddress.toLowerCase();
-  const emailVerified = primary?.verification?.status === "verified";
-  const name =
-    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
-    undefined;
+  const result = await db.execute(sql`SELECT id,email,first_name,last_name,email_verified,role
+    FROM local_auth_users WHERE id=${auth.userId} LIMIT 1`);
+  const user = result.rows[0] as {
+    id?: string;
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+    email_verified?: boolean;
+    role?: string;
+  } | undefined;
+  if (!user?.id || !user.email) return null;
 
-  if (!email) {
-    throw new Error("Authenticated Clerk user has no email address");
-  }
+  const email = user.email.trim().toLowerCase();
+  const name = [user.first_name, user.last_name].filter(Boolean).join(" ").trim() || email.split("@")[0];
+  const emailVerified = Boolean(user.email_verified);
+  const isAdmin = await isMasterAdmin(String(user.id));
 
   return {
-    clerkUserId: auth.userId,
+    clerkUserId: user.id,
     email,
-    name: name || email.split("@")[0],
+    name,
     emailVerified,
-    verifiedEmails: new Set(user.emailAddresses.filter((address) => address.verification?.status === "verified").map((address) => address.emailAddress.toLowerCase())),
-    isAdmin: email === ADMIN_EMAIL && emailVerified,
+    verifiedEmails: emailVerified ? new Set([email]) : new Set<string>(),
+    isAdmin,
   };
 }
 
@@ -2072,6 +2120,17 @@ async function ensurePublicFlutterwaveCheckout(
     }
     if (!intent) throw new Error("Payment attempt could not be prepared");
     if (intent.status === "verified") throw new Error("This order has already been paid");
+    const expectedSettlementMinor = Math.round(toNumber(currentOrder.total) * 100);
+    if (
+      intent.currency !== paymentCurrency ||
+      Number(intent.amountMinor) !== Math.round(paymentAmount * 100) ||
+      Number(intent.settlementAmountMinor ?? expectedSettlementMinor) !== expectedSettlementMinor ||
+      String(intent.settlementCurrency ?? currentOrder.currency).toUpperCase() !== currentOrder.currency.toUpperCase()
+    ) {
+      throw new Error(
+        `A payment session is already open in ${intent.currency}. Finish that session or let it expire before choosing another payment currency.`,
+      );
+    }
     const existingDestination = (
       await tx
         .select()
@@ -3006,13 +3065,13 @@ async function requireAdminWithdrawalSecurity(
   expectedConfirmation: string,
 ) {
   const auth = getAuth(req);
-  if (!auth.sessionId || auth.userId !== identity.clerkUserId) {
+  if (!auth.userId || auth.userId !== identity.clerkUserId) {
     res.status(403).json({ error: "A valid Clerk session is required" });
     return false;
   }
   if (
     !identity.emailVerified ||
-    identity.email !== ADMIN_EMAIL ||
+    !identity.isAdmin ||
     confirmation.trim().toUpperCase() !== expectedConfirmation.toUpperCase()
   ) {
     res.status(403).json({
@@ -3399,6 +3458,81 @@ router.put("/settings/checkout", async (req, res): Promise<void> => {
   }));
 });
 
+router.get("/analytics/details", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const [topCustomers, topProducts, inventoryPressure, adPerformance] = await Promise.all([
+    db.execute(sql`
+      SELECT c.id, c.name, c.email,
+        count(o.id)::int AS order_count,
+        coalesce(sum(CASE WHEN o.status IN ('paid','fulfilled') THEN o.total ELSE 0 END),0)::numeric AS revenue
+      FROM customers c
+      LEFT JOIN orders o ON o.customer_id=c.id AND o.merchant_id=${merchant.id}
+      WHERE c.merchant_id=${merchant.id}
+      GROUP BY c.id,c.name,c.email
+      ORDER BY revenue DESC, order_count DESC, c.id ASC
+      LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT p.id,p.title,p.currency,
+        count(o.id)::int AS order_count,
+        coalesce(sum(CASE WHEN o.status IN ('paid','fulfilled') THEN o.quantity ELSE 0 END),0)::int AS units_sold,
+        coalesce(sum(CASE WHEN o.status IN ('paid','fulfilled') THEN o.total ELSE 0 END),0)::numeric AS revenue
+      FROM supplier_products p
+      LEFT JOIN orders o ON o.supplier_product_id=p.id AND o.merchant_id=${merchant.id}
+      WHERE p.merchant_id=${merchant.id}
+      GROUP BY p.id,p.title,p.currency
+      ORDER BY revenue DESC, units_sold DESC, p.id ASC
+      LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT
+        count(*) FILTER (WHERE inventory_status='low_stock')::int AS low_stock_count,
+        count(*) FILTER (WHERE inventory_status='out_of_stock')::int AS out_of_stock_count,
+        coalesce(sum(GREATEST(coalesce(availability_quantity,0),0)),0)::int AS tracked_units,
+        count(*) FILTER (WHERE availability_quantity IS NOT NULL)::int AS tracked_products
+      FROM supplier_products
+      WHERE merchant_id=${merchant.id}
+    `),
+    db.execute(sql`
+      SELECT
+        count(*)::int AS campaigns,
+        coalesce(sum(impressions),0)::int AS impressions,
+        coalesce(sum(clicks),0)::int AS clicks,
+        coalesce(sum(product_views),0)::int AS product_views,
+        coalesce(sum(add_to_carts),0)::int AS add_to_carts,
+        coalesce(sum(purchases),0)::int AS purchases,
+        coalesce(sum(attributed_revenue_minor),0)::int AS attributed_revenue_minor
+      FROM product_advertising_campaigns
+      WHERE merchant_id=${merchant.id}
+    `),
+  ]);
+  const inv = (inventoryPressure.rows[0] ?? {}) as Record<string,unknown>;
+  const ads = (adPerformance.rows[0] ?? {}) as Record<string,unknown>;
+  res.json({
+    generatedAt: new Date().toISOString(),
+    currency: merchant.currency,
+    topCustomers: topCustomers.rows,
+    topProducts: topProducts.rows,
+    inventory: {
+      lowStockCount: Number(inv.low_stock_count ?? 0),
+      outOfStockCount: Number(inv.out_of_stock_count ?? 0),
+      trackedUnits: Number(inv.tracked_units ?? 0),
+      trackedProducts: Number(inv.tracked_products ?? 0),
+    },
+    advertising: {
+      campaigns: Number(ads.campaigns ?? 0),
+      impressions: Number(ads.impressions ?? 0),
+      clicks: Number(ads.clicks ?? 0),
+      productViews: Number(ads.product_views ?? 0),
+      addToCarts: Number(ads.add_to_carts ?? 0),
+      purchases: Number(ads.purchases ?? 0),
+      attributedRevenueMinor: Number(ads.attributed_revenue_minor ?? 0),
+    },
+  });
+});
+
 router.get("/settings/fx", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -3556,7 +3690,7 @@ router.post("/stores", async (req, res): Promise<void> => {
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
   if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
-  const name = typeof req.body?.name === "string" ? req.body.name.trim().replace(/\s+/g, " ") : "";
+  const name = typeof req.body?.name === "string" ? req.body.name.trim().replace(/\s+/g, " ") : typeof req.body?.storeName === "string" ? req.body.storeName.trim().replace(/\s+/g, " ") : "";
   if (name.length < 2 || name.length > 80) {
     res.status(400).json({ error: "Store name must be between 2 and 80 characters." });
     return;
@@ -3735,10 +3869,10 @@ router.post("/ai/store-builder", async (req, res): Promise<void> => {
   ].join("\n");
 
   try {
-    const response = await completeGeminiChat([
-      { role: "system", content: "Generate a coherent ecommerce storefront draft. Never fabricate factual claims. Output strict JSON only." },
+    const response = await completePrimaryReasoning([
+      { role: "system", content: "Generate a coherent ecommerce storefront draft. Return JSON only. Never fabricate factual claims." },
       { role: "user", content: prompt },
-    ]);
+    ], { json: true, maxTokens: 3500, reasoningEffort: "high" });
     const raw = response.content.trim().replace(/^\`\`\`json\s*/i, "").replace(/\s*\`\`\`$/i, "");
     const draft = JSON.parse(raw) as Record<string, unknown>;
     const safeHex = (value: unknown, fallback: string) => /^#[0-9a-f]{6}$/i.test(String(value)) ? String(value) : fallback;
@@ -4488,7 +4622,7 @@ router.post("/ai/copilot", async (req, res): Promise<void> => {
       }),
       getAiSettingsForMerchant(merchant.id),
     ]);
-     const response = await completeGeminiChat([
+     const response = await completePrimaryReasoning([
       {
         role: "system",
         content: [
@@ -4544,7 +4678,7 @@ router.post("/ai/operator", async (req, res): Promise<void> => {
       currency: merchant.currency,
       storeName: merchant.storeName,
     });
-    const response = await completeGeminiChat([
+    const response = await completePrimaryReasoning([
       {
         role: "system",
         content: [
@@ -4565,7 +4699,7 @@ router.post("/ai/operator", async (req, res): Promise<void> => {
         ].join("\n"),
       },
       { role: "user", content: command },
-    ]);
+    ], { json: true, maxTokens: 2200, reasoningEffort: "high" });
     const raw = response.content.trim().replace(/^\`\`\`json\s*/i, "").replace(/\s*\`\`\`$/i, "");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const allowedHrefs = new Set(["/dashboard", "/store", "/orders", "/customers", "/inventory", "/marketing", "/finance", "/dropshipping", "/suppliers"]);
@@ -4657,7 +4791,7 @@ router.post("/ai/guide", async (req, res): Promise<void> => {
         });
       }
     }
-     const response = await completeGeminiChat([
+     const response = await completePrimaryReasoning([
       {
         role: "system",
         content: [
@@ -4790,6 +4924,28 @@ router.post("/ai/research", async (req, res): Promise<void> => {
   }
   const query = parsed.data.query.trim();
   try {
+    if (process.env.LUNAVO_GEMINI_API_KEY?.trim()) {
+      try {
+        const grounded = await researchWithGemini(query);
+        res.json(
+          ResearchWebResponse.parse({
+            query,
+            summary: grounded.summary,
+            searchedAt: new Date().toISOString(),
+            source: "Gemini + Google Search",
+            limitations: [
+              "Grounded search uses Google's public web-search tool and may omit pages that are not indexed or accessible.",
+              "Citations point to the public URLs returned by the model; verify important commercial claims at the source.",
+              "No private merchant workspace data is sent to the search provider unless included directly in the query.",
+            ],
+            sources: grounded.sources,
+          }),
+        );
+        return;
+      } catch (error) {
+        req.log.warn({ err: error }, "Grounded Gemini research unavailable; falling back to public search");
+      }
+    }
     const response = await fetch(
       `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
       { headers: { "user-agent": "TS-Commerce-Research/1.0" }, signal: AbortSignal.timeout(10_000) },
@@ -5552,6 +5708,140 @@ router.post("/security/withdrawal/pins", async (req, res): Promise<void> => {
   }));
 });
 
+const KYC_MAX_DOCUMENT_CHARS = 9_000_000;
+const KYC_DOCUMENT_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+
+function parseKycDocument(value: unknown): { mimeType: string; data: string } {
+  if (typeof value !== "string" || value.length < 32 || value.length > KYC_MAX_DOCUMENT_CHARS) {
+    throw new Error("KYC document is required and must be no larger than 6 MB");
+  }
+  const match = value.match(/^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i);
+  if (!match || !KYC_DOCUMENT_TYPES.has(match[1]!.toLowerCase()) || match[2]!.length % 4 === 1) {
+    throw new Error("KYC document must be a PDF, JPEG, PNG, or WebP data file");
+  }
+  const bytes = Buffer.from(match[2]!, "base64");
+  if (!bytes.length || bytes.length > 6 * 1024 * 1024) throw new Error("KYC document exceeds the 6 MB limit");
+  const mimeType = match[1]!.toLowerCase();
+  if (mimeType === "application/pdf" && !bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) throw new Error("KYC PDF signature is invalid");
+  if (mimeType === "image/png" && !bytes.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))) throw new Error("KYC PNG signature is invalid");
+  if (mimeType === "image/jpeg" && !(bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)) throw new Error("KYC JPEG signature is invalid");
+  if (mimeType === "image/webp" && !(bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP")) throw new Error("KYC WebP signature is invalid");
+  return { mimeType, data: value };
+}
+
+async function currentKycForMerchant(merchantId: number) {
+  return (await db.execute(sql`SELECT id,merchant_id,status,legal_name,business_type,country,address,government_id_type,government_id_ciphertext,document_data,submitted_by,submitted_at,reviewed_by,reviewed_at,rejection_reason,created_at,updated_at FROM merchant_kyc WHERE merchant_id=${merchantId} LIMIT 1`)).rows[0] as Record<string, unknown> | undefined;
+}
+
+function serializeKyc(row: Record<string, unknown> | undefined, includeSensitive = false) {
+  if (!row) return null;
+  let governmentIdNumber: string | null = null;
+  if (includeSensitive && typeof row.government_id_ciphertext === "string") {
+    try { governmentIdNumber = decryptSecret(row.government_id_ciphertext); } catch { governmentIdNumber = null; }
+  }
+  return {
+    id: String(row.id),
+    merchantId: Number(row.merchant_id),
+    status: String(row.status),
+    legalName: row.legal_name ? String(row.legal_name) : null,
+    businessType: row.business_type ? String(row.business_type) : null,
+    country: row.country ? String(row.country) : null,
+    address: row.address && typeof row.address === "object" ? row.address : {},
+    governmentIdType: row.government_id_type ? String(row.government_id_type) : null,
+    governmentIdLast4: governmentIdNumber ? governmentIdNumber.slice(-4) : null,
+    governmentIdNumber,
+    documentData: includeSensitive && typeof row.document_data === "string" ? row.document_data : null,
+    submittedAt: row.submitted_at ? new Date(String(row.submitted_at)).toISOString() : null,
+    reviewedAt: row.reviewed_at ? new Date(String(row.reviewed_at)).toISOString() : null,
+    rejectionReason: row.rejection_reason ? String(row.rejection_reason) : null,
+  };
+}
+
+router.get("/kyc", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (!identity.emailVerified) { res.status(403).json({ error: "Verify your primary email before submitting KYC" }); return; }
+  try {
+    const merchant = await getWithdrawalMerchant(identity);
+    if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "finance.read", res))) return;
+    res.json({ kyc: serializeKyc(await currentKycForMerchant(merchant.id)) });
+  } catch (error) {
+    res.status(404).json({ error: error instanceof Error ? error.message : "Merchant workspace not found" });
+  }
+});
+
+router.post("/kyc", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  if (!identity.emailVerified) { res.status(403).json({ error: "Verify your primary email before submitting KYC" }); return; }
+  try {
+    const merchant = await getWithdrawalMerchant(identity);
+    if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "finance.manage", res))) return;
+    const legalName = typeof req.body?.legalName === "string" ? req.body.legalName.trim().slice(0, 160) : "";
+    const businessType = typeof req.body?.businessType === "string" ? req.body.businessType.trim().slice(0, 80) : "";
+    const country = typeof req.body?.country === "string" ? req.body.country.trim().toUpperCase().slice(0, 3) : "";
+    const governmentIdType = typeof req.body?.governmentIdType === "string" ? req.body.governmentIdType.trim().slice(0, 60) : "";
+    const governmentIdNumber = typeof req.body?.governmentIdNumber === "string" ? req.body.governmentIdNumber.trim().slice(0, 120) : "";
+    const addressValue = req.body?.address;
+    if (!legalName || !businessType || !/^[A-Z]{2,3}$/.test(country) || !governmentIdType || !/^[A-Za-z0-9 .\/-]{4,120}$/.test(governmentIdNumber)) {
+      res.status(400).json({ error: "Complete legal name, business type, country, government ID type, and government ID number are required" });
+      return;
+    }
+    const address = addressValue && typeof addressValue === "object" && !Array.isArray(addressValue)
+      ? Object.fromEntries(Object.entries(addressValue as Record<string, unknown>).slice(0, 12).map(([key,value]) => [String(key).slice(0,60), typeof value === "string" ? value.trim().slice(0,240) : String(value ?? "").slice(0,240)]))
+      : null;
+    if (!address || Object.keys(address).length < 2) { res.status(400).json({ error: "A complete business address is required" }); return; }
+    const document = parseKycDocument(req.body?.documentData);
+    const existing = await currentKycForMerchant(merchant.id);
+    if (existing?.status === "approved") { res.status(409).json({ error: "KYC is already approved for this merchant" }); return; }
+    await db.execute(sql`INSERT INTO merchant_kyc (merchant_id,status,legal_name,business_type,country,address,government_id_type,government_id_ciphertext,document_data,submitted_by,submitted_at,reviewed_by,reviewed_at,rejection_reason,updated_at)
+      VALUES (${merchant.id},'pending',${legalName},${businessType},${country},${JSON.stringify(address)}::jsonb,${governmentIdType},${encryptSecret(governmentIdNumber)},${encryptSecret(document.data)},${identity.clerkUserId},now(),NULL,NULL,NULL,now())
+      ON CONFLICT (merchant_id) DO UPDATE SET status='pending',legal_name=EXCLUDED.legal_name,business_type=EXCLUDED.business_type,country=EXCLUDED.country,address=EXCLUDED.address,government_id_type=EXCLUDED.government_id_type,government_id_ciphertext=EXCLUDED.government_id_ciphertext,document_data=EXCLUDED.document_data,submitted_by=EXCLUDED.submitted_by,submitted_at=EXCLUDED.submitted_at,reviewed_by=NULL,reviewed_at=NULL,rejection_reason=NULL,updated_at=now()`);
+    await auditLog(identity.clerkUserId, merchant.id, "kyc_submitted", "merchant_kyc", merchant.id, { status: "pending" }, req.ip, req.get("user-agent"));
+    res.status(201).json({ kyc: serializeKyc(await currentKycForMerchant(merchant.id)) });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "KYC submission failed" });
+  }
+});
+
+router.get("/admin/kyc", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const rows = await db.execute(sql`SELECT k.id,k.merchant_id,k.status,k.legal_name,k.business_type,k.country,k.submitted_at,k.reviewed_at,k.rejection_reason,m.name AS merchant_name,m.email AS merchant_email,m.store_name FROM merchant_kyc k INNER JOIN merchants m ON m.id=k.merchant_id ORDER BY k.updated_at DESC LIMIT 200`);
+  res.json({ kyc: (rows.rows as Array<Record<string, unknown>>).map(row => serializeKyc(row)) });
+});
+
+router.get("/admin/kyc/:merchantId", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const merchantId = Number(req.params.merchantId);
+  if (!Number.isInteger(merchantId) || merchantId < 1) { res.status(400).json({ error: "Invalid merchant" }); return; }
+  const row = await currentKycForMerchant(merchantId);
+  if (!row) { res.status(404).json({ error: "KYC record not found" }); return; }
+  await auditLog(identity.clerkUserId, merchantId, "kyc_sensitive_review_accessed", "merchant_kyc", merchantId, { status: String(row.status) }, req.ip, req.get("user-agent"));
+  res.json({ kyc: serializeKyc(row, true) });
+});
+
+router.post("/admin/kyc/:merchantId/review", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const merchantId = Number(req.params.merchantId);
+  const status = typeof req.body?.status === "string" ? req.body.status.trim().toLowerCase() : "";
+  const rejectionReason = typeof req.body?.rejectionReason === "string" ? req.body.rejectionReason.trim().slice(0, 500) : "";
+  if (!Number.isInteger(merchantId) || merchantId < 1 || !["approved","rejected"].includes(status)) { res.status(400).json({ error: "Merchant and a valid KYC review status are required" }); return; }
+  if (status === "rejected" && !rejectionReason) { res.status(400).json({ error: "A rejection reason is required" }); return; }
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT id FROM merchant_kyc WHERE merchant_id=${merchantId} FOR UPDATE`);
+    const current = (await tx.execute(sql`SELECT id,status FROM merchant_kyc WHERE merchant_id=${merchantId} LIMIT 1`)).rows[0] as Record<string, unknown> | undefined;
+    if (!current) throw new Error("KYC record not found");
+    if (String(current.status) === "approved" && status === "rejected") throw new Error("Approved KYC cannot be rejected through the initial review workflow");
+    await tx.execute(sql`UPDATE merchant_kyc SET status=${status},reviewed_by=${identity.clerkUserId},reviewed_at=now(),rejection_reason=${status === "rejected" ? rejectionReason : null},updated_at=now() WHERE merchant_id=${merchantId}`);
+    return String(status);
+  });
+  await auditLog(identity.clerkUserId, merchantId, `kyc_${result}`, "merchant_kyc", merchantId, { status: result }, req.ip, req.get("user-agent"));
+  res.json({ success: true, status: result });
+});
+
 router.get("/withdrawals", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -5677,6 +5967,18 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
          }
          return existing;
       }
+      const kycRows = await tx.execute(sql`
+        SELECT status FROM merchant_kyc WHERE merchant_id=${merchant.id} LIMIT 1 FOR UPDATE
+      `);
+      const kycStatus = String((kycRows.rows[0] as { status?: string } | undefined)?.status ?? "");
+      if (kycStatus !== "approved") {
+        throw new Error(
+          kycStatus === "pending"
+            ? "Withdrawals require completed KYC review before payout."
+            : "Complete and submit KYC before requesting a payout.",
+        );
+      }
+
       // Compatibility boundary: legacy paid orders have no authoritative
       // ledger entry. Refuse withdrawals rather than treating order status as
       // settled revenue until those orders are verified through /payments.
@@ -5856,7 +6158,7 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
   }
   const merchant = await getOrCreateMerchant(identity);
   try {
-    const imported = await importPublicSupplierProduct(parsed.data.sourceUrl);
+    const imported = await enrichSupplierProduct(await importPublicSupplierProduct(parsed.data.sourceUrl));
     const supplierUrl = normalizedSupplierUrl(
       imported.sourceUrl,
       parsed.data.supplierUrl,
@@ -5945,7 +6247,7 @@ router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
   }
   const merchant = await getOrCreateMerchant(identity);
   try {
-    const imported = await importPublicSupplierProduct(parsed.data.sourceUrl);
+    const imported = await enrichSupplierProduct(await importPublicSupplierProduct(parsed.data.sourceUrl));
     const duplicateConditions = [eq(supplierProductsTable.sourceUrl, imported.sourceUrl)];
     if (imported.sourceProductId) {
       duplicateConditions.push(
@@ -6016,7 +6318,7 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
   let completedCount = 0;
   for (const sourceUrl of parsed.data.sourceUrls) {
     try {
-      const imported = await importPublicSupplierProduct(sourceUrl);
+      const imported = await enrichSupplierProduct(await importPublicSupplierProduct(sourceUrl));
       const supplier = await ensureSupplierRecord(
         merchant.id,
         new URL(imported.sourceUrl).origin,
@@ -6439,7 +6741,7 @@ router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> =>
     return;
   }
   try {
-    const imported = await importPublicSupplierProduct(product.sourceUrl);
+    const imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
     const source = serializeSupplierPreview(imported);
     const current = serializeSupplierProduct(product);
     const fields = ["title", "description", "imageUrl", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
@@ -6505,7 +6807,7 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
     return;
   }
   try {
-    const imported = await importPublicSupplierProduct(product.sourceUrl);
+    const imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
     validateSupplierImportSnapshot(imported);
     const accepted = new Set(parsed.data.fields);
     const updates: Record<string, unknown> = {
@@ -8846,7 +9148,25 @@ async function resolvePublicStoreByKey(key: string) {
         .where(and(eq(merchantsTable.id, storefront.merchantId), eq(merchantsTable.status, "active")))
         .limit(1)
     )[0];
-    return merchant && storefront.published ? { merchant, storefront } : null;
+    if (!merchant || !storefront.published) return null;
+    const publication = (
+      await db.select({
+        version: storefrontPublicationSnapshotsTable.version,
+        theme: storefrontPublicationSnapshotsTable.theme,
+        sections: storefrontPublicationSnapshotsTable.sections,
+        contentHash: storefrontPublicationSnapshotsTable.contentHash,
+        publishedAt: storefrontPublicationSnapshotsTable.publishedAt,
+      }).from(storefrontPublicationSnapshotsTable)
+        .where(and(
+          eq(storefrontPublicationSnapshotsTable.storefrontId, storefront.id),
+          eq(storefrontPublicationSnapshotsTable.merchantId, merchant.id),
+        ))
+        .orderBy(desc(storefrontPublicationSnapshotsTable.version))
+        .limit(1)
+    )[0];
+    // A storefront cannot become public without an immutable publication snapshot.
+    if (!publication) return null;
+    return { merchant, storefront, publication };
   }
   const merchant = (
     await db.select().from(merchantsTable)
@@ -8878,8 +9198,8 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     storePhone: merchant.storePhone,
     storeWebsite: merchant.storeWebsite,
     storeAddress: merchant.storeAddress,
-    storefrontTheme: storefrontTheme(storefront?.theme ?? merchant.storefrontTheme),
-    storefrontSections: storefrontSections(storefront?.sections ?? merchant.storefrontSections),
+    storefrontTheme: storefrontTheme(resolved?.publication?.theme ?? storefront?.theme ?? merchant.storefrontTheme),
+    storefrontSections: storefrontSections(resolved?.publication?.sections ?? storefront?.sections ?? merchant.storefrontSections),
     products: products.map((product) => ({
       id: product.id, title: product.title, description: product.description, imageUrl: product.imageUrl,
       price: toNumber(product.sellingPrice), salePrice: null, currency: product.currency, sku: product.sku,
@@ -10216,62 +10536,6 @@ router.get("/subscription/bank-destination", async (req, res): Promise<void> => 
   res.status(410).json({
     error: "Fixed merchant bank destinations are retired. Use Flutterwave Pay by bank to generate a temporary account.",
   });
-  return;
-  const adminMerchant = (
-    await db
-      .select()
-      .from(merchantsTable)
-      .where(eq(merchantsTable.email, ADMIN_EMAIL))
-      .limit(1)
-  )[0];
-  const currency = adminMerchant?.currency ?? "USD";
-  if (!adminMerchant) {
-    res.json(
-      GetSubscriptionBankDestinationResponse.parse({
-        configured: false,
-        beneficiaryName: null,
-        bankName: null,
-        bankCode: null,
-        accountNumber: null,
-        currency,
-      }),
-    );
-    return;
-  }
-  const account = (
-    await db
-      .select()
-      .from(merchantBankAccountsTable)
-      .where(eq(merchantBankAccountsTable.merchantId, adminMerchant.id))
-      .limit(1)
-  )[0];
-  if (!account) {
-    res.json(
-      GetSubscriptionBankDestinationResponse.parse({
-        configured: false,
-        beneficiaryName: null,
-        bankName: null,
-        bankCode: null,
-        accountNumber: null,
-        currency,
-      }),
-    );
-    return;
-  }
-  try {
-    res.json(
-      GetSubscriptionBankDestinationResponse.parse({
-        configured: true,
-        beneficiaryName: account.beneficiaryName,
-        bankName: account.bankName,
-        bankCode: account.bankCode,
-        accountNumber: decryptSecret(account.accountNumberCiphertext),
-        currency,
-      }),
-    );
-  } catch {
-    res.status(500).json({ error: "The subscription bank destination could not be read" });
-  }
 });
 
 router.post("/subscription", async (req, res): Promise<void> => {
@@ -11491,8 +11755,13 @@ router.get("/admin/merchants", async (req, res): Promise<void> => {
         merchant,
         isVerifiedAdminMerchant,
       );
+      const roleResult = enforced.merchant.clerkUserId
+        ? await db.execute(sql`SELECT role FROM local_auth_users WHERE id::text = ${enforced.merchant.clerkUserId} LIMIT 1`)
+        : { rows: [] };
+      const role = String((roleResult.rows[0] as { role?: unknown } | undefined)?.role ?? "merchant");
       return {
         id: enforced.merchant.id,
+        role,
         name: enforced.merchant.name,
         email: enforced.merchant.email,
         storeName: enforced.merchant.storeName,
@@ -12382,6 +12651,8 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
           earningsHeldMinor: subscription?.currency === currency ? Math.round(toNumber(subscription.earningsHeld) * 100) : 0,
         });
       validateTsPayTransfer({
+        fromMerchantId: merchant.id,
+        toMerchantId: recipient.merchantId,
         fromCurrency: sender.currency,
         toCurrency: recipient.currency,
         requestedCurrency: currency,
@@ -12397,6 +12668,7 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
           currency,
           status: "completed",
           referenceKey,
+          idempotencyKey: body.data.idempotencyKey.trim(),
           note: body.data.note?.trim() || null,
           createdBy: identity.clerkUserId,
           completedAt: new Date(),
@@ -12699,6 +12971,30 @@ router.get("/inventory/movements", async (req, res): Promise<void> => {
     .where(and(eq(inventoryMovementsTable.merchantId, merchant.id), access.locationIds ? inArray(inventoryMovementsTable.locationId, [...access.locationIds]) : undefined))
     .orderBy(desc(inventoryMovementsTable.createdAt)).limit(500);
   res.json(ListInventoryMovementsResponse.parse(rows));
+});
+
+
+router.get("/inventory/low-stock", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res); if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  const products = await db.select().from(supplierProductsTable)
+    .where(and(eq(supplierProductsTable.merchantId, merchant.id), eq(supplierProductsTable.visibility, "active")))
+    .orderBy(supplierProductsTable.availabilityQuantity)
+    .limit(1000);
+  const items = products
+    .filter((product) => product.availabilityQuantity !== null)
+    .map((product) => {
+      const overrides = product.merchantOverrides && typeof product.merchantOverrides === "object" && !Array.isArray(product.merchantOverrides)
+        ? product.merchantOverrides as Record<string, unknown>
+        : {};
+      const rawThreshold = Number(overrides.lowStockThreshold ?? 5);
+      const threshold = Number.isFinite(rawThreshold) ? Math.min(Math.max(Math.floor(rawThreshold), 0), 1000000) : 5;
+      const quantity = Number(product.availabilityQuantity);
+      return { product, quantity, threshold, lowStock: quantity <= threshold };
+    })
+    .filter((item) => item.lowStock)
+    .map((item) => ({ ...item.product, currentQuantity: item.quantity, lowStockThreshold: item.threshold }));
+  res.json({ items });
 });
 
 router.post("/inventory/adjustments", async (req, res): Promise<void> => {

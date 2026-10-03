@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, KeyRound, Mail, ShieldCheck } from 'lucide-react';
-import { useSignIn } from '@clerk/react/legacy';
+import { useSignIn } from '@/components/local-auth';
 import { Link, useLocation } from 'wouter';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -22,7 +22,7 @@ function AuthShell({ children }: { children: React.ReactNode }) {
       <div className="w-full max-w-[440px]">
         <div className="mb-7 text-center">
           <Link href="/" className="inline-flex" data-testid="link-reset-logo">
-            <span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">TS COMMERCE PLATTFORM</span>
+            <span className="font-mono text-xs font-medium tracking-[.08em] text-[#1f2b38]">Lunavo</span>
           </Link>
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[.16em] text-[#c85d3f]">A clearer way to run your commerce</p>
         </div>
@@ -245,7 +245,7 @@ export default function PasswordReset() {
                 autoFocus
                 autoComplete="new-password"
                 type="password"
-                minLength={8}
+                minLength={12}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 className="mt-2 h-12 w-full rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none transition focus:border-[#b14f36] focus:ring-2 focus:ring-[#b14f36]/15"

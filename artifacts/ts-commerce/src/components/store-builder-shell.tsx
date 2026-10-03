@@ -22,6 +22,8 @@ const SECTION_LIBRARY: Array<{type:StoreSectionType;label:string;description:str
   {type:'spacer',label:'Spacer',description:'Breathing room'},
   {type:'contact',label:'Contact',description:'Customer contact options'},
   {type:'footer',label:'Footer',description:'Links and store information'},
+  {type:'policies',label:'Policies',description:'Shipping, returns, privacy and terms'},
+  {type:'custom_code',label:'Custom HTML / CSS',description:'Sandboxed markup and styles without JavaScript'},
 ];
 
 type Props = {
@@ -36,6 +38,7 @@ export function StoreBuilderShell({ initialSections, onSave, onGenerateWithAI }:
   const [history, setHistory] = useState<StoreSection[][]>([]);
   const [future, setFuture] = useState<StoreSection[][]>([]);
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const snapshot = () => setHistory((currentHistory) => [...currentHistory, sections]);
   const update = (next: StoreSection[]) => {
@@ -47,7 +50,7 @@ export function StoreBuilderShell({ initialSections, onSave, onGenerateWithAI }:
   const previewSections = useMemo(() => sections.filter((section) => section.visible), [sections]);
 
   const add = (type: StoreSectionType) => {
-    const id = `${type}-${Date.now()}`;
+    const id = `${type}-${crypto.randomUUID().slice(0, 10)}`;
     update([
       ...sections,
       {
@@ -75,6 +78,52 @@ export function StoreBuilderShell({ initialSections, onSave, onGenerateWithAI }:
     setSections(next);
     setFuture((currentFuture) => currentFuture.slice(1));
   };
+  const reorder = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const sourceIndex = sections.findIndex((section) => section.id === sourceId);
+    const targetIndex = sections.findIndex((section) => section.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const next = [...sections];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved!);
+    update(next);
+  };
+
+  const applyTemplate = (name: 'editorial'|'conversion'|'minimal') => {
+    const prefix = name === 'editorial' ? 'Editorial' : name === 'conversion' ? 'Conversion' : 'Minimal';
+    const templates: Record<typeof name, StoreSection[]> = {
+      editorial: [
+        { id: 'template-announce', type: 'announcement', visible: true, settings: { title: 'Free shipping on qualifying orders' } },
+        { id: 'template-header', type: 'header', visible: true, settings: { title: 'Your Store' } },
+        { id: 'template-hero', type: 'hero', visible: true, settings: { title: 'A storefront built around your brand', subtitle: 'New collection', body: 'Introduce the value of your products clearly and beautifully.', buttonText: 'Shop now' } },
+        { id: 'template-featured', type: 'featured_collection', visible: true, settings: { title: 'Featured products', subtitle: 'Curated for your customers' } },
+        { id: 'template-story', type: 'image_with_text', visible: true, settings: { title: 'Why customers choose us', subtitle: 'Our point of view', body: 'Tell the story behind the products and the people who make them.' } },
+        { id: 'template-benefits', type: 'benefits', visible: true, settings: { title: 'Shop with confidence' } },
+        { id: 'template-newsletter', type: 'newsletter', visible: true, settings: { title: 'Stay in the loop', subtitle: 'New products and offers, without the noise.' } },
+        { id: 'template-policies', type: 'policies', visible: true, settings: { title: 'Store policies' } },
+        { id: 'template-footer', type: 'footer', visible: true, settings: { title: 'Your Store' } },
+      ],
+      conversion: [
+        { id: 'template-hero', type: 'hero', visible: true, settings: { title: 'Make the next purchase easy', subtitle: 'Shop with confidence', body: 'A focused storefront for discovering your best products quickly.', buttonText: 'Shop now' } },
+        { id: 'template-products', type: 'product_grid', visible: true, settings: { title: 'Best sellers', subtitle: 'Popular with customers right now' } },
+        { id: 'template-benefits', type: 'benefits', visible: true, settings: { title: 'Why buy from us' } },
+        { id: 'template-testimonials', type: 'testimonials', visible: true, settings: { title: 'Customer stories' } },
+        { id: 'template-faq', type: 'faq', visible: true, settings: { title: 'Questions, answered' } },
+        { id: 'template-footer', type: 'footer', visible: true, settings: { title: 'Your Store' } },
+      ],
+      minimal: [
+        { id: 'template-header', type: 'header', visible: true, settings: { title: 'Your Store' } },
+        { id: 'template-hero', type: 'hero', visible: true, settings: { title: 'Simple. Clear. Yours.', body: 'A quiet storefront that puts the product first.', buttonText: 'Browse products' } },
+        { id: 'template-products', type: 'product_grid', visible: true, settings: { title: 'Shop' } },
+        { id: 'template-rich', type: 'rich_text', visible: true, settings: { title: 'About the brand', body: 'Add your values, process and story here.' } },
+        { id: 'template-footer', type: 'footer', visible: true, settings: { title: 'Your Store' } },
+      ],
+    };
+    const next = templates[name].map((section) => ({ ...section, id: `${prefix.toLowerCase()}-${section.id}-${crypto.randomUUID().slice(0, 6)}` }));
+    update(next);
+    setSelected(next[0]?.id ?? '');
+  };
+
   const updateSetting = (key: string, value: string) => {
     if (!current) return;
     update(sections.map((section) => section.id === current.id ? { ...section, settings: { ...section.settings, [key]: value } } : section));
@@ -90,13 +139,18 @@ export function StoreBuilderShell({ initialSections, onSave, onGenerateWithAI }:
           </div>
           <button type="button" onClick={() => onGenerateWithAI?.()} className="rounded-lg bg-[#182333] p-2 text-white" title="Generate with AI"><Sparkles className="h-4 w-4" /></button>
         </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" onClick={() => applyTemplate('editorial')} className="rounded-lg border bg-white px-2.5 py-1.5 text-[10px] font-extrabold">Editorial</button>
+          <button type="button" onClick={() => applyTemplate('conversion')} className="rounded-lg border bg-white px-2.5 py-1.5 text-[10px] font-extrabold">Conversion</button>
+          <button type="button" onClick={() => applyTemplate('minimal')} className="rounded-lg border bg-white px-2.5 py-1.5 text-[10px] font-extrabold">Minimal</button>
+        </div>
         <div className="mt-4 flex gap-2">
           <button type="button" onClick={undo} disabled={!history.length} className="rounded-lg border p-2 disabled:opacity-40"><Undo2 className="h-4 w-4" /></button>
           <button type="button" onClick={redo} disabled={!future.length} className="rounded-lg border p-2 disabled:opacity-40"><Redo2 className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 space-y-2">
           {sections.map((section) => (
-            <div key={section.id} className={`group flex items-center gap-2 rounded-xl border p-3 ${selected === section.id ? 'border-[#315e6c] bg-[#eef7f8]' : 'border-[#e1dbcf] bg-white'}`}>
+            <div key={section.id} draggable onDragStart={() => setDraggingId(section.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggingId) reorder(draggingId, section.id); setDraggingId(null); }} onDragEnd={() => setDraggingId(null)} className={`group flex cursor-grab items-center gap-2 rounded-xl border p-3 ${selected === section.id ? 'border-[#315e6c] bg-[#eef7f8]' : 'border-[#e1dbcf] bg-white'}`}>
               <GripVertical className="h-4 w-4 shrink-0 text-[#9ca5ad]" />
               <button type="button" onClick={() => setSelected(section.id)} className="min-w-0 flex-1 text-left">
                 <p className="truncate text-sm font-bold">{SECTION_LIBRARY.find((item) => item.type === section.type)?.label || section.type}</p>
@@ -137,7 +191,9 @@ export function StoreBuilderShell({ initialSections, onSave, onGenerateWithAI }:
               {previewSections.map((section) => (
                 <div key={section.id} className={selected === section.id ? 'ring-2 ring-inset ring-[#315e6c]' : ''} onClick={() => setSelected(section.id)}>
                   <div className="min-h-[100px] p-0">
-                    {section.type === 'hero' ? (
+                    {section.type === 'custom_code' ? (
+                      <iframe title="Custom code preview" sandbox="" className="h-[360px] w-full border-0" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;font-family:system-ui,sans-serif}${String(section.settings.css ?? '')}</style></head><body>${String(section.settings.html ?? '')}</body></html>`} />
+                    ) : section.type === 'hero' ? (
                       <div className="grid min-h-[430px] place-items-center bg-[#f5f1e9] p-12 text-center">
                         <div>
                           <p className="text-xs font-mono uppercase tracking-[.18em] text-[#a2772e]">{String(section.settings.subtitle || 'Your brand')}</p>
@@ -174,6 +230,27 @@ export function StoreBuilderShell({ initialSections, onSave, onGenerateWithAI }:
                 <input value={String(current.settings[key] ?? '')} onChange={(event) => updateSetting(key, event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm font-normal" />
               </label>
             ))}
+            {current.type === 'policies' && (
+              <div className="space-y-4">
+                {['shippingPolicy', 'returnsPolicy', 'privacyPolicy', 'termsPolicy'].map((key) => (
+                  <label key={key} className="block text-xs font-bold capitalize">
+                    {key.replace('Policy', ' policy')}
+                    <textarea value={String(current.settings[key] ?? '')} onChange={(event) => updateSetting(key, event.target.value)} rows={5} className="mt-1 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 py-2 text-sm font-normal" />
+                  </label>
+                ))}
+              </div>
+            )}
+            {current.type === 'custom_code' && (
+              <div className="space-y-4">
+                <label className="block text-xs font-bold">HTML
+                  <textarea value={String(current.settings.html ?? '')} onChange={(event) => updateSetting('html', event.target.value)} rows={10} className="mt-1 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 py-2 font-mono text-[11px]" placeholder="<div>Your content</div>" />
+                </label>
+                <label className="block text-xs font-bold">CSS
+                  <textarea value={String(current.settings.css ?? '')} onChange={(event) => updateSetting('css', event.target.value)} rows={10} className="mt-1 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 py-2 font-mono text-[11px]" placeholder=".hero { ... }" />
+                </label>
+                <p className="text-[10px] leading-4 text-[#697687]">JavaScript is not available. The preview uses a sandboxed frame.</p>
+              </div>
+            )}
           </div>
         ) : (
           <p className="mt-4 text-sm text-[#697687]">Select a section to edit.</p>

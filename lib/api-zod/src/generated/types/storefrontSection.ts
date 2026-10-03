@@ -26,4 +26,6 @@ export interface StorefrontSection {
   imageUrl: string | null;
   /** @maxLength 160 */
   imageAlt: string;
+  /** Optional section-specific settings used by the visual builder. */
+  settings?: Record<string, unknown>;
 }

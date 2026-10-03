@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from '@clerk/react';
+import { useAuth } from '@/components/local-auth';
 import { CheckCircle2, LogIn, ShieldAlert } from 'lucide-react';
 import { Link, useLocation, useRoute } from 'wouter';
 import { getGetPublicInvitationPreviewQueryKey, useAcceptTeamInvitation, useGetPublicInvitationPreview } from '@workspace/api-client-react';

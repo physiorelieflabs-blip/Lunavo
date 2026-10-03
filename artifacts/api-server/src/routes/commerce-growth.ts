@@ -1,11 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
 import {
   db,
   merchantsTable,
   sourcingSourcesTable,
   sourcingProductsTable,
+  supplierProductsTable,
   sourcingPriceSnapshotsTable,
   productAdvertisingCampaignsTable,
   marketplaceDiscoveryEventsTable,
@@ -19,7 +20,7 @@ const USD_CENTS = 500;
 async function merchantIdFor(req: Request): Promise<number> {
   const userId = getAuth(req).userId;
   if (!userId) throw Object.assign(new Error("Authentication required"), { statusCode: 401 });
-  const merchant = await db.query.merchantsTable.findFirst({ where: eq(merchantsTable.clerkUserId, userId) });
+  const merchant = (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0];
   if (!merchant) throw Object.assign(new Error("Merchant workspace not found"), { statusCode: 404 });
   return merchant.id;
 }
@@ -60,9 +61,10 @@ router.get("/growth/sourcing/products", async (req, res, next) => {
 router.get("/growth/sourcing/products/:id/history", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
-    const product = await db.query.sourcingProductsTable.findFirst({ where: and(eq(sourcingProductsTable.id, req.params.id), eq(sourcingProductsTable.merchantId, merchantId)) });
+    const productId = typeof req.params.id === "string" ? req.params.id.trim() : "";
+    if (!/^[0-9a-fA-F-]{36}$/.test(productId)) { res.status(400).json({ error: "Invalid sourcing product id" }); return; }
+    const product = (await db.select().from(sourcingProductsTable).where(and(eq(sourcingProductsTable.id, productId), eq(sourcingProductsTable.merchantId, merchantId))).limit(1))[0];
     if (!product) { res.status(404).json({ error: "Sourcing product not found" }); return; }
-    const productId = product.id;
     const history = await db.select().from(sourcingPriceSnapshotsTable).where(eq(sourcingPriceSnapshotsTable.sourcingProductId, product.id)).orderBy(desc(sourcingPriceSnapshotsTable.capturedAt));
     res.json({ product, history }); return;
   } catch (error) { next(error); }
@@ -76,8 +78,10 @@ router.get("/growth/sourcing/products/:id/history", async (req, res, next) => {
 router.post("/growth/advertising/campaigns", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req);
-    const productId = Number(req.body?.productId);
-    if (!Number.isInteger(productId) || productId <= 0) res.status(400).json({ error: "Valid productId is required" }); return;
+    const productId = typeof req.body?.productId === "string" ? req.body.productId.trim() : "";
+    if (!/^[0-9a-fA-F-]{36}$/.test(productId)) { res.status(400).json({ error: "Valid productId is required" }); return; }
+    const product = (await db.select({ id: supplierProductsTable.id }).from(supplierProductsTable).where(and(eq(supplierProductsTable.id, productId), eq(supplierProductsTable.merchantId, merchantId))).limit(1))[0];
+    if (!product) { res.status(404).json({ error: "Product not found in this merchant workspace" }); return; }
     const currency = typeof req.body?.currency === "string" ? req.body.currency.toUpperCase() : "USD";
     const [campaign] = await db.insert(productAdvertisingCampaignsTable).values({ merchantId, productId, storeId: req.body?.storeId || null, feeMinor: USD_CENTS, currency, status: "awaiting_payment", paymentStatus: "pending" }).returning();
     res.status(201).json({ campaign, payableAmountMinor: USD_CENTS, paymentRequired: true, message: "Campaign created. Complete and verify the $5 advertising payment before placement can activate." }); return;
@@ -94,10 +98,12 @@ router.get("/growth/advertising/campaigns", async (req, res, next) => {
 
 router.post("/growth/discovery/events", async (req, res, next) => {
   try {
-    const productId = Number(req.body?.productId);
+    const productId = typeof req.body?.productId === "string" ? req.body.productId.trim() : "";
     const eventType = typeof req.body?.eventType === "string" ? req.body.eventType : "view";
-    if (!Number.isInteger(productId) || productId <= 0) res.status(400).json({ error: "Valid productId is required" }); return;
-    if (!["impression", "click", "view", "add_to_cart", "purchase"].includes(eventType)) res.status(400).json({ error: "Unsupported discovery event" }); return;
+    if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(productId)) { res.status(400).json({ error: "Valid productId is required" }); return; }
+    const product = (await db.select({ id: supplierProductsTable.id }).from(supplierProductsTable).where(eq(supplierProductsTable.id, productId)).limit(1))[0];
+    if (!product) { res.status(404).json({ error: "Product not found" }); return; }
+    if (!["impression", "click", "view", "add_to_cart", "purchase"].includes(eventType)) { res.status(400).json({ error: "Unsupported discovery event" }); return; }
     const [event] = await db.insert(marketplaceDiscoveryEventsTable).values({ productId, campaignId: req.body?.campaignId || null, customerId: Number.isInteger(Number(req.body?.customerId)) ? Number(req.body.customerId) : null, eventType, sessionKey: typeof req.body?.sessionKey === "string" ? req.body.sessionKey.slice(0, 200) : null, metadata: req.body?.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {} }).returning();
     res.status(201).json({ event }); return;
   } catch (error) { next(error); }

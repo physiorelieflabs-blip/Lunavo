@@ -1,53 +1,27 @@
-CREATE TABLE IF NOT EXISTS "withdrawal_security" (
-  "id" serial PRIMARY KEY,
-  "merchant_id" integer NOT NULL REFERENCES "merchants"("id"),
-  "totp_secret_ciphertext" text,
-  "pending_totp_secret_ciphertext" text,
-  "pending_totp_expires_at" timestamptz,
-  "enabled_at" timestamptz,
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
+-- Migration 0003: Withdrawals and supplier tracking
+CREATE TABLE lunavo.withdrawal_requests (
+  id VARCHAR(40) PRIMARY KEY,
+  merchant_id VARCHAR(40) NOT NULL,
+  status VARCHAR(50) DEFAULT 'requested',
+  currency_code VARCHAR(3) NOT NULL,
+  amount DECIMAL(14, 2) NOT NULL,
+  bank_name VARCHAR(255),
+  account_number VARCHAR(255),
+  account_holder_name VARCHAR(255),
+  recipient_code VARCHAR(255),
+  provider_transfer_id VARCHAR(255),
+  provider_status VARCHAR(50),
+  approval_comment TEXT,
+  rejection_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  submitted_at TIMESTAMPTZ,
+  reviewed_at TIMESTAMPTZ,
+  reviewed_by VARCHAR(40),
+  processed_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (merchant_id) REFERENCES lunavo.merchants(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS "withdrawal_security_merchant_id_unique"
-  ON "withdrawal_security" ("merchant_id");
-
-CREATE TABLE IF NOT EXISTS "withdrawals" (
-  "id" serial PRIMARY KEY,
-  "merchant_id" integer NOT NULL REFERENCES "merchants"("id"),
-  "amount" numeric(12, 2) NOT NULL,
-  "currency" text NOT NULL DEFAULT 'USD',
-  "status" text NOT NULL DEFAULT 'pending',
-  "beneficiary_name" text NOT NULL,
-  "bank_name" text NOT NULL,
-  "destination_ciphertext" text NOT NULL,
-  "account_last4" text NOT NULL,
-  "idempotency_key" text,
-  "reviewed_by" text,
-  "review_note" text,
-  "reviewed_at" timestamptz,
-  "paid_at" timestamptz,
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS "withdrawals_merchant_idempotency_unique"
-  ON "withdrawals" ("merchant_id", "idempotency_key");
-
-CREATE TABLE IF NOT EXISTS "supplier_products" (
-  "id" serial PRIMARY KEY,
-  "merchant_id" integer NOT NULL REFERENCES "merchants"("id"),
-  "source_url" text NOT NULL,
-  "source_domain" text NOT NULL,
-  "title" text NOT NULL,
-  "description" text,
-  "image_url" text,
-  "price" numeric(12, 2),
-  "currency" text NOT NULL DEFAULT 'USD',
-  "status" text NOT NULL DEFAULT 'imported',
-  "imported_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS "supplier_products_merchant_url_unique"
-  ON "supplier_products" ("merchant_id", "source_url");
+CREATE INDEX idx_withdrawals_merchant_id ON lunavo.withdrawal_requests(merchant_id);
+CREATE INDEX idx_withdrawals_status ON lunavo.withdrawal_requests(status);

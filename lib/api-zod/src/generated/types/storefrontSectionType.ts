@@ -10,8 +10,27 @@ export type StorefrontSectionType = typeof StorefrontSectionType[keyof typeof St
 
 
 export const StorefrontSectionType = {
+  announcement: 'announcement',
+  header: 'header',
   hero: 'hero',
+  featured_collection: 'featured_collection',
+  product_grid: 'product_grid',
+  category_grid: 'category_grid',
+  image_with_text: 'image_with_text',
+  video: 'video',
+  testimonials: 'testimonials',
+  reviews: 'reviews',
+  benefits: 'benefits',
+  faq: 'faq',
+  newsletter: 'newsletter',
+  countdown: 'countdown',
+  logo_cloud: 'logo_cloud',
+  rich_text: 'rich_text',
+  spacer: 'spacer',
+  contact: 'contact',
+  footer: 'footer',
+  policies: 'policies',
+  custom_code: 'custom_code',
   products: 'products',
   story: 'story',
-  announcement: 'announcement',
 } as const;

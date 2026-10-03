@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { useUser } from '@clerk/react';
+import { useUser } from '@/components/local-auth';
 import { ExternalLink, Eye, EyeOff, Palette, Plus, Sparkles, Store as StoreIcon, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -12,10 +12,13 @@ import {
   useGetCheckoutSettings,
   useGetDashboardOverview,
   useUpdateCheckoutSettings,
+  type Store,
   type StorefrontSection,
   type StorefrontTheme,
 } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
+import { StoreBuilderShell } from '@/components/store-builder-shell';
+import type { StoreSection, StoreSectionType } from '@/lib/assistant-types';
 import { Badge, Button, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 
 export default function StorePage() {
@@ -43,11 +46,13 @@ export default function StorePage() {
     announcement: '',
     logoUrl: null,
     heroImageUrl: null,
+    showLunavoBranding: true,
   });
   const [sections, setSections] = useState<StorefrontSection[]>([]);
   const [published, setPublished] = useState(true);
   const [message, setMessage] = useState('');
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [visualBuilderOpen, setVisualBuilderOpen] = useState(false);
   const [builderBusy, setBuilderBusy] = useState(false);
   const [builderBusinessName, setBuilderBusinessName] = useState('');
   const [builderNiche, setBuilderNiche] = useState('');
@@ -58,11 +63,14 @@ export default function StorePage() {
   const [builderColors, setBuilderColors] = useState('');
   const [builderModel, setBuilderModel] = useState('');
   const [stores, setStores] = useState<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>([]);
+  const [activeStoreId, setActiveStoreId] = useState('');
   const [newStoreName, setNewStoreName] = useState('');
   const [storeBusy, setStoreBusy] = useState(false);
 
   useEffect(() => {
-    void customFetch<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>('/api/stores', { responseType: 'json' }).then(setStores).catch(() => setStores([]));
+    void customFetch<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>('/api/stores', { responseType: 'json' })
+      .then((items) => { setStores(items); setActiveStoreId((current) => current || items[0]?.id || ''); })
+      .catch(() => setStores([]));
   }, []);
 
   useEffect(() => {
@@ -78,6 +86,19 @@ export default function StorePage() {
     setSections(overview.data.storefrontSections);
     setPublished(overview.data.storefrontPublished);
   }, [overview.data]);
+
+  useEffect(() => {
+    if (!activeStoreId) return;
+    void customFetch<{ theme: StorefrontTheme; sections: StorefrontSection[]; published: boolean }>(`/api/storefront-builder/${encodeURIComponent(activeStoreId)}/draft`, { responseType: 'json' })
+      .then((draft) => {
+        setTheme(draft.theme);
+        setSections(draft.sections);
+        setPublished(draft.published);
+      })
+      .catch(() => {
+        // The selected storefront may be newly created and still use the empty/default draft.
+      });
+  }, [activeStoreId]);
 
   useEffect(() => {
     if (!checkoutSettings.data) return;
@@ -123,6 +144,108 @@ export default function StorePage() {
     });
   };
 
+
+  const visualBuilderSections: StoreSection[] = sections.length
+    ? sections.map((section) => ({
+        id: section.id,
+        type: section.type as StoreSectionType,
+        visible: section.enabled,
+        settings: {
+          title: section.heading,
+          body: section.body,
+          imageUrl: section.imageUrl ?? '',
+          imageAlt: section.imageAlt,
+          ...(section.settings ?? {}),
+        },
+      }))
+    : [
+        { id: 'header', type: 'header', visible: true, settings: { title: storeName || 'Your Store' } },
+        { id: 'hero', type: 'hero', visible: true, settings: { title: storeName || 'Your Store', subtitle: 'Welcome', body: storeDescription || 'Introduce your products clearly.', buttonText: 'Shop now' } },
+        { id: 'products', type: 'product_grid', visible: true, settings: { title: 'Shop the collection' } },
+        { id: 'benefits', type: 'benefits', visible: true, settings: { title: 'Shop with confidence' } },
+        { id: 'footer', type: 'footer', visible: true, settings: { title: storeName || 'Your Store' } },
+      ];
+
+  const saveVisualBuilder = async (nextSections: StoreSection[]) => {
+    const payload: StorefrontSection[] = nextSections.map((section) => ({
+      id: section.id,
+      type: section.type as StorefrontSection['type'],
+      enabled: section.visible,
+      heading: typeof section.settings.title === 'string' ? section.settings.title.slice(0, 120) : '',
+      body: typeof section.settings.body === 'string' ? section.settings.body.slice(0, 500) : '',
+      imageUrl: typeof section.settings.imageUrl === 'string' && section.settings.imageUrl.trim() ? section.settings.imageUrl.trim().slice(0, 2000) : null,
+      imageAlt: typeof section.settings.imageAlt === 'string' ? section.settings.imageAlt.slice(0, 160) : '',
+      settings: section.settings,
+    }));
+    setBuilderBusy(true);
+    try {
+      let storeId = activeStoreId;
+      if (!storeId) {
+        const created = await customFetch<{ id: string; name: string; publicKey: string; published: boolean; url: string }>('/api/stores', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: storeName.trim() || 'My Store' }),
+        });
+        storeId = created.id;
+        setStores((current) => [...current, created]);
+        setActiveStoreId(created.id);
+      }
+      await customFetch(`/api/storefront-builder/${encodeURIComponent(storeId)}/draft`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ theme, sections: payload }),
+      });
+      setSections(payload);
+      setPublished(false);
+      setStores((current) => current.map((item) => item.id === storeId ? { ...item, published: false } : item));
+      setMessage('Builder draft saved to the selected storefront. Publishing is a separate verified action.');
+      void queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Builder draft could not be saved.');
+      throw error;
+    } finally {
+      setBuilderBusy(false);
+    }
+  };
+
+  const publishActiveStore = async () => {
+    if (!activeStoreId) { setMessage('Select or create a storefront before publishing.'); return; }
+    setBuilderBusy(true);
+    try {
+      const result = await customFetch<{ published: boolean; version: number; contentHash: string }>(`/api/storefront-builder/${encodeURIComponent(activeStoreId)}/publish`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      setPublished(result.published);
+      setStores((current) => current.map((item) => item.id === activeStoreId ? { ...item, published: true } : item));
+      setMessage(`Storefront published as immutable version ${result.version}. Customers now receive that publication snapshot.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Storefront could not be published.');
+    } finally {
+      setBuilderBusy(false);
+    }
+  };
+
+  const unpublishActiveStore = async () => {
+    if (!activeStoreId) { setMessage('Select a storefront before unpublishing.'); return; }
+    setBuilderBusy(true);
+    try {
+      await customFetch(`/api/storefront-builder/${encodeURIComponent(activeStoreId)}/unpublish`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      setPublished(false);
+      setStores((current) => current.map((item) => item.id === activeStoreId ? { ...item, published: false } : item));
+      setMessage('Storefront unpublished. The last published snapshot remains preserved in history.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Storefront could not be unpublished.');
+    } finally {
+      setBuilderBusy(false);
+    }
+  };
+
   const saveCheckoutSettings = (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
@@ -155,6 +278,22 @@ export default function StorePage() {
 
       {message && <div className="mt-7"><Notice tone={message.includes('could not') ? 'danger' : 'success'} title={message.includes('could not') ? 'Store not saved' : 'Store saved'}>{message}</Notice></div>}
       <div className="mt-7"><Notice tone="warning" title="Public checkout is provider-only">Customers pay through Flutterwave-generated payment sessions. Linked bank accounts are private withdrawal destinations and are never published on your storefront.</Notice></div>
+      <div className="mt-7 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#d9d2c4] bg-white p-5 shadow-[0_12px_28px_rgba(24,35,51,.05)]">
+        <div>
+          <p className="text-sm font-extrabold">Visual Store Builder</p>
+          <p className="mt-1 text-xs leading-5 text-[#697687]">Drag sections, start from a template, edit content, and save a real storefront draft.</p>
+        </div>
+        <Button type="button" onClick={() => setVisualBuilderOpen((open) => !open)}>{visualBuilderOpen ? 'Close visual builder' : 'Open visual builder'}</Button>
+      </div>
+      {visualBuilderOpen && <div className="mt-6">
+        <StoreBuilderShell
+          key={visualBuilderSections.map((section) => section.id).join('|')}
+          initialSections={visualBuilderSections}
+          onSave={saveVisualBuilder}
+          onGenerateWithAI={async () => { setBuilderOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+        />
+        {builderBusy && <p className="mt-3 text-xs font-bold text-[#697687]">Saving builder draft…</p>}
+      </div>}
 
        <section className="mt-7 overflow-hidden rounded-2xl border border-[#263b4a] bg-[#182333] text-[#f8f3e8] shadow-[0_20px_55px_rgba(24,35,51,.16)]">
         <div className="flex flex-col gap-5 p-6 md:p-8 lg:flex-row lg:items-start lg:justify-between">
@@ -236,7 +375,17 @@ export default function StorePage() {
            <SectionHeading eyebrow="Store destinations" title="Manage your storefronts" description="Each storefront has its own public link and can receive exported AI media." />
            <div className="flex w-full gap-2 md:max-w-sm"><input value={newStoreName} onChange={(e) => setNewStoreName(e.target.value)} className="h-11 min-w-0 flex-1 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" placeholder="New store name" /><Button type="button" disabled={storeBusy || newStoreName.trim().length < 2} onClick={async () => { setStoreBusy(true); try { const created = await customFetch<{ id: string; name: string; publicKey: string; published: boolean; url: string }>('/api/stores', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: newStoreName.trim() }) }); setStores((current) => [...current, created]); setNewStoreName(''); setMessage(`Store “${created.name}” created as a draft. Export AI visuals to it from AI Control Room.`); } catch (error) { setMessage(error instanceof Error ? error.message : 'Store could not be created.'); } finally { setStoreBusy(false); } }}>Add store</Button></div>
          </div>
-         <div className="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-3">{stores.map((storeItem) => <div key={storeItem.id} className="rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4"><div className="flex items-center justify-between gap-3"><p className="font-extrabold">{storeItem.name}</p><Badge tone={storeItem.published ? 'success' : 'neutral'}>{storeItem.published ? 'Published' : 'Draft'}</Badge></div><p className="mt-2 truncate font-mono text-[10px] text-[#697687]">{storeItem.publicKey}</p><a href={storeItem.url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1 text-xs font-extrabold text-[#8a6826] underline">Open storefront <ExternalLink className="h-3.5 w-3.5" /></a></div>)}</div>
+         <div className="mt-6 grid gap-4 rounded-xl border border-[#d9d2c4] bg-white p-4 md:grid-cols-[1fr_auto_auto] md:items-end">
+           <label className="text-xs font-extrabold uppercase tracking-[.12em] text-[#697687]">Visual builder storefront
+             <select value={activeStoreId} onChange={(event) => setActiveStoreId(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm font-bold">
+               <option value="">Select a storefront</option>
+               {stores.map((storeItem) => <option key={storeItem.id} value={storeItem.id}>{storeItem.name}{storeItem.published ? ' — Published' : ' — Draft'}</option>)}
+             </select>
+           </label>
+           <Button type="button" disabled={builderBusy || !activeStoreId} onClick={() => void publishActiveStore()}>{builderBusy ? 'Working…' : 'Publish selected'}</Button>
+           <Button type="button" disabled={builderBusy || !activeStoreId} onClick={() => void unpublishActiveStore()} className="border border-[#d9d2c4] bg-white text-[#536174] hover:bg-[#f7f4ed]">Unpublish</Button>
+         </div>
+         <div className="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-3">{stores.map((storeItem) => <div key={storeItem.id} className={`rounded-xl border p-4 ${activeStoreId === storeItem.id ? 'border-[#315e6c] bg-[#eef7f8]' : 'border-[#d9d2c4] bg-[#f7f4ed]'}`}><div className="flex items-center justify-between gap-3"><button type="button" onClick={() => setActiveStoreId(storeItem.id)} className="text-left font-extrabold">{storeItem.name}</button><Badge tone={storeItem.published ? 'success' : 'neutral'}>{storeItem.published ? 'Published' : 'Draft'}</Badge></div><p className="mt-2 truncate font-mono text-[10px] text-[#697687]">{storeItem.publicKey}</p><a href={storeItem.url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1 text-xs font-extrabold text-[#8a6826] underline">Open storefront <ExternalLink className="h-3.5 w-3.5" /></a></div>)}</div>
        </section>
 
        <form onSubmit={save}>
@@ -294,6 +443,17 @@ export default function StorePage() {
             <label className="block text-sm font-bold">Announcement bar <span className="font-normal text-[#697687]">(optional)</span>
               <input maxLength={160} value={theme.announcement} onChange={(event) => setTheme((current) => ({ ...current, announcement: event.target.value }))} placeholder="Free delivery this week" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" />
             </label>
+            <div className="border-t border-[#e5dfd4] pt-5">
+              <p className="text-xs font-extrabold uppercase tracking-[.14em] text-[#697687]">Search & policy metadata</p>
+              <div className="mt-4 grid gap-4">
+                <label className="block text-sm font-bold">SEO title <span className="font-normal text-[#697687]">(optional)</span>
+                  <input maxLength={70} value={theme.seoTitle ?? ''} onChange={(event) => setTheme((current) => ({ ...current, seoTitle: event.target.value }))} placeholder={storeName ? storeName + ' — Shop online' : 'Your Store — Shop online'} className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]" />
+                </label>
+                <label className="block text-sm font-bold">SEO description <span className="font-normal text-[#697687]">(optional)</span>
+                  <textarea maxLength={160} rows={3} value={theme.seoDescription ?? ''} onChange={(event) => setTheme((current) => ({ ...current, seoDescription: event.target.value }))} placeholder={storeDescription || 'Describe your store for search results.'} className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-2 text-sm outline-none focus:border-[#bca26a]" />
+                </label>
+              </div>
+            </div>
              <div className="grid gap-4 sm:grid-cols-2">
                <label className="block text-sm font-bold">Logo image URL <span className="font-normal text-[#697687]">(optional)</span>
                  <input type="url" value={theme.logoUrl ?? ''} onChange={(event) => setTheme((current) => ({ ...current, logoUrl: event.target.value.trim() || null }))} maxLength={2000} placeholder="https://cdn.example.com/logo.png" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-xs outline-none focus:border-[#bca26a]" />
@@ -302,6 +462,7 @@ export default function StorePage() {
                  <input type="url" value={theme.heroImageUrl ?? ''} onChange={(event) => setTheme((current) => ({ ...current, heroImageUrl: event.target.value.trim() || null }))} maxLength={2000} placeholder="https://cdn.example.com/hero.jpg" className="mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-xs outline-none focus:border-[#bca26a]" />
                </label>
              </div>
+            <label className="flex items-center justify-between gap-4 rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4"><span><span className="block text-sm font-extrabold">Lunavo footer branding</span><span className="mt-1 block text-xs leading-5 text-[#697687]">Show the Lunavo-powered attribution in the public storefront footer.</span></span><button type="button" role="switch" aria-checked={theme.showLunavoBranding !== false} onClick={() => setTheme((current) => ({ ...current, showLunavoBranding: current.showLunavoBranding === false }))} className={`relative h-7 w-12 rounded-full transition ${theme.showLunavoBranding !== false ? 'bg-[#315e6c]' : 'bg-[#a9a39a]'}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${theme.showLunavoBranding !== false ? 'left-6' : 'left-1'}`} /></button></label>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d9d2c4] bg-[#f7f4ed] p-4">
               <div><p className="text-sm font-extrabold">Publication state</p><p className="mt-1 text-xs leading-5 text-[#697687]">{published ? 'Customers can browse this storefront.' : 'Only your workspace can see these changes.'}</p></div>
               <button type="button" onClick={() => setPublished((value) => !value)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-extrabold ${published ? 'bg-[#d8eee2] text-[#2f6958]' : 'bg-[#e7e2d8] text-[#536174]'}`}>{published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}{published ? 'Published' : 'Draft'}</button>

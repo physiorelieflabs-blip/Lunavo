@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
 import { db, merchantsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 

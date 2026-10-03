@@ -8,6 +8,7 @@
 
 export interface Merchant {
   id: number;
+  role: string;
   name: string;
   email: string;
   storeName: string;

@@ -1,10 +1,10 @@
-DROP INDEX IF EXISTS "payment_destinations_intent_unique";
-DROP INDEX IF EXISTS "payment_destinations_payment_unique";
-DROP INDEX IF EXISTS "payment_destinations_order_unique";
-
-CREATE INDEX IF NOT EXISTS "payment_destinations_intent_idx"
-  ON "payment_destinations" ("payment_intent_id");
-CREATE INDEX IF NOT EXISTS "payment_destinations_payment_idx"
-  ON "payment_destinations" ("payment_id");
-CREATE INDEX IF NOT EXISTS "payment_destinations_order_idx"
-  ON "payment_destinations" ("order_id");
+-- Migration 0046: Payout attempt tracking
+CREATE TABLE lunavo.payout_attempts (
+  id VARCHAR(40) PRIMARY KEY,
+  withdrawal_request_id VARCHAR(40) NOT NULL,
+  attempt_number INT DEFAULT 1,
+  status VARCHAR(50) DEFAULT 'pending',
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  FOREIGN KEY (withdrawal_request_id) REFERENCES lunavo.withdrawal_requests(id) ON DELETE CASCADE
+);

@@ -1,6 +1,3 @@
-ALTER TABLE payment_intents
-  ADD COLUMN IF NOT EXISTS marketplace_billing_record_id integer REFERENCES marketplace_billing_records(id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS payment_intents_marketplace_billing_unique
-  ON payment_intents(marketplace_billing_record_id)
-  WHERE marketplace_billing_record_id IS NOT NULL;
+-- Migration 0052: Marketplace advertising links
+ALTER TABLE lunavo.advertising_campaigns ADD COLUMN IF NOT EXISTS marketplace_listing_id VARCHAR(40);
+ALTER TABLE lunavo.advertising_campaigns ADD COLUMN IF NOT EXISTS payment_link_id VARCHAR(40);

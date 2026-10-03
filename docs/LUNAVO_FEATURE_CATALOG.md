@@ -17,7 +17,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Location-scoped staff access
 - Workspace switching
 - Customer/merchant role switching
-- Clerk authentication
+- First-party local authentication
 - Sign in / sign up
 - Password reset
 - Verified email enforcement where required
@@ -537,7 +537,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Server-side authorization
 - RBAC
 - Staff scope validation
-- Clerk authentication
+- First-party local authentication
 - Secure sessions
 - CSRF protection where applicable
 - CORS restrictions

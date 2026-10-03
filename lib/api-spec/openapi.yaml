@@ -2487,6 +2487,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        role: { type: string }
         name: { type: string }
         storeName: { type: string }
         storeDescription: { type: ["string", "null"], maxLength: 500 }
@@ -2530,17 +2531,25 @@ components:
         announcement: { type: string, maxLength: 160 }
         logoUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
         heroImageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
+        showLunavoBranding: { type: boolean, default: true }
+        seoTitle: { type: string, maxLength: 70 },
+        seoDescription: { type: string, maxLength: 160 },
+        shippingPolicy: { type: string, maxLength: 5000 },
+        returnsPolicy: { type: string, maxLength: 5000 },
+        privacyPolicy: { type: string, maxLength: 5000 },
+        termsPolicy: { type: string, maxLength: 5000 }
       required: [accentColor, backgroundColor, textColor, layout, announcement, logoUrl, heroImageUrl]
     StorefrontSection:
       type: object
       properties:
         id: { type: string, minLength: 1, maxLength: 40 }
-        type: { type: string, enum: [hero, products, story, announcement] }
+        type: { type: string, enum: [announcement, header, hero, featured_collection, product_grid, category_grid, image_with_text, video, testimonials, reviews, benefits, faq, newsletter, countdown, logo_cloud, rich_text, spacer, contact, footer, policies, custom_code, products, story] }
         enabled: { type: boolean }
         heading: { type: string, maxLength: 120 }
         body: { type: string, maxLength: 500 }
         imageUrl: { type: ["string", "null"], format: uri, maxLength: 2000 }
         imageAlt: { type: string, maxLength: 160 }
+        settings: { type: object, additionalProperties: true }
       required: [id, type, enabled, heading, body, imageUrl, imageAlt]
     HealthStatus:
       type: object
@@ -3055,6 +3064,7 @@ components:
         daysSinceRegistration: { type: integer }
       required:
         - id
+        - role
         - name
         - email
         - storeName
