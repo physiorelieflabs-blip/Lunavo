@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthenticationError, AuthorizationError, TenantIsolationError } from './errors';
 import { db, auditLogsTable, merchantsTable } from '@workspace/db';
 import { eq, sql } from 'drizzle-orm';
+import { isMasterAdmin, masterAdminMfaEnabled } from './master-admin';
 
 declare global {
   namespace Express {
@@ -55,7 +56,7 @@ export async function merchantAuthMiddleware(req: Request, res: Response, next: 
     }
 
     // Get merchant associated with this user
-    const merchant = (await db.select({ id: merchantsTable.id })
+    const merchant = (await db.select({ id: merchantsTable.id, status: merchantsTable.status })
       .from(merchantsTable)
       .where(eq(merchantsTable.clerkUserId, req.userId))
       .limit(1))[0];
@@ -63,6 +64,8 @@ export async function merchantAuthMiddleware(req: Request, res: Response, next: 
     if (!merchant) {
       throw new AuthorizationError('No merchant associated with this account');
     }
+
+    if (merchant.status !== 'active') throw new AuthorizationError('Merchant workspace is not active');
 
     req.merchantId = String(merchant.id);
 
@@ -91,16 +94,22 @@ export function requireRole(...roles: string[]) {
   };
 }
 
-export function requireMasterAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) {
+export async function requireMasterAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.userId) {
     return res.status(401).json({ error: 'unauthorized', message: 'Authentication required' });
   }
 
-  if (req.user.role !== 'master_admin') {
-    return res.status(403).json({ error: 'forbidden', message: 'Master Admin access required' });
+  try {
+    if (!(await isMasterAdmin(String(req.userId)))) {
+      return res.status(403).json({ error: 'forbidden', message: 'Master Admin access required' });
+    }
+    if (!(await masterAdminMfaEnabled(String(req.userId)))) {
+      return res.status(403).json({ error: 'forbidden', message: 'Master Admin MFA is required' });
+    }
+    return next();
+  } catch {
+    return res.status(403).json({ error: 'forbidden', message: 'Master Admin access could not be verified' });
   }
-
-  return next();
 }
 
 export async function auditLog(

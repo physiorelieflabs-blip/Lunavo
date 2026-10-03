@@ -7855,7 +7855,7 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
   const params = UpdateOrderStatusParams.safeParse(req.params);
   const parsed = UpdateOrderStatusBody.safeParse(req.body);
   if (!params.success || !parsed.success) {
-    res.status(400).json({ error: "Choose paid or cancelled" });
+    res.status(400).json({ error: "The only manual order status transition is cancellation; payment status comes from verified TS Pay processing." });
     return;
   }
   const merchant = await getOrCreateMerchant(identity);

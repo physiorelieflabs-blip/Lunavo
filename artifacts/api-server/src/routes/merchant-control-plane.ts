@@ -43,6 +43,43 @@ router.put("/merchant/automation-policy", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.put("/merchant/autopilot/mode", async (req, res, next) => {
+  try {
+    const ctx = await merchantContext(req, res); if (!ctx) return;
+    const level = Number(req.body?.autonomyLevel);
+    const trainingOptIn = Boolean(req.body?.trainingOptIn);
+    if (!Number.isInteger(level) || level < 0 || level > 4) return res.status(400).json({ error: "Invalid Autopilot level" });
+    if (level === 4 && !trainingOptIn) return res.status(400).json({ error: "Full Autopilot requires local AI training consent" });
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`INSERT INTO ai_settings (merchant_id,autonomy_level,run_my_business,training_opt_in,goal,goal_target)
+        VALUES (${ctx.merchantId},${level},${level === 4},${trainingOptIn},${req.body?.goal ? String(req.body.goal).trim().slice(0,180) : null},${req.body?.goalTarget == null ? null : Number(req.body.goalTarget).toFixed(2)})
+        ON CONFLICT (merchant_id) DO UPDATE SET autonomy_level=EXCLUDED.autonomy_level,run_my_business=EXCLUDED.run_my_business,training_opt_in=EXCLUDED.training_opt_in,goal=EXCLUDED.goal,goal_target=EXCLUDED.goal_target,updated_at=now()`);
+      await tx.execute(sql`INSERT INTO merchant_automation_policies (merchant_id,enabled,daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish,updated_at)
+        VALUES (${ctx.merchantId},${level !== 0},500,3,15,3,false,true,now())
+        ON CONFLICT (merchant_id) DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=now()`);
+      const settings = (await tx.execute(sql`SELECT autonomy_level,run_my_business,training_opt_in,goal,goal_target FROM ai_settings WHERE merchant_id=${ctx.merchantId} LIMIT 1`)).rows[0];
+      const policy = (await tx.execute(sql`SELECT merchant_id,enabled,daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish FROM merchant_automation_policies WHERE merchant_id=${ctx.merchantId} LIMIT 1`)).rows[0];
+      return { settings, policy };
+    });
+    res.json({ settings: result.settings, policy: result.policy });
+  } catch (e) { next(e); }
+});
+
+router.post("/merchant/autopilot/emergency-stop", async (req, res, next) => {
+  try {
+    const ctx = await merchantContext(req, res); if (!ctx) return;
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`INSERT INTO merchant_automation_policies (merchant_id,enabled,daily_action_limit,daily_ad_limit,min_margin_percent,max_price_multiplier,require_approval_for_price_changes,require_approval_for_external_publish,updated_at)
+        VALUES (${ctx.merchantId},false,0,0,0,1,true,true,now())
+        ON CONFLICT (merchant_id) DO UPDATE SET enabled=false,require_approval_for_price_changes=true,require_approval_for_external_publish=true,updated_at=now()`);
+      await tx.execute(sql`UPDATE ai_settings SET run_my_business=false,autonomy_level=0,updated_at=now() WHERE merchant_id=${ctx.merchantId}`);
+      await tx.execute(sql`INSERT INTO merchant_automation_audit (merchant_id,action_type,status,idempotency_key,reason,metadata)
+        VALUES (${ctx.merchantId},'autopilot_emergency_stop','blocked',${'autopilot-emergency-stop:' + ctx.merchantId + ':' + new Date().toISOString()},'Merchant emergency stop activated',{\"source\":\"autopilot_control_centre\"}::jsonb)`);
+    });
+    res.json({ stopped:true, message:"Autopilot and RUN MY BUSINESS have been disabled for this merchant. Approval requirements were re-enabled." });
+  } catch (e) { next(e); }
+});
+
 router.get("/merchant/store-auction-eligibility", async (req, res, next) => {
   try {
     const ctx = await merchantContext(req, res); if (!ctx) return;
