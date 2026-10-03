@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { getStoredFlutterwaveCredentials } from "./flutterwave-runtime";
 
 const FLUTTERWAVE_API = "https://api.flutterwave.com/v3";
 
@@ -56,8 +57,8 @@ function envValue(primary: string, legacy: string): string {
   return process.env[primary]?.trim() || process.env[legacy]?.trim() || "";
 }
 
-function secretKey(): string {
-  const value = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY");
+async function secretKey(override?: string): Promise<string> {
+  const value = override?.trim() || (await getStoredFlutterwaveCredentials()).secretKey;
   if (!value) throw new Error("Flutterwave online payments are not configured");
   return value;
 }
@@ -72,13 +73,13 @@ function providerError(payload: unknown): string {
 
 async function flutterwaveRequest<T>(
   path: string,
-  options: { method?: string; body?: Record<string, unknown>; idempotencyKey?: string } = {},
+  options: { method?: string; body?: Record<string, unknown>; idempotencyKey?: string; secretKeyOverride?: string } = {},
 ): Promise<T> {
   const response = await fetch(`${FLUTTERWAVE_API}${path}`, {
     method: options.method ?? "GET",
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${secretKey()}`,
+      Authorization: `Bearer ${await secretKey(options.secretKeyOverride)}`,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.idempotencyKey ? { "X-Idempotency-Key": options.idempotencyKey } : {}),
     },
@@ -106,7 +107,8 @@ export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean
 }
 
 export function isFlutterwaveConfigured(): boolean {
-  return Boolean(envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY"));
+  const env = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY");
+  return Boolean(env);
 }
 
 export function flutterwaveCredentialMode(): "live" | "test" | "unknown" {
@@ -116,8 +118,10 @@ export function flutterwaveCredentialMode(): "live" | "test" | "unknown" {
   return "unknown";
 }
 
-export async function checkFlutterwaveConnection(): Promise<{ status: string }> {
-  const response = await flutterwaveRequest<FlutterwaveResponse<unknown>>("/transactions?limit=1");
+export async function checkFlutterwaveConnection(secretOverride?: string): Promise<{ status: string }> {
+  const response = await flutterwaveRequest<FlutterwaveResponse<unknown>>("/transactions?limit=1", {
+    secretKeyOverride: secretOverride,
+  });
   return { status: String(response.status ?? "ok") };
 }
 
@@ -298,6 +302,29 @@ export async function refundFlutterwaveTransaction(
     { method: "POST", idempotencyKey, body: { amount: Number(amount.toFixed(2)) } },
   );
   return { id: response.data?.id == null ? null : String(response.data.id), status: String(response.data?.status ?? response.status ?? "pending") };
+}
+
+export async function verifyFlutterwaveWebhookSignatureAsync(
+  rawBody: Buffer,
+  currentSignature: string | undefined,
+  legacySignature?: string,
+): Promise<boolean> {
+  const secrets = await getStoredFlutterwaveCredentials();
+  const secret = secrets.webhookSecret;
+  if (!secret) return false;
+
+  if (currentSignature?.trim()) {
+    const supplied = Buffer.from(currentSignature.trim());
+    const expected = Buffer.from(createHmac("sha256", secret).update(rawBody).digest("base64"));
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+
+  if (legacySignature?.trim()) {
+    const supplied = Buffer.from(legacySignature.trim());
+    const expected = Buffer.from(secret);
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  }
+  return false;
 }
 
 export function verifyFlutterwaveWebhookSignature(
