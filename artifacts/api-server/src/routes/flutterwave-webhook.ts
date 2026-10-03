@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Router, type Request } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, paymentWebhookEventsTable } from "@workspace/db";
-import { verifyFlutterwaveTransaction, verifyFlutterwaveWebhookSignature } from "../lib/flutterwave-client";
+import { verifyFlutterwaveTransaction, verifyFlutterwaveWebhookSignatureAsync } from "../lib/flutterwave-client";
 import { settleVerifiedProductAuctionPayment } from "../lib/product-auction-settlement";
 import { settleVerifiedStoreAuctionPayment } from "../lib/store-auction-settlement";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
