@@ -9,4 +9,4 @@ The qualifying referred merchant receives no referral discount. After the referr
 
 **How to apply:** Keep rewards attached to the referrer merchant, calculate and store the discount in the referrer's subscription currency, consume it only on that referrer's next eligible cycle, and reverse it if the qualifying payment is reversed.
 
-The first 150 verified, non-reversed referral rewards also grant one idempotent 12-month subscription-only entitlement. It is not cash and does not create a second reward path.
+There is no referral-count milestone or free-month entitlement. The only referral reward is one non-withdrawable 30% discount on the referrer’s next eligible subscription cycle. Legacy milestone records may remain only as historical audit data and must never affect billing.
