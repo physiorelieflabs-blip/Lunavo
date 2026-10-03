@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import { and, desc, eq, exists, gte, ilike, or, sql } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
+import { requirePermission } from "../lib/tenant-access";
 import {
   db,
   merchantsTable,
@@ -37,10 +38,13 @@ function requestOrigin(req: Request): string {
 async function authenticatedMerchant(req: Request) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  return (await db.select().from(merchantsTable).where(and(
+  const merchant = (await db.select().from(merchantsTable).where(and(
     eq(merchantsTable.clerkUserId, userId),
     eq(merchantsTable.status, "active"),
   )).limit(1))[0] ?? null;
+  if (!merchant) return null;
+  await requirePermission(userId, merchant.id, "marketplace.manage");
+  return merchant;
 }
 
 function publicProduct(product: typeof supplierProductsTable.$inferSelect, merchantKey: string | null, merchantName: string) {
