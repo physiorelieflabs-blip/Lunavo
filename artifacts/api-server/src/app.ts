@@ -16,36 +16,19 @@ setInterval(()=>{const cutoff=Date.now()-10*60*1000;for(const[key,value]of rateB
 const customDomainCache=new Map<string,{found:boolean;expiresAt:number}>();
 function normalizeHost(value:string){const raw=value.trim().toLowerCase();if(!raw)return "";try{return new URL(raw.includes("://")?raw:`https://${raw}`).hostname.replace(/^www\./,"");}catch{return raw.replace(/^https?:\/\//,"").split("/")[0].replace(/^www\./,"");}}
 app.disable("x-powered-by");
-app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.setHeader("X-Frame-Options","SAMEORIGIN");res.setHeader("Referrer-Policy",/^\/(?:api\/public\/invitations|invite)(?:\/|$)/.test(req.path)?"no-referrer":"strict-origin-when-cross-origin");res.setHeader("Permissions-Policy","camera=(), microphone=(), geolocation=()");res.setHeader("Cross-Origin-Opener-Policy","same-origin-allow-popups");res.setHeader("Cross-Origin-Resource-Policy","same-origin");if(process.env.NODE_ENV==="production")res.setHeader("Strict-Transport-Security","max-age=31536000; includeSubDomains");next();});
-app.use(pinoHttp({logger,serializers:{req(req){const pathname=req.url?.split("?")[0]?.replace(/\/public\/invitations\/[^/]+/g,"/public/invitations/:redacted");return{id:req.id,method:req.method,url:pathname};},res(res){return{statusCode:res.statusCode};}}}));
-app.use(authenticateRequest);
-app.use((req,res,next)=>{
-  const localUser = (req as express.Request & { localUser?: { emailVerified?: boolean } }).localUser;
-  if (
-    localUser &&
-    localUser.emailVerified === false &&
-    req.path.startsWith("/api/") &&
-    !req.path.startsWith("/api/auth/")
-  ) {
-    res.status(403).json({
-      error: "Email verification is required before using the merchant workspace.",
-      code: "EMAIL_VERIFICATION_REQUIRED",
-    });
-    return;
-  }
-  next();
-});
 app.use((req,res,next)=>{
   if((req.method==="GET"||req.method==="HEAD"||req.method==="OPTIONS") || req.path.startsWith("/api/webhooks/")) { next(); return; }
+  const fetchSite=req.get("sec-fetch-site")?.toLowerCase();
+  if(fetchSite==="cross-site"){ res.status(403).json({error:"Cross-site state-changing request rejected"}); return; }
   const origin=req.get("origin");
-  if(!origin){ next(); return; }
+  const referer=req.get("referer");
+  const configured=new URL(process.env.APP_BASE_URL || (req.protocol + "://" + req.get("host")));
+  const compare=(value:string)=>{ const parsed=new URL(value); if(parsed.protocol!==configured.protocol || parsed.host!==configured.host) throw new Error("Cross-origin"); };
   try{
-    const originUrl=new URL(origin);
-    const configured=new URL(process.env.APP_BASE_URL||`${req.protocol}://${req.get("host")}`);
-    const sameOrigin=originUrl.protocol===configured.protocol && originUrl.host===configured.host;
-    if(!sameOrigin){ res.status(403).json({error:"Cross-origin state-changing request rejected"}); return; }
+    if(origin) compare(origin);
+    else if(referer) compare(referer);
   }catch{
-    res.status(403).json({error:"Invalid request origin"}); return;
+    res.status(403).json({error:"Cross-origin state-changing request rejected"}); return;
   }
   next();
 });
