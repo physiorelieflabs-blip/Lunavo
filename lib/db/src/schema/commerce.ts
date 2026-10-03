@@ -720,7 +720,7 @@ export const ordersTable = pgTable(
     total: numeric("total", { precision: 12, scale: 2 }).notNull(),
     quantity: integer("quantity").notNull().default(1),
     currency: text("currency").notNull().default("USD"),
-    status: text("status").notNull().default("paid"),
+    status: text("status").notNull().default("pending"),
     supplierProductId: integer("supplier_product_id").references(
       () => supplierProductsTable.id,
     ),

@@ -2642,7 +2642,7 @@ components:
       properties:
         status:
           type: string
-          enum: [paid, cancelled]
+          enum: [cancelled]
       required: [status]
     AiModel:
       type: object

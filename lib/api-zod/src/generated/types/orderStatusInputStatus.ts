@@ -10,6 +10,5 @@ export type OrderStatusInputStatus = typeof OrderStatusInputStatus[keyof typeof 
 
 
 export const OrderStatusInputStatus = {
-  paid: 'paid',
   cancelled: 'cancelled',
 } as const;
