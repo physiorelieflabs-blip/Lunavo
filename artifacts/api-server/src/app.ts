@@ -20,6 +20,22 @@ app.use((req,res,next)=>{res.setHeader("X-Content-Type-Options","nosniff");res.s
 app.use(pinoHttp({logger,serializers:{req(req){const pathname=req.url?.split("?")[0]?.replace(/\/public\/invitations\/[^/]+/g,"/public/invitations/:redacted");return{id:req.id,method:req.method,url:pathname};},res(res){return{statusCode:res.statusCode};}}}));
 app.use(authenticateRequest);
 app.use((req,res,next)=>{
+  const localUser = (req as express.Request & { localUser?: { emailVerified?: boolean } }).localUser;
+  if (
+    localUser &&
+    localUser.emailVerified === false &&
+    req.path.startsWith("/api/") &&
+    !req.path.startsWith("/api/auth/")
+  ) {
+    res.status(403).json({
+      error: "Email verification is required before using the merchant workspace.",
+      code: "EMAIL_VERIFICATION_REQUIRED",
+    });
+    return;
+  }
+  next();
+});
+app.use((req,res,next)=>{
   if((req.method==="GET"||req.method==="HEAD"||req.method==="OPTIONS") || req.path.startsWith("/api/webhooks/")) { next(); return; }
   const origin=req.get("origin");
   if(!origin){ next(); return; }
