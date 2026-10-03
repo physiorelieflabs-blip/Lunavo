@@ -99,7 +99,6 @@ for (const [file,fn,permission] of permissionBoundaries) {
   if (!source.includes(fn)) failures.push(`Tenant permission boundary missing: ${file}`);
   if (!source.includes(permission)) failures.push(`Expected permission ${permission} missing: ${file}`);
 }
-if(!migrationRunner.includes("0099_verified_purchase_discovery_attribution")) failures.push("Migration runner does not include 0099_verified_purchase_discovery_attribution");
 const purchaseMigration=await read("lib/db/migrations/0099_verified_purchase_discovery_attribution.sql");
 for(const m of ["order_id","REFERENCES orders(id)","marketplace_events_verified_purchase_order_uidx","DELETE FROM marketplace_discovery_events"]) if(!purchaseMigration.includes(m)) failures.push(`Verified purchase attribution migration invariant missing: ${m}`);
 const growth=await read("artifacts/api-server/src/routes/commerce-growth.ts");
@@ -123,7 +122,8 @@ for(const m of ["fieldsOnlyWhenSourceMissing","evidencePayload","completeDeepSee
 const socialWorker=await read("artifacts/api-server/src/lib/social-publishing-worker.ts");
 for(const m of ["MAX_ATTEMPTS","FOR UPDATE SKIP LOCKED","locked_at","publishYouTube","publishTikTok","publishLinkedIn","not silently simulated"])if(!socialWorker.includes(m))failures.push(`Social publishing worker invariant missing: ${m}`);
 const index=await read("artifacts/api-server/src/index.ts");if(!index.includes("startSocialPublishingWorker"))failures.push("Social publishing worker must start with the API server");
-const migrationRunner=await read("lib/db/src/migration-runner.ts");for(const id of ["0089_local_auth_session_metadata","0090_platform_integrations_runtime","0091_social_publish_job_processing","0092_social_publish_options","0093_runtime_security_repair","0094_ts_pay_transfer_idempotency","0095_growth_product_reference_uuid","0096_local_auth_lockout","0097_merchant_kyc","0098_local_auth_email_verification"])if(!migrationRunner.includes(id))failures.push(`Migration runner does not include ${id}`);
+const migrationRunner=await read("lib/db/src/migration-runner.ts");
+if(!migrationRunner.includes("0099_verified_purchase_discovery_attribution")) failures.push("Migration runner does not include 0099_verified_purchase_discovery_attribution");for(const id of ["0089_local_auth_session_metadata","0090_platform_integrations_runtime","0091_social_publish_job_processing","0092_social_publish_options","0093_runtime_security_repair","0094_ts_pay_transfer_idempotency","0095_growth_product_reference_uuid","0096_local_auth_lockout","0097_merchant_kyc","0098_local_auth_email_verification"])if(!migrationRunner.includes(id))failures.push(`Migration runner does not include ${id}`);
 const kycRoutes=await read("artifacts/api-server/src/routes/commerce.ts");for(const m of ['router.get("/kyc"','router.post("/kyc"','router.get("/admin/kyc"','router.post("/admin/kyc/:merchantId/review"',"merchant_kyc","encryptSecret","kyc_submitted",'status !== "approved"'])if(!kycRoutes.includes(m))failures.push(`KYC payout-control invariant missing: ${m}`);
 const kycAdminUi=await read("artifacts/ts-commerce/src/pages/admin-kyc.tsx");for(const m of ["/api/admin/kyc","Approve KYC","Reject"])if(!kycAdminUi.includes(m))failures.push(`Admin KYC UI invariant missing: ${m}`);
 const kycMerchantUi=await read("artifacts/ts-commerce/src/pages/withdrawals.tsx");for(const m of ["/api/kyc","Submit KYC for review","kyc?.status === 'approved'"])if(!kycMerchantUi.includes(m))failures.push(`Merchant KYC UI invariant missing: ${m}`);
