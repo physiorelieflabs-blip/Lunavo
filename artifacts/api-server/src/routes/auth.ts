@@ -20,6 +20,8 @@ import {
   listLocalSessions,
   revokeLocalSession,
   revokeOtherLocalSessions,
+  isLoginContextAnomalous,
+  sendMasterAdminLoginAlert,
 } from "../lib/local-auth";
 import { createMasterAdminMfaChallenge, masterAdminMfaEnabled, requireMasterAdmin, beginMasterAdminMfaSetup, confirmMasterAdminMfa, verifyMasterAdminMfaChallenge } from "../lib/master-admin";
 
@@ -112,8 +114,16 @@ async function signIn(req: Request, res: any) {
       await auditLog(user.id, undefined, "master_admin_mfa_challenge_created", "authentication", user.id, {}, req.ip, req.get("user-agent"));
       return res.status(200).json({ success: true, signedIn: false, mfaRequired: true, challengeToken: challenge.token, expiresAt: challenge.expiresAt, user: userResponse(user) });
     }
+    const suspiciousMasterLogin = user.role === "master_admin"
+      ? await isLoginContextAnomalous(user.id, { ipAddress: req.ip, userAgent: req.get("user-agent") })
+      : false;
     setSessionCookie(res, await createLocalSession(user.id, { ipAddress: req.ip, userAgent: req.get("user-agent") }));
-    await auditLog(user.id, undefined, "local_sign_in", "user", user.id, { emailVerified: user.emailVerified }, req.ip, req.get("user-agent"));
+    if (user.role === "master_admin") {
+      await auditLog(user.id, undefined, suspiciousMasterLogin ? "master_admin_suspicious_login" : "master_admin_login", "authentication", user.id, { emailVerified: user.emailVerified, suspiciousContext: suspiciousMasterLogin }, req.ip, req.get("user-agent"));
+      void sendMasterAdminLoginAlert(user.email, { ipAddress: req.ip, userAgent: req.get("user-agent"), suspicious: suspiciousMasterLogin, mfaCompleted: false }).catch((error) => console.error("Master Admin login alert delivery failed", error));
+    } else {
+      await auditLog(user.id, undefined, "local_sign_in", "user", user.id, { emailVerified: user.emailVerified }, req.ip, req.get("user-agent"));
+    }
     return res.json({ success: true, signedIn: true, verificationRequired: !user.emailVerified, user: userResponse(user) });
   } catch (error) {
     await auditLog(undefined, undefined, "local_sign_in_failed", "authentication", email, {}, req.ip, req.get("user-agent"), "failure", error instanceof Error ? error.message : "invalid credentials");
@@ -174,13 +184,15 @@ router.post("/auth/mfa/verify", async (req, res) => {
   const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
   const userId = await verifyMasterAdminMfaChallenge(token, code);
   if (!userId) return res.status(401).json({ error: "Invalid or expired authenticator code" });
+  const suspiciousMasterLogin = await isLoginContextAnomalous(userId, { ipAddress: req.ip, userAgent: req.get("user-agent") });
   setSessionCookie(res, await createLocalSession(userId, { ipAddress: req.ip, userAgent: req.get("user-agent") }));
   const user = await localAuthUserForId(userId);
   if (!user) {
     clearSessionCookie(res);
     return res.status(401).json({ error: "Admin account no longer exists" });
   }
-  await auditLog(user.id, undefined, "master_admin_mfa_sign_in", "authentication", user.id, {}, req.ip, req.get("user-agent"));
+  await auditLog(user.id, undefined, suspiciousMasterLogin ? "master_admin_suspicious_login" : "master_admin_mfa_sign_in", "authentication", user.id, { suspiciousContext: suspiciousMasterLogin }, req.ip, req.get("user-agent"));
+  void sendMasterAdminLoginAlert(user.email, { ipAddress: req.ip, userAgent: req.get("user-agent"), suspicious: suspiciousMasterLogin, mfaCompleted: true }).catch((error) => console.error("Master Admin login alert delivery failed", error));
   return res.json({ success: true, signedIn: true, user: userResponse(user) });
 });
 
