@@ -20,7 +20,7 @@ function eventIdFrom(req: Request, payload: Payload, transactionId: string, even
 router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
   const raw = Buffer.isBuffer(req.body) ? req.body : null;
   if (!raw) { res.status(400).json({ error: "Flutterwave webhook body must be received as raw JSON" }); return; }
-  if (!verifyFlutterwaveWebhookSignature(raw, req.header("flutterwave-signature"), req.header("verif-hash"))) { res.status(401).json({ error: "Invalid Flutterwave webhook signature" }); return; }
+  if (!(await verifyFlutterwaveWebhookSignatureAsync(raw, req.header("flutterwave-signature"), req.header("verif-hash")))) { res.status(401).json({ error: "Invalid Flutterwave webhook signature" }); return; }
   let payload: Payload;
   try { const parsed = JSON.parse(raw.toString("utf8")); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid"); payload = parsed as Payload; }
   catch { res.status(400).json({ error: "Invalid Flutterwave webhook JSON" }); return; }
