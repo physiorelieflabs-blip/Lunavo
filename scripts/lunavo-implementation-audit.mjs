@@ -65,6 +65,7 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){
 }
 for(const p of authSurfaceFiles){const source=await optional(p);if(/from ["'](clerk\/express|clerk\/react|clerk\/shared)["']/.test(source))failures.push(`Non-workspace hosted auth package import remains: ${p}`)}
 const transferRoute=await optional("artifacts/api-server/src/routes/ts-pay-transfers.ts");for(const m of ["tsPayAvailableMinor","ORDER BY id FOR UPDATE","ledger_entries"])if(!transferRoute.includes(m))failures.push(`TS Pay hold-safe transfer invariant missing: ${m}`);
+const paymentVerifyRoute=await read("artifacts/api-server/src/routes/commerce.ts");if(!paymentVerifyRoute.includes("Provider-backed payments must be verified through the configured payment provider"))failures.push("Legacy payment verification route must reject provider-backed manual evidence");
 const orderRoute=await read("artifacts/api-server/src/routes/commerce.ts");
 for(const m of [
   'const supplierProductId = parsed.data.supplierProductId',
