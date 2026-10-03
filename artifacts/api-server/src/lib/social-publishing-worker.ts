@@ -336,7 +336,6 @@ async function publishJob(job: Job, connection: Connection, token: string, media
     case "facebook":
     case "instagram":
     case "pinterest":
-    case "x":
       throw new SocialPublishError(`${job.provider} publishing requires its provider-specific publishing adapter and is not silently simulated`);
     default:
       throw new SocialPublishError("Unsupported social provider");
