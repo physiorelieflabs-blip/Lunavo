@@ -312,6 +312,24 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     return "failed" as const;
   }
   if (providerState !== "paid") return "pending" as const;
+  if (!providerId) {
+    await recordReconciliationException({
+      eventId,
+      providerTransactionId: null,
+      paymentReference: reference || null,
+      merchantId: merchant.id,
+      orderId: order.id,
+      paymentIntentId: intent.id,
+      expectedAmountMinor: intent.amountMinor,
+      observedAmountMinor: observedMinor,
+      expectedCurrency: intent.currency,
+      observedCurrency: currency || null,
+      reason: "Flutterwave reported a successful payment without a provider transaction ID",
+      payload: rawPayload,
+    });
+    await db.update(paymentIntentsTable).set({ status: "reconciliation_required" }).where(eq(paymentIntentsTable.id, intent.id));
+    return "reconciliation_required" as const;
+  }
 
   const providerFee = providerFeeMinor(transaction);
   const settlementMinor = providerSettlementMinor(transaction);
@@ -329,7 +347,17 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       : null;
     if (duplicateProvider?.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Pay payment");
 
-    await tx.update(paymentIntentsTable).set({ status: "successful", evidenceReference: providerId ?? reference }).where(eq(paymentIntentsTable.id, currentIntent.id));
+    await tx.update(paymentIntentsTable).set({
+      status: "successful",
+      evidenceReference: providerId,
+      providerTransactionId: providerId,
+      providerEventId: eventId,
+      providerFeeMinor: providerFee,
+      tsCommerceFeeMinor: calculateTsCommerceFeeMinor(intent.amountMinor),
+      merchantNetMinor: calculateMerchantNetMinor(intent.amountMinor, providerFee),
+      settlementAmountMinor: settlementMinor,
+      settlementCurrency: settlementMinor === null ? null : settlementCurrency,
+    }).where(eq(paymentIntentsTable.id, currentIntent.id));
     await tx.update(paymentRecordsTable).set({ status: "successful", evidenceReference: providerId ?? reference, verifiedBy: "flutterwave_webhook", verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, currentRecord.id));
     await tx.execute(sql`UPDATE payment_intents SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(intent.amountMinor)}, merchant_net_minor=${calculateMerchantNetMinor(intent.amountMinor, providerFee)}, settlement_amount_minor=${settlementMinor}, settlement_currency=${settlementMinor === null ? null : settlementCurrency} WHERE id=${currentIntent.id}`);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: intent.amountMinor, currency, entryType: "sale", referenceKey: `payment:${currentIntent.id}` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
