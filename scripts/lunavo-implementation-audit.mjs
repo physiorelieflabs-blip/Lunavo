@@ -31,7 +31,7 @@ const storeUi=await read(requiredFiles[24]);for(const m of ["Verified performanc
 const auctionMgmt=await read(requiredFiles[25]);if(!auctionMgmt.includes("AuctioneerPanel"))failures.push("Auction management does not mount strategic auctioneer controls");
 const dashboardUi=await read(requiredFiles[27]);for(const m of ["No recorded activity","No ledger balance yet","Verified data","placeholder figures are not used"])if(!dashboardUi.includes(m))failures.push(`Dashboard real-data invariant missing: ${m}`);
 const app=await read(requiredFiles[29]);for(const m of ["StoreAuction","/store-auctions/:id","AdminAiStores","/admin/ai-stores","AdminIntegrations","/admin/integrations"])if(!app.includes(m))failures.push(`Frontend route invariant missing: ${m}`);
-for(const id of ["0086_public_audit_log","0087_master_admin_mfa","0088_fulfillment_tracking","0089_local_auth_session_metadata","0090_platform_integrations_runtime","0091_social_publish_job_processing","0092_social_publish_options","0093_runtime_security_repair","0094_ts_pay_transfer_idempotency","0095_growth_product_reference_uuid","0096_local_auth_lockout","0097_merchant_kyc","0098_local_auth_email_verification"]) await read(`lib/db/migrations/${id}.sql`);
+for(const id of ["0086_public_audit_log","0087_master_admin_mfa","0088_fulfillment_tracking","0089_local_auth_session_metadata","0090_platform_integrations_runtime","0091_social_publish_job_processing","0092_social_publish_options","0093_runtime_security_repair","0094_ts_pay_transfer_idempotency","0095_growth_product_reference_uuid","0096_local_auth_lockout","0097_merchant_kyc","0098_local_auth_email_verification","0099_verified_purchase_discovery_attribution"]) await read(`lib/db/migrations/${id}.sql`);
 const migration=await read(requiredFiles[33]);for(const m of ["auctioneer_ai_settings","auctioneer_ai_recommendations","lunavo_dashboard_transactions"])if(!migration.includes(m))failures.push(`Auctioneer schema missing: ${m}`);
 const boundary=await read(requiredFiles[34]);for(const m of ["transaction_kind","verification_state","verified_at","lunavo_project_ledger_to_dashboard"])if(!boundary.includes(m))failures.push(`TS Pay transaction boundary missing: ${m}`);
 const transfer=await read(requiredFiles[35]);for(const m of ["internal_transfer_out","internal_transfer_in","ledger_entries_entry_type_check"])if(!transfer.includes(m))failures.push(`TS Pay transfer ledger invariant missing: ${m}`);
@@ -70,6 +70,8 @@ for(const m of [
   'status: "pending"',
 ]) if(!orderRoute.includes(m)) failures.push(`Merchant order pricing/inventory invariant missing: ${m}`);
 if((orderRoute.match(/router\.post\("\/auth\/verify-email"/g) || []).length > 1) failures.push("Duplicate email verification route remains");
+const growthPurchaseGuard=await read("artifacts/api-server/src/routes/commerce-growth.ts");
+if(growthPurchaseGuard.includes('["impression", "click", "view", "add_to_cart", "purchase"]')) failures.push("Public discovery events must not accept purchase");
 const providerClient=await read("artifacts/api-server/src/lib/flutterwave-client.ts");
 for(const m of ["getStoredFlutterwaveCredentials","secretKeyOverride","verifyFlutterwaveWebhookSignatureAsync"]) if(!providerClient.includes(m)) failures.push(`Flutterwave runtime credential invariant missing: ${m}`);
 if(providerClient.includes('process.env.FLUTTERWAVE_SECRET_KEY=') || providerClient.includes('process.env.FLUTTERWAVE_WEBHOOK_SECRET=')) failures.push("Flutterwave client must not mutate process.env at runtime");
@@ -97,6 +99,9 @@ for (const [file,fn,permission] of permissionBoundaries) {
   if (!source.includes(fn)) failures.push(`Tenant permission boundary missing: ${file}`);
   if (!source.includes(permission)) failures.push(`Expected permission ${permission} missing: ${file}`);
 }
+if(!migrationRunner.includes("0099_verified_purchase_discovery_attribution")) failures.push("Migration runner does not include 0099_verified_purchase_discovery_attribution");
+const purchaseMigration=await read("lib/db/migrations/0099_verified_purchase_discovery_attribution.sql");
+for(const m of ["order_id","REFERENCES orders(id)","marketplace_events_verified_purchase_order_uidx","DELETE FROM marketplace_discovery_events"]) if(!purchaseMigration.includes(m)) failures.push(`Verified purchase attribution migration invariant missing: ${m}`);
 const growth=await read("artifacts/api-server/src/routes/commerce-growth.ts");
 if(growth.includes('"purchase"')) failures.push("Public discovery endpoint must not accept client-supplied purchase events");
 const social=await read("artifacts/api-server/src/routes/social-hub.ts");
