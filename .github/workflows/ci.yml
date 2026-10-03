@@ -69,6 +69,24 @@ jobs:
       - name: Unit tests
         run: pnpm run test
       - name: Typecheck
-        run: pnpm run typecheck
+        run: |
+          set -o pipefail
+          pnpm run typecheck 2>&1 | tee lunavo-typecheck.log
+      - name: Upload typecheck log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lunavo-typecheck-log
+          path: lunavo-typecheck.log
+          if-no-files-found: warn
       - name: Build
-        run: pnpm run build
+        run: |
+          set -o pipefail
+          pnpm run build 2>&1 | tee lunavo-build.log
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lunavo-build-log
+          path: lunavo-build.log
+          if-no-files-found: warn
