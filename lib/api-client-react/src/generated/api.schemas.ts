@@ -800,7 +800,6 @@ export type CreateOrderInputStatus = typeof CreateOrderInputStatus[keyof typeof 
 
 export const CreateOrderInputStatus = {
   pending: 'pending',
-  paid: 'paid',
   fulfilled: 'fulfilled',
 } as const;
 
