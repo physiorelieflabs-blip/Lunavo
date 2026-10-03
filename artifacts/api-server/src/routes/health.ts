@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { getStoredFlutterwaveCredentials } from "../lib/flutterwave-runtime";
 
 const router: IRouter = Router();
 
@@ -16,8 +17,18 @@ router.get("/readyz", async (_req, res) => {
     }
     const migrationCount = await db.execute(sql`SELECT count(*)::int AS count FROM "_ts_commerce_migrations"`);
     const count = Number((migrationCount.rows[0] as { count?: number } | undefined)?.count ?? 0);
-    const paymentConfigured = Boolean(process.env.FLUTTERWAVE_SECRET_KEY?.trim() || process.env.FLW_SECRET_KEY?.trim());
-    res.json({ ready: true, database: true, schema: true, migrationsApplied: count, payment: paymentConfigured });
+    const flutterwave = await getStoredFlutterwaveCredentials();
+    const paymentConfigured = Boolean(flutterwave.secretKey && flutterwave.webhookSecret);
+    res.json({
+      ready: true,
+      database: true,
+      schema: true,
+      migrationsApplied: count,
+      payment: paymentConfigured,
+      paymentProvider: "flutterwave",
+      paymentMode: flutterwave.mode,
+      paymentWarning: paymentConfigured ? null : "Flutterwave API and Webhook credentials are not configured; real-money checkout is unavailable.",
+    });
   } catch (error) {
     res.status(503).json({ ready: false, database: false, schema: false, payment: false });
   }
