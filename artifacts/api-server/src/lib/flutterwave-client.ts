@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { getStoredFlutterwaveCredentials } from "./flutterwave-runtime";
+import { cachedFlutterwaveSecretKey, getStoredFlutterwaveCredentials } from "./flutterwave-runtime";
 
 const FLUTTERWAVE_API = "https://api.flutterwave.com/v3";
 
@@ -108,11 +108,11 @@ export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean
 
 export function isFlutterwaveConfigured(): boolean {
   const env = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY");
-  return Boolean(env);
+  return Boolean(env || cachedFlutterwaveSecretKey());
 }
 
 export function flutterwaveCredentialMode(): "live" | "test" | "unknown" {
-  const key = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY");
+  const key = envValue("FLUTTERWAVE_SECRET_KEY", "FLW_SECRET_KEY") || cachedFlutterwaveSecretKey() || "";
   if (key.startsWith("FLWSECK_TEST-")) return "test";
   if (key.startsWith("FLWSECK-")) return "live";
   return "unknown";
