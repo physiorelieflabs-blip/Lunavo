@@ -40,7 +40,7 @@ if(parsed.provider==="x"){const profileResponse=await fetch("https://api.x.com/2
 if(parsed.provider==='linkedin'){
   const profileResponse=await fetch('https://api.linkedin.com/v2/me',{headers:{Authorization:`Bearer ${token.access_token}`},signal:AbortSignal.timeout(30_000)});
   const profile=await profileResponse.json().catch(()=>({})) as Record<string,unknown>;
-  if(profileResponse.ok&&typeof profile.id==='string'){accountId=profile.id;connectionMetadata={authorUrn:profile.id};}
+  if(profileResponse.ok&&typeof profile.id==='string'){accountId=profile.id;connectionMetadata={authorUrn:`urn:li:person:${profile.id}`};}
   if(profileResponse.ok&&typeof profile.localizedFirstName==='object'){
     const first=profile.localizedFirstName as Record<string,unknown>;
     const last=typeof profile.localizedLastName==='object'?profile.localizedLastName as Record<string,unknown>:null;
