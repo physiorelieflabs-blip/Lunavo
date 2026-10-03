@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { and, eq, sql } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
 import {
   db,
   ledgerEntriesTable,

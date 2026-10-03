@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lunavo-shell-v2';
+const CACHE_NAME = 'lunavo-shell-v3';
 const APP_SHELL = ['/', '/manifest.webmanifest', '/favicon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -22,8 +22,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache API responses: authenticated GETs can contain tenant/customer/finance
-  // data and must always come from the server with current authorization.
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {

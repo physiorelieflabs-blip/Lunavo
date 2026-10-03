@@ -22,8 +22,8 @@ const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-3.8-f
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function geminiKey(): string {
-  const key = process.env.GEMINI_API_KEY?.trim();
-  if (!key) throw new Error("GEMINI_API_KEY is not configured");
+  const key = process.env.LUNAVO_GEMINI_API_KEY?.trim();
+  if (!key) throw new Error("LUNAVO_GEMINI_API_KEY is not configured");
   return key;
 }
 
@@ -105,4 +105,84 @@ export async function completeGeminiChat(messages: GeminiMessage[]): Promise<{
     .trim();
   if (!content) throw new Error("Gemini returned an empty response");
   return { model: GEMINI_CHAT_MODEL, content };
+}
+
+type GroundedResearchResult = {
+  model: string;
+  summary: string;
+  sources: Array<{ title: string; url: string; snippet: string }>;
+};
+
+type GeminiInteractionResponse = {
+  model?: string;
+  steps?: Array<{
+    type?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+      annotations?: Array<{
+        type?: string;
+        url?: string;
+        title?: string;
+        start_index?: number;
+        end_index?: number;
+      }>;
+    }>;
+  }>;
+};
+
+export async function researchWithGemini(query: string): Promise<GroundedResearchResult> {
+  const model = process.env.GEMINI_RESEARCH_MODEL?.trim() || "gemini-3.8-flash";
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": geminiKey(),
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        "You are Lunavo's research analyst.",
+        "Research the user's query using the web-search tool.",
+        "Give a concise factual synthesis grounded in current public sources.",
+        "Do not invent claims, prices, availability, product specifications, legal conclusions, or business facts.",
+        "Clearly distinguish sourced facts from uncertainty.",
+        "Query: " + query,
+      ].join("\n"),
+      tools: [{ type: "google_search" }],
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const payload = (await response.json().catch(() => ({}))) as GeminiInteractionResponse & { error?: { message?: string } };
+  if (!response.ok) throw new Error(payload.error?.message || "Gemini research returned HTTP " + response.status);
+
+  const sources = new Map<string, { title: string; url: string; snippet: string }>();
+  const outputParts: string[] = [];
+  for (const step of payload.steps ?? []) {
+    if (step.type !== "model_output" || !Array.isArray(step.content)) continue;
+    for (const block of step.content) {
+      if (block.type !== "text" || !block.text) continue;
+      outputParts.push(block.text);
+      for (const annotation of block.annotations ?? []) {
+        if (annotation.type !== "url_citation" || typeof annotation.url !== "string" || !/^https?:\/\//i.test(annotation.url)) continue;
+        const start = Number(annotation.start_index ?? 0);
+        const end = Number(annotation.end_index ?? block.text.length);
+        const snippet = start >= 0 && end <= block.text.length && start <= end ? block.text.slice(start, end).trim() : block.text.trim();
+        if (!sources.has(annotation.url)) {
+          sources.set(annotation.url, {
+            title: typeof annotation.title === "string" && annotation.title.trim() ? annotation.title.trim().slice(0, 200) : new URL(annotation.url).hostname,
+            url: annotation.url,
+            snippet: snippet.slice(0, 1000),
+          });
+        }
+      }
+    }
+  }
+  const summary = outputParts.join("\n\n").trim();
+  if (!summary) throw new Error("Gemini research returned no grounded answer");
+  return {
+    model: payload.model || model,
+    summary,
+    sources: [...sources.values()].slice(0, 12),
+  };
 }

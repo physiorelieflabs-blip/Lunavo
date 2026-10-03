@@ -24,7 +24,7 @@ type GeminiImageResponse = {
   };
 };
 
-function apiKey(name: "GEMINI_IMAGE_API_KEY" | "GEMINI_API_KEY" | "STABLE_DIFFUSION_API_KEY"): string | null {
+function apiKey(name: "GEMINI_IMAGE_API_KEY" | "LUNAVO_GEMINI_API_KEY" | "STABLE_DIFFUSION_API_KEY"): string | null {
   return process.env[name]?.trim() || null;
 }
 
@@ -216,7 +216,7 @@ async function generatePollinationsImage(prompt: string): Promise<GeneratedImage
 
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const stabilityKey = apiKey("STABLE_DIFFUSION_API_KEY");
-  const geminiKey = apiKey("GEMINI_IMAGE_API_KEY") || apiKey("GEMINI_API_KEY");
+  const geminiKey = apiKey("GEMINI_IMAGE_API_KEY") || apiKey("LUNAVO_GEMINI_API_KEY");
   const failures: string[] = [];
 
   // Prefer the current Gemini image model for the highest-quality smart generation.

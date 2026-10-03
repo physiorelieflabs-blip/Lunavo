@@ -1,12 +1,24 @@
-import { ArrowDownRight, ArrowUpRight, BarChart3, CircleDollarSign, UsersRound } from 'lucide-react';
+import { type ReactNode, useEffect, useState } from 'react';
+import { ArrowDownRight, ArrowUpRight, BarChart3, CircleDollarSign, PackageCheck, UsersRound, Warehouse } from 'lucide-react';
 import { Link } from 'wouter';
-import { useGetDashboardOverview } from '@workspace/api-client-react';
+import { customFetch, useGetDashboardOverview } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState, ErrorState, LoadingState, MetricCard, SectionHeading } from '@/components/primitives';
 import { money } from '@/lib/format';
 
+type AnalyticsDetails = {
+  generatedAt: string;
+  currency: string;
+  topCustomers: Array<{ id: number; name: string; email: string; order_count: number; revenue: string | number }>;
+  topProducts: Array<{ id: number; title: string; currency: string; order_count: number; units_sold: number; revenue: string | number }>;
+  inventory: { lowStockCount: number; outOfStockCount: number; trackedUnits: number; trackedProducts: number };
+  advertising: { campaigns: number; impressions: number; clicks: number; productViews: number; addToCarts: number; purchases: number; attributedRevenueMinor: number };
+};
+
 export default function Analytics() {
   const overview = useGetDashboardOverview();
+  const details = useAsyncDetails();
+
   if (overview.isLoading) return <AppShell><LoadingState label="Loading analytics" /></AppShell>;
   if (overview.isError || !overview.data) return <AppShell><ErrorState onRetry={() => void overview.refetch()} /></AppShell>;
   const data = overview.data;
@@ -62,6 +74,39 @@ export default function Analytics() {
           </section>
         </div>
 
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
+            <SectionHeading eyebrow="Customers" title="Highest-value customer records" description="Real paid/fulfilled order history for this merchant only." />
+            {details.loading ? <div className="mt-5"><LoadingState label="Loading customer analytics" /></div> : details.data?.topCustomers.length ? <div className="mt-5 space-y-2">{details.data.topCustomers.map((customer) => <div key={customer.id} className="flex items-center justify-between gap-4 rounded-lg border border-[#e3ddd2] bg-[#f7f4ed] p-3"><div className="min-w-0"><p className="truncate text-sm font-extrabold">{customer.name}</p><p className="truncate text-xs text-[#7b8796]">{customer.email} · {customer.order_count} order{customer.order_count===1?'':'s'}</p></div><strong className="font-mono text-sm">{money(Number(customer.revenue), data.currency)}</strong></div>)}</div> : <div className="mt-5"><EmptyState title="No customer revenue yet" description="Verified paid sales will populate this view." /></div>}
+          </section>
+          <section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
+            <SectionHeading eyebrow="Products" title="Top product performance" description="Revenue and units sold from merchant-owned supplier products." />
+            {details.loading ? <div className="mt-5"><LoadingState label="Loading product analytics" /></div> : details.data?.topProducts.length ? <div className="mt-5 space-y-2">{details.data.topProducts.map((product) => <div key={product.id} className="flex items-center justify-between gap-4 rounded-lg border border-[#e3ddd2] bg-[#f7f4ed] p-3"><div className="min-w-0"><p className="truncate text-sm font-extrabold">{product.title}</p><p className="text-xs text-[#7b8796]">{product.units_sold} unit{product.units_sold===1?'':'s'} · {product.order_count} order{product.order_count===1?'':'s'}</p></div><strong className="font-mono text-sm">{money(Number(product.revenue), data.currency)}</strong></div>)}</div> : <div className="mt-5"><EmptyState title="No product sales yet" description="Verified paid sales will populate this view." /></div>}
+          </section>
+        </div>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
+            <SectionHeading eyebrow="Inventory" title="Stock pressure" description="Current supplier-product quantities and explicit low/out-of-stock states." />
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <DataCard icon={<Warehouse className="h-4 w-4" />} label="Low stock" value={String(details.data?.inventory.lowStockCount ?? 0)} />
+              <DataCard icon={<PackageCheck className="h-4 w-4" />} label="Out of stock" value={String(details.data?.inventory.outOfStockCount ?? 0)} />
+              <DataCard icon={<BarChart3 className="h-4 w-4" />} label="Tracked products" value={String(details.data?.inventory.trackedProducts ?? 0)} />
+              <DataCard icon={<Warehouse className="h-4 w-4" />} label="Tracked units" value={String(details.data?.inventory.trackedUnits ?? 0)} />
+            </div>
+          </section>
+          <section className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
+            <SectionHeading eyebrow="Advertising" title="Tracked campaign funnel" description="Only recorded campaign events are shown; untracked impressions are never invented." />
+            <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+              <DataCard label="Campaigns" value={String(details.data?.advertising.campaigns ?? 0)} />
+              <DataCard label="Impressions" value={String(details.data?.advertising.impressions ?? 0)} />
+              <DataCard label="Clicks" value={String(details.data?.advertising.clicks ?? 0)} />
+              <DataCard label="Product views" value={String(details.data?.advertising.productViews ?? 0)} />
+              <DataCard label="Add to carts" value={String(details.data?.advertising.addToCarts ?? 0)} />
+              <DataCard label="Purchases" value={String(details.data?.advertising.purchases ?? 0)} />
+            </div>
+          </section>
+        </div>
         <section className="mt-6 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
           <SectionHeading eyebrow="Next actions" title="Turn the snapshot into action" />
           <div className="grid gap-3 md:grid-cols-3">
@@ -81,4 +126,18 @@ function DataRow({ label, value, brass = false }: { label: string; value: string
 
 function Action({ href, title, description }: { href: string; title: string; description: string }) {
   return <Link href={href} className="group rounded-lg border border-[#ded8cd] bg-[#f7f4ed] p-4 hover:border-[#bca26a]"><div className="flex items-center justify-between gap-3"><h3 className="text-sm font-extrabold">{title}</h3><ArrowDownRight className="h-4 w-4 rotate-[-45deg] text-[#a2772e] transition group-hover:translate-x-1" /></div><p className="mt-1 text-xs leading-5 text-[#697687]">{description}</p></Link>;
+}
+
+function useAsyncDetails() {
+  const [state, setState] = useState<{loading:boolean;data:AnalyticsDetails|null}>({loading:true,data:null});
+  useEffect(() => {
+    let active=true;
+    void customFetch<AnalyticsDetails>('/api/analytics/details').then((data)=>{if(active)setState({loading:false,data})}).catch(()=>{if(active)setState({loading:false,data:null})});
+    return ()=>{active=false};
+  }, []);
+  return state;
+}
+
+function DataCard({icon,label,value}:{icon?:ReactNode;label:string;value:string}) {
+  return <div className="rounded-lg border border-[#e3ddd2] bg-[#f7f4ed] p-4"><div className="flex items-center gap-2 text-[#7b8796]">{icon}<span className="text-[10px] font-extrabold uppercase tracking-[.12em]">{label}</span></div><p className="mt-2 font-mono text-xl font-bold text-[#182333]">{value}</p></div>;
 }

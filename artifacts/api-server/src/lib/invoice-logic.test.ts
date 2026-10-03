@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { it as test } from "vitest";
 import { canonicalInvoiceLine, canonicalMoneyMinor, invoiceStatusForDueDate } from "./invoice-logic";
 
 test("invoice arithmetic canonicalizes valid decimal quantities and cents", () => {

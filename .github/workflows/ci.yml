@@ -2,13 +2,37 @@ name: Lunavo CI
 
 on:
   push:
-    branches: [main, feat/social-hub-ui-real]
+    branches: [main, feat/social-hub-ui-real, feat/lunavo-master-implementation]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: lunavo-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/lunavo_ci
+      SESSION_SECRET: ci-only-session-secret-not-for-production
+      NODE_ENV: test
+      APP_BASE_URL: https://ci.invalid
+      LUNAVO_MASTER_ADMIN_EMAIL: ci-admin@example.invalid
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: lunavo_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d lunavo_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,14 +46,20 @@ jobs:
           node-version: 24
           cache: pnpm
       - name: Install
-        # The workspace lockfile predates the removal of unused Replit Vite plugins.
-        # Regenerate the ephemeral runner lockfile until the next dependency refresh is committed.
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Canonical PostgreSQL migration smoke test
+        run: pnpm --filter @workspace/db run migrate
       - name: Self-hosted core policy
         run: pnpm run check:self-hosted
-      - name: Typecheck
-        run: pnpm run typecheck
+      - name: Implementation invariants
+        run: node scripts/lunavo-implementation-audit.mjs
+      - name: Production configuration shape
+        run: pnpm run preflight:production
       - name: Critical payment and subscription simulation
         run: node --experimental-strip-types scripts/security-simulation.ts
+      - name: Unit tests
+        run: pnpm run test
+      - name: Typecheck
+        run: pnpm run typecheck
       - name: Build
         run: pnpm run build

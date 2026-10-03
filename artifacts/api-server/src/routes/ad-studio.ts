@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { and, desc, eq } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
 import { randomUUID } from "node:crypto";
 import { unlink, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";

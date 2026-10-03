@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   index,
@@ -56,6 +57,33 @@ export const merchantsTable = pgTable("merchants", {
     .notNull()
     .defaultNow(),
 });
+
+export const merchantKycTable = pgTable(
+  "merchant_kyc",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    legalName: text("legal_name"),
+    businessType: text("business_type"),
+    country: text("country"),
+    address: jsonb("address").notNull().default({}),
+    governmentIdType: text("government_id_type"),
+    governmentIdCiphertext: text("government_id_ciphertext"),
+    documentData: text("document_data"),
+    submittedBy: text("submitted_by"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("merchant_kyc_merchant_unique").on(table.merchantId),
+    index("merchant_kyc_status_idx").on(table.status, table.updatedAt),
+  ],
+);
 
 /**
  * Physical and operational sites are tenant-owned. A location is never
@@ -299,6 +327,26 @@ export const paymentsTable = pgTable(
     ),
   ],
 );
+
+/** Durable audit trail for authentication, privileged and financial operations. */
+export const auditLogsTable = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id"),
+  merchantId: text("merchant_id"),
+  action: text("action").notNull(),
+  resourceType: text("resource_type"),
+  resourceId: text("resource_id"),
+  changes: jsonb("changes").notNull().default({}),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  status: text("status").notNull().default("success"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("audit_logs_merchant_created_idx").on(table.merchantId, table.createdAt),
+  index("audit_logs_user_created_idx").on(table.userId, table.createdAt),
+  index("audit_logs_action_created_idx").on(table.action, table.createdAt),
+]);
 
 export const activityTable = pgTable("activity", {
   id: serial("id").primaryKey(),
@@ -1418,6 +1466,7 @@ export const tsPayTransfersTable = pgTable(
     currency: text("currency").notNull(),
     status: text("status").notNull().default("completed"),
     referenceKey: text("reference_key").notNull().unique(),
+    idempotencyKey: text("idempotency_key").notNull(),
     note: text("note"),
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1428,6 +1477,7 @@ export const tsPayTransfersTable = pgTable(
   (table) => [
     index("ts_pay_transfers_from_idx").on(table.fromMerchantId, table.createdAt),
     index("ts_pay_transfers_to_idx").on(table.toMerchantId, table.createdAt),
+    uniqueIndex("ts_pay_transfers_merchant_idempotency_unique").on(table.fromMerchantId, table.idempotencyKey),
   ],
 );
 

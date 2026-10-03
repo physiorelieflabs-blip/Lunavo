@@ -8,12 +8,10 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "check:self-hosted": "node scripts/self-hosted-policy-check.mjs",
-    "preflight:production": "node scripts/production-preflight.mjs --strict"
+    "preflight:production": "node scripts/production-preflight.mjs --strict",
+    "test": "pnpm --filter @workspace/api-server exec vitest run"
   },
   "private": true,
-  "dependencies": {
-    "@replit/connectors-sdk": "^0.4.1"
-  },
   "devDependencies": {
     "prettier": "^3.9.6",
     "typescript": "~5.9.3"

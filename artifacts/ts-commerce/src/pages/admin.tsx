@@ -136,6 +136,13 @@ export default function Admin() {
                <Banknote className="h-4 w-4" /> Withdraw platform funds
              </Link>
              <Link
+               href="/admin/kyc"
+               className="inline-flex items-center gap-2 rounded-lg border border-[#bca26a] bg-[#fff7df] px-4 py-3 text-sm font-extrabold text-[#765817] hover:bg-[#f9edc9]"
+               data-testid="link-admin-kyc"
+             >
+               Review KYC
+             </Link>
+             <Link
                href="/admin/merchants"
                className="rounded-lg bg-[#182333] px-4 py-3 text-sm font-extrabold text-[#f8f3e8] hover:bg-[#25354a]"
                data-testid="link-admin-merchants"

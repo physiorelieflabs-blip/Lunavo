@@ -1,7 +1,7 @@
 import { Router, type Request } from "express";
 import { and, eq } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
-import { db, merchantsTable, adCreativesTable } from "@workspace/db";
+import { getAuth } from "../lib/auth-compat";
+import { db, merchantsTable, adCreativesTable, adMediaAssetsTable } from "@workspace/db";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -55,10 +55,17 @@ router.post("/ads/generator/stitch", async (req, res): Promise<void> => {
     await execFileAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...inputArgs, "-f", "lavfi", "-t", String(videoDuration), "-i", backgroundAudio, "-filter_complex", filters.join(";"), "-map", finalVideo, "-map", `${selected.length}:a`, "-t", String(videoDuration), "-c:v", "libx264", "-preset", process.env.TS_AD_FFMPEG_PRESET || "veryfast", "-crf", process.env.TS_AD_FFMPEG_CRF || "25", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-shortest", "-movflags", "+faststart", outputPath]);
     const buffer = await readFile(outputPath);
     if (buffer.byteLength > 100 * 1024 * 1024) { res.status(413).json({ error: "Stitched video exceeded the 100 MB export limit" }); return; }
-    res.setHeader("Content-Type", "video/mp4");
-    res.setHeader("Content-Length", String(buffer.length));
-    res.setHeader("Content-Disposition", `attachment; filename="ts-commerce-long-ad.mp4"`);
-    res.end(buffer);
+    const filename = `ts-commerce-long-ad-${new Date().toISOString().replaceAll(/[^0-9]/g, "").slice(0, 14)}.mp4`;
+    const [asset] = await db.insert(adMediaAssetsTable).values({
+      merchantId: merchant.id,
+      filename,
+      mimeType: "video/mp4",
+      mediaType: "video",
+      byteSize: buffer.length,
+      mediaData: `data:video/mp4;base64,${buffer.toString("base64")}`,
+    }).returning({ id: adMediaAssetsTable.id, filename: adMediaAssetsTable.filename, mimeType: adMediaAssetsTable.mimeType, mediaType: adMediaAssetsTable.mediaType, byteSize: adMediaAssetsTable.byteSize, createdAt: adMediaAssetsTable.createdAt });
+    if (!asset) { res.status(500).json({ error: "Stitched video could not be saved" }); return; }
+    res.status(201).json({ asset, downloadUrl: `/api/ads/media/${asset.id}/download` });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Video stitching failed" });
   } finally {

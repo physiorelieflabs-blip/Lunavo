@@ -1,11 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { useUser } from '@clerk/react';
-import { ArrowRight, Bell, CreditCard, LockKeyhole, Mail, MapPin, Save, ShieldCheck, Store, UserRound, UsersRound, WalletCards } from 'lucide-react';
+import { useUser } from '@/components/local-auth';
+import { ArrowRight, Bell, CreditCard, LockKeyhole, Mail, MapPin, Monitor, RefreshCw, Save, ShieldCheck, Store, UserRound, UsersRound, WalletCards } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { getGetCheckoutSettingsQueryKey, getGetCurrencySettingsQueryKey, useGetCheckoutSettings, useGetCurrencySettings, useUpdateCheckoutSettings, useUpdateCurrencySettings } from '@workspace/api-client-react';
 import { AppShell } from '@/components/app-shell';
-import { LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
+import { Badge, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 
 const groups = [
   {
@@ -61,6 +61,10 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [sessions, setSessions] = useState<Array<{ id: string; createdAt: string; lastSeenAt: string; expiresAt: string; ipAddress: string | null; userAgent: string | null; current: boolean }>>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsMessage, setSessionsMessage] = useState('');
+  const [sessionsError, setSessionsError] = useState(false);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
@@ -71,6 +75,39 @@ export default function Settings() {
   const [freeShippingThreshold, setFreeShippingThreshold] = useState('');
   const [commerceMessage, setCommerceMessage] = useState('');
   const [commerceMessageIsError, setCommerceMessageIsError] = useState(false);
+
+  const loadSessions = async () => {
+    if (!user) return;
+    setSessionsLoading(true); setSessionsError(false); setSessionsMessage('');
+    try {
+      const response = await fetch('/api/auth/sessions', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not load active sessions');
+      setSessions(Array.isArray(data.sessions) ? data.sessions : []);
+    } catch (error) { setSessionsError(true); setSessionsMessage(error instanceof Error ? error.message : 'Could not load active sessions'); }
+    finally { setSessionsLoading(false); }
+  };
+
+  const revokeSession = async (id: string, current: boolean) => {
+    if (current) return;
+    if (!window.confirm('Sign out this device?')) return;
+    try {
+      const response = await fetch(`/api/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not revoke session');
+      await loadSessions();
+    } catch (error) { setSessionsError(true); setSessionsMessage(error instanceof Error ? error.message : 'Could not revoke session'); }
+  };
+
+  const revokeOthers = async () => {
+    if (!window.confirm('Sign out all other active devices?')) return;
+    try {
+      const response = await fetch('/api/auth/sessions/revoke-others', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not revoke other sessions');
+      setSessionsMessage('All other active sessions were signed out.'); setSessionsError(false); await loadSessions();
+    } catch (error) { setSessionsError(true); setSessionsMessage(error instanceof Error ? error.message : 'Could not revoke other sessions'); }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -83,6 +120,10 @@ export default function Settings() {
     if (!currencySettings.data) return;
     setCurrency(currencySettings.data.currency);
   }, [currencySettings.data]);
+
+  useEffect(() => {
+    if (isLoaded && user) void loadSessions();
+  }, [isLoaded, user?.id]);
 
   useEffect(() => {
     if (!checkoutSettings.data) return;
@@ -142,6 +183,12 @@ export default function Settings() {
       }
 
       const reloadedUser = await user.reload();
+      if (!reloadedUser) {
+        failures.push('Your account could not be refreshed after saving.');
+        setMessageIsError(true);
+        setMessage(failures.join(' '));
+        return;
+      }
       setFirstName(reloadedUser.firstName ?? '');
       setLastName(reloadedUser.lastName ?? '');
       setUsername(reloadedUser.username ?? '');
@@ -167,9 +214,9 @@ export default function Settings() {
     setCommerceMessage('');
     setCommerceMessageIsError(false);
     const nextPassword = newPassword;
-    if (nextPassword.length < 8) {
+    if (nextPassword.length < 12 || !/[A-Z]/.test(nextPassword) || !/[a-z]/.test(nextPassword) || !/[0-9]/.test(nextPassword) || !/[!@#$%^&*(),.?":{}|<>]/.test(nextPassword)) {
       setCommerceMessageIsError(true);
-      setCommerceMessage('Password must be at least 8 characters long.');
+      setCommerceMessage('Password must be at least 12 characters and include uppercase, lowercase, number, and special character.');
       return;
     }
     if (nextPassword !== confirmPassword) {
@@ -269,7 +316,7 @@ export default function Settings() {
 
         <section className="mt-9 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
           <div className="flex flex-wrap items-start justify-between gap-5">
-            <SectionHeading eyebrow="Account profile" title="Your personal details" description="Change the name and username shown across your account. These identity details are managed securely by Clerk." />
+            <SectionHeading eyebrow="Account profile" title="Your personal details" description="Change the name and username shown across your account. These identity details are managed securely by Lunavo." />
             <span className="grid h-10 w-10 place-items-center rounded-lg bg-[#e9e1cd] text-[#8a6826]"><UserRound className="h-5 w-5" /></span>
           </div>
           <form onSubmit={saveProfile} className="mt-6 grid gap-4 md:grid-cols-2">
@@ -279,7 +326,7 @@ export default function Settings() {
             <div className="rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 text-sm">
               <p className="flex items-center gap-2 font-bold"><Mail className="h-4 w-4 text-[#a2772e]" />Primary email</p>
               <p className="mt-1 truncate text-xs text-[#697687]">{user?.primaryEmailAddress?.emailAddress ?? 'No verified email on file'}</p>
-              <p className="mt-1 text-[11px] text-[#8994a2]">Email changes and verification are handled by Clerk account security.</p>
+              <p className="mt-1 text-[11px] text-[#8994a2]">Email changes and verification are handled by Lunavo account security.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2">
               <SubmitButton loading={saving}><Save className="h-4 w-4" />Save account details</SubmitButton>
@@ -326,6 +373,18 @@ export default function Settings() {
             </form>}
           </div>
         </section>
+        <section className="mt-9 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <SectionHeading eyebrow="Active sessions" title="Where your account is signed in" description="Review recent sessions and sign out devices you no longer use. Lunavo stores only limited session metadata needed for security." />
+            <div className="flex gap-2">
+              <button type="button" onClick={loadSessions} disabled={sessionsLoading} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm font-extrabold disabled:opacity-50"><RefreshCw className={sessionsLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />Refresh</button>
+              <button type="button" onClick={revokeOthers} disabled={sessionsLoading || sessions.filter((item) => !item.current).length === 0} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#182333] px-3 text-sm font-extrabold text-[#f8f3e8] disabled:opacity-50">Sign out others</button>
+            </div>
+          </div>
+          {sessionsMessage && <div className="mt-5"><Notice tone={sessionsError ? 'danger' : 'success'} title={sessionsError ? 'Session control unavailable' : 'Security updated'}>{sessionsMessage}</Notice></div>}
+          {sessionsLoading ? <div className="mt-5"><LoadingState label="Loading active sessions" /></div> : sessions.length ? <div className="mt-5 space-y-3">{sessions.map((session) => <div key={session.id} className="rounded-xl border border-[#ded8cd] bg-[#f7f4ed] p-4"><div className="flex flex-wrap items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#e9e1cd] text-[#8a6826]"><Monitor className="h-4 w-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-extrabold">{session.current ? 'Current device' : 'Active device'}</p>{session.current && <Badge tone="success">This session</Badge>}</div><p className="mt-1 text-xs text-[#697687]">{session.userAgent ?? 'Browser details unavailable'} · IP {session.ipAddress ?? 'unavailable'}</p><p className="mt-1 text-[11px] text-[#8994a2]">Last seen {new Date(session.lastSeenAt).toLocaleString()} · Expires {new Date(session.expiresAt).toLocaleString()}</p></div>{!session.current && <button type="button" onClick={() => revokeSession(session.id, session.current)} className="inline-flex h-9 items-center rounded-lg border border-[#e2b9b3] bg-[#fff8f5] px-3 text-xs font-extrabold text-[#a33e38]">Sign out</button>}</div></div>)}</div> : <div className="mt-5"><Notice tone="info" title="No active sessions found">Your current session may not be visible yet; refresh to check again.</Notice></div>}
+        </section>
+
         <section id="change-password" className="mt-9 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <SectionHeading eyebrow="Account security" title="Change your password" description="Use your current password when required by your account. Other active sessions will be signed out after a successful change." />
@@ -336,7 +395,7 @@ export default function Settings() {
               <input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" className={inputClass} />
             </label>
             <label className="text-sm font-bold">New password
-              <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={8} autoComplete="new-password" required className={inputClass} />
+              <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={12} autoComplete="new-password" required className={inputClass} />
             </label>
             <label className="text-sm font-bold">Confirm new password
               <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={8} autoComplete="new-password" required className={inputClass} />

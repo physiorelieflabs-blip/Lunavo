@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import test from "node:test";
+import { it as test } from "vitest";
 import {
   flutterwaveAmount,
   flutterwaveCredentialMode,
@@ -34,11 +34,12 @@ test("Flutterwave webhook signatures accept the configured hash and HMAC form on
   const previous = process.env.FLUTTERWAVE_WEBHOOK_SECRET;
   const rawBody = Buffer.from('{"event":"charge.completed"}');
   process.env.FLUTTERWAVE_WEBHOOK_SECRET = "test-webhook-secret";
-  const hmac = createHmac("sha256", "test-webhook-secret").update(rawBody).digest("hex");
-  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, "test-webhook-secret"), true);
-  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, hmac), true);
-  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, "wrong-secret"), false);
-  assert.equal(verifyFlutterwaveWebhookSignature(Buffer.from("{}"), hmac), false);
+  const signature = createHmac("sha256", "test-webhook-secret").update(rawBody).digest("base64");
+  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, signature), true);
+  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, "wrong-signature"), false);
+  assert.equal(verifyFlutterwaveWebhookSignature(Buffer.from("{}"), signature), false);
+  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, undefined, "test-webhook-secret"), true);
+  assert.equal(verifyFlutterwaveWebhookSignature(rawBody, undefined, "wrong-secret"), false);
   if (previous === undefined) delete process.env.FLUTTERWAVE_WEBHOOK_SECRET;
   else process.env.FLUTTERWAVE_WEBHOOK_SECRET = previous;
 });

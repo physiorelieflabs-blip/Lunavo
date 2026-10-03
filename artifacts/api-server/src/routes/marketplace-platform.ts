@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import { and, desc, eq, exists, gte, ilike, or, sql } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
 import {
   db,
   merchantsTable,

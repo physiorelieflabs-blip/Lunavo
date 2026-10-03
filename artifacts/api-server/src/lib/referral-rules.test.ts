@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { it as test } from "vitest";
 import {
   calculateReferralDiscountMinor,
   REFERRAL_DISCOUNT_RATE,
   REFERRAL_FREE_MONTHS,
   REFERRAL_FREE_REFERRAL_MILESTONE,
-} from "./referrals";
+} from "./referral-policy";
 
 test("referral discount is 30 percent of the locked gross subscription amount", () => {
   assert.equal(REFERRAL_DISCOUNT_RATE, 0.3);

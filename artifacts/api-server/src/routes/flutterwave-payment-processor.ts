@@ -88,6 +88,42 @@ function providerReversal(value: ProviderTransaction): "refunded" | "charged_bac
   return null;
 }
 
+async function recordExternalDashboardTransaction(input: {
+  merchantId: number;
+  transactionType: string;
+  transactionKind: "subscription" | "refund";
+  status: "confirmed" | "reversed";
+  amountMinor: number;
+  currency: string;
+  merchantNetMinor: number;
+  provider: string;
+  providerReference: string | null;
+  internalReference: string;
+  idempotencyKey: string;
+  metadata: Record<string, unknown>;
+}, executor: { execute: (query: unknown) => Promise<unknown> } = db) {
+  if (!Number.isSafeInteger(input.merchantId) || input.merchantId <= 0) throw new Error("Invalid merchant for dashboard transaction");
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new Error("Invalid dashboard transaction amount");
+  if (!/^[A-Z]{3}$/.test(input.currency)) throw new Error("Invalid dashboard transaction currency");
+  await executor.execute(sql`
+    INSERT INTO lunavo_dashboard_transactions (
+      merchant_id, transaction_type, transaction_kind, status,
+      amount_minor, currency, lunavo_fee_minor, provider_fee_minor,
+      merchant_net_minor, provider, provider_reference, internal_reference,
+      idempotency_key, source, verification_state, verified_at, metadata
+    ) VALUES (
+      ${input.merchantId}, ${input.transactionType}, ${input.transactionKind}, ${input.status},
+      ${input.amountMinor}, ${input.currency}, 0, 0,
+      ${input.merchantNetMinor}, ${input.provider}, ${input.providerReference},
+      ${input.internalReference}, ${input.idempotencyKey}, 'external_provider',
+      ${input.status === "confirmed" ? "verified" : "reversed"},
+      ${input.status === "confirmed" ? new Date() : null},
+      ${JSON.stringify(input.metadata)}::jsonb
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING
+  `);
+}
+
 async function recordReconciliationException(input: {
   eventId: string;
   providerTransactionId?: string | null;
@@ -422,14 +458,28 @@ async function processMarketplaceAdvertisingPayment(
           eq(marketplaceListingsTable.merchantId, billing.merchantId),
         ));
       }
-      await tx.insert(ledgerEntriesTable).values({
+      const refundMinor = Math.round(Number(billing.amount) * 100);
+      await recordExternalDashboardTransaction({
         merchantId: billing.merchantId,
-        paymentRecordId: null,
-        amountMinor: -Math.round(Number(billing.amount) * 100),
-        currency: billing.currency,
-        entryType: "marketplace_advertising_refund",
-        referenceKey: `marketplace-ad:${billing.id}:refund`,
-      }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+        transactionType: "marketplace_advertising_refund",
+        transactionKind: "refund",
+        status: "reversed",
+        amountMinor: refundMinor,
+        currency: billing.currency.toUpperCase(),
+        merchantNetMinor: refundMinor,
+        provider: "flutterwave",
+        providerReference: providerId ?? reference ?? null,
+        internalReference: `marketplace-ad-dashboard:${billing.id}:refund`,
+        idempotencyKey: `marketplace-ad-dashboard:${billing.id}:refund`,
+        metadata: {
+          billingId: billing.id,
+          listingId: billing.listingId,
+          paymentIntentId: intent.id,
+          expense: false,
+          balanceImpact: "none",
+          reversalOf: `marketplace-ad-dashboard:${billing.id}:payment`
+        }
+      }, tx);
     });
     return "reversed" as const;
   }
@@ -479,14 +529,27 @@ async function processMarketplaceAdvertisingPayment(
         ));
     }
 
-    await tx.insert(ledgerEntriesTable).values({
+    const adAmountMinor = Math.round(Number(currentBilling.amount) * 100);
+    await recordExternalDashboardTransaction({
       merchantId: billing.merchantId,
-      paymentRecordId: null,
-      amountMinor: Math.round(Number(currentBilling.amount) * 100),
-      currency: currentBilling.currency,
-      entryType: "marketplace_advertising_payment",
-      referenceKey: `marketplace-ad:${currentBilling.id}:payment`,
-    }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+      transactionType: "marketplace_advertising_payment",
+      transactionKind: "subscription",
+      status: "confirmed",
+      amountMinor: adAmountMinor,
+      currency: currentBilling.currency.toUpperCase(),
+      merchantNetMinor: -adAmountMinor,
+      provider: "flutterwave",
+      providerReference: providerId ?? reference ?? null,
+      internalReference: `marketplace-ad-dashboard:${currentBilling.id}:payment`,
+      idempotencyKey: `marketplace-ad-dashboard:${currentBilling.id}:payment`,
+      metadata: {
+        billingId: currentBilling.id,
+        listingId: currentBilling.listingId,
+        paymentIntentId: intent.id,
+        expense: true,
+        balanceImpact: "none"
+      }
+    }, tx);
 
     await tx.insert(activityTable).values({
       merchantId: billing.merchantId,
@@ -545,6 +608,27 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
       const nextPaid = Math.max(0, Number(locked.amountPaid) - Number(current.amount));
       await tx.update(subscriptionsTable).set({ amountPaid: nextPaid.toFixed(2), status: nextPaid + 0.005 >= Number(locked.amountDue) ? "active" : "past_due" }).where(eq(subscriptionsTable.id, locked.id));
       await tx.update(paymentsTable).set({ status: "refunded", evidenceReference: providerId ?? reference, reviewedBy: "flutterwave_webhook", reviewedAt: new Date(), reviewNote: reason }).where(eq(paymentsTable.id, current.id));
+      const refundedAmountMinor = Math.round(Number(current.amount) * 100);
+      await recordExternalDashboardTransaction({
+        merchantId: merchant.id,
+        transactionType: "subscription_refund",
+        transactionKind: "refund",
+        status: "reversed",
+        amountMinor: refundedAmountMinor,
+        currency: current.currency.toUpperCase(),
+        merchantNetMinor: refundedAmountMinor,
+        provider: "flutterwave",
+        providerReference: providerId ?? reference ?? null,
+        internalReference: `subscription-dashboard:${current.id}:refund:${reversal}`,
+        idempotencyKey: `subscription-dashboard:${current.id}:refund:${reversal}`,
+        metadata: {
+          paymentId: current.id,
+          subscriptionId: locked.id,
+          expense: false,
+          balanceImpact: "none",
+          reversalOf: `subscription-dashboard:${current.id}:payment`
+        }
+      }, tx);
       await reverseReferralReward(tx, current.id, reason);
     });
     return "reversed" as const;
@@ -580,6 +664,26 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
     await tx.execute(sql`UPDATE payments SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(expectedMinor)}, merchant_net_minor=${calculateMerchantNetMinor(expectedMinor, providerFee)} WHERE id=${currentPayment.id}`);
     await qualifyReferralForPayment(tx, { referredMerchantId: merchant.id, paymentId: currentPayment.id, subscription: updatedSubscription, amountMinor: amountMinor!, currency: currentPayment.currency });
     if (settled) await ensureReferralPeriodForPaidSubscription(tx, merchant.id, updatedSubscription);
+    const subscriptionAmountMinor = Math.round(Number(currentPayment.amount) * 100);
+    await recordExternalDashboardTransaction({
+      merchantId: merchant.id,
+      transactionType: "subscription_payment",
+      transactionKind: "subscription",
+      status: "confirmed",
+      amountMinor: subscriptionAmountMinor,
+      currency: currentPayment.currency.toUpperCase(),
+      merchantNetMinor: -subscriptionAmountMinor,
+      provider: "flutterwave",
+      providerReference: providerId ?? reference ?? null,
+      internalReference: `subscription-dashboard:${currentPayment.id}:payment`,
+      idempotencyKey: `subscription-dashboard:${currentPayment.id}:payment`,
+      metadata: {
+        paymentId: currentPayment.id,
+        subscriptionId: currentSubscription.id,
+        expense: true,
+        balanceImpact: "none"
+      }
+    }, tx);
     if (settled && merchant.status === "suspended") await tx.update(merchantsTable).set({ status: "active" }).where(eq(merchantsTable.id, merchant.id));
     return "successful" as const;
   });

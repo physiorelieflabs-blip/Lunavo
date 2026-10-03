@@ -56,7 +56,7 @@ export const productAdvertisingCampaignsTable = pgTable("product_advertising_cam
   id: uuid("id").primaryKey().defaultRandom(),
   merchantId: integer("merchant_id").notNull(),
   storeId: uuid("store_id"),
-  productId: integer("product_id").notNull(),
+  productId: text("product_id").notNull(),
   feeMinor: integer("fee_minor").notNull().default(500),
   currency: text("currency").notNull().default("USD"),
   paymentStatus: text("payment_status").notNull().default("pending"),
@@ -81,7 +81,7 @@ export const productAdvertisingCampaignsTable = pgTable("product_advertising_cam
 
 export const marketplaceDiscoveryEventsTable = pgTable("marketplace_discovery_events", {
   id: uuid("id").primaryKey().defaultRandom(),
-  productId: integer("product_id").notNull(),
+  productId: text("product_id").notNull(),
   campaignId: uuid("campaign_id"),
   customerId: integer("customer_id"),
   eventType: text("event_type").notNull(),

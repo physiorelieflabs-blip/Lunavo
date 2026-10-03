@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Banknote, CheckCircle2, Clipboard, CreditCard, Printer, Search, ShoppingBag, Smartphone, Trash2, UsersRound, WifiOff } from 'lucide-react';
-import { useUser } from '@clerk/react';
+import { useUser } from '@/components/local-auth';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetDashboardOverviewQueryKey, getGetMerchantBalancesQueryKey, getListCustomersQueryKey, getListDashboardActivityQueryKey, getListDropshipQueueQueryKey, getListOrdersQueryKey, useCreateOrder, useCreatePaymentIntent, useListCustomers, useListSupplierProducts, useVerifyPayment } from '@workspace/api-client-react';
 import type { CreateOrderInput } from '@workspace/api-client-react';
@@ -166,8 +166,7 @@ export default function Pos() {
     if (!online) {
       const next = [...queue, { id: payload.idempotencyKey!, payload, paymentMethod, currency: selectedProduct.currency, productTitle: selectedProduct.title, createdAt: new Date().toISOString() }];
       persistQueue(next);
-      setMessage('You are offline. This sale is queued on this device and will sync when connection returns.');
-      setLastReceipt({ orderNumber: 'OFFLINE QUEUED', total, method: paymentMethod, customerName: payload.customerName, productTitle: selectedProduct.title, currency: selectedProduct.currency });
+      setMessage('You are offline. This ticket is only a local draft and is not an order, payment, receipt, or ledger entry until the server accepts and verifies it.');
       resetSale();
       return;
     }
@@ -193,9 +192,9 @@ export default function Pos() {
     <div className="mx-auto max-w-[1180px]">
       <div className="flex flex-wrap items-end justify-between gap-5">
         <div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">TS POS</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.06em] md:text-4xl">Sell in person without losing the ledger.</h1><p className="mt-2 max-w-2xl text-sm text-[#697687]">Cashier checkout, customer lookup, inventory-aware quantities, printable receipts, and a safe offline queue.</p></div>
-        <div className="flex items-center gap-2">{online ? <Badge tone="success">Online</Badge> : <Badge tone="warning"><WifiOff className="mr-1 inline h-3.5 w-3.5" />Offline</Badge>}{queue.length > 0 && <Badge tone="info">{queue.length} queued</Badge>}</div>
+        <div className="flex items-center gap-2">{online ? <Badge tone="success">Online</Badge> : <Badge tone="warning"><WifiOff className="mr-1 inline h-3.5 w-3.5" />Offline</Badge>}{queue.length > 0 && <Badge tone="info">{queue.length} queued drafts</Badge>}</div>
       </div>
-      {message && <div className="mt-6"><Notice tone={message.includes('could not') ? 'danger' : message.includes('offline') ? 'warning' : 'success'} title={message.includes('offline') ? 'Sale queued locally' : 'POS update'}>{message}</Notice></div>}
+      {message && <div className="mt-6"><Notice tone={message.includes('could not') ? 'danger' : message.includes('offline') ? 'warning' : 'success'} title={message.includes('offline') ? 'Ticket queued locally' : 'POS update'}>{message}</Notice></div>}
       <div className="mt-8 grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
         <form onSubmit={submit} className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 md:p-7">
           <SectionHeading eyebrow="Build a ticket" title="New in-person sale" description="Select one catalog product, then record the customer and payment method." />
@@ -213,7 +212,7 @@ export default function Pos() {
         </form>
         <aside className="space-y-5">
            <section className="rounded-2xl border border-[#bba15e] bg-[#f5edda] p-5"><div className="flex items-center gap-2 text-[#85601b]"><Clipboard className="h-5 w-5" /><p className="font-mono text-[10px] uppercase tracking-[.16em]">Receipt desk</p></div>{lastReceipt ? <><p className="mt-5 text-xs uppercase tracking-[.12em] text-[#697687]">{lastReceipt.orderNumber}</p><h2 className="mt-2 text-xl font-extrabold">{lastReceipt.productTitle}</h2><div className="mt-5 space-y-2 border-y border-[#d8c68f] py-4 text-sm"><div className="flex justify-between"><span>Customer</span><strong>{lastReceipt.customerName}</strong></div><div className="flex justify-between"><span>Payment</span><strong className="capitalize">{lastReceipt.method.replace('_', ' ')}</strong></div><div className="flex justify-between"><span>Total</span><strong className="font-mono">{money(lastReceipt.total, lastReceipt.currency)}</strong></div></div><Button variant="secondary" className="mt-5 w-full" onClick={() => window.print()}><Printer className="h-4 w-4" />Print receipt</Button></> : <EmptyState title="No receipt yet" description="Complete a verified sale to create a print-ready receipt summary." />}</section>
-           <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><SectionHeading eyebrow="Queue safety" title="Offline sync" description="Queued tickets are stored only on this device until they are accepted by the server." />{queue.length ? <><div className="space-y-2">{queue.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f7f4ed] p-3 text-xs"><span className="min-w-0 truncate font-bold">{item.payload.customerName} · {money(item.payload.total, item.currency)}</span><button type="button" onClick={() => persistQueue(queue.filter((candidate) => candidate.id !== item.id))} className="ml-3 text-[#943b35]" aria-label={`Remove queued sale for ${item.payload.customerName}`}><Trash2 className="h-4 w-4" /></button></div>)}</div><Button className="mt-4 w-full" onClick={syncQueue} disabled={!online || createOrder.isPending}><CheckCircle2 className="h-4 w-4" />{online ? 'Sync queued sales' : 'Waiting for connection'}</Button></> : <p className="text-sm text-[#697687]">No tickets waiting to sync.</p>}</section>
+           <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><SectionHeading eyebrow="Queue safety" title="Offline sync" description="Queued tickets are stored only on this device until the server accepts them; local drafts never affect balances or payment status." />{queue.length ? <><div className="space-y-2">{queue.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f7f4ed] p-3 text-xs"><span className="min-w-0 truncate font-bold">{item.payload.customerName} · {money(item.payload.total, item.currency)}</span><button type="button" onClick={() => persistQueue(queue.filter((candidate) => candidate.id !== item.id))} className="ml-3 text-[#943b35]" aria-label={`Remove queued sale for ${item.payload.customerName}`}><Trash2 className="h-4 w-4" /></button></div>)}</div><Button className="mt-4 w-full" onClick={syncQueue} disabled={!online || createOrder.isPending}><CheckCircle2 className="h-4 w-4" />{online ? 'Sync queued sales' : 'Waiting for connection'}</Button></> : <p className="text-sm text-[#697687]">No tickets waiting to sync.</p>}</section>
           <div className="rounded-2xl border border-[#bfd6dc] bg-[#eef7f8] p-4 text-sm text-[#315e6c]"><UsersRound className="mb-2 h-5 w-5" /><strong>Customer lookup is live.</strong><p className="mt-1 text-xs leading-5">Returning customers keep their order history and spend totals in the same merchant-owned CRM record.</p></div>
         </aside>
       </div>

@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./migration-runner": "./src/migration-runner.ts"
   },
   "scripts": {
     "migrate": "tsx src/migrate.ts",

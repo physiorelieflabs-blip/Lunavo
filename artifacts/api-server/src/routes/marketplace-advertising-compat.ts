@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { getAuth } from "../lib/auth-compat";
 import { db, marketplaceBillingRecordsTable, merchantsTable } from "@workspace/db";
 
 const router = Router();

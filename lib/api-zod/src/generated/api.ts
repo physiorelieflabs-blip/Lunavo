@@ -57,16 +57,24 @@ export const GetDashboardOverviewResponse = zod.object({
   "layout": zod.enum(['editorial', 'minimal', 'catalog']),
   "announcement": zod.string().max(getDashboardOverviewResponseStorefrontThemeAnnouncementMax),
   "logoUrl": zod.url().max(getDashboardOverviewResponseStorefrontThemeLogoUrlMax).nullable(),
-  "heroImageUrl": zod.url().max(getDashboardOverviewResponseStorefrontThemeHeroImageUrlMax).nullable()
+  "heroImageUrl": zod.url().max(getDashboardOverviewResponseStorefrontThemeHeroImageUrlMax).nullable(),
+  "showLunavoBranding": zod.boolean().optional(),
+  "seoTitle": zod.string().max(70).optional(),
+  "seoDescription": zod.string().max(160).optional(),
+  "shippingPolicy": zod.string().max(5000).optional(),
+  "returnsPolicy": zod.string().max(5000).optional(),
+  "privacyPolicy": zod.string().max(5000).optional(),
+  "termsPolicy": zod.string().max(5000).optional(),
 }),
   "storefrontSections": zod.array(zod.object({
   "id": zod.string().min(1).max(getDashboardOverviewResponseStorefrontSectionsItemIdMax),
-  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "type": zod.enum(['announcement','header','hero','featured_collection','product_grid','category_grid','image_with_text','video','testimonials','reviews','benefits','faq','newsletter','countdown','logo_cloud','rich_text','spacer','contact','footer','policies','custom_code','products','story']),
   "enabled": zod.boolean(),
   "heading": zod.string().max(getDashboardOverviewResponseStorefrontSectionsItemHeadingMax),
   "body": zod.string().max(getDashboardOverviewResponseStorefrontSectionsItemBodyMax),
   "imageUrl": zod.url().max(getDashboardOverviewResponseStorefrontSectionsItemImageUrlMax).nullable(),
-  "imageAlt": zod.string().max(getDashboardOverviewResponseStorefrontSectionsItemImageAltMax)
+  "imageAlt": zod.string().max(getDashboardOverviewResponseStorefrontSectionsItemImageAltMax),
+  "settings": zod.record(zod.string(), zod.unknown()).optional()
 })),
   "storefrontPublished": zod.boolean(),
   "storeSlug": zod.string(),
@@ -283,16 +291,24 @@ export const CreateStoreBody = zod.object({
   "layout": zod.enum(['editorial', 'minimal', 'catalog']),
   "announcement": zod.string().max(createStoreBodyStorefrontThemeAnnouncementMax),
   "logoUrl": zod.url().max(createStoreBodyStorefrontThemeLogoUrlMax).nullable(),
-  "heroImageUrl": zod.url().max(createStoreBodyStorefrontThemeHeroImageUrlMax).nullable()
+  "heroImageUrl": zod.url().max(createStoreBodyStorefrontThemeHeroImageUrlMax).nullable(),
+  "showLunavoBranding": zod.boolean().optional(),
+  "seoTitle": zod.string().max(70).optional(),
+  "seoDescription": zod.string().max(160).optional(),
+  "shippingPolicy": zod.string().max(5000).optional(),
+  "returnsPolicy": zod.string().max(5000).optional(),
+  "privacyPolicy": zod.string().max(5000).optional(),
+  "termsPolicy": zod.string().max(5000).optional(),
 }).optional(),
   "storefrontSections": zod.array(zod.object({
   "id": zod.string().min(1).max(createStoreBodyStorefrontSectionsItemIdMax),
-  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "type": zod.enum(['announcement','header','hero','featured_collection','product_grid','category_grid','image_with_text','video','testimonials','reviews','benefits','faq','newsletter','countdown','logo_cloud','rich_text','spacer','contact','footer','policies','custom_code','products','story']),
   "enabled": zod.boolean(),
   "heading": zod.string().max(createStoreBodyStorefrontSectionsItemHeadingMax),
   "body": zod.string().max(createStoreBodyStorefrontSectionsItemBodyMax),
   "imageUrl": zod.url().max(createStoreBodyStorefrontSectionsItemImageUrlMax).nullable(),
-  "imageAlt": zod.string().max(createStoreBodyStorefrontSectionsItemImageAltMax)
+  "imageAlt": zod.string().max(createStoreBodyStorefrontSectionsItemImageAltMax),
+  "settings": zod.record(zod.string(), zod.unknown()).optional()
 })).max(createStoreBodyStorefrontSectionsMax).optional(),
   "storefrontPublished": zod.boolean().optional()
 })
@@ -339,16 +355,24 @@ export const CreateStoreResponse = zod.object({
   "layout": zod.enum(['editorial', 'minimal', 'catalog']),
   "announcement": zod.string().max(createStoreResponseStorefrontThemeAnnouncementMax),
   "logoUrl": zod.url().max(createStoreResponseStorefrontThemeLogoUrlMax).nullable(),
-  "heroImageUrl": zod.url().max(createStoreResponseStorefrontThemeHeroImageUrlMax).nullable()
+  "heroImageUrl": zod.url().max(createStoreResponseStorefrontThemeHeroImageUrlMax).nullable(),
+  "showLunavoBranding": zod.boolean().optional(),
+  "seoTitle": zod.string().max(70).optional(),
+  "seoDescription": zod.string().max(160).optional(),
+  "shippingPolicy": zod.string().max(5000).optional(),
+  "returnsPolicy": zod.string().max(5000).optional(),
+  "privacyPolicy": zod.string().max(5000).optional(),
+  "termsPolicy": zod.string().max(5000).optional(),
 }),
   "storefrontSections": zod.array(zod.object({
   "id": zod.string().min(1).max(createStoreResponseStorefrontSectionsItemIdMax),
-  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "type": zod.enum(['announcement','header','hero','featured_collection','product_grid','category_grid','image_with_text','video','testimonials','reviews','benefits','faq','newsletter','countdown','logo_cloud','rich_text','spacer','contact','footer','policies','custom_code','products','story']),
   "enabled": zod.boolean(),
   "heading": zod.string().max(createStoreResponseStorefrontSectionsItemHeadingMax),
   "body": zod.string().max(createStoreResponseStorefrontSectionsItemBodyMax),
   "imageUrl": zod.url().max(createStoreResponseStorefrontSectionsItemImageUrlMax).nullable(),
-  "imageAlt": zod.string().max(createStoreResponseStorefrontSectionsItemImageAltMax)
+  "imageAlt": zod.string().max(createStoreResponseStorefrontSectionsItemImageAltMax),
+  "settings": zod.record(zod.string(), zod.unknown()).optional()
 })),
   "storefrontPublished": zod.boolean(),
   "storeSlug": zod.string(),
@@ -2423,16 +2447,24 @@ export const GetPublicStoreResponse = zod.object({
   "layout": zod.enum(['editorial', 'minimal', 'catalog']),
   "announcement": zod.string().max(getPublicStoreResponseStorefrontThemeAnnouncementMax),
   "logoUrl": zod.url().max(getPublicStoreResponseStorefrontThemeLogoUrlMax).nullable(),
-  "heroImageUrl": zod.url().max(getPublicStoreResponseStorefrontThemeHeroImageUrlMax).nullable()
+  "heroImageUrl": zod.url().max(getPublicStoreResponseStorefrontThemeHeroImageUrlMax).nullable(),
+  "showLunavoBranding": zod.boolean().optional(),
+  "seoTitle": zod.string().max(70).optional(),
+  "seoDescription": zod.string().max(160).optional(),
+  "shippingPolicy": zod.string().max(5000).optional(),
+  "returnsPolicy": zod.string().max(5000).optional(),
+  "privacyPolicy": zod.string().max(5000).optional(),
+  "termsPolicy": zod.string().max(5000).optional(),
 }),
   "storefrontSections": zod.array(zod.object({
   "id": zod.string().min(1).max(getPublicStoreResponseStorefrontSectionsItemIdMax),
-  "type": zod.enum(['hero', 'products', 'story', 'announcement']),
+  "type": zod.enum(['announcement','header','hero','featured_collection','product_grid','category_grid','image_with_text','video','testimonials','reviews','benefits','faq','newsletter','countdown','logo_cloud','rich_text','spacer','contact','footer','policies','custom_code','products','story']),
   "enabled": zod.boolean(),
   "heading": zod.string().max(getPublicStoreResponseStorefrontSectionsItemHeadingMax),
   "body": zod.string().max(getPublicStoreResponseStorefrontSectionsItemBodyMax),
   "imageUrl": zod.url().max(getPublicStoreResponseStorefrontSectionsItemImageUrlMax).nullable(),
-  "imageAlt": zod.string().max(getPublicStoreResponseStorefrontSectionsItemImageAltMax)
+  "imageAlt": zod.string().max(getPublicStoreResponseStorefrontSectionsItemImageAltMax),
+  "settings": zod.record(zod.string(), zod.unknown()).optional()
 })),
   "products": zod.array(zod.object({
   "id": zod.int(),
@@ -3922,6 +3954,7 @@ export const ReviewMarketplaceBillingResponse = zod.object({
  */
 export const ListMerchantsResponseItem = zod.object({
   "id": zod.int(),
+  "role": zod.string(),
   "name": zod.string(),
   "email": zod.email(),
   "storeName": zod.string(),

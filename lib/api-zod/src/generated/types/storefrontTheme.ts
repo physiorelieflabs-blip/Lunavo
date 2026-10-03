@@ -27,4 +27,17 @@ export interface StorefrontTheme {
      * @nullable
      */
   heroImageUrl: string | null;
+  showLunavoBranding?: boolean;
+  /** @maxLength 70 */
+  seoTitle?: string;
+  /** @maxLength 160 */
+  seoDescription?: string;
+  /** @maxLength 5000 */
+  shippingPolicy?: string;
+  /** @maxLength 5000 */
+  returnsPolicy?: string;
+  /** @maxLength 5000 */
+  privacyPolicy?: string;
+  /** @maxLength 5000 */
+  termsPolicy?: string;
 }
