@@ -361,8 +361,5 @@ router.get("/auth/me", async (req, res) => {
   return res.json({ user: userResponse(user) });
 });
 
-router.post("/auth/verify-email", async (_req, res) => {
-  return res.json({ verified: true, message: "Local self-hosted accounts are verified at registration." });
-});
 
 export default router;
