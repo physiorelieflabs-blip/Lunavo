@@ -69,7 +69,7 @@ for(const m of [
   'inventoryReservationsTable',
   'status: "pending"',
 ]) if(!orderRoute.includes(m)) failures.push(`Merchant order pricing/inventory invariant missing: ${m}`);
-if((orderRoute.match(/router\.post\\("\/auth\/verify-email"/g) || []).length > 1) failures.push("Duplicate email verification route remains");
+if((orderRoute.match(/router\.post\("\/auth\/verify-email"/g) || []).length > 1) failures.push("Duplicate email verification route remains");
 const providerClient=await read("artifacts/api-server/src/lib/flutterwave-client.ts");
 for(const m of ["getStoredFlutterwaveCredentials","secretKeyOverride","verifyFlutterwaveWebhookSignatureAsync"]) if(!providerClient.includes(m)) failures.push(`Flutterwave runtime credential invariant missing: ${m}`);
 if(providerClient.includes('process.env.FLUTTERWAVE_SECRET_KEY=') || providerClient.includes('process.env.FLUTTERWAVE_WEBHOOK_SECRET=')) failures.push("Flutterwave client must not mutate process.env at runtime");
