@@ -3,8 +3,6 @@
 -- merchant balance or mark an order paid. Any actual customer refund/payment
 -- must still pass through the existing TS Pay/provider boundary.
 
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
 CREATE TABLE IF NOT EXISTS support_tickets (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   merchant_id integer NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
@@ -52,10 +50,37 @@ CREATE TABLE IF NOT EXISTS service_bookings (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS service_bookings_merchant_idempotency_unique ON service_bookings(merchant_id,idempotency_key);
 CREATE INDEX IF NOT EXISTS service_bookings_merchant_starts_idx ON service_bookings(merchant_id,starts_at);
-ALTER TABLE service_bookings DROP CONSTRAINT IF EXISTS service_bookings_no_overlap;
-ALTER TABLE service_bookings ADD CONSTRAINT service_bookings_no_overlap
-  EXCLUDE USING gist (merchant_id WITH =, tstzrange(starts_at,ends_at,'[)') WITH &&)
-  WHERE (status IN ('requested','confirmed','rescheduled'));
+
+CREATE OR REPLACE FUNCTION lunavo_guard_service_booking_overlap()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF NEW.status IN ('requested','confirmed','rescheduled') THEN
+    PERFORM pg_advisory_xact_lock(18427, NEW.merchant_id);
+    IF EXISTS (
+      SELECT 1
+      FROM service_bookings b
+      WHERE b.merchant_id = NEW.merchant_id
+        AND b.id <> NEW.id
+        AND b.status IN ('requested','confirmed','rescheduled')
+        AND b.starts_at < NEW.ends_at
+        AND b.ends_at > NEW.starts_at
+    ) THEN
+      RAISE EXCEPTION 'The requested time overlaps an active booking'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS service_bookings_overlap_guard ON service_bookings;
+CREATE TRIGGER service_bookings_overlap_guard
+BEFORE INSERT OR UPDATE OF merchant_id, starts_at, ends_at, status
+ON service_bookings
+FOR EACH ROW
+EXECUTE FUNCTION lunavo_guard_service_booking_overlap();
 
 CREATE TABLE IF NOT EXISTS return_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
