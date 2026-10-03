@@ -7608,42 +7608,6 @@ router.post("/orders", async (req, res): Promise<void> => {
       if (!subscription) throw new Error("Subscription not found");
 
       const idempotencyKey = parsed.data.idempotencyKey?.trim() || null;
-      if (idempotencyKey) {
-        const existing = (
-          await tx
-            .select({
-              order: ordersTable,
-              customer: customersTable,
-              product: supplierProductsTable,
-            })
-            .from(ordersTable)
-            .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
-            .leftJoin(
-              supplierProductsTable,
-              eq(ordersTable.supplierProductId, supplierProductsTable.id),
-            )
-            .where(
-              and(
-                eq(ordersTable.merchantId, merchant.id),
-                eq(ordersTable.idempotencyKey, idempotencyKey),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (existing) {
-          const existingCustomerEmail = existing.customer.email.trim().toLowerCase();
-          const existingTotalMinor = Math.round(Number(existing.order.total) * 100);
-          if (
-            existing.order.supplierProductId !== supplierProduct.id ||
-            existing.order.quantity !== quantity ||
-            existingTotalMinor !== totalMinor ||
-            existingCustomerEmail !== customerEmail
-          ) {
-            throw new Error("This idempotency key is already bound to a different order");
-          }
-          return existing;
-        }
-      }
 
       const customerEmail = parsed.data.customerEmail.trim().toLowerCase();
       const quantity = parsed.data.quantity ?? 1;
