@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid, index, uniqueIndex, numeric, sql } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid, index, uniqueIndex, sql } from "drizzle-orm/pg-core";
 
 export const supportTicketsTable = pgTable("support_tickets", {
   id: uuid("id").defaultRandom().primaryKey(),
