@@ -112,7 +112,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-DO $
+DO $$
 BEGIN
   IF to_regclass('public.store_auction_metric_snapshots') IS NOT NULL THEN
     DROP TRIGGER IF EXISTS lunavo_sanitize_store_auction_metrics_trigger ON store_auction_metric_snapshots;
@@ -121,4 +121,4 @@ BEGIN
     FOR EACH ROW EXECUTE FUNCTION lunavo_sanitize_store_auction_metrics();
   END IF;
 END;
-$;
+$$;
