@@ -23,6 +23,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { AppShell } from '@/components/app-shell';
+import { AdminOpsPanel } from '@/components/admin-ops-panel';
 import {
   Badge,
   EmptyState,
@@ -391,6 +392,7 @@ export default function Admin() {
             />
           )}
         </section>
+        <AdminOpsPanel />
       </div>
     </AppShell>
   );
