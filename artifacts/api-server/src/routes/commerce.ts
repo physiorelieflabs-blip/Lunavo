@@ -33,6 +33,7 @@ import {
   ordersTable,
   paymentLinksTable,
   marketplaceListingsTable,
+  marketplaceDiscoveryEventsTable,
   marketplaceBillingRecordsTable,
   advertisingPaymentsTable,
   paymentsTable,
@@ -12513,6 +12514,15 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
         }
       }
       await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, current.orderId), eq(ordersTable.merchantId, merchant.id)));
+      if (order.supplierProductId) {
+        await tx.insert(marketplaceDiscoveryEventsTable).values({
+          productId: String(order.supplierProductId),
+          orderId: order.id,
+          customerId: order.customerId,
+          eventType: "purchase",
+          metadata: { source: "verified_payment", paymentIntentId: current.id, amountMinor: current.amountMinor, currency: current.currency },
+        }).onConflictDoNothing();
+      }
       await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentIntentId: id, entityType: "payment_intent", fromStatus: current.status, toStatus: "verified", actorId: identity.clerkUserId, note: body.data.note ?? null });
        await emitDomainEvent(tx, {
          merchantId: merchant.id, eventType: "payment.verified", aggregateType: "payment_intent",
