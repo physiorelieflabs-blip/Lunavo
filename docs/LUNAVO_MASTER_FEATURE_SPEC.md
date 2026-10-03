@@ -120,7 +120,7 @@ This document is the canonical implementation checklist for the Lunavo rebuild. 
 - Campaign management, publishing state and analytics.
 - Social Hub integrations for Instagram, Facebook, TikTok, YouTube, LinkedIn, Pinterest and X.
 - Encrypted OAuth token storage, signed state and replay/idempotency protection.
-- X remains disabled until real PKCE support is implemented.
+- X OAuth 2 PKCE text publishing is implemented with provider-confirmed publishing; it must remain disabled until a real X connection is authorized.
 - Do not claim live provider publishing where an adapter is not implemented.
 
 ## 12. Analytics and reporting
@@ -162,9 +162,9 @@ This document is the canonical implementation checklist for the Lunavo rebuild. 
 - Role and authorization checks fail closed.
 
 ## 16. Authentication and security
-- Clerk authentication.
-- Verified admin identity checks.
-- Secure account settings/password flows through Clerk.
+- Self-hosted local authentication with a compatibility boundary for the generated client surface.
+- Verified Master Admin identity checks plus TOTP MFA.
+- Secure local account password, email-verification and session flows.
 - CSRF/CORS/session/token protections.
 - SSRF/XSS/injection defenses.
 - Rate limiting on sensitive/public generation and checkout surfaces.
