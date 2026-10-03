@@ -52,7 +52,16 @@ jobs:
       - name: Self-hosted core policy
         run: pnpm run check:self-hosted
       - name: Implementation invariants
-        run: node scripts/lunavo-implementation-audit.mjs
+        run: |
+          set -o pipefail
+          node scripts/lunavo-implementation-audit.mjs 2>&1 | tee lunavo-implementation-audit.log
+      - name: Upload implementation audit log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lunavo-implementation-audit-log
+          path: lunavo-implementation-audit.log
+          if-no-files-found: warn
       - name: Production configuration shape
         run: pnpm run preflight:production
       - name: Critical payment and subscription simulation
