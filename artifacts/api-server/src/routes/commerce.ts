@@ -12407,6 +12407,7 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
       if (!current) throw new Error("Payment intent not found");
        if (current.status === "verified") return current;
       if (!["created", "submitted"].includes(current.status)) throw new Error("Payment is not awaiting verification");
+      if (!["manual_bank_transfer", "manual_cash", "manual_other", "manual"].includes(current.method)) throw new Error("Provider-backed payments must be verified through the configured payment provider");
        if (current.orderId === null) throw new Error("Invoice payments are verified from their invoice review");
       const evidence = body.data.evidenceReference ?? current.evidenceReference;
       if (!evidence) throw new Error("Evidence/reference is required");

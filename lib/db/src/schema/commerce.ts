@@ -325,6 +325,8 @@ export const paymentsTable = pgTable(
     uniqueIndex("payments_reference_unique").on(
       sql`upper(btrim(${table.reference}))`,
     ),
+    uniqueIndex("payments_provider_transaction_unique").on(table.method, table.providerTransactionId).where(sql`${table.providerTransactionId} IS NOT NULL`),
+    uniqueIndex("payments_provider_event_unique").on(table.method, table.providerEventId).where(sql`${table.providerEventId} IS NOT NULL`),
   ],
 );
 
@@ -1209,6 +1211,8 @@ export const paymentIntentsTable = pgTable(
     uniqueIndex("payment_intents_merchant_idempotency_unique").on(table.merchantId, table.idempotencyKey),
     uniqueIndex("payment_intents_order_unique").on(table.orderId),
     uniqueIndex("payment_intents_invoice_submission_unique").on(table.invoicePaymentSubmissionId),
+    uniqueIndex("payment_intents_provider_transaction_unique").on(table.method, table.providerTransactionId).where(sql`${table.providerTransactionId} IS NOT NULL`),
+    uniqueIndex("payment_intents_provider_event_unique").on(table.method, table.providerEventId).where(sql`${table.providerEventId} IS NOT NULL`),
   ],
 );
 
