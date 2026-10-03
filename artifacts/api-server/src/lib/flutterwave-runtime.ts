@@ -31,6 +31,16 @@ export function clearFlutterwaveCredentialCache() {
   cache = null;
 }
 
+export function cachedFlutterwaveSecretKey(): string | null {
+  if (cacheUsable(cache)) return cache?.secretKey ?? null;
+  return null;
+}
+
+export function cachedFlutterwaveWebhookSecret(): string | null {
+  if (cacheUsable(cache)) return cache?.webhookSecret ?? null;
+  return null;
+}
+
 export function primeFlutterwaveCredentialCache(input: {
   secretKey?: string | null;
   webhookSecret?: string | null;
