@@ -48,14 +48,15 @@ export default function Autopilot() {
     try {
       const [nextSettings, nextPolicy] = await Promise.all([
         customFetch<AiSettings>('/api/ai/settings', { responseType: 'json' }),
-        customFetch<AutomationPolicy>('/api/merchant/automation-policy', { responseType: 'json' }),
+        customFetch<{ policy: AutomationPolicy }>('/api/merchant/automation-policy', { responseType: 'json' }),
       ]);
       setSettings(nextSettings);
-      setPolicy(nextPolicy);
-      setDailyActions(String(nextPolicy.daily_action_limit));
-      setDailyAds(String(nextPolicy.daily_ad_limit));
-      setMinMargin(String(nextPolicy.min_margin_percent));
-      setMaxMultiplier(String(nextPolicy.max_price_multiplier));
+      const policyState = nextPolicy.policy;
+      setPolicy(policyState);
+      setDailyActions(String(policyState.daily_action_limit));
+      setDailyAds(String(policyState.daily_ad_limit));
+      setMinMargin(String(policyState.min_margin_percent));
+      setMaxMultiplier(String(policyState.max_price_multiplier));
       setError(false);
     } catch (e) {
       setError(true);
@@ -81,22 +82,23 @@ export default function Autopilot() {
     setError(false);
     setMessage('');
     try {
-      if (level === 4 && !settings.trainingOptIn) {
-        throw new Error('Enable local AI training consent in AI Control Room before enabling Full Autopilot.');
-      }
-      const saved = await customFetch<AiSettings>('/api/ai/settings', {
+      const saved = await customFetch<{ settings: AiSettings; policy: AutomationPolicy }>('/api/merchant/autopilot/mode', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           autonomyLevel: level,
-          runMyBusiness: level === 4,
           trainingOptIn: settings.trainingOptIn,
           goal: settings.goal,
           goalTarget: settings.goalTarget,
         }),
         responseType: 'json',
       });
-      setSettings(saved);
+      setSettings(saved.settings);
+      setPolicy(saved.policy);
+      setDailyActions(String(saved.policy.daily_action_limit));
+      setDailyAds(String(saved.policy.daily_ad_limit));
+      setMinMargin(String(saved.policy.min_margin_percent));
+      setMaxMultiplier(String(saved.policy.max_price_multiplier));
       setMessage(level === 4 ? 'Full Autopilot enabled with the server guardrails below.' : `${modes.find((m) => m.level === level)?.name ?? 'Autopilot'} mode enabled.`);
     } catch (e) {
       setError(true);
