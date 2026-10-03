@@ -80,6 +80,27 @@ for(const m of ["checkFlutterwaveConnection(apiKey)","primeFlutterwaveCredential
 if(/process\.env\.FLUTTERWAVE_(SECRET_KEY|WEBHOOK_SECRET)\s*=/.test(providerAdminRotation)) failures.push("Admin integration must not mutate process.env during credential rotation");
 const webConfig=await read("artifacts/ts-commerce/vite.config.ts");
 if(webConfig.includes("allowedHosts: true")) failures.push("Vite host allowlisting must not allow every host");
+const permissionBoundaries=[
+  ["artifacts/api-server/src/routes/commerce-suite.ts","requirePermission","team.manage"],
+  ["artifacts/api-server/src/routes/ad-studio.ts","requirePermission","ai.execute"],
+  ["artifacts/api-server/src/routes/ad-studio-stitch.ts","requirePermission","ai.execute"],
+  ["artifacts/api-server/src/routes/social-hub.ts","requirePermission","team.manage"],
+  ["artifacts/api-server/src/routes/subscription-options.ts","requirePermission","team.manage"],
+  ["artifacts/api-server/src/routes/marketplace-platform.ts","requirePermission","marketplace.manage"],
+  ["artifacts/api-server/src/routes/commerce-growth.ts","requirePermission","team.manage"],
+  ["artifacts/api-server/src/routes/daily-ai-advertising.ts","requirePermission","ai.execute"],
+  ["artifacts/api-server/src/routes/store-auctions.ts","requirePermission","team.manage"],
+  ["artifacts/api-server/src/routes/store-auction-payment.ts","requirePermission","team.manage"],
+];
+for (const [file,fn,permission] of permissionBoundaries) {
+  const source=await read(file);
+  if (!source.includes(fn)) failures.push(`Tenant permission boundary missing: ${file}`);
+  if (!source.includes(permission)) failures.push(`Expected permission ${permission} missing: ${file}`);
+}
+const growth=await read("artifacts/api-server/src/routes/commerce-growth.ts");
+if(growth.includes('"purchase"')) failures.push("Public discovery endpoint must not accept client-supplied purchase events");
+const social=await read("artifacts/api-server/src/routes/social-hub.ts");
+for(const m of ["oauthState(merchant.id,userId,provider)","parseState(state,callbackUserId)","eq(merchantsTable.status,\"active\")"]) if(!social.includes(m)) failures.push(`Social OAuth binding invariant missing: ${m}`);
 const processor=await optional("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");for(const m of ["marketplace-ad-dashboard","subscription-dashboard","balanceImpact"])if(!processor.includes(m))failures.push(`External expense dashboard invariant missing: ${m}`);
 // Post-hardening invariants: these are source-level contracts, not feature counts.
 const localAuth=await read("artifacts/api-server/src/lib/local-auth.ts");
