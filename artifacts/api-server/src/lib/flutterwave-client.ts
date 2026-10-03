@@ -166,6 +166,15 @@ export async function initializeFlutterwavePayment(input: {
   meta: Record<string, string | number>;
   paymentOptions?: string;
 }): Promise<{ link: string; txRef: string }> {
+  const supported = new Set(FLUTTERWAVE_PAYMENT_METHODS_BY_CURRENCY[input.currency.trim().toUpperCase()] ?? ["card"]);
+  const requested = input.paymentOptions?.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean) ?? [];
+  const paymentOptions = input.paymentOptions == null
+    ? [...supported].join(",")
+    : [...new Set(requested.filter((value) => supported.has(value)))].join(",");
+  if (!paymentOptions) {
+    throw new Error("The selected Flutterwave payment methods are not available for this transaction currency");
+  }
+
   const response = await flutterwaveRequest<FlutterwaveResponse<{ link?: string }>>("/payments", {
     method: "POST",
     idempotencyKey: input.txRef,
