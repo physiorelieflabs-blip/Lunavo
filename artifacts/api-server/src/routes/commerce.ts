@@ -12475,7 +12475,22 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
        }
       const [updated] = await tx.update(paymentIntentsTable).set({ status: "verified", evidenceReference: evidence }).where(eq(paymentIntentsTable.id, id)).returning();
       await tx.update(paymentRecordsTable).set({ status: "verified", evidenceReference: evidence, verifiedBy: identity.clerkUserId, verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, payment.id));
-      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: payment.id, amountMinor: current.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `payment:${id}` });
+      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: payment.id, amountMinor: current.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `payment:${id}` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+      const tsFeeMinor = calculateTsCommerceFeeMinor(current.amountMinor);
+      await tx.insert(ledgerEntriesTable).values({
+        merchantId: merchant.id,
+        orderId: current.orderId,
+        paymentRecordId: payment.id,
+        amountMinor: -tsFeeMinor,
+        currency: current.currency,
+        entryType: "fee",
+        referenceKey: `payment:${id}:ts-fee`,
+      }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+      await tx.update(paymentIntentsTable).set({
+        providerFeeMinor: 0,
+        tsCommerceFeeMinor: tsFeeMinor,
+        merchantNetMinor: current.amountMinor - tsFeeMinor,
+      }).where(eq(paymentIntentsTable.id, current.id));
       await tx.execute(sql`select id from ${subscriptionsTable} where merchant_id=${merchant.id} for update`);
       const subscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1))[0];
       if (subscription) {
@@ -12484,7 +12499,8 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
          }
         const outstanding = Math.max(0, toNumber(subscription.amountDue) - toNumber(subscription.amountPaid));
         const availableToHold = Math.max(0, outstanding - toNumber(subscription.earningsHeld));
-        const holdAmount = Math.min(Number(current.amountMinor) / 100, availableToHold);
+        const merchantNetMinor = Math.max(0, current.amountMinor - calculateTsCommerceFeeMinor(current.amountMinor));
+        const holdAmount = Math.min(merchantNetMinor / 100, availableToHold);
         if (holdAmount > 0) {
           const [heldSubscription] = await tx.update(subscriptionsTable).set({
             earningsHeld: (toNumber(subscription.earningsHeld) + holdAmount).toFixed(2),
