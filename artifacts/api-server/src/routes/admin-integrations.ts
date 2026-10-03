@@ -57,7 +57,6 @@ router.get("/admin/integrations/flutterwave", async (req, res, next) => {
       updatedAt: row?.updated_at ?? null,
       webhookConfigured: Boolean(row?.webhook_configured) || Boolean(runtime.webhookSecret),
       provider: "flutterwave",
-      account: userId,
     });
   } catch (error) {
     next(error);
