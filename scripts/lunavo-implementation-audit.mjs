@@ -75,9 +75,9 @@ for(const m of ["getStoredFlutterwaveCredentials","secretKeyOverride","verifyFlu
 if(providerClient.includes('process.env.FLUTTERWAVE_SECRET_KEY=') || providerClient.includes('process.env.FLUTTERWAVE_WEBHOOK_SECRET=')) failures.push("Flutterwave client must not mutate process.env at runtime");
 const providerRuntime=await read("artifacts/api-server/src/lib/flutterwave-runtime.ts");
 for(const m of ["primeFlutterwaveCredentialCache","cachedFlutterwaveSecretKey","CACHE_TTL_MS"]) if(!providerRuntime.includes(m)) failures.push(`Flutterwave vault cache invariant missing: ${m}`);
-const providerAdmin=await read("artifacts/api-server/src/routes/admin-integrations.ts");
-for(const m of ["checkFlutterwaveConnection(apiKey)","primeFlutterwaveCredentialCache","flutterwave_credentials_rotated"]) if(!providerAdmin.includes(m)) failures.push(`Flutterwave credential rotation invariant missing: ${m}`);
-if(/process\.env\.FLUTTERWAVE_(SECRET_KEY|WEBHOOK_SECRET)\s*=/.test(providerAdmin)) failures.push("Admin integration must not mutate process.env during credential rotation");
+const providerAdminRotation=await read("artifacts/api-server/src/routes/admin-integrations.ts");
+for(const m of ["checkFlutterwaveConnection(apiKey)","primeFlutterwaveCredentialCache","flutterwave_credentials_rotated"]) if(!providerAdminRotation.includes(m)) failures.push(`Flutterwave credential rotation invariant missing: ${m}`);
+if(/process\.env\.FLUTTERWAVE_(SECRET_KEY|WEBHOOK_SECRET)\s*=/.test(providerAdminRotation)) failures.push("Admin integration must not mutate process.env during credential rotation");
 const webConfig=await read("artifacts/ts-commerce/vite.config.ts");
 if(webConfig.includes("allowedHosts: true")) failures.push("Vite host allowlisting must not allow every host");
 const processor=await optional("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");for(const m of ["marketplace-ad-dashboard","subscription-dashboard","balanceImpact"])if(!processor.includes(m))failures.push(`External expense dashboard invariant missing: ${m}`);
