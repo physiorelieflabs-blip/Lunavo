@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 type GeneratedImage = {
   model: string;
   mimeType: string;
@@ -14,12 +15,26 @@ type LocalImagePayload = {
   error?: { message?: string };
 };
 
+function privateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (host === "localhost" || host === "::1" || host.endsWith(".local") || host.endsWith(".internal") || !host.includes(".")) return true;
+  const version = isIP(host);
+  if (version === 4) {
+    const parts = host.split(".").map(Number);
+    const [a,b] = parts;
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  if (version === 6) return host === "::1" || /^f[cd]/i.test(host) || /^fe80:/i.test(host);
+  return false;
+}
+
 function localImageEndpoint(): string {
   const endpoint = process.env.LUNAVO_LOCAL_IMAGE_URL?.trim();
   if (!endpoint) throw new Error("LUNAVO_LOCAL_IMAGE_URL is not configured; self-hosted image generation is unavailable");
   let parsed: URL;
   try { parsed = new URL(endpoint); } catch { throw new Error("LUNAVO_LOCAL_IMAGE_URL must be a valid HTTP(S) URL"); }
   if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("LUNAVO_LOCAL_IMAGE_URL must use HTTP or HTTPS");
+  if (!privateHost(parsed.hostname)) throw new Error("LUNAVO_LOCAL_IMAGE_URL must point to a private/local self-hosted image server");
   return endpoint.replace(/\/$/, "");
 }
 
