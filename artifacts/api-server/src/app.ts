@@ -38,7 +38,7 @@ app.use("/api/media",express.json({limit:"8mb"}));
 app.use("/api/ads/media",express.json({limit:"36mb"}));app.use("/api/kyc",express.json({limit:"10mb"}));
 app.use(express.json({limit:"64kb"}));
 app.use(express.urlencoded({extended:true,limit:"64kb"}));
-app.use("/api/public/checkout",rateLimit("public-checkout",30,60_000));app.use("/api/growth/discovery/events",rateLimit("growth-discovery",120,60_000));
+app.use("/api/public/checkout",rateLimit("public-checkout",30,60_000));app.use("/api/public/profit-reality-check",rateLimit("public-profit-check",45,60_000));app.use("/api/public/supplier-intelligence",rateLimit("public-supplier-intelligence",60,60_000));app.use("/api/growth/discovery/events",rateLimit("growth-discovery",120,60_000));
 app.use("/api/auth/sign-in",rateLimit("auth-sign-in",10,60_000));app.use("/api/auth/login",rateLimit("auth-sign-in",10,60_000));
 app.use("/api/auth/sign-up",rateLimit("auth-sign-up",10,60_000));app.use("/api/auth/register",rateLimit("auth-sign-up",10,60_000));
 app.use("/api/auth/reset/request",rateLimit("auth-reset-request",5,60_000));app.use("/api/auth/password-reset-request",rateLimit("auth-reset-request",5,60_000));
