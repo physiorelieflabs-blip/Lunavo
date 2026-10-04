@@ -7,6 +7,7 @@ import { startDailyAiAdvertisingPlanner } from "./lib/daily-ai-advertising-worke
 import { startAdminAiStoreWorker } from "./lib/admin-ai-store-worker";
 import { loadStoredFlutterwaveCredential } from "./lib/flutterwave-runtime";
 import { startSocialPublishingWorker } from "./lib/social-publishing-worker";
+import { startCustomerSubscriptionWorker } from "./lib/customer-subscription-worker";
 
 await runMigrations();
 const rawPort=process.env["PORT"];
@@ -19,4 +20,5 @@ startPendingFlutterwaveReconciliation();
 startDailyAiAdvertisingPlanner();
 startAdminAiStoreWorker();
 startSocialPublishingWorker();
+startCustomerSubscriptionWorker();
 app.listen(port,(err)=>{if(err){logger.error({err},"Error listening on port");process.exit(1);}logger.info({port},"Server listening");});
