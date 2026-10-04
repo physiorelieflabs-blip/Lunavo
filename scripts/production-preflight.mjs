@@ -9,4 +9,5 @@ for(const[name,value]of Object.entries(process.env)){if(!value)continue;if(forbi
 if(strict&&!process.env.FLUTTERWAVE_SECRET_KEY&&!process.env.FLW_SECRET_KEY)warnings.push('Flutterwave Secret Key is not configured; real-money checkout remains disabled until configured in Master Admin.');
 if(strict&&!process.env.FLUTTERWAVE_WEBHOOK_SECRET&&!process.env.FLW_WEBHOOK_HASH)warnings.push('Flutterwave Webhook Secret is not configured; provider webhook settlement remains disabled until configured in Master Admin.');
 // DeepSeek/Gemini are optional accelerators. Their absence must never block a Lunavo launch.
+// When absent, provider-backed AI features are unavailable until an optional provider is configured.
 if(errors.length){console.error('Lunavo production preflight: FAIL');for(const error of errors)console.error(`- ${error}`);process.exit(1)}for(const warning of warnings)console.warn(`- ${warning}`);console.log(strict?'Lunavo production preflight: PASS':'Lunavo production preflight: configuration shape OK');
