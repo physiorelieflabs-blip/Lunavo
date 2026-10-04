@@ -16,7 +16,7 @@ export function planAd(input:AdBrainInput):AdBrainPlan {
  const proof=input.availability&&/in stock|available|ready/i.test(input.availability)?'Available now':brand?brand+' · '+(category||'shop collection'):category?'Featured in '+category:'Shop direct from the store';
  const cta=offer?(offer+' · Shop now'):price?('From '+price+' · Shop now'):'Tap to shop';
  const caption=hook+' '+benefit+'. '+proof+'. '+cta;
- const hashtags=Array.from(new Set(['#TSCommerce',category?'#'+category.replace(/[^a-zA-Z0-9]+/g,''):'',brand?'#'+brand.replace(/[^a-zA-Z0-9]+/g,''):'','#ShopSmall','#OnlineShopping'].filter(Boolean))).slice(0,8);
+ const hashtags=Array.from(new Set(['#Lunavo',category?'#'+category.replace(/[^a-zA-Z0-9]+/g,''):'',brand?'#'+brand.replace(/[^a-zA-Z0-9]+/g,''):'','#ShopSmall','#OnlineShopping'].filter(Boolean))).slice(0,8);
  const script=[{seconds:3,text:hook,scene:'hook' as const},{seconds:5,text:benefit,scene:'product' as const},{seconds:3,text:proof,scene:'proof' as const},{seconds:4,text:cta,scene:'cta' as const}];
  const reasoning=['Uses persisted store/product facts plus merchant-supplied audience and offer context.','No unsupported discount claim is generated unless the merchant supplied an offer.',customPrompt?'Merchant supplied a custom creative prompt and it is treated as creative direction, not factual evidence.':input.sourceCost!==null&&input.sourceCost!==undefined&&input.price!==null&&input.price!==undefined?'Source cost and selling price are available for economics decisions; cost is not shown publicly.':'Supplier economics are incomplete, so no margin claim is generated.'];
  const score=Math.max(60,Math.min(98,72+(price?6:0)+(offer?7:0)+(category?4:0)+(brand?3:0)+(input.availability?3:0)+(customPrompt?3:0)));
@@ -27,7 +27,7 @@ export async function planAdWithBrain(input: AdBrainInput): Promise<AdBrainPlan>
   const fallback = planAd(input);
   try {
     const response = await completePrimaryReasoning([
-      { role: 'system', content: 'You are TS Commerce Ad Brain. Create truthful, high-converting ecommerce creative. Return JSON with hook,valueProp,proof,cta,caption,hashtags,script,score. Never invent reviews, discounts, stock, certifications, guarantees, product capabilities, or customer outcomes. Use only supplied facts. Script must contain hook, product, proof and cta scenes. Treat customPrompt as creative direction, never as proof.' },
+      { role: 'system', content: 'You are Lunavo Ad Brain. Create truthful, high-converting ecommerce creative. Return JSON with hook,valueProp,proof,cta,caption,hashtags,script,score. Never invent reviews, discounts, stock, certifications, guarantees, product capabilities, or customer outcomes. Use only supplied facts. Script must contain hook, product, proof and cta scenes. Treat customPrompt as creative direction, never as proof.' },
       { role: 'user', content: JSON.stringify(input) },
     ]);
     const raw=response.content.trim().replace(/^```json\s*/i,'').replace(/\s*```$/i,'');
