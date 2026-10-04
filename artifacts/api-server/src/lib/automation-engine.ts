@@ -32,6 +32,7 @@ type WorkflowContext = {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
   source: string | null;
+  scheduleKey?: string | null;
 };
 
 type Condition = {
@@ -180,7 +181,7 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
   for (const workflow of workflows.rows as Array<Record<string, unknown>>) {
     const workflowId = String(workflow.id);
     if (!conditionsPass(context, workflow.conditions)) continue;
-    const idempotencyKey = `workflow:${workflowId}:event:${context.eventId ?? "schedule"}:${context.eventType}`;
+    const idempotencyKey = `workflow:${workflowId}:event:${context.eventId ?? context.scheduleKey ?? "schedule"}:${context.eventType}`;
     await db.transaction(async (tx) => {
       const existing = await tx.execute(sql`SELECT id,status FROM merchant_automation_runs WHERE idempotency_key=${idempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length) return;
@@ -255,3 +256,46 @@ export async function processScheduledWorkflows(limit = 25): Promise<number> {
 }
 
 export type { WorkflowContext };
+
+
+export async function approveWorkflowRun(runId: string, merchantId: number, reviewerId: string, note: string | null, approve: boolean) {
+  if (!/^[0-9a-fA-F-]{36}$/.test(runId) || !Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid automation approval request");
+  return db.transaction(async (tx) => {
+    const row = (await tx.execute(sql`
+      SELECT r.id,r.workflow_id,r.merchant_id,r.status,w.enabled,w.actions,w.mode
+      FROM merchant_automation_runs r
+      INNER JOIN merchant_automation_workflows w ON w.id=r.workflow_id AND w.merchant_id=r.merchant_id
+      WHERE r.id=${runId} AND r.merchant_id=${merchantId}
+      FOR UPDATE
+    `)).rows[0] as Record<string, unknown> | undefined;
+    if (!row) throw new Error("Automation run not found");
+    const approval = (await tx.execute(sql`SELECT id,status FROM merchant_automation_action_approvals WHERE run_id=${runId} AND merchant_id=${merchantId} FOR UPDATE`)).rows[0] as Record<string, unknown> | undefined;
+    if (!approval || approval.status !== "pending" || row.status !== "approval_required") throw new Error("Automation run is no longer awaiting approval");
+    if (!approve) {
+      await tx.execute(sql`UPDATE merchant_automation_action_approvals SET status='rejected',reviewer_id=${reviewerId},reviewed_at=now(),note=${note} WHERE run_id=${runId}`);
+      await tx.execute(sql`UPDATE merchant_automation_runs SET status='skipped',result=${JSON.stringify({reason:"rejected"})}::jsonb,completed_at=now() WHERE id=${runId}`);
+      return { status: "rejected" };
+    }
+    if (row.enabled !== true) throw new Error("Workflow is disabled; re-enable it before approving execution");
+    const actions = Array.isArray(row.actions) ? row.actions.map(safeAction) : [];
+    if (actions.some((action) => !action)) throw new Error("Workflow actions are no longer valid");
+    await tx.execute(sql`UPDATE merchant_automation_action_approvals SET status='approved',reviewer_id=${reviewerId},reviewed_at=now(),note=${note} WHERE run_id=${runId}`);
+    await tx.execute(sql`UPDATE merchant_automation_runs SET status='running',started_at=now() WHERE id=${runId}`);
+    const results: unknown[] = [];
+    const context = (await tx.execute(sql`SELECT trigger_snapshot FROM merchant_automation_runs WHERE id=${runId}`)).rows[0] as { trigger_snapshot?: WorkflowContext } | undefined;
+    const workflowContext = context?.trigger_snapshot;
+    if (!workflowContext || typeof workflowContext !== "object") throw new Error("Automation trigger context is unavailable");
+    for (const action of actions as Array<{kind:ActionKind;config:Record<string,unknown>}>) results.push(await executeAction(tx,String(row.workflow_id),workflowContext,action));
+    await tx.execute(sql`UPDATE merchant_automation_runs SET status='completed',result=${JSON.stringify({actions:results})}::jsonb,completed_at=now() WHERE id=${runId}`);
+    await tx.execute(sql`UPDATE merchant_automation_workflows SET last_run_at=now(),updated_at=now() WHERE id=${row.workflow_id}`);
+    return { status: "completed", results };
+  });
+}
+
+export function startScheduledWorkflowWorker(intervalMs = 30000) {
+  const timer = setInterval(() => {
+    void processScheduledWorkflows().catch(() => undefined);
+  }, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
