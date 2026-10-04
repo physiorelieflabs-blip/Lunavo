@@ -94,6 +94,7 @@ async function eligibleProducts(input: { search?: string; category?: string; cur
       gte(marketplaceBillingRecordsTable.paidAt, adCutoff),
     ))),
     sql`${supplierProductsTable.sellingPrice} is not null`,
+    sql`NOT EXISTS (SELECT 1 FROM dropship_product_guardrails g WHERE g.merchant_id=${merchantsTable.id} AND g.supplier_product_id=${supplierProductsTable.id} AND (g.status='paused' OR g.decision='PAUSE'))`,
   ];
   if (search) filters.push(or(ilike(supplierProductsTable.title, `%${search}%`), ilike(supplierProductsTable.description, `%${search}%`))!);
   if (category) filters.push(eq(supplierProductsTable.category, category));
