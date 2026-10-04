@@ -69,7 +69,9 @@ for (const file of files) {
   const sensitiveAssignment = source.match(/\b(?:FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|SESSION_SECRET)\s*=\s*([^\s#]+)/);
   if (sensitiveAssignment) {
     const value = sensitiveAssignment[1];
-    if (!isPlaceholder(value) && !/^\$\{[^}]+\}$/.test(value)) {
+    // Docker/Compose guards such as ${SESSION_SECRET:?set SESSION_SECRET}
+    // are references to runtime environment values, not embedded credentials.
+    if (!isPlaceholder(value) && !value.startsWith("${")) {
       failures.push(`Non-placeholder sensitive credential assignment in ${relative}`);
     }
   }
