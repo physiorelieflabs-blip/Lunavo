@@ -54,7 +54,8 @@ export async function runMigrations() {
   const applied=await client.query<{id:string}>('SELECT id FROM "_ts_commerce_migrations" WHERE id=$1',[migrationId]);
   if(applied.rowCount)continue;
   await client.query("BEGIN");
-  try{await client.query(migrationSql);await client.query('INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)',[migrationId]);await client.query("COMMIT");}
+  try{await client.query(migrationSql);await client.query('INSERT INTO "_ts_commerce_migrations" (id) VALUES ($1)',[migrationId  "0108_automation_workflows",
+]);await client.query("COMMIT");}
   catch(error){await client.query("ROLLBACK");throw error;}
 } }
 finally {
