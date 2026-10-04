@@ -669,3 +669,13 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 
 ## Rebuild rule
 Every item above must ultimately resolve to real implementation. UI-only placeholders, localStorage-only financial state, fabricated provider responses, or disabled buttons do not count as implementation. Existing code is audited against this catalog and upgraded until each applicable feature is implemented and tested.
+
+## Dropship Intelligence OS
+- Evidence-backed Product Kill/Scale Gate
+- Profit Shield with break-even CPA and ROAS
+- Supplier Passport with evidence confidence
+- Supplier Switchboard for observed alternative-source comparison
+- Automatic Tracking-Gap Radar and recovery alerts
+- Cashflow Survival Map for working-capital exposure
+- Self-hosted Supplier Negotiation Copilot
+- Privacy-preserving Supplier Reputation Network with minimum independent-evidence threshold
