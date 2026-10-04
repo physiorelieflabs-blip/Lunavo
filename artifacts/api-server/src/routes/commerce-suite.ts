@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
-import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
+import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, loyaltyTransactionsTable, affiliateOffersTable, digitalProductsTable, giftCardsTable, customerWishlistsTable, customerSavedCartsTable } from "@workspace/db";
 
 const router = Router();
 async function merchantFor(req: Request, permission: PermissionKey) {
