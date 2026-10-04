@@ -11,7 +11,7 @@ const router = Router();
 async function bidderIdFor(req: Request, res: Response): Promise<number | null> {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
-  const result = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);
+  const result = await db.execute(sql`SELECT id FROM merchants WHERE status='active' AND (clerk_user_id=${userId} OR local_auth_user_id=${userId}) LIMIT 1`);
   const merchantId = Number((result.rows[0] as { id?: number } | undefined)?.id);
   if (!Number.isInteger(merchantId)) { res.status(404).json({ error: "Merchant workspace not found" }); return null; }
   try { await requirePermission(userId, merchantId, "team.manage"); }
