@@ -4643,7 +4643,7 @@ router.post("/ai/copilot", async (req, res): Promise<void> => {
       {
         role: "system",
         content: [
-          "You are the TS Commerce business copilot.",
+          "You are the Lunavo business copilot.",
           "Answer only from the tenant-scoped workspace evidence included below and clearly label estimates or missing data.",
           "Be practical and concise. Cover catalog, storefront, orders, customers, inventory, suppliers, marketing, finance, and operations when relevant.",
           "You are read-only in this conversation. Never claim to have published a store, sent a customer message, changed permissions, moved money, approved a payout, verified a payment, or changed inventory.",
