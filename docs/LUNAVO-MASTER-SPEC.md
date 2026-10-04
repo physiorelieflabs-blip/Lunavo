@@ -598,3 +598,10 @@ The frontend must be rebuilt as a coherent product, not a collection of unrelate
 A frontend/product factory reset means rebuilding the application cleanly from the GitHub source and this specification while retaining the required feature set and security architecture.
 It must NOT mean blindly deleting production database records, credentials, payment history, merchant records or audit logs.
 Any destructive data reset must be an explicit, separately reviewed server/database operation with backups and confirmation.
+
+## Dropship Intelligence and supplier trust
+- Lunavo must evaluate dropshipping products from recorded supplier cost, shipping cost, selling price, fees, ad cost, delivery evidence and supply status rather than invented "winning product" claims.
+- Merchants receive a Supplier Passport, Product Kill/Scale Gate, Profit Shield, Supplier Switchboard, Tracking-Gap Radar, recovery alerts and transparent working-capital estimates.
+- Supplier Negotiation Copilot is self-hosted and evidence-bound; it must never fabricate competing quotes, volume, supplier failures or guarantees.
+- Supplier reputation data is opt-in and privacy-preserving. Public supplier passports require evidence from multiple independent merchants and expose only aggregate metrics.
+- Missing live supplier/carrier integrations must fail closed rather than presenting simulated live data.
