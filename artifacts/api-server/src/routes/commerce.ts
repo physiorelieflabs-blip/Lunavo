@@ -12152,16 +12152,6 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
     return;
   }
 
-  // A payout can never be marked paid by an operator-supplied reference.
-  // "paid" is a provider-confirmed state owned by the Flutterwave transfer
-  // webhook/reconciliation path.
-  if (parsed.data.status === "paid") {
-    res.status(409).json({
-      error: "Withdrawals become paid only after Flutterwave confirms the payout. Manual settlement references are not accepted.",
-    });
-    return;
-  }
-
   const expectedConfirmation = `${parsed.data.status.toUpperCase()} WITHDRAWAL ${params.data.id}`;
   if (
     !(await requireAdminWithdrawalSecurity(
