@@ -29,7 +29,7 @@ function validateConditions(input: unknown): { ok: boolean; value: unknown; erro
     const c = condition as Record<string, unknown>;
     if (Array.isArray(c.all)) return c.all.length <= 20 && c.all.every(validateOne);
     if (Array.isArray(c.any)) return c.any.length <= 20 && c.any.every(validateOne);
-    return typeof c.path === "string" && c.path.trim().length > 0 && c.path.length <= 180 && (c.op === undefined || conditionOps.has(String(c.op))) &&
+    return typeof c.path === "string" && /^[a-zA-Z0-9_.]{1,180}$/.test(c.path.trim()) && (c.op === undefined || conditionOps.has(String(c.op))) &&
       (c.op !== "in" || Array.isArray(c.value));
   };
   const value = Array.isArray(input) ? input : [input];
