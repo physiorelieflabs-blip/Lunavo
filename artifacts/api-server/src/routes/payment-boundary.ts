@@ -18,6 +18,7 @@ import {
   qualifyReferralForPayment,
   rollSubscriptionPeriod,
 } from "../lib/referrals";
+import { toMinorUnits } from "../lib/money";
 
 const router = Router();
 
@@ -29,7 +30,7 @@ router.post("/payments/:id/verify", async (req, res, next): Promise<void> => {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
-  const [merchant] = await db.select({ id: merchantsTable.id }).from(merchantsTable).where(eq(merchantsTable.clerkUserId, auth.userId)).limit(1);
+  const [merchant] = await db.select({ id: merchantsTable.id }).from(merchantsTable).where(sql`(${merchantsTable.clerkUserId} = ${auth.userId} OR ${merchantsTable.localAuthUserId} = ${auth.userId})`).limit(1);
   if (!merchant) return next();
   const [intent] = await db.select().from(paymentIntentsTable).where(and(eq(paymentIntentsTable.id, id), eq(paymentIntentsTable.merchantId, merchant.id))).limit(1);
   if (!intent) return next();
@@ -98,17 +99,20 @@ router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
       if (!subscription) throw new Error("Subscription not found");
       subscription = await rollSubscriptionPeriod(tx, merchant.id, subscription);
 
-      const outstandingMinor = Math.max(0, Math.round((Number(subscription.amountDue) - Number(subscription.amountPaid)) * 100));
-      const heldMinor = Math.max(0, Math.round(Number(subscription.earningsHeld) * 100));
+      const dueMinor = toMinorUnits(subscription.amountDue);
+      const paidMinor = toMinorUnits(subscription.amountPaid);
+      const heldMinor = toMinorUnits(subscription.earningsHeld);
+      if (dueMinor === null || paidMinor === null || heldMinor === null) throw new Error("Subscription monetary state is invalid");
+      const outstandingMinor = Math.max(0, dueMinor - paidMinor);
       const appliedMinor = Math.min(heldMinor, outstandingMinor);
       if (appliedMinor <= 0) {
         if (outstandingMinor === 0) throw new Error("Subscription is already settled");
         throw new Error("No eligible held earnings are currently available for the subscription");
       }
 
-      const nextPaidMinor = Math.round(Number(subscription.amountPaid) * 100) + appliedMinor;
+      const nextPaidMinor = paidMinor + appliedMinor;
       const nextHeldMinor = heldMinor - appliedMinor;
-      const settled = nextPaidMinor >= Math.round(Number(subscription.amountDue) * 100);
+      const settled = nextPaidMinor >= dueMinor;
       const [updatedSubscription] = await tx.update(subscriptionsTable).set({
         amountPaid: (nextPaidMinor / 100).toFixed(2),
         earningsHeld: (nextHeldMinor / 100).toFixed(2),
