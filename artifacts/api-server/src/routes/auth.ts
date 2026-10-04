@@ -139,7 +139,7 @@ router.get("/auth/session", async (req, res): Promise<void> => {
     return;
   }
 
-  const merchantResult = await db.execute(sql`SELECT id,name,email,store_name,status FROM merchants WHERE clerk_user_id=${user.id} LIMIT 1`);
+  const merchantResult = await db.execute(sql`SELECT id,name,email,store_name,status FROM merchants WHERE status='active' AND (local_auth_user_id=${user.id} OR clerk_user_id=${user.id}) LIMIT 1`);
   const merchant = merchantResult.rows[0] as Record<string, unknown> | undefined;
   res.json({
     signedIn: true,
