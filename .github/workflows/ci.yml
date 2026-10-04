@@ -51,6 +51,8 @@ jobs:
         run: pnpm --filter @workspace/db run migrate
       - name: Self-hosted core policy
         run: pnpm run check:self-hosted
+      - name: Repository security audit
+        run: node scripts/repository-security-audit.mjs
       - name: Financial boundary audit
         run: node scripts/financial-boundary-audit.mjs
       - name: Implementation invariants
