@@ -343,7 +343,7 @@ router.post("/dropship-intelligence/tracking", async (req, res, next) => {
           (merchant_id,order_id,carrier,tracking_number,status,first_scan_at,last_recorded_at,expected_delivery_at,delivered_at,last_recorded_event,note,created_by)
         VALUES
           (${merchant.id},${orderId},${text(req.body?.carrier,120) || null},${text(req.body?.trackingNumber,240) || null},
-           ${status},${status === "shipped" || status === "in_trans_transit" ? lastRecordedAt : null},${lastRecordedAt},${expected},${delivered},
+           ${status},${status === "shipped" || status === "in_transit" ? lastRecordedAt : null},${lastRecordedAt},${expected},${delivered},
            ${text(req.body?.event,240) || null},${text(req.body?.note,2000) || null},${merchant.userId})
         ON CONFLICT (merchant_id,order_id) DO UPDATE SET
           carrier=EXCLUDED.carrier,tracking_number=EXCLUDED.tracking_number,status=EXCLUDED.status,
