@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
 import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
