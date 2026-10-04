@@ -7,4 +7,4 @@ TS Pay owns payout requests, encrypted destinations, balance reservations, step-
 
 **Why:** An in-house application can safely coordinate and record a payout, but it cannot move money through banking networks by itself.
 
-**How to apply:** Keep manual settlement clearly labeled as manual; require verified customer payment and sufficient tenant balance before supplier-cost allocation; when a regulated rail is added, add provider references, webhook reconciliation, retry policy, and failure/refund handling before enabling automatic external “paid” transitions.
+**How to apply:** Keep merchant/admin withdrawal requests inside TS Pay; require verified customer payment and sufficient tenant balance before withdrawal; current Flutterwave-supported payout currencies use provider references, idempotency, signed webhook reconciliation, retry-safe processing, and failure/release handling before any external “paid” transition. Unsupported payout currencies fail closed.
