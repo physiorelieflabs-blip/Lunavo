@@ -370,7 +370,7 @@ router.post("/auth/sessions/revoke-others", async (req, res) => {
 
 router.get("/auth/export", async (req, res): Promise<void> => {
   const user = currentUser(req);
-  if (!user) return res.status(401).json({ error: "Authentication required" });
+  if (!user) { res.status(401).json({ error: "Authentication required" }); return; }
   const merchantResult = await db.execute(sql`
     SELECT id,name,email,store_name,store_description,store_contact_email,store_phone,store_website,
            store_address,currency,tax_rate,shipping_fee,free_shipping_threshold,status,registered_at
@@ -379,7 +379,7 @@ router.get("/auth/export", async (req, res): Promise<void> => {
     LIMIT 1
   `);
   const merchant = merchantResult.rows[0] as Record<string, unknown> | undefined;
-  if (!merchant) return res.status(404).json({ error: "Merchant workspace not found" });
+  if (!merchant) { res.status(404).json({ error: "Merchant workspace not found" }); return; }
   const merchantId = Number(merchant.id);
 
   const [customers, orders, products, invoices, ledger, audit] = await Promise.all([
@@ -392,7 +392,7 @@ router.get("/auth/export", async (req, res): Promise<void> => {
   ]);
 
   res.setHeader("Cache-Control", "no-store");
-  return res.json({
+  res.json({
     exportedAt: new Date().toISOString(),
     user: { id:user.id,email:user.email,username:user.username,firstName:user.firstName,lastName:user.lastName,role:user.role },
     merchant,
