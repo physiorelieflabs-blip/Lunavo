@@ -10,6 +10,13 @@ const kinds = [
   ["preorder","Preorders"],["waitlist","Waitlists"],["product_alert","Product alerts"],
   ["document","Documents"],["customer_document","Customer documents"],
   ["app_listing","App marketplace"],["theme_listing","Theme marketplace"],["creator_listing","Creator marketplace"],
+  ["customer_subscription","Customer subscriptions"],["b2b_account","B2B accounts"],["price_list","Price lists"],
+  ["sales_funnel","Sales funnels"],["customer_intake","Customer intake"],["review","Reviews"],
+  ["blog_post","Blog posts"],["business_goal","Business goals"],["backup","Backups"],
+  ["data_repair","Data repair"],["shipping_rule","Shipping rules"],["tax_rule","Tax rules"],
+  ["delivery_issue","Delivery issues"],["supplier_issue","Supplier issues"],["dispute","Disputes"],
+  ["chargeback","Chargebacks"],["refund_request","Refund requests"],["store_transfer","Store transfers"],
+  ["beneficiary_change","Beneficiary changes"],["security_incident","Security incidents"],
 ] as const;
 
 type Operation = {
@@ -92,7 +99,27 @@ export default function AdvancedOperations(){
    document:{active:["archived"]},customer_document:{active:["archived"]},
    app_listing:{pending:["approved","rejected"],approved:["archived"],rejected:["pending"]},
    theme_listing:{pending:["approved","rejected"],approved:["archived"],rejected:["pending"]},
-   creator_listing:{pending:["approved","rejected"],approved:["archived"],rejected:["pending"]}
+   creator_listing:{pending:["approved","rejected"],approved:["archived"],rejected:["pending"]},
+   customer_subscription:{pending:["approved","cancelled"],approved:["completed","cancelled"]},
+   b2b_account:{draft:["active","cancelled"],active:["closed","cancelled"]},
+   price_list:{draft:["active","archived"],active:["archived"]},
+   sales_funnel:{draft:["active","archived"],active:["completed","archived"]},
+   customer_intake:{open:["in_progress","completed","cancelled"],in_progress:["completed","cancelled"]},
+   review:{pending:["approved","rejected"],approved:["archived"],rejected:["pending"]},
+   blog_post:{draft:["scheduled","active","archived"],scheduled:["active","cancelled"],active:["archived"]},
+   business_goal:{draft:["active","completed","cancelled"],active:["completed","cancelled"]},
+   backup:{pending:["completed","failed","cancelled"],failed:["pending"]},
+   data_repair:{pending:["approved","completed","cancelled"],approved:["completed","cancelled"]},
+   shipping_rule:{draft:["active","archived"],active:["archived"]},
+   tax_rule:{draft:["active","archived"],active:["archived"]},
+   delivery_issue:{open:["in_progress","resolved","closed"],in_progress:["resolved","closed"],resolved:["closed"]},
+   supplier_issue:{open:["in_progress","resolved","closed"],in_progress:["resolved","closed"],resolved:["closed"]},
+   dispute:{open:["in_progress","resolved","closed"],in_progress:["resolved","closed"],resolved:["closed"]},
+   chargeback:{pending:["in_progress","resolved","closed"],in_progress:["resolved","closed"],resolved:["closed"]},
+   refund_request:{pending:["approved","rejected"],approved:["completed","cancelled"],rejected:["pending"]},
+   store_transfer:{pending:["approved","rejected"],approved:["completed","cancelled"],rejected:["pending"]},
+   beneficiary_change:{pending:["approved","rejected"],approved:["completed","cancelled"],rejected:["pending"]},
+   security_incident:{open:["in_progress","resolved","closed"],in_progress:["resolved","closed"],resolved:["closed"]}
   };
   return maps[op.kind] && maps[op.kind][op.status] ? maps[op.kind][op.status] : [];
  };
