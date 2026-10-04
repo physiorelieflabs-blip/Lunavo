@@ -49,7 +49,8 @@ export async function completeLocalVisionJson(
   imageUrl: string,
   options: { maxTokens?: number; detail?: "low" | "high" | "original" | "auto" } = {},
 ): Promise<{ model: string; content: string }> {
-  if (!/^https?:\\/\\//i.test(imageUrl) || imageUrl.length > 8192) throw new Error("Vision input must be a valid HTTP(S) image URL");
+  if (imageUrl.length > 8192) throw new Error("Vision input must be a valid HTTP(S) image URL");
+  try { const parsed = new URL(imageUrl); if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(); } catch { throw new Error("Vision input must be a valid HTTP(S) image URL"); }
   return completeLocal([{
     role: "user",
     content: [
