@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 
-export const MASTER_ADMIN_EMAIL = process.env.LUNAVO_MASTER_ADMIN_EMAIL?.trim().toLowerCase() || "";
+export const MASTER_ADMIN_EMAIL = process.env.LUNAVO_MASTER_ADMIN_EMAIL?.trim().toLowerCase() || "ifeoluwaolowu4@gmail.com";
 
 export async function isMasterAdmin(localUserId: string): Promise<boolean> {
   const pinnedId=process.env.LUNAVO_MASTER_ADMIN_USER_ID?.trim();
