@@ -7,7 +7,7 @@ import { money } from "@/lib/format";
 type Product = {
   id:number; title:string; supplierDomain:string; sourceUrl:string; currency:string; sellingPrice:number;
   supplierCost:number|null; shippingCost:number|null; availability:string|null; availabilityQuantity:number|null;
-  economics:{decision:"SCALE"|"TEST"|"FIX"|"PAUSE";risk:"low"|"medium"|"high"|"critical";viabilityScore:number;landedCostMinor:number|null;contributionBeforeAdsMinor:number|null;marginBpsBeforeAds:number|null;breakEvenCpaMinor:number|null;breakEvenRoasX100:number|null;reasons:string[]};
+  economics:{decision:"SCALE"|"TEST"|"FIX"|"PAUSE";risk:"low"|"medium"|"high"|"critical";revenueMinor:number;landedCostMinor:number|null;contributionBeforeAdsMinor:number|null;marginBpsBeforeAds:number|null;breakEvenCpaMinor:number|null;breakEvenRoasX100:number|null;reasons:string[]};
 };
 type Supplier = {domain:string;name:string;observations:number;productsObserved:number;fulfilledOrders:number;deliveredOrders:number;qualityScore:number|null;trackingScore:number|null;refundRateBps:number|null;etaMaxDays:number|null;passport:{score:number;confidence:string}};
 type SupplierOption = {productId:number;productTitle:string;supplierDomain:string;supplierName:string;supplierCost:number|null;shippingCost:number|null;currency:string;etaMinDays:number|null;etaMaxDays:number|null;qualityScore:number|null;trackingScore:number|null;observedAt:string};
