@@ -9,7 +9,7 @@ type Health = {
   schema: { complete: boolean };
   migrations: { applied: number };
   payments: { provider: string; configured: boolean; mode: string; checkoutAvailable: boolean };
-  ai: { providerConfigured: boolean; deepSeekConfigured: boolean; geminiConfigured: boolean; localLlmConfigured: boolean };
+  ai: { providerConfigured: boolean; localLlmConfigured: boolean; localImageConfigured?: boolean };
   reconciliation: { openOrInvestigating: number };
   workers: { socialPublishing: { queuedOrProcessing: number; failed: number }; adminAiStore: { queuedOrProcessing: number; failed: number }; domainEvents: { pendingOrProcessing: number; failed: number } };
   notes: string[];
