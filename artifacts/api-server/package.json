@@ -12,8 +12,6 @@
     "bootstrap:master-admin": "tsx ./src/bootstrap-master-admin.ts"
   },
   "dependencies": {
-    "@clerk/express": "workspace:*",
-    "@clerk/shared": "workspace:*",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
