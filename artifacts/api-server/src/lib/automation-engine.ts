@@ -100,7 +100,7 @@ function conditionPasses(context: WorkflowContext, condition: Condition): boolea
     default: return false;
   }
 }
-function conditionsPass(context: WorkflowContext, conditions: unknown, depth = 0): boolean {
+export function conditionsPass(context: WorkflowContext, conditions: unknown, depth = 0): boolean {
   if (depth > 5) return false;
   if (Array.isArray(conditions)) return conditions.every((condition) => conditionsPass(context, condition, depth + 1));
   if (!conditions || typeof conditions !== "object") return false;
@@ -112,7 +112,7 @@ function conditionsPass(context: WorkflowContext, conditions: unknown, depth = 0
 function boundedText(value: unknown, max: number, fallback = ""): string {
   return typeof value === "string" ? value.trim().slice(0, max) : fallback;
 }
-function safeAction(action: unknown): { kind: ActionKind; config: Record<string, unknown> } | null {
+export function safeAction(action: unknown): { kind: ActionKind; config: Record<string, unknown> } | null {
   if (!action || typeof action !== "object" || Array.isArray(action)) return null;
   const value = action as Record<string, unknown>;
   if (typeof value.kind !== "string" || !actionKinds.includes(value.kind as ActionKind)) return null;
