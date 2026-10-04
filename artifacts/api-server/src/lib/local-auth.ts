@@ -18,11 +18,11 @@ export function clearSessionCookie(res:Response){const secure=process.env.NODE_E
 export async function revokeCurrentSession(req:Request){const token=readCookie(req);if(token)await db.execute(sql`DELETE FROM local_auth_sessions WHERE token_hash=${sessionHash(token)}`);}
 export async function listLocalSessions(userId:string,currentToken:string|null){
   const currentHash=currentToken?sessionHash(currentToken):null;
-  const result=await db.execute(sql`SELECT id,created_at,last_seen_at,expires_at,ip_address,user_agent,token_hash FROM local_auth_sessions WHERE user_id=${userId} AND expires_at>now() ORDER BY last_seen_at DESC`);
+  const result=await db.execute(sql`SELECT id,created_at,last_seen_at,expires_at,ip_address,user_agent,CASE WHEN ${currentHash ?? ""} <> '' AND token_hash=${currentHash ?? ""} THEN true ELSE false END AS current FROM local_auth_sessions WHERE user_id=${userId} AND expires_at>now() ORDER BY last_seen_at DESC`);
   return result.rows.map((row:any)=>({
     id:String(row.id),createdAt:row.created_at,lastSeenAt:row.last_seen_at,expiresAt:row.expires_at,
     ipAddress:row.ip_address ? String(row.ip_address) : null,userAgent:row.user_agent ? String(row.user_agent) : null,
-    current:Boolean(currentHash && row.token_hash===currentHash),
+    current:Boolean(row.current),
   }));
 }
 export async function revokeLocalSession(userId:string,sessionId:string){
