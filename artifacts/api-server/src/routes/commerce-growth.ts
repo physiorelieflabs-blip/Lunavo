@@ -103,10 +103,26 @@ router.post("/growth/discovery/events", async (req, res, next) => {
     const productId = typeof req.body?.productId === "string" ? req.body.productId.trim() : "";
     const eventType = typeof req.body?.eventType === "string" ? req.body.eventType : "view";
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(productId)) { res.status(400).json({ error: "Valid productId is required" }); return; }
-    const product = (await db.select({ id: supplierProductsTable.id }).from(supplierProductsTable).where(eq(supplierProductsTable.id, productId)).limit(1))[0];
-    if (!product) { res.status(404).json({ error: "Product not found" }); return; }
+    const product = (await db.select({ id: supplierProductsTable.id }).from(supplierProductsTable).where(and(eq(supplierProductsTable.id, productId), eq(supplierProductsTable.status, "active"), eq(supplierProductsTable.visibility, "active")).limit(1))[0];
+    if (!product) { res.status(404).json({ error: "Product not found or not publicly active" }); return; }
     if (!["impression", "click", "view", "add_to_cart"].includes(eventType)) { res.status(400).json({ error: "Unsupported discovery event. Purchase attribution is server-generated only." }); return; }
-    const [event] = await db.insert(marketplaceDiscoveryEventsTable).values({ productId, campaignId: req.body?.campaignId || null, customerId: Number.isInteger(Number(req.body?.customerId)) ? Number(req.body.customerId) : null, eventType, sessionKey: typeof req.body?.sessionKey === "string" ? req.body.sessionKey.slice(0, 200) : null, metadata: req.body?.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {} }).returning();
+    const campaignId = typeof req.body?.campaignId === "string" ? req.body.campaignId.trim() : "";
+    if (campaignId && !/^[0-9a-fA-F-]{36}$/.test(campaignId)) { res.status(400).json({ error: "Invalid campaignId" }); return; }
+    if (campaignId) {
+      const campaign = (await db.select({ id: productAdvertisingCampaignsTable.id })
+        .from(productAdvertisingCampaignsTable)
+        .where(and(eq(productAdvertisingCampaignsTable.id, campaignId), eq(productAdvertisingCampaignsTable.productId, productId), eq(productAdvertisingCampaignsTable.status, "active")))
+        .limit(1))[0];
+      if (!campaign) { res.status(404).json({ error: "Advertising campaign is not active for this product" }); return; }
+    }
+    const [event] = await db.insert(marketplaceDiscoveryEventsTable).values({
+      productId,
+      campaignId: campaignId || null,
+      customerId: null,
+      eventType,
+      sessionKey: typeof req.body?.sessionKey === "string" ? req.body.sessionKey.slice(0, 200) : null,
+      metadata: req.body?.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {},
+    }).returning();
     res.status(201).json({ event }); return;
   } catch (error) { next(error); }
 });
