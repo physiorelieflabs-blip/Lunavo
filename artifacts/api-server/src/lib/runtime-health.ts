@@ -41,8 +41,18 @@ function modelListUrl(raw: string): string {
 export async function checkLocalAiHealth(): Promise<Probe & { model: string | null; modelAvailable: boolean }> {
   const raw = process.env.LUNAVO_LOCAL_LLM_URL?.trim() || process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim();
   if (!raw) return { configured: false, reachable: false, healthy: false, error: "Self-hosted AI endpoint is not configured", model: null, modelAvailable: false };
-  const selected = resolveLocalAiProfile("general");
-  let response = await fetchJson(modelListUrl(selected.url));
+  let selected;
+  try {
+    selected = resolveLocalAiProfile("general");
+  } catch (error) {
+    return { configured: true, reachable: false, healthy: false, error: error instanceof Error ? error.message : "Invalid local AI configuration", model: null, modelAvailable: false };
+  }
+  let response;
+  try {
+    response = await fetchJson(modelListUrl(selected.url));
+  } catch (error) {
+    return { configured: true, reachable: false, healthy: false, error: error instanceof Error ? error.message : "Invalid local AI endpoint", model: selected.model, modelAvailable: false };
+  }
   if (!response.ok && /(?:^|\/\/)(?:localhost|127\.0\.0\.1|ollama)(?::\d+)?(?:\/|$)/i.test(selected.url)) {
     const url = new URL(selected.url);
     url.pathname = "/api/tags";
@@ -103,8 +113,12 @@ export async function checkSocialGatewayHealth(): Promise<Probe & { providers: R
 async function checkWorker(urlEnv: string, label: string): Promise<Probe> {
   const raw = process.env[urlEnv]?.trim();
   if (!raw) return { configured: false, reachable: false, healthy: false, error: label + " worker is not configured" };
-  const response = await fetchJson(localHealthUrl(raw));
-  return { configured: true, reachable: response.ok, healthy: response.ok, error: response.ok ? null : String(response.body?.error || label + " worker returned HTTP " + response.status) };
+  try {
+    const response = await fetchJson(localHealthUrl(raw));
+    return { configured: true, reachable: response.ok, healthy: response.ok, error: response.ok ? null : String(response.body?.error || label + " worker returned HTTP " + response.status) };
+  } catch (error) {
+    return { configured: true, reachable: false, healthy: false, error: error instanceof Error ? error.message : "Invalid " + label + " worker endpoint" };
+  }
 }
 
 export async function checkMediaWorkersHealth() {
