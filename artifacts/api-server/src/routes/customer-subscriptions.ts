@@ -45,29 +45,40 @@ router.post("/commerce/customer-subscription-plans",async(req,res)=>{
 router.get("/public/customer-subscription-plans/:id",async(req,res)=>{const id=txt(req.params.id,80);const q=await executeQuery(db,{sql:"SELECT p.id,p.merchant_id,p.name,p.description,p.amount_minor,p.currency,p.interval_unit,p.interval_count,p.grace_period_days,sp.title AS product_title,sp.image_url AS product_image_url,m.store_name FROM customer_subscription_plans p JOIN merchants m ON m.id=p.merchant_id JOIN supplier_products sp ON sp.id=p.product_id WHERE p.id=$1 AND p.status='active' AND m.status='active' AND sp.status='active' AND sp.visibility='active' LIMIT 1",values:[id]});if(!q.rows.length)return fail(res,404,"Subscription plan not found");res.json({plan:q.rows[0]});});
 
 async function preparePayment(subscriptionId:string,manageToken:string,req:Request){
-  const q=await executeQuery(db,{sql:"SELECT s.*,c.name AS customer_name,c.email AS customer_email,p.name AS plan_name,p.grace_period_days,m.store_name,sp.title AS product_title,sp.id AS product_id,l.id AS location_id FROM customer_subscriptions s JOIN customers c ON c.id=s.customer_id JOIN customer_subscription_plans p ON p.id=s.plan_id JOIN merchants m ON m.id=s.merchant_id JOIN supplier_products sp ON sp.id=p.product_id LEFT JOIN merchant_locations l ON l.merchant_id=s.merchant_id AND l.is_active=true AND l.is_default=true WHERE s.id=$1 AND s.manage_token_hash=$2 LIMIT 1",values:[subscriptionId,hash(manageToken)]});
-  const s=q.rows[0] as any;if(!s)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
-  if(!["pending_payment","active","past_due"].includes(String(s.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
-  if(!s.location_id)throw new Error("Merchant has no active default location");
-  const recent=await executeQuery(db,{sql:"SELECT attempt_number,checkout_url FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') AND created_at>now()-interval '15 minutes' ORDER BY created_at DESC LIMIT 1",values:[subscriptionId]});
-  if(recent.rows.length) return {paymentUrl:(recent.rows[0] as any).checkout_url||null,attemptNumber:Number((recent.rows[0] as any).attempt_number)};
-  const last=await executeQuery(db,{sql:"SELECT COALESCE(MAX(attempt_number),0)::int AS n FROM customer_subscription_payment_attempts WHERE subscription_id=$1",values:[subscriptionId]});
-  const n=Number((last.rows[0] as any)?.n||0)+1,ref="CSUB-"+subscriptionId.slice(0,8)+"-"+Date.now()+"-"+randomUUID().slice(0,8);
+  const authHash=hash(manageToken);
+  const locked=(await executeQuery(db,{sql:"SELECT s.*,c.name AS customer_name,c.email AS customer_email,p.name AS plan_name,p.grace_period_days,p.interval_unit,p.interval_count,m.store_name,sp.title AS product_title,sp.id AS product_id,l.id AS location_id FROM customer_subscriptions s JOIN customers c ON c.id=s.customer_id JOIN customer_subscription_plans p ON p.id=s.plan_id JOIN merchants m ON m.id=s.merchant_id JOIN supplier_products sp ON sp.id=p.product_id LEFT JOIN merchant_locations l ON l.merchant_id=s.merchant_id AND l.is_active=true AND l.is_default=true WHERE s.id=$1 AND s.manage_token_hash=$2 LIMIT 1",values:[subscriptionId,authHash]})).rows[0] as any;
+  if(!locked)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
+  if(!["pending_payment","active","past_due"].includes(String(locked.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
+  if(!locked.location_id)throw new Error("Merchant has no active default location");
+
   const created=await db.transaction(async(tx)=>{
-    const order=(await executeQuery(tx,{sql:"INSERT INTO orders (merchant_id,location_id,customer_id,order_number,subtotal,tax_amount,shipping_amount,total,quantity,currency,status,supplier_product_id,fulfillment_status,idempotency_key) VALUES ($1,$2,$3,$4,$5,0,0,$5,1,$6,'pending',$7,'not_applicable',$4) RETURNING id",values:[Number(s.merchant_id),String(s.location_id),Number(s.customer_id),ref,Number(s.amount_minor)/100,String(s.currency).toUpperCase(),Number(s.product_id)]})).rows[0] as any;
+    const s=(await executeQuery(tx,{sql:"SELECT * FROM customer_subscriptions WHERE id=$1 AND manage_token_hash=$2 FOR UPDATE",values:[subscriptionId,authHash]})).rows[0] as any;
+    if(!s)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
+    if(!["pending_payment","active","past_due"].includes(String(s.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
+    const recent=await executeQuery(tx,{sql:"SELECT attempt_number,checkout_url FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') AND created_at>now()-interval '15 minutes' ORDER BY created_at DESC LIMIT 1",values:[subscriptionId]});
+    if(recent.rows.length)return {existing:true,paymentUrl:(recent.rows[0] as any).checkout_url||null,attemptNumber:Number((recent.rows[0] as any).attempt_number)};
+    const last=await executeQuery(tx,{sql:"SELECT COALESCE(MAX(attempt_number),0)::int AS n FROM customer_subscription_payment_attempts WHERE subscription_id=$1",values:[subscriptionId]});
+    const n=Number((last.rows[0] as any)?.n||0)+1;
+    const ref="CSUB-"+subscriptionId.slice(0,8)+"-"+Date.now()+"-"+randomUUID().slice(0,8);
+    const order=(await executeQuery(tx,{sql:"INSERT INTO orders (merchant_id,location_id,customer_id,order_number,subtotal,tax_amount,shipping_amount,total,quantity,currency,status,supplier_product_id,fulfillment_status,idempotency_key) VALUES ($1,$2,$3,$4,$5,0,0,$5,1,$6,'pending',$7,'not_applicable',$4) RETURNING id",values:[Number(s.merchant_id),String(locked.location_id),Number(s.customer_id),ref,Number(s.amount_minor)/100,String(s.currency).toUpperCase(),Number(locked.product_id)]})).rows[0] as any;
     if(!order)throw new Error("Subscription order could not be created");
     const intent=(await executeQuery(tx,{sql:"INSERT INTO payment_intents (merchant_id,order_id,amount_minor,currency,method,status,idempotency_key,customer_subscription_id) VALUES ($1,$2,$3,$4,'flutterwave','created',$5,$6) RETURNING id",values:[Number(s.merchant_id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase(),ref,subscriptionId]})).rows[0] as any;
     if(!intent)throw new Error("Subscription payment intent could not be created");
+    const paymentRecord=(await executeQuery(tx,{sql:"INSERT INTO payment_records (intent_id,merchant_id,order_id,amount_minor,currency,method,status) VALUES ($1,$2,$3,$4,$5,'flutterwave','created') RETURNING id",values:[Number(intent.id),Number(s.merchant_id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase()]})).rows[0] as any;
+    if(!paymentRecord)throw new Error("Subscription payment record could not be created");
     const attempt=(await executeQuery(tx,{sql:"INSERT INTO customer_subscription_payment_attempts (subscription_id,attempt_number,payment_intent_id,order_id,amount_minor,currency,status,due_at) VALUES ($1,$2,$3,$4,$5,$6,'created',$7) RETURNING id",values:[subscriptionId,n,Number(intent.id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase(),new Date().toISOString()]})).rows[0] as any;
     if(!attempt)throw new Error("Subscription payment attempt could not be created");
-    return {orderId:Number(order.id),paymentIntentId:Number(intent.id),attemptId:String(attempt.id),attemptNumber:n,reference:ref};
+    return {existing:false,orderId:Number(order.id),paymentIntentId:Number(intent.id),paymentRecordId:Number(paymentRecord.id),attemptId:String(attempt.id),attemptNumber:n,reference:ref};
   });
+  if(created.existing)return {paymentUrl:created.paymentUrl,attemptNumber:created.attemptNumber};
+
   const configured=txt(process.env.LUNAVO_PUBLIC_BASE_URL,300);
   const base=process.env.NODE_ENV==="production" ? configured : (configured || requestOrigin(req));
   if(!base)throw new Error("LUNAVO_PUBLIC_BASE_URL is required for production subscription checkout");
-  const checkout=await initializeFlutterwavePayment({txRef:created.reference,amount:Number(s.amount_minor)/100,currency:String(s.currency).toUpperCase(),redirectUrl:base+"/subscribe/return?subscription="+encodeURIComponent(subscriptionId),customer:{email:String(s.customer_email),name:String(s.customer_name)},title:String(s.plan_name)+" · "+String(s.store_name),meta:{merchant_id:Number(s.merchant_id),customer_id:Number(s.customer_id),order_id:created.orderId,payment_intent_id:created.paymentIntentId,customer_subscription_id:subscriptionId,subscription_attempt_id:created.attemptId}});
+  const checkout=await initializeFlutterwavePayment({txRef:created.reference,amount:Number(locked.amount_minor)/100,currency:String(locked.currency).toUpperCase(),redirectUrl:base+"/subscribe/return?subscription="+encodeURIComponent(subscriptionId),customer:{email:String(locked.customer_email),name:String(locked.customer_name)},title:String(locked.plan_name)+" · "+String(locked.store_name),meta:{merchant_id:Number(locked.merchant_id),customer_id:Number(locked.customer_id),order_id:created.orderId,payment_intent_id:created.paymentIntentId,customer_subscription_id:subscriptionId,subscription_attempt_id:created.attemptId}});
   await executeQuery(db,{sql:"UPDATE payment_intents SET status='submitted',checkout_url=$1,evidence_reference=$2,updated_at=now() WHERE id=$3",values:[checkout.link,created.reference,created.paymentIntentId]});
   await executeQuery(db,{sql:"UPDATE customer_subscription_payment_attempts SET status='submitted',checkout_url=$1,updated_at=now() WHERE id=$2",values:[checkout.link,created.attemptId]});
+  resubscribeIfNeeded:
   return {paymentUrl:checkout.link,attemptNumber:created.attemptNumber};
 }
 
