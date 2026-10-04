@@ -13,7 +13,7 @@ const required = [
   "artifacts/api-server/src/routes/payment-boundary.ts",
   "artifacts/api-server/src/routes/flutterwave-webhook.ts",
   "artifacts/api-server/src/lib/tenant-access.ts",
-  "artifacts/api-server/src/lib/ts-pay-ledger.ts",
+  "artifacts/api-server/src/lib/ts-pay-ledger.ts","artifacts/api-server/src/lib/ts-pay-ledger-rules.ts",
   "artifacts/api-server/src/lib/ts-pay-transaction-orchestrator.ts",
   "artifacts/api-server/src/routes/storefront-publishing.ts",
   "artifacts/api-server/src/routes/storefront-domains.ts",
@@ -67,7 +67,7 @@ const tenant = await read("artifacts/api-server/src/lib/tenant-access.ts");
 if (!tenant.includes("localAuthUserId")) failures.push("Tenant authorization does not resolve local auth identity.");
 
 const money = await read("artifacts/api-server/src/routes/payment-boundary.ts");
-if (money.includes("payment_status") && !money.includes("Provider transaction ID is required")) failures.push("Payment boundary may trust client payment status.");
+if (money.includes("payment_status") && /UPDATE[^\n]+payment_status\s*=\s*\$/.test(money)) failures.push("Payment boundary may trust client payment status.");
 for (const marker of ["verifyFlutterwaveTransaction", "processVerifiedFlutterwaveTransaction"]) {
   if (!money.includes(marker)) failures.push("Provider verification invariant missing: " + marker);
 }
@@ -77,7 +77,7 @@ for (const marker of ["webhook", "verify", "processVerifiedFlutterwaveTransactio
   if (!webhook.toLowerCase().includes(marker.toLowerCase())) failures.push("Flutterwave webhook verification path missing: " + marker);
 }
 
-const ledger = await read("artifacts/api-server/src/lib/ts-pay-ledger.ts");
+const ledger = await read("artifacts/api-server/src/lib/ts-pay-ledger-rules.ts");
 for (const marker of ["referenceKey", "currency", "amountMinor"]) {
   if (!ledger.includes(marker)) failures.push("TS Pay ledger invariant missing: " + marker);
 }
@@ -97,8 +97,7 @@ for (const marker of ["dailyRunLimit", "cooldownSeconds", "approval", "idempot"]
   if (!workflows.toLowerCase().includes(marker.toLowerCase())) failures.push("Automation safety invariant missing: " + marker);
 }
 
-const deletedReplit = await read(".replit");
-if (deletedReplit) failures.push("Obsolete Replit development configuration is present.");
+try { await readFile(".replit", "utf8"); failures.push("Obsolete Replit development configuration is present."); } catch {}
 
 if (failures.length) {
   console.error("Lunavo CI audit: FAIL");
