@@ -18,6 +18,7 @@ const MERCHANT_ITEMS:Item[]=[
  {href:"/ad-studio",label:"Ad Studio",description:"Create and manage catalog-grounded advertising media",keywords:"ads video creative",icon:Megaphone},
  {href:"/ai",label:"AI Control Room",description:"Guarded AI planning and commerce intelligence",keywords:"artificial intelligence copilot",icon:BrainCircuit},
  {href:"/autopilot",label:"Autopilot",description:"Automation modes, guardrails and emergency stop",keywords:"automation autonomous",icon:Gauge},
+ {href:"/automations",label:"Automation Studio",description:"Event-driven workflows, conditions, approvals and run history",keywords:"workflows rules triggers conditions actions",icon:Gauge},
  {href:"/general-store",label:"General Store",description:"Shopper-facing discovery experience",keywords:"customer marketplace shopping",icon:Globe2},
  {href:"/marketplace/manage",label:"Marketplace",description:"Listings, approvals and marketplace operations",keywords:"seller vendors",icon:Globe2},
  {href:"/auctions/manage",label:"Auctions",description:"Create and manage live auctions",keywords:"bids bidding",icon:Gavel},
