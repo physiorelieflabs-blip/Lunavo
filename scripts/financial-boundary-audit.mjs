@@ -9,12 +9,12 @@ const apiRoots = [
 ];
 
 const financialMutationMarkers = [
-  /\\.insert\\((?:[^\\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
-  /\\.update\\((?:[^\\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
-  /\\.delete\\((?:[^\\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
-  /INSERT\\s+INTO\\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)/i,
-  /UPDATE\\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)\\b/i,
-  /DELETE\\s+FROM\\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)\\b/i,
+  /\.(?:insert)\((?:[^\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
+  /\.(?:update)\((?:[^\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
+  /\.(?:delete)\((?:[^\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
+  /INSERT\s+INTO\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)/i,
+  /UPDATE\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)\b/i,
+  /DELETE\s+FROM\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)\b/i,
 ];
 
 const financialBoundaryFiles = new Set([
