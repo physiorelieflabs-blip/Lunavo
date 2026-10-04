@@ -342,8 +342,8 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Web/social research
 - Source citations
 - Research limitations
-- Product/image understanding
-- DeepSeek + Gemini architecture
+- Self-hosted product/image understanding
+- Self-hosted multi-model reasoning/vision architecture
 - Structured extraction
 - Human review before authoritative publishing
 
