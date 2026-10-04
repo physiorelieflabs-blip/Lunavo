@@ -43,13 +43,13 @@ router.put("/merchant/automation-policy", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put("/merchant/autopilot/mode", async (req, res, next) => {
+router.put("/merchant/autopilot/mode", async (req, res, next): Promise<void> => {
   try {
     const ctx = await merchantContext(req, res); if (!ctx) return;
     const level = Number(req.body?.autonomyLevel);
     const trainingOptIn = Boolean(req.body?.trainingOptIn);
-    if (!Number.isInteger(level) || level < 0 || level > 4) return res.status(400).json({ error: "Invalid Autopilot level" });
-    if (level === 4 && !trainingOptIn) return res.status(400).json({ error: "Full Autopilot requires local AI training consent" });
+    if (!Number.isInteger(level) || level < 0 || level > 4) { res.status(400).json({ error: "Invalid Autopilot level" }); return; }
+    if (level === 4 && !trainingOptIn) { res.status(400).json({ error: "Full Autopilot requires local AI training consent" }); return; }
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`INSERT INTO ai_settings (merchant_id,autonomy_level,run_my_business,training_opt_in,goal,goal_target)
         VALUES (${ctx.merchantId},${level},${level === 4},${trainingOptIn},${req.body?.goal ? String(req.body.goal).trim().slice(0,180) : null},${req.body?.goalTarget == null ? null : Number(req.body.goalTarget).toFixed(2)})
