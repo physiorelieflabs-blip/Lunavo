@@ -22,6 +22,19 @@ services:
     expose:
       - "11434"
 
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["ollama pull ${LUNAVO_LOCAL_LLM_MODEL:-qwen3:8b}"]
+    volumes:
+      - ollama_data:/root/.ollama
+
   lunavo:
     build: .
     restart: unless-stopped
@@ -30,6 +43,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 5000
@@ -43,13 +58,9 @@ services:
       LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-}
       LUNAVO_LOCAL_SEARCH_URL: ${LUNAVO_LOCAL_SEARCH_URL:-}
       LUNAVO_LOCAL_OBJECT_STORAGE_PATH: /data/lunavo
+      LUNAVO_LOCAL_MAIL_FROM: ${LUNAVO_LOCAL_MAIL_FROM:-no-reply@lunavo.local}
       FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
       FLUTTERWAVE_WEBHOOK_SECRET: ${FLUTTERWAVE_WEBHOOK_SECRET:-}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
     ports:
       - "${LUNAVO_PORT:-5000}:5000"
     volumes:
