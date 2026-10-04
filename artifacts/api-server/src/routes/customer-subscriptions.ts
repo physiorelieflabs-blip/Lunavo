@@ -14,6 +14,7 @@ function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, q
 import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
+import { toMinorUnits } from "../lib/money";
 import { initializeFlutterwavePayment } from "../lib/flutterwave-client";
 import { encryptSecret, decryptSecret } from "../lib/withdrawal-security";
 
@@ -36,7 +37,7 @@ router.post("/commerce/customer-subscription-plans",async(req,res)=>{
   if(!Number.isInteger(productId)||productId<1||!name)return fail(res,400,"Choose a real product and plan name");
   const p=(await db.select().from(supplierProductsTable).where(and(eq(supplierProductsTable.id,productId),eq(supplierProductsTable.merchantId,m.id),eq(supplierProductsTable.status,"active"),eq(supplierProductsTable.visibility,"active"))).limit(1))[0];
   if(!p||p.sellingPrice===null)return fail(res,422,"The plan product must be active, visible and priced");
-  const amountMinor=Math.round(Number(p.sellingPrice)*100);if(!Number.isSafeInteger(amountMinor)||amountMinor<=0)return fail(res,422,"Product price is invalid");
+  const amountMinor=toMinorUnits(p.sellingPrice);if(amountMinor===null||!Number.isSafeInteger(amountMinor)||amountMinor<=0)return fail(res,422,"Product price is invalid");
   const q=await executeQuery(db,{sql:"INSERT INTO customer_subscription_plans (merchant_id,product_id,name,description,amount_minor,currency,interval_unit,interval_count,grace_period_days,max_failed_attempts,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) ON CONFLICT (merchant_id,name) DO NOTHING RETURNING *",values:[m.id,productId,name,description,amountMinor,String(p.currency).toUpperCase(),unit,count,grace,maxFailed,getAuth(req).userId]});
   if(!q.rows.length)return fail(res,409,"A plan with that name already exists");
   res.status(201).json({plan:q.rows[0]});
