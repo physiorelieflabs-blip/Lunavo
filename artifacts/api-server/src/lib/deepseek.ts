@@ -1,20 +1,19 @@
 type LocalMessage = { role: "system" | "user" | "assistant"; content: string | Array<Record<string, unknown>> };
-type LocalResponse = { model?: string; message?: { content?: string }; response?: string; error?: string };
+type LocalResponse = { model?: string; choices?: Array<{ message?: { content?: string | null } }>; error?: { message?: string } };
 
-function localConfig() {
-  const baseUrl = (process.env.LUNAVO_LOCAL_LLM_URL?.trim() || "http://127.0.0.1:11434/api/chat").replace(/\\/$/, "");
-  const model = process.env.LUNAVO_LOCAL_LLM_MODEL?.trim() || "qwen3:32b";
+function localConfig(vision = false) {
+  const baseUrl = (process.env.LUNAVO_LOCAL_LLM_URL?.trim() || "http://127.0.0.1:11434/v1/chat/completions").replace(/\/$/, "");
+  const model = (vision ? process.env.LUNAVO_LOCAL_VISION_MODEL?.trim() : process.env.LUNAVO_LOCAL_LLM_MODEL?.trim()) || (vision ? "qwen2.5vl:32b" : "qwen3:32b");
   return { baseUrl, model };
 }
 
-async function localChat(messages: LocalMessage[], options: { json?: boolean; maxTokens?: number } = {}) {
-  const { baseUrl, model } = localConfig();
+async function localChat(messages: LocalMessage[], options: { json?: boolean; maxTokens?: number; vision?: boolean } = {}) {
+  const { baseUrl, model } = localConfig(Boolean(options.vision));
   const payload = {
     model,
     messages,
-    stream: false,
-    options: { num_predict: options.maxTokens || 4000 },
-    ...(options.json ? { format: "json" } : {}),
+    max_tokens: options.maxTokens || 4000,
+    ...(options.json ? { response_format: { type: "json_object" } } : {}),
   };
   const response = await fetch(baseUrl, {
     method: "POST",
@@ -23,8 +22,8 @@ async function localChat(messages: LocalMessage[], options: { json?: boolean; ma
     signal: AbortSignal.timeout(120_000),
   });
   const body = (await response.json().catch(() => ({}))) as LocalResponse;
-  if (!response.ok) throw new Error(body.error || `Self-hosted LLM returned HTTP ${response.status}`);
-  const content = body.message?.content?.trim() || body.response?.trim();
+  if (!response.ok) throw new Error(body.error?.message || `Self-hosted LLM returned HTTP ${response.status}`);
+  const content = body.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("Self-hosted LLM returned an empty response");
   return { model: body.model || model, content };
 }
@@ -37,14 +36,14 @@ export async function completeDeepSeekChat(
 }
 
 export function deepSeekConfigured(): boolean {
-  return Boolean((process.env.LUNAVO_LOCAL_LLM_URL?.trim() || "http://127.0.0.1:11434/api/chat"));
+  return Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim() || true);
 }
 
 function rejectUnsafeImageUrl(value: string) {
-  if (!/^https?:\\/\\//i.test(value) || value.length > 8192) throw new Error("Supplier image URL is not a supported public HTTP(S) URL");
+  if (!/^https?:\/\//i.test(value) || value.length > 8192) throw new Error("Supplier image URL is not a supported public HTTP(S) URL");
   const url = new URL(value);
   const host = url.hostname.toLowerCase();
-  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || /^(10|127)\\./.test(host) || /^192\\.168\\./.test(host) || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(host))
+  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || /^(10|127)\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host))
     throw new Error("Supplier image URL resolves to a private/local address");
 }
 
@@ -60,9 +59,12 @@ export async function completeDeepSeekVisionJson(
   if (!mime.startsWith("image/")) throw new Error("Supplier image URL did not return an image");
   const bytes = Buffer.from(await imageResponse.arrayBuffer());
   if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Supplier image is empty or exceeds the 10 MB analysis limit");
-  const content = [
-    { type: "text", text: prompt },
-    { type: "image", image: Buffer.from(bytes).toString("base64") },
-  ];
-  return localChat([{ role: "user", content }], { json: true, maxTokens: options.maxTokens || 2500 });
+  const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
+  return localChat([{
+    role: "user",
+    content: [
+      { type: "text", text: prompt },
+      { type: "image_url", image_url: { url: dataUrl, detail: options.detail || "low" } },
+    ],
+  }], { json: true, maxTokens: options.maxTokens || 2500, vision: true });
 }
