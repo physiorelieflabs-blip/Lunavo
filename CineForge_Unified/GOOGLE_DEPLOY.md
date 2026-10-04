@@ -47,6 +47,6 @@ The browser does not need to own the generation GPU.
 
 After all shots are complete, CineForge assembles the final MP4 and exposes it through the browser's Download final movie link at /api/projects/{project_id}/final.
 
-## No Replit
+## Self-hosted deployment
 
-This deployment path does not use Replit.
+This deployment path runs from repository source and self-hosted infrastructure.
