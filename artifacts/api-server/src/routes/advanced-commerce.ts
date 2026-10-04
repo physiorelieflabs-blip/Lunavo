@@ -58,8 +58,12 @@ const transitions: Record<OperationKind, Record<string, string[]>> = {
 async function merchantFor(req: Request, permission: "team.manage" | "customers.manage" | "finance.manage") {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  const merchant = (await db.select({ id: merchantsTable.id, email: merchantsTable.email }).from(merchantsTable)
-    .where(and(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.status, "active"))).limit(1))[0] ?? null;
+  const merchant = (await db.execute(sql`
+    SELECT id,email FROM merchants
+    WHERE status='active'
+      AND (clerk_user_id=${userId} OR local_auth_user_id=${userId})
+    LIMIT 1
+  `)).rows[0] as { id:number; email:string } | undefined;
   if (!merchant) return null;
   await requirePermission(userId, merchant.id, permission);
   return { ...merchant, userId };
@@ -169,10 +173,11 @@ router.post("/merchant/operations/:id/transition", async (req, res, next) => {
 router.get("/merchant/operations/:id/events", async (req, res, next) => {
   try {
     const id = String(req.params.id ?? "").trim();
-    const merchant = await merchantFor(req, "team.manage");
-    if (!merchant || !/^[0-9a-fA-F-]{36}$/.test(id)) return fail(res, 401, "Authentication required");
-    const ownership = await db.execute(sql`SELECT id FROM merchant_operation_records WHERE id=${id} AND merchant_id=${merchant.id} LIMIT 1`);
-    if (!ownership.rows.length) return fail(res, 404, "Operation not found");
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) return fail(res, 400, "Invalid operation id");
+    const current = (await db.execute(sql`SELECT kind FROM merchant_operation_records WHERE id=${id} LIMIT 1`)).rows[0] as { kind?: string } | undefined;
+    if (!current || !isKind(current.kind)) return fail(res, 404, "Operation not found");
+    const merchant = await merchantFor(req, permissionByKind[current.kind]);
+    if (!merchant) return fail(res, 401, "Authentication required");
     const events = await db.execute(sql`SELECT id,from_status,to_status,actor_id,reason,created_at FROM merchant_operation_events WHERE operation_id=${id} AND merchant_id=${merchant.id} ORDER BY created_at DESC`);
     res.json({ events: events.rows });
   } catch (error) { next(error); }
@@ -193,7 +198,10 @@ router.post("/merchant/api-keys", async (req, res, next) => {
     if (!merchant) return fail(res, 401, "Authentication required");
     const name = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 80) : "";
     if (!name) return fail(res, 400, "API key name is required");
-    const scopes = Array.isArray(req.body?.scopes) ? req.body.scopes.filter((v: unknown): v is string => typeof v === "string").slice(0, 20) : ["api.read"];
+    const allowedScopes = ["api.read","api.write","webhooks.read","webhooks.write"];
+    const scopes = Array.isArray(req.body?.scopes)
+      ? [...new Set(req.body.scopes.filter((v: unknown): v is string => typeof v === "string" && allowedScopes.includes(v)))].slice(0, 20)
+      : ["api.read"];
     const raw = `lun_${randomBytes(28).toString("base64url")}`;
     const hash = createHash("sha256").update(raw).digest("hex");
     const prefix = raw.slice(0, 12);
@@ -216,6 +224,25 @@ router.post("/merchant/api-keys/:id/revoke", async (req, res, next) => {
     if (!result.rows.length) return fail(res, 404, "Active API key not found");
     res.json({ key: result.rows[0] });
   } catch (error) { next(error); }
+});
+
+router.get("/developer/whoami", async (req, res): Promise<void> => {
+  const authorization = typeof req.get("authorization") === "string" ? req.get("authorization")!.trim() : "";
+  const match = authorization.match(/^Bearer\s+(lun_[A-Za-z0-9_-]{20,200})$/);
+  if (!match) { res.status(401).json({ error: "Valid Lunavo API key is required." }); return; }
+  const hash = createHash("sha256").update(match[1]).digest("hex");
+  const result = await db.execute(sql`
+    SELECT id,merchant_id,name,scopes,expires_at,revoked_at
+    FROM merchant_api_keys
+    WHERE key_hash=${hash}
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at > now())
+    LIMIT 1
+  `);
+  const key = result.rows[0] as {id:string;merchant_id:number;name:string;scopes:unknown;expires_at:string|null}|undefined;
+  if (!key) { res.status(401).json({ error: "API key is invalid, revoked or expired." }); return; }
+  await db.execute(sql`UPDATE merchant_api_keys SET last_used_at=now() WHERE id=${key.id}`);
+  res.json({ authenticated:true, merchantId:key.merchant_id, keyName:key.name, scopes:key.scopes, expiresAt:key.expires_at });
 });
 
 router.get("/merchant/feature-flags", async (req, res, next) => {
