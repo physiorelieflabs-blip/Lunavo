@@ -56,10 +56,21 @@ services:
       SOCIAL_X_CLIENT_ID: ${SOCIAL_X_CLIENT_ID:-}
       SOCIAL_X_CLIENT_SECRET: ${SOCIAL_X_CLIENT_SECRET:-}
 
+  fx-gateway:
+    build:
+      context: ./services/fx-gateway
+    restart: unless-stopped
+    environment:
+      PORT: 8081
+    expose:
+      - "8081"
+
   lunavo:
     build: .
     restart: unless-stopped
     depends_on:
+      fx-gateway:
+        condition: service_started
       postgres:
         condition: service_healthy
       ollama:
@@ -83,6 +94,7 @@ services:
       LUNAVO_LOCAL_IMAGE_MODEL: ${LUNAVO_LOCAL_IMAGE_MODEL:-local-image}
       LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-}
       LUNAVO_LOCAL_SEARCH_URL: ${LUNAVO_LOCAL_SEARCH_URL:-}
+      LUNAVO_LOCAL_FX_URL: ${LUNAVO_LOCAL_FX_URL:-http://fx-gateway:8081/v1/rate}
       LUNAVO_LOCAL_OBJECT_STORAGE_PATH: /data/lunavo
       LUNAVO_LOCAL_MAIL_FROM: ${LUNAVO_LOCAL_MAIL_FROM:-no-reply@lunavo.local}
       FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
