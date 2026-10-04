@@ -323,7 +323,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 
 ## 15. AI Control Room
 - General Lunavo AI assistant
-- DeepSeek-primary reasoning architecture
+- Self-hosted multi-model reasoning and local consensus
 - Store assistant
 - Product assistant
 - Catalog assistance
@@ -337,7 +337,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - AI usage controls
 
 ## 16. AI sourcing & product intelligence
-- Gemini-backed research when configured
+- Self-hosted research/inference through the Lunavo local AI gateway
 - Supplier-link research
 - Web/social research
 - Source citations
@@ -348,7 +348,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Human review before authoritative publishing
 
 ## 17. AI image generation
-- Pollinations image-generation integration
+- Self-hosted image-generation endpoint
 - Prompt entry
 - Generated-image preview
 - Save generated image
