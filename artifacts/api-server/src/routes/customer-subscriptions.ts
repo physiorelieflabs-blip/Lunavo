@@ -51,7 +51,9 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
     if(!attempt)throw new Error("Subscription payment attempt could not be created");
     return {orderId:Number(order.id),paymentIntentId:Number(intent.id),attemptId:String(attempt.id),attemptNumber:n,reference:ref};
   });
-  const base=requestOrigin(req)||txt(process.env.LUNAVO_PUBLIC_BASE_URL,300);if(!base)throw new Error("Public base URL is unavailable");
+  const configured=txt(process.env.LUNAVO_PUBLIC_BASE_URL,300);
+  const base=process.env.NODE_ENV==="production" ? configured : (configured || requestOrigin(req));
+  if(!base)throw new Error("LUNAVO_PUBLIC_BASE_URL is required for production subscription checkout");
   const checkout=await initializeFlutterwavePayment({txRef:created.reference,amount:Number(s.amount_minor)/100,currency:String(s.currency).toUpperCase(),redirectUrl:base+"/subscribe/return?subscription="+encodeURIComponent(subscriptionId),customer:{email:String(s.customer_email),name:String(s.customer_name)},title:String(s.plan_name)+" · "+String(s.store_name),meta:{merchant_id:Number(s.merchant_id),customer_id:Number(s.customer_id),order_id:created.orderId,payment_intent_id:created.paymentIntentId,customer_subscription_id:subscriptionId,subscription_attempt_id:created.attemptId}});
   await db.execute({sql:"UPDATE payment_intents SET status='submitted',checkout_url=$1,evidence_reference=$2,updated_at=now() WHERE id=$3",values:[checkout.link,created.reference,created.paymentIntentId]});
   await db.execute({sql:"UPDATE customer_subscription_payment_attempts SET status='submitted',checkout_url=$1,updated_at=now() WHERE id=$2",values:[checkout.link,created.attemptId]});
