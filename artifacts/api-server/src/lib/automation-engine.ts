@@ -296,8 +296,13 @@ export async function approveWorkflowRun(runId: string, merchantId: number, revi
       FOR UPDATE
     `)).rows[0] as Record<string, unknown> | undefined;
     if (!row) throw new Error("Automation run not found");
-    const approval = (await tx.execute(sql`SELECT id,status FROM merchant_automation_action_approvals WHERE run_id=${runId} AND merchant_id=${merchantId} FOR UPDATE`)).rows[0] as Record<string, unknown> | undefined;
+    const approval = (await tx.execute(sql`SELECT id,status,expires_at FROM merchant_automation_action_approvals WHERE run_id=${runId} AND merchant_id=${merchantId} FOR UPDATE`)).rows[0] as Record<string, unknown> | undefined;
     if (!approval || approval.status !== "pending" || row.status !== "approval_required") throw new Error("Automation run is no longer awaiting approval");
+    if (approval.expires_at && new Date(String(approval.expires_at)).getTime() <= Date.now()) {
+      await tx.execute(sql`UPDATE merchant_automation_action_approvals SET status='expired',reviewed_at=now(),note='Approval window expired' WHERE run_id=${runId}`);
+      await tx.execute(sql`UPDATE merchant_automation_runs SET status='skipped',result=${JSON.stringify({reason:"approval_expired"})}::jsonb,completed_at=now() WHERE id=${runId}`);
+      return { status: "expired" };
+    }
     if (!approve) {
       await tx.execute(sql`UPDATE merchant_automation_action_approvals SET status='rejected',reviewer_id=${reviewerId},reviewed_at=now(),note=${note} WHERE run_id=${runId}`);
       await tx.execute(sql`UPDATE merchant_automation_runs SET status='skipped',result=${JSON.stringify({reason:"rejected"})}::jsonb,completed_at=now() WHERE id=${runId}`);
@@ -308,14 +313,24 @@ export async function approveWorkflowRun(runId: string, merchantId: number, revi
     if (actions.some((action) => !action)) throw new Error("Workflow actions are no longer valid");
     await tx.execute(sql`UPDATE merchant_automation_action_approvals SET status='approved',reviewer_id=${reviewerId},reviewed_at=now(),note=${note} WHERE run_id=${runId}`);
     await tx.execute(sql`UPDATE merchant_automation_runs SET status='running',started_at=now() WHERE id=${runId}`);
-    const results: unknown[] = [];
     const context = (await tx.execute(sql`SELECT trigger_snapshot FROM merchant_automation_runs WHERE id=${runId}`)).rows[0] as { trigger_snapshot?: WorkflowContext } | undefined;
     const workflowContext = context?.trigger_snapshot;
     if (!workflowContext || typeof workflowContext !== "object") throw new Error("Automation trigger context is unavailable");
-    for (const action of actions as Array<{kind:ActionKind;config:Record<string,unknown>}>) results.push(await executeAction(tx,String(row.workflow_id),workflowContext,action));
-    await tx.execute(sql`UPDATE merchant_automation_runs SET status='completed',result=${JSON.stringify({actions:results})}::jsonb,completed_at=now() WHERE id=${runId}`);
-    await tx.execute(sql`UPDATE merchant_automation_workflows SET last_run_at=now(),updated_at=now() WHERE id=${row.workflow_id}`);
-    return { status: "completed", results };
+    await tx.execute(sql`SAVEPOINT approval_actions`);
+    try {
+      const results: unknown[] = [];
+      for (const action of actions as Array<{kind:ActionKind;config:Record<string,unknown>}>) results.push(await executeAction(tx,String(row.workflow_id),workflowContext,action));
+      await tx.execute(sql`RELEASE SAVEPOINT approval_actions`);
+      await tx.execute(sql`UPDATE merchant_automation_runs SET status='completed',result=${JSON.stringify({actions:results})}::jsonb,completed_at=now() WHERE id=${runId}`);
+      await tx.execute(sql`UPDATE merchant_automation_workflows SET last_run_at=now(),updated_at=now() WHERE id=${row.workflow_id}`);
+      return { status: "completed", results };
+    } catch (error) {
+      await tx.execute(sql`ROLLBACK TO SAVEPOINT approval_actions`);
+      await tx.execute(sql`RELEASE SAVEPOINT approval_actions`);
+      const message = error instanceof Error ? error.message.slice(0,1000) : "Automation action execution failed";
+      await tx.execute(sql`UPDATE merchant_automation_runs SET status='failed',error_code='action_failed',error_message=${message},result=${JSON.stringify({atomicRollback:true})}::jsonb,completed_at=now() WHERE id=${runId}`);
+      return { status: "failed", error: message };
+    }
   });
 }
 
