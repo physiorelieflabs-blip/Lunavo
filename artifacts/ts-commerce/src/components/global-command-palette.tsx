@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight, BarChart3, BrainCircuit, Command, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, Landmark, LayoutDashboard, Megaphone, PackageCheck, Route, Search, Settings2, ShoppingCart, Store, UsersRound, WalletCards, Warehouse, X } from "lucide-react";
+import { ArrowRight, BarChart3, BrainCircuit, Command, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, Landmark, LayoutDashboard, Megaphone, PackageCheck, Route, Search, ShieldCheck, Settings2, ShoppingCart, Store, UsersRound, WalletCards, Warehouse, X } from "lucide-react";
 import { useLocation } from "wouter";
 
 type Item={href:string;label:string;description:string;keywords:string;icon:LucideIcon};
@@ -19,7 +19,7 @@ const MERCHANT_ITEMS:Item[]=[
  {href:"/ai",label:"AI Control Room",description:"Guarded AI planning and commerce intelligence",keywords:"artificial intelligence copilot",icon:BrainCircuit},
  {href:"/autopilot",label:"Autopilot",description:"Automation modes, guardrails and emergency stop",keywords:"automation autonomous",icon:Gauge},
  {href:"/automations",label:"Automation Studio",description:"Event-driven workflows, conditions, approvals and run history",keywords:"workflows rules triggers conditions actions",icon:Gauge},
- {href:"/general-store",label:"General Store",description:"Shopper-facing discovery experience",keywords:"customer marketplace shopping",icon:Globe2},
+ {href:"/general-store",label:"General Store",description:"Shopper-facing discovery experience",keywords:"customer marketplace shopping",icon:Globe2},{href:"/supplier-intelligence",label:"Supplier Reputation",description:"Check aggregate supplier evidence",keywords:"supplier reputation dropshipping trust",icon:ShieldCheck},
  {href:"/marketplace/manage",label:"Marketplace",description:"Listings, approvals and marketplace operations",keywords:"seller vendors",icon:Globe2},
  {href:"/auctions/manage",label:"Auctions",description:"Create and manage live auctions",keywords:"bids bidding",icon:Gavel},
  {href:"/inventory",label:"Inventory",description:"Stock, reservations, warehouses and adjustments",keywords:"warehouse products stock",icon:Warehouse},
