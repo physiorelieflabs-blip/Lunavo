@@ -1,89 +1,68 @@
-type DeepSeekMessage = { role: "system" | "user" | "assistant"; content: string };
+type LocalMessage = { role: "system" | "user" | "assistant"; content: string | Array<Record<string, unknown>> };
+type LocalResponse = { model?: string; message?: { content?: string }; response?: string; error?: string };
 
-type DeepSeekResponse = {
-  model?: string;
-  choices?: Array<{ message?: { content?: string | null } }>;
-  error?: { message?: string };
-};
+function localConfig() {
+  const baseUrl = (process.env.LUNAVO_LOCAL_LLM_URL?.trim() || "http://127.0.0.1:11434/api/chat").replace(/\\/$/, "");
+  const model = process.env.LUNAVO_LOCAL_LLM_MODEL?.trim() || "qwen3:32b";
+  return { baseUrl, model };
+}
 
-function deepSeekConfig() {
-  const apiKey = process.env.LUNAVO_DEEPSEEK_API_KEY?.trim();
-  if (!apiKey) throw new Error("LUNAVO_DEEPSEEK_API_KEY is not configured");
-  const baseUrl = (process.env.LUNAVO_DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com").replace(/\/$/, "");
-  const model = process.env.LUNAVO_DEEPSEEK_MODEL?.trim() || "deepseek-v4-pro";
-  return { apiKey, baseUrl, model };
+async function localChat(messages: LocalMessage[], options: { json?: boolean; maxTokens?: number } = {}) {
+  const { baseUrl, model } = localConfig();
+  const payload = {
+    model,
+    messages,
+    stream: false,
+    options: { num_predict: options.maxTokens || 4000 },
+    ...(options.json ? { format: "json" } : {}),
+  };
+  const response = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(120_000),
+  });
+  const body = (await response.json().catch(() => ({}))) as LocalResponse;
+  if (!response.ok) throw new Error(body.error || `Self-hosted LLM returned HTTP ${response.status}`);
+  const content = body.message?.content?.trim() || body.response?.trim();
+  if (!content) throw new Error("Self-hosted LLM returned an empty response");
+  return { model: body.model || model, content };
 }
 
 export async function completeDeepSeekChat(
-  messages: DeepSeekMessage[],
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   options: { json?: boolean; maxTokens?: number; reasoningEffort?: "low" | "high" | "max" } = {},
 ): Promise<{ model: string; content: string }> {
-  const { apiKey, baseUrl, model } = deepSeekConfig();
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      thinking: { type: "enabled" },
-      reasoning_effort: options.reasoningEffort || "high",
-      max_tokens: options.maxTokens || 4000,
-      ...(options.json ? { response_format: { type: "json_object" } } : {}),
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  const payload = (await response.json().catch(() => ({}))) as DeepSeekResponse;
-  if (!response.ok) throw new Error(payload.error?.message || `DeepSeek returned HTTP ${response.status}`);
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("DeepSeek returned an empty response");
-  return { model: payload.model || model, content };
+  return localChat(messages, options);
 }
 
 export function deepSeekConfigured(): boolean {
-  return Boolean(process.env.LUNAVO_DEEPSEEK_API_KEY?.trim());
+  return Boolean((process.env.LUNAVO_LOCAL_LLM_URL?.trim() || "http://127.0.0.1:11434/api/chat"));
 }
 
-type DeepSeekVisionResponse = {
-  model?: string;
-  choices?: Array<{ message?: { content?: string | null } }>;
-  error?: { message?: string };
-};
+function rejectUnsafeImageUrl(value: string) {
+  if (!/^https?:\\/\\//i.test(value) || value.length > 8192) throw new Error("Supplier image URL is not a supported public HTTP(S) URL");
+  const url = new URL(value);
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || /^(10|127)\\./.test(host) || /^192\\.168\\./.test(host) || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(host))
+    throw new Error("Supplier image URL resolves to a private/local address");
+}
 
 export async function completeDeepSeekVisionJson(
   prompt: string,
   imageUrl: string,
   options: { maxTokens?: number; detail?: "low" | "high" | "original" | "auto" } = {},
 ): Promise<{ model: string; content: string }> {
-  const { apiKey, baseUrl } = deepSeekConfig();
-  const model = process.env.LUNAVO_DEEPSEEK_VISION_MODEL?.trim() || "deepseek-flash";
-  if (!/^https?:\/\//i.test(imageUrl) || imageUrl.length > 8192) {
-    throw new Error("Supplier image URL is not a supported public HTTP(S) URL");
-  }
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: imageUrl, detail: options.detail || "low" } },
-        ],
-      }],
-      thinking: { type: "enabled" },
-      reasoning_effort: "high",
-      max_tokens: options.maxTokens || 2500,
-      response_format: { type: "json_object" },
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  const payload = (await response.json().catch(() => ({}))) as DeepSeekVisionResponse;
-  if (!response.ok) throw new Error(payload.error?.message || `DeepSeek vision returned HTTP ${response.status}`);
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("DeepSeek vision returned an empty response");
-  return { model: payload.model || model, content };
+  rejectUnsafeImageUrl(imageUrl);
+  const imageResponse = await fetch(imageUrl, { signal: AbortSignal.timeout(20_000) });
+  if (!imageResponse.ok) throw new Error(`Supplier image fetch returned HTTP ${imageResponse.status}`);
+  const mime = imageResponse.headers.get("content-type")?.split(";")[0].trim() || "image/jpeg";
+  if (!mime.startsWith("image/")) throw new Error("Supplier image URL did not return an image");
+  const bytes = Buffer.from(await imageResponse.arrayBuffer());
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Supplier image is empty or exceeds the 10 MB analysis limit");
+  const content = [
+    { type: "text", text: prompt },
+    { type: "image", image: Buffer.from(bytes).toString("base64") },
+  ];
+  return localChat([{ role: "user", content }], { json: true, maxTokens: options.maxTokens || 2500 });
 }
