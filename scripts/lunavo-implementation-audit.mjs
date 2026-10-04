@@ -189,5 +189,8 @@ const advancedUi=await read("artifacts/ts-commerce/src/pages/advanced-operations
 const nav=await read("artifacts/ts-commerce/src/components/app-shell.tsx");if(!nav.includes("Operations & Advanced"))failures.push("Advanced operations navigation invariant missing");
 const flwUi=await read("artifacts/ts-commerce/src/pages/admin-integrations.tsx");for(const m of ["Flutterwave Secret API Key","Flutterwave Webhook Secret","Save provider credentials"])if(!flwUi.includes(m))failures.push("Flutterwave setup slot missing: "+m);
 const flwRoute=await read("artifacts/api-server/src/routes/admin-integrations.ts");for(const m of ["/admin/integrations/flutterwave","apiKey","webhookSecret","encryptSecret","checkFlutterwaveConnection"])if(!flwRoute.includes(m))failures.push("Flutterwave setup route invariant missing: "+m);
+const privacyAuth=await read("artifacts/api-server/src/routes/auth.ts");for(const m of ["/auth/export","/auth/delete-account","financialHistoryPreserved","excludedSensitiveData"])if(!privacyAuth.includes(m))failures.push("Account privacy lifecycle invariant missing: "+m);
+const privacyLocalAuth=await read("artifacts/api-server/src/lib/local-auth.ts");for(const m of ["verifyLocalPasswordForUser","role<>'deleted'","u.role<>'deleted'"])if(!privacyLocalAuth.includes(m))failures.push("Deleted-account session invariant missing: "+m);
+const adminSetup=await read("artifacts/ts-commerce/src/pages/admin.tsx");if(!adminSetup.includes("Configure Flutterwave"))failures.push("Admin control room must expose Flutterwave setup");
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
