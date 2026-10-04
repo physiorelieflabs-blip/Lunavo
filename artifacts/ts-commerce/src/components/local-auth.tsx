@@ -74,8 +74,7 @@ function buildUser(raw: any, setUser: Dispatch<SetStateAction<LocalUser | null>>
 
 export function useLocalAuth() { const value = useContext(AuthContext); if (!value) throw new Error("AuthProvider is missing"); return value; }
 export function useUser() { const auth = useLocalAuth(); return { isLoaded: auth.isLoaded, user: auth.user }; }
-export function useAuth() { const auth = useLocalAuth(); return { isLoaded: auth.isLoaded, isSignedIn: auth.isSignedIn, getToken: async () => null as string | null }; }
-export function useClerk() { const auth = useLocalAuth(); return { signOut: async (options?: { redirectUrl?: string }) => { await auth.signOut(); if (options?.redirectUrl) window.location.assign(options.redirectUrl); }, addListener: (_listener: ({ user }: { user: LocalUser | null }) => void) => () => undefined }; }
+export function useAuth() { const auth = useLocalAuth(); return { isLoaded: auth.isLoaded, isSignedIn: auth.isSignedIn, getToken: async () => null as string | null }; } 
 
 export function Show({ when, children }: { when: "signed-in" | "signed-out"; children: ReactNode }) {
   const { isLoaded, isSignedIn } = useLocalAuth(); if (!isLoaded) return null;
