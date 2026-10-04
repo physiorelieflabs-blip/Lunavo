@@ -103,7 +103,13 @@ export async function resendEmailVerification(userId:string,email:string){
   await createEmailVerification(userId,email.trim().toLowerCase());
   return user;
 }
-async function deliverResetCode(email:string,code:string){const from=process.env.SMTP_FROM?.trim()||process.env.LUNAVO_LOCAL_MAIL_FROM?.trim()||"no-reply@lunavo.local";const subject="Lunavo password reset code";const text=`Your Lunavo password reset code is ${code}. It expires in 15 minutes. If you did not request this, ignore this message.`;const host=process.env.SMTP_HOST?.trim();if(host){const port=Number(process.env.SMTP_PORT||587);const transport=createTransport({host,port,secure:port===465,auth:process.env.SMTP_USER?{user:process.env.SMTP_USER,pass:process.env.SMTP_PASSWORD||""}:undefined});await transport.sendMail({from,to:email,subject,text});return;}const root=process.env.LUNAVO_LOCAL_OBJECT_STORAGE_PATH?.trim()||"./data/lunavo";const outbox=path.join(root,"mail-outbox");await mkdir(outbox,{recursive:true});await writeFile(path.join(outbox,`${Date.now()}-${randomUUID()}.eml`),`From: ${from}\nTo: ${email}\nSubject: ${subject}\n\n${text}\n`,{mode:0o600});}
+async function deliverResetCode(email:string,code:string){
+  return deliverLocalMail(
+    email,
+    "Lunavo password reset code",
+    `Your Lunavo password reset code is ${code}. It expires in 15 minutes. If you did not request this, ignore this message.`,
+  );
+}
 export async function isLoginContextAnomalous(userId:string, metadata:{ipAddress?:string|null;userAgent?:string|null}):Promise<boolean>{
   const result=await db.execute(sql`SELECT ip_address,user_agent FROM local_auth_sessions WHERE user_id=${userId} AND expires_at>now() ORDER BY last_seen_at DESC LIMIT 1`);
   const row=result.rows[0] as {ip_address?:string|null;user_agent?:string|null}|undefined;
@@ -113,12 +119,14 @@ export async function isLoginContextAnomalous(userId:string, metadata:{ipAddress
   return ipDifferent||uaDifferent;
 }
 
-export async function sendMasterAdminLoginAlert(email:string, metadata:{ipAddress?:string|null;userAgent?:string|null;occurredAt?:Date;suspicious?:boolean;mfaCompleted?:boolean}):Promise<"smtp"|"local_outbox">{
-  const from=process.env.SMTP_FROM?.trim()||process.env.LUNAVO_LOCAL_MAIL_FROM?.trim()||"no-reply@lunavo.local";
+export async function sendMasterAdminLoginAlert(
+  email:string,
+  metadata:{ipAddress?:string|null;userAgent?:string|null;occurredAt?:Date;suspicious?:boolean;mfaCompleted?:boolean},
+):Promise<"local_outbox">{
   const subject=metadata.suspicious?"Lunavo security alert: new Master Admin login context":"Lunavo Master Admin login alert";
   const occurredAt=(metadata.occurredAt??new Date()).toISOString();
-  const text=`Master Admin login detected.\n\nTime: ${occurredAt}\nIP: ${metadata.ipAddress||"unknown"}\nUser agent: ${metadata.userAgent||"unknown"}\nMFA completed: ${metadata.mfaCompleted===true?"yes":"no"}\nContext anomaly: ${metadata.suspicious===true?"yes":"no"}\n\nNo passwords, session tokens, API keys, or webhook secrets are included in this alert.`;
-  return deliverLocalMail(email,subject,text);
+  const body=`Master Admin login detected.\n\nTime: ${occurredAt}\nIP: ${metadata.ipAddress||"unknown"}\nUser agent: ${metadata.userAgent||"unknown"}\nMFA completed: ${metadata.mfaCompleted===true?"yes":"no"}\nContext anomaly: ${metadata.suspicious===true?"yes":"no"}\n\nNo passwords, session tokens, API keys, or webhook secrets are included in this alert.`;
+  return deliverLocalMail(email,subject,body);
 }
 export async function requestPasswordReset(email:string){const result=await db.execute(sql`SELECT id FROM local_auth_users WHERE lower(email)=lower(${email.trim()}) LIMIT 1`);const user=result.rows[0] as {id?:string}|undefined;const generic={accepted:true};if(!user?.id)return generic;const code=String(100000+randomBytes(4).readUInt32BE(0)%900000).padStart(6,"0");await db.execute(sql`UPDATE local_auth_password_resets SET consumed_at=now() WHERE user_id=${user.id} AND consumed_at IS NULL`);await db.execute(sql`INSERT INTO local_auth_password_resets (id,user_id,code_hash,expires_at) VALUES (${randomUUID()},${user.id},${sessionHash(code)},now()+interval '15 minutes')`);await deliverResetCode(email.trim().toLowerCase(),code);return generic;}
 export async function verifyPasswordResetCode(email:string,code:string){const result=await db.execute(sql`SELECT r.id,r.user_id,r.code_hash,r.attempts FROM local_auth_password_resets r INNER JOIN local_auth_users u ON u.id=r.user_id WHERE lower(u.email)=lower(${email.trim()}) AND r.consumed_at IS NULL AND r.expires_at>now() ORDER BY r.created_at DESC LIMIT 1`);const row=result.rows[0] as any;if(!row||Number(row.attempts)>=5)return false;const valid=timingSafeEqual(Buffer.from(sessionHash(code.trim())),Buffer.from(String(row.code_hash)));if(!valid)await db.execute(sql`UPDATE local_auth_password_resets SET attempts=attempts+1 WHERE id=${row.id}`);return valid;}
