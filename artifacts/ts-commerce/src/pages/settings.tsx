@@ -75,6 +75,10 @@ export default function Settings() {
   const [freeShippingThreshold, setFreeShippingThreshold] = useState('');
   const [commerceMessage, setCommerceMessage] = useState('');
   const [commerceMessageIsError, setCommerceMessageIsError] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [privacyMessage, setPrivacyMessage] = useState('');
+  const [privacyError, setPrivacyError] = useState(false);
 
   const loadSessions = async () => {
     if (!user) return;
@@ -405,7 +409,24 @@ export default function Settings() {
             </div>
           </form>
         </section>
-        {commerceMessage && <div className="mt-5"><Notice tone={commerceMessageIsError ? 'danger' : 'success'} title={commerceMessageIsError ? 'Settings not saved' : 'Settings saved'}>{commerceMessage}</Notice></div>}
+        {commerceMessage && <div className="mt-5"><Notice tone={commerceMessageIsError ? 'danger' : 'success'} title={commerceMessageIsError ? 'Settings not saved' : 'Settings saved'}>{commerceMessage}</Notice></div>}\n        <section className="mt-9 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <SectionHeading eyebrow="Privacy & data" title="Export or delete your account" description="Export gives you a portable copy of your merchant data without secrets. Deletion disables account access while preserving financial and audit history." />
+            <ShieldCheck className="h-5 w-5 text-[#a2772e]" />
+          </div>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button type="button" onClick={async()=>{try{const response=await fetch('/api/auth/export',{credentials:'same-origin',headers:{Accept:'application/json'}});const data=await response.json();if(!response.ok)throw new Error(data.error||'Export failed');const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='lunavo-account-export.json';a.click();URL.revokeObjectURL(url);setPrivacyError(false);setPrivacyMessage('Account export downloaded. Sensitive secrets are excluded.');}catch(error){setPrivacyError(true);setPrivacyMessage(getApiErrorMessage(error,'Account export failed.'));}}} className="inline-flex h-11 items-center gap-2 rounded-lg border border-[#d9d2c4] bg-white px-4 text-sm font-extrabold"><FileText className="h-4 w-4" />Download account export</button>
+          </div>
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <label className="text-sm font-bold">Current password<input value={deletePassword} onChange={(event)=>setDeletePassword(event.target.value)} type="password" autoComplete="current-password" className={inputClass} placeholder="Required to delete" /></label>
+            <label className="text-sm font-bold">Confirmation phrase<input value={deleteConfirmation} onChange={(event)=>setDeleteConfirmation(event.target.value)} className={inputClass} placeholder="DELETE MY LUNAVO ACCOUNT" /></label>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={async()=>{if(!window.confirm('Disable this Lunavo account? Financial and audit history will be preserved.'))return;try{const response=await fetch('/api/auth/delete-account',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({currentPassword:deletePassword,confirmation:deleteConfirmation})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Account deletion failed');window.location.href='/sign-in';}catch(error){setPrivacyError(true);setPrivacyMessage(getApiErrorMessage(error,'Account deletion failed.'));}}} className="inline-flex h-11 items-center gap-2 rounded-lg border border-[#e2b9b3] bg-[#fff8f5] px-4 text-sm font-extrabold text-[#a33e38]"><LockKeyhole className="h-4 w-4" />Disable account</button>
+            <span className="text-xs text-[#697687]">Master Admin deletion is blocked server-side.</span>
+          </div>
+          {privacyMessage&&<div className="mt-4"><Notice tone={privacyError?'danger':'success'} title={privacyError?'Privacy action failed':'Privacy action complete'}>{privacyMessage}</Notice></div>}
+        </section>
 
         <div className="mt-9 space-y-8">
           {groups.map((group) => (
