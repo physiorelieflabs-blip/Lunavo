@@ -110,7 +110,7 @@ router.post("/admin/ai-stores/:id/build", async (req, res, next) => {
       }
 
       const merchant = await tx.execute(sql`
-        SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1
+        SELECT id FROM merchants WHERE clerk_user_id=${userId} OR local_auth_user_id=${userId} LIMIT 1
       `);
       const owner = merchant.rows[0] as { id: number } | undefined;
       if (!owner) {
