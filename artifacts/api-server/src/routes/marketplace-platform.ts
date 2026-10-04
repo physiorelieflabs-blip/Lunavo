@@ -12,7 +12,7 @@ import {
   paymentDestinationsTable,
   supplierProductsTable,
 } from "@workspace/db";
-import { completeGeminiChat } from "../lib/gemini";
+import { completePrimaryReasoning } from "../lib/ai-provider";
 import {
   initializeFlutterwavePayment,
   initializeFlutterwaveVirtualAccount,
@@ -39,8 +39,8 @@ async function authenticatedMerchant(req: Request) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
   const merchant = (await db.select().from(merchantsTable).where(and(
-    eq(merchantsTable.clerkUserId, userId),
     eq(merchantsTable.status, "active"),
+    or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)),
   )).limit(1))[0] ?? null;
   if (!merchant) return null;
   await requirePermission(userId, merchant.id, "marketplace.manage");
@@ -157,7 +157,7 @@ router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
 
   try {
     const catalog = rows.map(({ product, merchantName }) => ({ id: product.id, merchant: merchantName, title: product.title, description: product.description, category: product.category, price: Number(product.sellingPrice), currency: product.currency }));
-    const response = await completeGeminiChat([
+    const response = await completePrimaryReasoning([
       { role: "system", content: [
         "You are the TS Commerce shopper concierge.",
         "Recommend only products in the supplied catalog.",

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "../lib/auth-compat";
 import { db, merchantStorefrontsTable, merchantStorefrontDomainsTable, merchantsTable, storefrontPublicationSnapshotsTable } from "@workspace/db";
@@ -25,7 +25,7 @@ function canonicalPayload(theme: unknown, sections: unknown) { return JSON.strin
 async function merchantContext(req: Request, res: Response) {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
-  const merchant = (await db.select({ id: merchantsTable.id }).from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0];
+  const merchant = (await db.select({ id: merchantsTable.id }).from(merchantsTable).where(and(eq(merchantsTable.status, "active"), or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)))).limit(1))[0];
   if (!merchant) { res.status(404).json({ error: "Merchant workspace not found" }); return null; }
   try { await requirePermission(userId, merchant.id, "team.manage"); } catch { res.status(403).json({ error: "Store builder permission required" }); return null; }
   return { userId, merchantId: merchant.id };

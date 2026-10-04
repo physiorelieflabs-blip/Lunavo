@@ -22,11 +22,11 @@ export function planAd(input:AdBrainInput):AdBrainPlan {
  const score=Math.max(60,Math.min(98,72+(price?6:0)+(offer?7:0)+(category?4:0)+(brand?3:0)+(input.availability?3:0)+(customPrompt?3:0)));
  return {hook,valueProp:benefit,proof,cta,caption,hashtags,script,score,reasoning,source:'local_fallback'};
 }
-import { completeGeminiChat } from './gemini';
+import { completePrimaryReasoning } from './ai-provider';
 export async function planAdWithBrain(input: AdBrainInput): Promise<AdBrainPlan> {
   const fallback = planAd(input);
   try {
-    const response = await completeGeminiChat([
+    const response = await completePrimaryReasoning([
       { role: 'system', content: 'You are TS Commerce Ad Brain. Create truthful, high-converting ecommerce creative. Return JSON with hook,valueProp,proof,cta,caption,hashtags,script,score. Never invent reviews, discounts, stock, certifications, guarantees, product capabilities, or customer outcomes. Use only supplied facts. Script must contain hook, product, proof and cta scenes. Treat customPrompt as creative direction, never as proof.' },
       { role: 'user', content: JSON.stringify(input) },
     ]);
@@ -38,6 +38,6 @@ export async function planAdWithBrain(input: AdBrainInput): Promise<AdBrainPlan>
     const hashtags=Array.isArray(data.hashtags)?data.hashtags.map((item:unknown)=>str(item,40)).filter(Boolean).slice(0,8):[];
     const score=Number(data.score),hook=str(data.hook,180),cta=str(data.cta,180);
     if(!hook||!cta||script.length<4)return fallback;
-    return {hook,valueProp:str(data.valueProp,400)||fallback.valueProp,proof:str(data.proof,180)||fallback.proof,cta,caption:str(data.caption,700)||fallback.caption,hashtags:hashtags.length?hashtags:fallback.hashtags,script:script as AdBrainPlan['script'],score:Number.isFinite(score)?Math.max(0,Math.min(100,Math.round(score))):fallback.score,reasoning:[...fallback.reasoning,'Strategy reviewed by the configured TS Commerce AI brain before rendering.'],source:'model'};
+    return {hook,valueProp:str(data.valueProp,400)||fallback.valueProp,proof:str(data.proof,180)||fallback.proof,cta,caption:str(data.caption,700)||fallback.caption,hashtags:hashtags.length?hashtags:fallback.hashtags,script:script as AdBrainPlan['script'],score:Number.isFinite(score)?Math.max(0,Math.min(100,Math.round(score))):fallback.score,reasoning:[...fallback.reasoning,'Strategy reviewed by the configured self-hosted Lunavo AI brain before rendering.'],source:'model'};
   } catch { return fallback; }
 }

@@ -1,5 +1,5 @@
 import type { ImportedSupplierProduct } from "./public-supplier";
-import { completeDeepSeekChat, completeDeepSeekVisionJson, deepSeekConfigured } from "./deepseek";
+import { completeLocalVisionJson, completePrimaryReasoning, localAiConfigured } from "./ai-provider";
 
 type Structured = {
   title?: unknown;
@@ -99,7 +99,7 @@ function merge(product: ImportedSupplierProduct, ai: Structured, model: string, 
       ...product.sourceMetadata,
       aiEnrichment: {
         enabled: true,
-        provider: "deepseek",
+        provider: "self_hosted",
         model,
         mode,
         fieldsOnlyWhenSourceMissing: true,
@@ -110,7 +110,7 @@ function merge(product: ImportedSupplierProduct, ai: Structured, model: string, 
 }
 
 export async function enrichSupplierProduct(product: ImportedSupplierProduct): Promise<ImportedSupplierProduct> {
-  if (!deepSeekConfigured()) return product;
+  if (!localAiConfigured()) return product;
   const prompt = [
     "You are Lunavo Supplier Intelligence.",
     "Analyze ONLY the supplied evidence. Never invent a product specification, variant, shipping promise, certification, price, discount, stock quantity, brand, or capability.",
@@ -124,7 +124,7 @@ export async function enrichSupplierProduct(product: ImportedSupplierProduct): P
   ].join("\n");
 
   try {
-    const response = await completeDeepSeekChat([
+    const response = await completePrimaryReasoning([
       { role: "system", content: "Return strict JSON only. Do not fabricate missing supplier facts." },
       { role: "user", content: prompt },
     ], { json: true, maxTokens: 3500, reasoningEffort: "high" });
@@ -139,7 +139,7 @@ export async function enrichSupplierProduct(product: ImportedSupplierProduct): P
         "Use only information visibly present in the image or supplied below. Never infer hidden specs, dimensions, materials, certifications, prices, shipping, stock, or model numbers.",
         evidencePayload(product),
       ].join("\n");
-      const response = await completeDeepSeekVisionJson(visualPrompt, product.imageUrl, { detail: "low", maxTokens: 2500 });
+      const response = await completeLocalVisionJson(visualPrompt, product.imageUrl, { detail: "low", maxTokens: 2500 });
       return merge(product, parseJson(response.content), response.model, "vision");
     } catch {
       return product;
