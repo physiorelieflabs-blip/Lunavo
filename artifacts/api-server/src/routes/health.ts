@@ -3,6 +3,7 @@ import { HealthCheckResponse } from "@workspace/api-zod";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { getStoredFlutterwaveCredentials } from "../lib/flutterwave-runtime";
+import { checkLocalAiHealth, checkLocalFxHealth, checkMediaWorkersHealth, checkSocialGatewayHealth } from "../lib/runtime-health";
 
 const router: IRouter = Router();
 
@@ -19,8 +20,17 @@ router.get("/readyz", async (_req, res) => {
     const count = Number((migrationCount.rows[0] as { count?: number } | undefined)?.count ?? 0);
     const flutterwave = await getStoredFlutterwaveCredentials();
     const paymentConfigured = Boolean(flutterwave.secretKey && flutterwave.webhookSecret);
+    const [aiHealth, fxHealth, socialHealth, mediaHealth] = await Promise.all([
+      checkLocalAiHealth(),
+      checkLocalFxHealth(),
+      checkSocialGatewayHealth(),
+      checkMediaWorkersHealth(),
+    ]);
+    const runtimeReady = aiHealth.healthy && fxHealth.healthy && socialHealth.healthy &&
+      (!mediaHealth.image.configured || mediaHealth.image.healthy) &&
+      (!mediaHealth.video.configured || mediaHealth.video.healthy);
     res.json({
-      ready: true,
+      ready: runtimeReady && paymentConfigured,
       database: true,
       schema: true,
       migrationsApplied: count,
@@ -28,6 +38,8 @@ router.get("/readyz", async (_req, res) => {
       paymentProvider: "flutterwave",
       paymentMode: flutterwave.mode,
       paymentWarning: paymentConfigured ? null : "Flutterwave API and Webhook credentials are not configured; real-money checkout is unavailable.",
+      runtime: { ai: aiHealth, fx: fxHealth, socialGateway: socialHealth, mediaWorkers: mediaHealth },
+
     });
   } catch (error) {
     res.status(503).json({ ready: false, database: false, schema: false, payment: false });
