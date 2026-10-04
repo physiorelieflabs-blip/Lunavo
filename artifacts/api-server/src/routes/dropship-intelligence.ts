@@ -53,6 +53,8 @@ router.post("/public/profit-reality-check", async (req, res, next) => {
       if(!Number.isFinite(n)||n<0||!Number.isSafeInteger(Math.round(n*100)))return null;
       return Math.round(n*100);
     };
+    const currency=text(req.body?.currency || "USD",3).toUpperCase();
+    if(!["USD","NGN","GBP","EUR","GHS","KES","ZAR"].includes(currency))return fail(res,400,"Unsupported calculator currency");
     const selling=parseMinor(req.body?.sellingPrice);
     const supplier=parseMinor(req.body?.supplierCost);
     const shipping=parseMinor(req.body?.shippingCost);
@@ -75,6 +77,7 @@ router.post("/public/profit-reality-check", async (req, res, next) => {
       economics:result,
       methodology:"Landed cost + Lunavo's 1% platform fee + optional provider fee + optional ad spend. Missing inputs are not invented.",
       callToAction:result.decision==="SCALE"?"Bring the product into Lunavo and build evidence through real fulfillment.":"Use the result to fix the economics before risking more ad spend.",
+      currency,
       selfHosted:true
     });
   } catch(error){next(error);}
