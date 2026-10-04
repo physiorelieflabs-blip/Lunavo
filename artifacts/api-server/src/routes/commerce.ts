@@ -382,6 +382,8 @@ import {
   verifyFlutterwaveTransaction,
   verifyFlutterwaveWebhookSignature,
   supportsFlutterwaveDirectBankTransfer,
+  createFlutterwaveTransfer,
+  flutterwaveTransferStatus,
   type FlutterwaveTransaction,
 } from "../lib/flutterwave-client";
 import {
@@ -12149,13 +12151,17 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
     res.status(400).json({ error: "Status, authenticator code, and confirmation are required" });
     return;
   }
-  const settlementReference = parsed.data.settlementReference?.trim() || null;
-  if (parsed.data.status === "paid" && !settlementReference) {
-    res.status(400).json({
-      error: "A bank transfer reference is required before a manual payout can be marked paid",
+
+  // A payout can never be marked paid by an operator-supplied reference.
+  // "paid" is a provider-confirmed state owned by the Flutterwave transfer
+  // webhook/reconciliation path.
+  if (parsed.data.status === "paid") {
+    res.status(409).json({
+      error: "Withdrawals become paid only after Flutterwave confirms the payout. Manual settlement references are not accepted.",
     });
     return;
   }
+
   const expectedConfirmation = `${parsed.data.status.toUpperCase()} WITHDRAWAL ${params.data.id}`;
   if (
     !(await requireAdminWithdrawalSecurity(
@@ -12170,6 +12176,7 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
   ) {
     return;
   }
+
   const existing = (
     await db
       .select({
@@ -12186,6 +12193,7 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
     res.status(404).json({ error: "Withdrawal not found" });
     return;
   }
+
   try {
     const reviewed = await db.transaction(async (tx) => {
       await tx.execute(
@@ -12199,48 +12207,27 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
           .limit(1)
       )[0];
       if (!current) throw new Error("Withdrawal not found");
-      if (current.status === parsed.data.status) return current;
-      const validTransition =
-        (parsed.data.status === "approved" && current.status === "pending") ||
-        (parsed.data.status === "rejected" &&
-          (current.status === "pending" || current.status === "approved")) ||
-        (parsed.data.status === "paid" && current.status === "approved");
-      if (!validTransition) {
+      if (current.status === "rejected" || current.status === "paid") {
         throw new Error(`Cannot move a ${current.status} withdrawal to ${parsed.data.status}`);
       }
-      const [updated] = await tx
-        .update(withdrawalsTable)
-        .set({
-          status: parsed.data.status,
-          reviewedBy: identity.clerkUserId,
-          reviewNote: parsed.data.note?.trim() || null,
-          reviewedAt: new Date(),
-          paidAt: parsed.data.status === "paid" ? new Date() : current.paidAt,
-          providerStatus:
-            parsed.data.status === "approved"
-              ? "awaiting_manual_transfer"
-              : parsed.data.status === "rejected"
-                ? "released"
-                : "succeeded",
-          providerFailureReason:
-            parsed.data.status === "rejected"
-              ? parsed.data.note?.trim() || "Rejected during administrative review"
-              : current.providerFailureReason,
-          settlementReference:
-            parsed.data.status === "paid"
-              ? settlementReference
-              : current.settlementReference,
-          settledAt: parsed.data.status === "paid" ? new Date() : current.settledAt,
-        })
-        .where(
-          and(
-            eq(withdrawalsTable.id, current.id),
-            eq(withdrawalsTable.status, current.status),
-          ),
-        )
-        .returning();
-      if (!updated) throw new Error("Withdrawal was already updated");
+
       if (parsed.data.status === "rejected") {
+        if (current.status !== "pending") {
+          throw new Error("A provider-initiated payout cannot be manually rejected");
+        }
+        const [updated] = await tx
+          .update(withdrawalsTable)
+          .set({
+            status: "rejected",
+            reviewedBy: identity.clerkUserId,
+            reviewNote: parsed.data.note?.trim() || null,
+            reviewedAt: new Date(),
+            providerStatus: "released",
+            providerFailureReason: parsed.data.note?.trim() || "Rejected during administrative review",
+          })
+          .where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "pending")))
+          .returning();
+        if (!updated) throw new Error("Withdrawal was already updated");
         await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
           merchantId: current.merchantId,
           withdrawalId: current.id,
@@ -12248,7 +12235,117 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
           currency: current.currency,
           event: "release",
         })).onConflictDoNothing();
-      } else if (parsed.data.status === "paid") {
+        await tx.insert(activityTable).values({
+          merchantId: current.merchantId,
+          type: "withdrawal_reviewed",
+          title: "Withdrawal rejected",
+          description: parsed.data.note?.trim() || "Your withdrawal request was rejected.",
+          amount: current.amount,
+          currency: current.currency,
+          tone: "negative",
+        });
+        return updated;
+      }
+
+      if (current.status !== "pending") {
+        throw new Error(`Cannot move a ${current.status} withdrawal to approved`);
+      }
+
+      let destination: { bankCode: string; accountNumber: string };
+      try {
+        destination = JSON.parse(decryptSecret(current.destinationCiphertext)) as {
+          bankCode: string;
+          accountNumber: string;
+        };
+      } catch {
+        throw new Error("Withdrawal destination could not be decrypted");
+      }
+      if (!destination.bankCode || !destination.accountNumber) {
+        throw new Error("Withdrawal destination is incomplete");
+      }
+      if (!supportsFlutterwaveDirectBankTransfer(current.currency)) {
+        throw new Error(
+          `Flutterwave payout rail is not enabled for ${current.currency}. No manual payout is permitted.`,
+        );
+      }
+
+      // The provider request is idempotent on the immutable withdrawal reference.
+      // Keeping this operation inside the row lock prevents two admins from
+      // initiating the same payout concurrently. If the process retries after a
+      // provider timeout, the same key is reused rather than creating a second
+      // transfer.
+      const providerReference = `lunavo-withdrawal-${current.id}`;
+      const transfer = await createFlutterwaveTransfer({
+        reference: providerReference,
+        amount: Number(current.amount),
+        currency: current.currency,
+        bankCode: destination.bankCode,
+        accountNumber: destination.accountNumber,
+        beneficiaryName: current.beneficiaryName,
+        narration: `Lunavo merchant withdrawal #${current.id}`,
+      });
+      const providerStatus = flutterwaveTransferStatus(transfer);
+      const providerPayoutId = transfer.id == null ? null : String(transfer.id);
+      if (!providerPayoutId) {
+        throw new Error("Flutterwave did not return a transfer ID; payout was not accepted");
+      }
+      if (providerStatus === "failed") {
+        const [updated] = await tx
+          .update(withdrawalsTable)
+          .set({
+            status: "rejected",
+            reviewedBy: identity.clerkUserId,
+            reviewNote: parsed.data.note?.trim() || null,
+            reviewedAt: new Date(),
+            providerPayoutId,
+            payoutProvider: "flutterwave",
+            providerStatus: "failed",
+            providerFailureReason: transfer.complete_message || "Flutterwave rejected the payout",
+            settlementReference: transfer.reference ?? providerReference,
+          })
+          .where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "pending")))
+          .returning();
+        if (!updated) throw new Error("Withdrawal was already updated");
+        await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
+          merchantId: current.merchantId,
+          withdrawalId: current.id,
+          amountMinor: Math.round(Number(current.amount) * 100),
+          currency: current.currency,
+          event: "release",
+        })).onConflictDoNothing();
+        await tx.insert(activityTable).values({
+          merchantId: current.merchantId,
+          type: "withdrawal_reviewed",
+          title: "Withdrawal rejected by provider",
+          description: transfer.complete_message || "Flutterwave rejected the payout.",
+          amount: current.amount,
+          currency: current.currency,
+          tone: "negative",
+        });
+        return updated;
+      }
+
+      const isPaid = providerStatus === "paid";
+      const [updated] = await tx
+        .update(withdrawalsTable)
+        .set({
+          status: isPaid ? "paid" : "approved",
+          reviewedBy: identity.clerkUserId,
+          reviewNote: parsed.data.note?.trim() || null,
+          reviewedAt: new Date(),
+          paidAt: isPaid ? new Date() : current.paidAt,
+          payoutProvider: "flutterwave",
+          providerPayoutId,
+          providerStatus: isPaid ? "succeeded" : "pending",
+          providerFailureReason: null,
+          settlementReference: transfer.reference ?? providerReference,
+          settledAt: isPaid ? new Date() : null,
+        })
+        .where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "pending")))
+        .returning();
+      if (!updated) throw new Error("Withdrawal was already updated");
+
+      if (isPaid) {
         await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
           merchantId: current.merchantId,
           withdrawalId: current.id,
@@ -12257,26 +12354,21 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
           event: "paid",
         })).onConflictDoNothing();
       }
+
       await tx.insert(activityTable).values({
         merchantId: current.merchantId,
         type: "withdrawal_reviewed",
-        title:
-          parsed.data.status === "paid"
-            ? "Withdrawal marked paid"
-            : `Withdrawal ${parsed.data.status}`,
-        description:
-          parsed.data.note?.trim() ||
-          (parsed.data.status === "approved"
-            ? "Your withdrawal was approved for manual payout."
-            : parsed.data.status === "paid"
-              ? "Your withdrawal was marked paid after manual transfer."
-              : "Your withdrawal request was rejected."),
+        title: isPaid ? "Withdrawal paid by Flutterwave" : "Withdrawal sent to Flutterwave",
+        description: isPaid
+          ? "Flutterwave confirmed the payout and TS Pay recorded the settlement."
+          : "Flutterwave accepted the payout. TS Pay will mark it paid only after provider confirmation.",
         amount: current.amount,
         currency: current.currency,
-        tone: parsed.data.status === "rejected" ? "negative" : "positive",
+        tone: "positive",
       });
       return updated;
     });
+
     res.json(
       ReviewWithdrawalResponse.parse({
         ...serializeWithdrawal(reviewed),
