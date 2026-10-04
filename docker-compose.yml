@@ -31,7 +31,7 @@ services:
     environment:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["ollama pull ${LUNAVO_LOCAL_LLM_MODEL:-qwen3:8b}"]
+    command: ["ollama pull ${LUNAVO_LOCAL_LLM_MODEL:-qwen3:8b} && ollama pull ${LUNAVO_LOCAL_VISION_MODEL:-qwen3-vl:8b}"]
     volumes:
       - ollama_data:/root/.ollama
 
@@ -78,6 +78,7 @@ services:
       LUNAVO_SOCIAL_GATEWAY_TOKEN: ${SOCIAL_GATEWAY_TOKEN:-}
       LUNAVO_LOCAL_LLM_URL: ${LUNAVO_LOCAL_LLM_URL:-http://ollama:11434/v1/chat/completions}
       LUNAVO_LOCAL_LLM_MODEL: ${LUNAVO_LOCAL_LLM_MODEL:-qwen3:8b}
+      LUNAVO_LOCAL_VISION_MODEL: ${LUNAVO_LOCAL_VISION_MODEL:-qwen3-vl:8b}
       LUNAVO_LOCAL_IMAGE_URL: ${LUNAVO_LOCAL_IMAGE_URL:-}
       LUNAVO_LOCAL_IMAGE_MODEL: ${LUNAVO_LOCAL_IMAGE_MODEL:-local-image}
       LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-}
