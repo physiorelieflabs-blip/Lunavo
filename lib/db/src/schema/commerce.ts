@@ -1187,6 +1187,7 @@ export const paymentIntentsTable = pgTable(
     orderId: integer("order_id").references(() => ordersTable.id),
     invoicePaymentSubmissionId: integer("invoice_payment_submission_id").references(() => invoicePaymentSubmissionsTable.id),
     marketplaceBillingRecordId: integer("marketplace_billing_record_id").references(() => marketplaceBillingRecordsTable.id),
+    customerSubscriptionId: uuid("customer_subscription_id"),
     amountMinor: integer("amount_minor").notNull(),
     currency: text("currency").notNull(),
     settlementAmountMinor: integer("settlement_amount_minor"),
