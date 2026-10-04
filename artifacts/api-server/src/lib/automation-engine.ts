@@ -43,7 +43,7 @@ type Condition = {
 
 function getPath(context: WorkflowContext, path: string): unknown {
   const normalized = path.replace(/^\$/, "").trim();
-  if (!normalized || normalized.length > 180) return undefined;
+  if (!normalized || normalized.length > 180 || !/^[a-zA-Z0-9_.]+$/.test(normalized)) return undefined;
   const segments = normalized.split(".").filter(Boolean);
   let current: unknown = context;
   for (const segment of segments) {
@@ -74,29 +74,34 @@ function conditionPasses(context: WorkflowContext, condition: Condition): boolea
     }
     case "gt": {
       const a = comparable(actual); const b = comparable(condition.value);
-      return typeof a === "number" && typeof b === "number" ? a > b : String(a) > String(b);
+      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
+      return a > b;
     }
     case "gte": {
       const a = comparable(actual); const b = comparable(condition.value);
-      return typeof a === "number" && typeof b === "number" ? a >= b : String(a) >= String(b);
+      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
+      return a >= b;
     }
     case "lt": {
       const a = comparable(actual); const b = comparable(condition.value);
-      return typeof a === "number" && typeof b === "number" ? a < b : String(a) < String(b);
+      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
+      return a < b;
     }
     case "lte": {
       const a = comparable(actual); const b = comparable(condition.value);
-      return typeof a === "number" && typeof b === "number" ? a <= b : String(a) <= String(b);
+      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
+      return a <= b;
     }
     default: return false;
   }
 }
-function conditionsPass(context: WorkflowContext, conditions: unknown): boolean {
-  if (Array.isArray(conditions)) return conditions.every((condition) => conditionPasses(context, condition as Condition));
+function conditionsPass(context: WorkflowContext, conditions: unknown, depth = 0): boolean {
+  if (depth > 5) return false;
+  if (Array.isArray(conditions)) return conditions.every((condition) => conditionsPass(context, condition, depth + 1));
   if (!conditions || typeof conditions !== "object") return false;
   const group = conditions as { all?: unknown[]; any?: unknown[] };
-  if (Array.isArray(group.all)) return group.all.every((condition) => conditionsPass(context, condition));
-  if (Array.isArray(group.any)) return group.any.some((condition) => conditionsPass(context, condition));
+  if (Array.isArray(group.all)) return group.all.length <= 20 && group.all.every((condition) => conditionsPass(context, condition, depth + 1));
+  if (Array.isArray(group.any)) return group.any.length <= 20 && group.any.some((condition) => conditionsPass(context, condition, depth + 1));
   return conditionPasses(context, conditions as Condition);
 }
 function boundedText(value: unknown, max: number, fallback = ""): string {
@@ -199,7 +204,7 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
         }
       }
       const limit = Math.max(0, Math.min(10000, Number(workflow.daily_run_limit ?? 100)));
-      const count = await tx.execute(sql`SELECT COUNT(*)::int AS count FROM merchant_automation_runs WHERE workflow_id=${workflowId} AND created_at >= CURRENT_DATE`);
+      const count = await tx.execute(sql`SELECT COUNT(*)::int AS count FROM merchant_automation_runs WHERE workflow_id=${workflowId} AND created_at >= CURRENT_DATE AND status IN ('completed','running','approval_required','dry_run')`);
       if (Number((count.rows[0] as { count?: number } | undefined)?.count ?? 0) >= limit) {
         await tx.execute(sql`INSERT INTO merchant_automation_runs(workflow_id,merchant_id,event_id,status,idempotency_key,trigger_snapshot,result) VALUES(${workflowId},${context.merchantId},${context.eventId},'skipped',${idempotencyKey},${JSON.stringify(context)}::jsonb,JSON.stringify({reason:'daily_limit'})::jsonb)`);
         return;
