@@ -181,13 +181,13 @@ router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
     // Provider-backed reasoning is an accelerator, not a launch dependency.
     // Fall back to deterministic matching over the same authoritative marketplace
     // rows rather than fabricating an AI answer or blocking the shopper.
-    const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 2).slice(0, 24);
+    const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((token: string) => token.length >= 2).slice(0, 24);
     const ranked = rows.map(({ product, merchantKey, merchantName }) => {
       const haystack = [product.title, product.description, product.category, product.brand]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      const matched = tokens.filter((token) => haystack.includes(token));
+      const matched = tokens.filter((token: string) => haystack.includes(token));
       return {
         matchScore: matched.length,
         product,
