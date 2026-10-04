@@ -15,8 +15,22 @@ export default function SupplierReputation(){
   const [directory,setDirectory]=useState<Array<any>>([]);
   const [directoryBusy,setDirectoryBusy]=useState(false);
 
+  async function lookupDomain(requestedDomain:string){
+    setBusy(true);setError("");setResult(null);
+    try{
+      const value=requestedDomain.trim().toLowerCase();
+      if(!/^[a-z0-9.-]+$/.test(value))throw new Error("Enter a supplier domain such as supplier.example");
+      const r=await fetch("/api/public/supplier-intelligence/"+encodeURIComponent(value),{headers:{Accept:"application/json"}});
+      const b=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(String(b.error||"No public passport is available for this supplier yet."));
+      setResult(b as Passport);
+    }catch(err){setError(err instanceof Error?err.message:"Supplier passport lookup failed");}
+    finally{setBusy(false);}
+  }
   async function lookup(e:any){
-    e.preventDefault();setBusy(true);setError("");setResult(null);
+    e.preventDefault();
+    await lookupDomain(domain);
+    return;
     try{
       const value=domain.trim().toLowerCase();
       if(!/^[a-z0-9.-]+$/.test(value))throw new Error("Enter a supplier domain such as supplier.example");
@@ -36,7 +50,7 @@ export default function SupplierReputation(){
       if(r.ok)setDirectory(Array.isArray(b.suppliers)?b.suppliers:[]);
     }finally{setDirectoryBusy(false);}
   }
-  useEffect(()=>{void loadDirectory();},[]);
+  useEffect(()=>{void loadDirectory();const requested=new URLSearchParams(window.location.search).get("domain")?.trim();if(requested){setDomain(requested);void lookupDomain(requested);}},[]);
   return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8 text-[#182333]">
     <div className="mx-auto max-w-[1120px]">
       <header className="flex items-center justify-between gap-4"><Link href="/" className="font-mono text-xs font-black tracking-[.14em]">Lunavo</Link><Link href="/sign-up" className="rounded-lg bg-[#182333] px-4 py-2 text-xs font-extrabold text-[#f8f3e8]">Start selling <ArrowRight className="ml-1 inline h-3.5 w-3.5"/></Link></header>
