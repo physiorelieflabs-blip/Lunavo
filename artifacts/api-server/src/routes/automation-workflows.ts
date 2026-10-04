@@ -9,6 +9,7 @@ import { approveWorkflowRun, dispatchWorkflowEvent, isWorkflowTriggerEvent, WORK
 const router = Router();
 const conditionOps = new Set(["eq","neq","in","gt","gte","lt","lte","contains","exists"]);
 const actionKinds = new Set(["create_operation","create_message","set_feature_flag","log"]);
+const protectedFeatureKeyPrefixes = ["payment","payout","withdrawal","ledger","provider","webhook","kyc","security","admin","auth"];
 const operationKinds = new Set(["task","product_alert","support_ticket","lead","delivery_issue","supplier_issue"]);
 
 async function merchantContext(req: Request, res: Response) {
@@ -48,7 +49,7 @@ function validateActions(input: unknown): { ok: boolean; value: Array<Record<str
       if (!operationKinds.has(String(config.kind)) || !text(config.title,200)) return { ok:false,value:[],error:"Invalid operation action" };
     }
     if (action.kind === "create_message" && (!text(config.subject,200) || !text(config.body,4000))) return { ok:false,value:[],error:"Invalid message action" };
-    if (action.kind === "set_feature_flag" && !/^[a-zA-Z0-9._:-]{1,80}$/.test(text(config.key,80))) return { ok:false,value:[],error:"Invalid feature flag action" };
+    if (action.kind === "set_feature_flag") { const flagKey=text(config.key,80); if (!/^[a-zA-Z0-9._:-]{1,80}$/.test(flagKey) || protectedFeatureKeyPrefixes.some(prefix=>flagKey.toLowerCase().startsWith(prefix))) return { ok:false,value:[],error:"Invalid or protected feature flag action" }; }
     value.push({ kind: action.kind, config });
   }
   return { ok: true, value };
