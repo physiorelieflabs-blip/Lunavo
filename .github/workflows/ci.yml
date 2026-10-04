@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, feat/social-hub-ui-real, feat/lunavo-master-implementation]
   pull_request:
-    branches: [main]
+    branches: [main, feat/lunavo-master-implementation]
 
 concurrency:
   group: lunavo-ci-${{ github.workflow }}-${{ github.ref }}
