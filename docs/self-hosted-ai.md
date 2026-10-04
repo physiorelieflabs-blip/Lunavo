@@ -18,6 +18,10 @@ These are real open-weight model families available through local runtimes. The 
 
 Qwen3 is available in local Ollama variants including 4B, 14B, 30B and larger models. Qwen3-Coder 30B is a local coding model with long-context support. DeepSeek-R1 14B is a local reasoning model. Gemma 3 12B accepts text and images. See the official model references before selecting a model for a production machine.
 
+## Release posture
+
+The application fails closed when a local AI runtime is unavailable; it does not silently fall back to hosted AI providers.
+
 ## Multi-model behavior
 
 Normal work is routed to the smallest suitable specialist. High-effort reasoning can use a local ensemble:
