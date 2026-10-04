@@ -46,6 +46,54 @@ async function merchantFor(req: Request) {
   return { ...row, userId };
 }
 
+router.get("/public/supplier-intelligence", async (_req, res, next) => {
+  try {
+    const rows=(await db.execute(sql`
+      SELECT supplier_domain,
+             COUNT(DISTINCT merchant_id)::int AS merchants,
+             COUNT(*)::int AS observations,
+             ROUND(AVG(quality_score))::int AS quality_score,
+             ROUND(AVG(tracking_score))::int AS tracking_score,
+             ROUND(AVG(defect_rate_bps))::int AS defect_rate_bps,
+             ROUND(AVG(refund_rate_bps))::int AS refund_rate_bps,
+             ROUND(AVG(eta_max_days))::int AS eta_max_days,
+             MAX(observed_at) AS last_observed_at
+      FROM dropship_supplier_observations
+      WHERE share_with_supplier_network=true
+      GROUP BY supplier_domain
+      HAVING COUNT(DISTINCT merchant_id) >= 3
+      ORDER BY (COUNT(DISTINCT merchant_id) * 10 + COUNT(*)) DESC, supplier_domain ASC
+      LIMIT 100
+    `)).rows as Array<Record<string,unknown>>;
+    res.json({
+      suppliers:rows.map(row=>{
+        const merchants=Number(row.merchants), observations=Number(row.observations);
+        const passport=scoreSupplier({
+          qualityScore:row.quality_score==null?null:Number(row.quality_score),
+          trackingScore:row.tracking_score==null?null:Number(row.tracking_score),
+          lateRateBps:null,
+          defectRateBps:row.defect_rate_bps==null?null:Number(row.defect_rate_bps),
+          observations,
+          fulfilledOrders:0,
+        });
+        return {
+          supplierDomain:String(row.supplier_domain),
+          independentMerchants:merchants,
+          observations,
+          passport,
+          qualityScore:row.quality_score==null?null:Number(row.quality_score),
+          trackingScore:row.tracking_score==null?null:Number(row.tracking_score),
+          defectRateBps:row.defect_rate_bps==null?null:Number(row.defect_rate_bps),
+          refundRateBps:row.refund_rate_bps==null?null:Number(row.refund_rate_bps),
+          etaMaxDays:row.eta_max_days==null?null:Number(row.eta_max_days),
+          lastObservedAt:row.last_observed_at
+        };
+      }),
+      privacy:"Only aggregated opt-in evidence with at least three independent merchant contributors is included."
+    });
+  } catch(error){next(error);}
+});
+
 router.get("/public/supplier-intelligence/:domain", async (req, res, next) => {
   try {
     const domain=text(req.params.domain,160).toLowerCase();
