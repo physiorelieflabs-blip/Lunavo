@@ -46,10 +46,20 @@ function modelsFor(role: BrainRole): string[] {
         ? splitList(process.env.LUNAVO_LOCAL_FAST_MODELS)
         : splitList(process.env.LUNAVO_LOCAL_REASONING_MODELS);
   if (roleSpecific.length) return roleSpecific;
-  if (role === "vision") return splitList(process.env.LUNAVO_LOCAL_VISION_MODEL) || ["qwen2.5vl:32b"];
-  if (role === "fast") return splitList(process.env.LUNAVO_LOCAL_FAST_MODEL) || ["qwen3:14b"];
-  if (role === "critic") return splitList(process.env.LUNAVO_LOCAL_CRITIC_MODEL) || ["qwen3:32b"];
-  return splitList(process.env.LUNAVO_LOCAL_LLM_MODEL) || ["qwen3:32b"];
+  if (role === "vision") {
+    const one = splitList(process.env.LUNAVO_LOCAL_VISION_MODEL);
+    return one.length ? one : ["qwen2.5vl:32b"];
+  }
+  if (role === "fast") {
+    const one = splitList(process.env.LUNAVO_LOCAL_FAST_MODEL);
+    return one.length ? one : ["qwen3:14b"];
+  }
+  if (role === "critic") {
+    const one = splitList(process.env.LUNAVO_LOCAL_CRITIC_MODEL);
+    return one.length ? one : ["qwen3:32b"];
+  }
+  const one = splitList(process.env.LUNAVO_LOCAL_LLM_MODEL);
+  return one.length ? one : ["qwen3:32b"];
 }
 
 function urlPool(role: BrainRole): string[] {
