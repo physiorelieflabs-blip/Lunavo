@@ -67,6 +67,11 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){
   }
 }
 for(const p of authSurfaceFiles){const source=await optional(p);if(/from ["'](clerk\/express|clerk\/react|clerk\/shared)["']/.test(source))failures.push(`Non-workspace hosted auth package import remains: ${p}`)}
+const customerExperience=await read("artifacts/api-server/src/routes/customer-experience.ts");for(const m of ["/public/store/:merchantKey/cart/recovery","/merchant/cart-recovery","/merchant/customer-addresses","/public/store/:merchantKey/reviews","/merchant/reviews","/public/store/:merchantKey/saved-searches","/public/store/:merchantKey/price-watches","/public/store/:merchantKey/notification-preferences","verified-purchase","ON CONFLICT"])if(!customerExperience.includes(m))failures.push(`Customer experience invariant missing: ${m}`);
+const cartWorker=await read("artifacts/api-server/src/lib/cart-recovery-worker.ts");for(const m of ["runCartRecoverySweep","60 minutes","cart.abandoned","startCartRecoveryWorker"])if(!cartWorker.includes(m))failures.push(`Cart recovery worker invariant missing: ${m}`);
+const cxMigration=await read("lib/db/migrations/0110_customer_experience_completion.sql");for(const m of ["abandoned_carts","customer_addresses","product_reviews","customer_saved_searches","customer_price_watches","customer_notification_preferences"])if(!cxMigration.includes(m))failures.push(`Customer experience migration invariant missing: ${m}`);
+const domainTypes=await read("artifacts/api-server/src/lib/domain-events.ts");for(const m of ["cart.abandoned","cart.recovered","review.created","review.moderated","customer.address.updated","customer.preferences.updated","customer.price_watch.created"])if(!domainTypes.includes(m))failures.push(`Customer domain-event invariant missing: ${m}`);
+const serverRuntime=await read("artifacts/api-server/src/index.ts");if(!serverRuntime.includes("startCartRecoveryWorker"))failures.push("Cart recovery worker must start with the API server");
 const transferRoute=await optional("artifacts/api-server/src/routes/ts-pay-transfers.ts");for(const m of ["tsPayAvailableMinor","ORDER BY id FOR UPDATE","ledger_entries"])if(!transferRoute.includes(m))failures.push(`TS Pay hold-safe transfer invariant missing: ${m}`);
 const orderRoute=await read("artifacts/api-server/src/routes/commerce.ts");
 for(const m of [
