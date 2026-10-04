@@ -728,6 +728,161 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
   return result;
 }
 
+function addCustomerSubscriptionPeriod(base: Date, unit: string, count: number): Date {
+  const next = new Date(base);
+  if (unit === "day") next.setUTCDate(next.getUTCDate() + count);
+  else if (unit === "week") next.setUTCDate(next.getUTCDate() + count * 7);
+  else if (unit === "month") next.setUTCMonth(next.getUTCMonth() + count);
+  else next.setUTCFullYear(next.getUTCFullYear() + count);
+  return next;
+}
+
+async function synchronizeCustomerSubscriptionPayment(
+  intent: OrderIntent,
+  transaction: ProviderTransaction,
+  eventId: string,
+  outcome: "successful" | "duplicate" | "failed" | "reversed",
+) {
+  const subscriptionId = intent.customerSubscriptionId;
+  if (!subscriptionId) return outcome;
+  const providerId = flutterwaveTransactionId(transaction as any);
+  const providerState = outcome === "reversed"
+    ? (providerReversal(transaction) ?? "reversed")
+    : outcome;
+  const metadata = meta(transaction);
+  const observedSubscriptionId = metaNumber(metadata, "customer_subscription_id");
+  if (observedSubscriptionId !== null && observedSubscriptionId !== String(subscriptionId)) {
+    await recordReconciliationException({
+      eventId,
+      providerTransactionId: providerId,
+      paymentReference: txRef(transaction) || null,
+      merchantId: intent.merchantId,
+      orderId: intent.orderId,
+      paymentIntentId: intent.id,
+      reason: "Flutterwave customer subscription metadata does not match the TS Pay payment intent",
+      payload: transaction,
+    });
+    return "reconciliation_required" as const;
+  }
+
+  const state = (await db.execute(sql`
+    SELECT s.id,s.status,s.amount_minor,s.currency,s.current_period_start,s.current_period_end,
+           s.next_charge_at,s.grace_until,s.failed_attempts,s.max_failed_attempts,
+           p.interval_unit,p.interval_count,p.grace_period_days,
+           a.id AS attempt_id,a.attempt_number,a.status AS attempt_status
+    FROM customer_subscriptions s
+    JOIN customer_subscription_plans p ON p.id=s.plan_id
+    LEFT JOIN customer_subscription_payment_attempts a ON a.payment_intent_id=${intent.id}
+    WHERE s.id=${subscriptionId} AND s.merchant_id=${intent.merchantId}
+    LIMIT 1
+  `)).rows[0] as any;
+  if (!state) {
+    await recordReconciliationException({
+      eventId,
+      providerTransactionId: providerId,
+      paymentReference: txRef(transaction) || null,
+      merchantId: intent.merchantId,
+      orderId: intent.orderId,
+      paymentIntentId: intent.id,
+      reason: "Customer subscription payment intent has no matching subscription attempt",
+      payload: transaction,
+    });
+    return "reconciliation_required" as const;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM customer_subscriptions WHERE id=${subscriptionId} AND merchant_id=${intent.merchantId} FOR UPDATE`);
+    const current = (await tx.execute(sql`SELECT * FROM customer_subscriptions WHERE id=${subscriptionId} AND merchant_id=${intent.merchantId} LIMIT 1`)).rows[0] as any;
+    const attempt = (await tx.execute(sql`SELECT * FROM customer_subscription_payment_attempts WHERE subscription_id=${subscriptionId} AND payment_intent_id=${intent.id} LIMIT 1`)).rows[0] as any;
+    if (!current || !attempt) throw new Error("Customer subscription payment state unavailable");
+
+    if (outcome === "successful" || outcome === "duplicate") {
+      if (attempt.status === "successful") return;
+      const initialPayment = Number(attempt.attempt_number) === 1 && String(current.status) === "pending_payment";
+      const currentEnd = new Date(current.current_period_end);
+      const nextEnd = initialPayment
+        ? currentEnd
+        : addCustomerSubscriptionPeriod(currentEnd, String(state.interval_unit), Number(state.interval_count));
+      const nextStart = initialPayment ? new Date(current.current_period_start) : currentEnd;
+      const grace = new Date(nextEnd.getTime() + Number(state.grace_period_days) * 86400000);
+      await tx.execute(sql`
+        UPDATE customer_subscription_payment_attempts
+        SET status='successful',
+            provider_transaction_id=${providerId},
+            provider_event_id=${eventId},
+            updated_at=now()
+        WHERE id=${attempt.id}
+      `);
+      await tx.execute(sql`
+        UPDATE customer_subscriptions
+        SET status='active',
+            failed_attempts=0,
+            current_period_start=${nextStart},
+            current_period_end=${nextEnd},
+            next_charge_at=${nextEnd},
+            grace_until=${grace},
+            last_payment_intent_id=${intent.id},
+            last_order_id=${intent.orderId},
+            updated_at=now()
+        WHERE id=${current.id}
+      `);
+      await tx.execute(sql`
+        INSERT INTO customer_subscription_events(subscription_id,event_type,event_key,payload)
+        VALUES(${subscriptionId},${initialPayment ? "activated" : "renewed"},
+          ${"customer-subscription:" + subscriptionId + ":payment:" + intent.id},
+          ${JSON.stringify({ paymentIntentId:intent.id, orderId:intent.orderId, providerTransactionId:providerId, eventId, attemptNumber:Number(attempt.attempt_number) })}::jsonb)
+        ON CONFLICT(event_key) DO NOTHING
+      `);
+      return;
+    }
+
+    if (outcome === "reversed") {
+      if (["refunded","charged_back"].includes(String(attempt.status))) return;
+      const grace = new Date(Date.now() + Number(state.grace_period_days) * 86400000);
+      await tx.execute(sql`
+        UPDATE customer_subscription_payment_attempts
+        SET status=${providerState === "refunded" ? "refunded" : "charged_back"},
+            provider_transaction_id=${providerId},
+            provider_event_id=${eventId},
+            updated_at=now()
+        WHERE id=${attempt.id}
+      `);
+      await tx.execute(sql`
+        UPDATE customer_subscriptions
+        SET status='past_due',
+            next_charge_at=now(),
+            grace_until=${grace},
+            updated_at=now()
+        WHERE id=${current.id} AND status IN ('active','past_due')
+      `);
+      return;
+    }
+
+    if (attempt.status === "failed") return;
+    const nextFailed = Number(current.failed_attempts) + 1;
+    const nextStatus = String(current.status) === "pending_payment"
+      ? "pending_payment"
+      : nextFailed >= Number(current.max_failed_attempts) ? "expired" : "past_due";
+    await tx.execute(sql`
+      UPDATE customer_subscription_payment_attempts
+      SET status='failed',
+          provider_transaction_id=${providerId},
+          provider_event_id=${eventId},
+          failure_reason='Flutterwave reported payment failure',
+          updated_at=now()
+      WHERE id=${attempt.id}
+    `);
+    await tx.execute(sql`
+      UPDATE customer_subscriptions
+      SET failed_attempts=${String(current.status) === "pending_payment" ? Number(current.failed_attempts) : nextFailed},
+          status=${nextStatus},
+          updated_at=now()
+      WHERE id=${current.id}
+    `);
+  });
+  return outcome;
+}
+
 export async function processVerifiedFlutterwaveTransaction(
   transaction: ProviderTransaction,
   eventId: string,
@@ -750,6 +905,13 @@ export async function processVerifiedFlutterwaveTransaction(
   }
   if (intent?.marketplaceBillingRecordId) {
     return processMarketplaceAdvertisingPayment(transaction, eventId, rawPayload, intent);
+  }
+  if (intent?.customerSubscriptionId) {
+    const outcome = await processOrderPayment(transaction, eventId, rawPayload, intent);
+    if (outcome === "successful" || outcome === "duplicate" || outcome === "failed" || outcome === "reversed") {
+      return synchronizeCustomerSubscriptionPayment(intent, transaction, eventId, outcome);
+    }
+    return outcome;
   }
   if (intent) return processOrderPayment(transaction, eventId, rawPayload, intent);
   return processSubscriptionPayment(transaction, eventId, rawPayload, subscriptionPayment!);
