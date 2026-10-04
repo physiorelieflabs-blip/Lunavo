@@ -79,15 +79,32 @@ function urlPool(role: BrainRole): string[] {
 function candidatesFor(role: BrainRole): Candidate[] {
   const urls = urlPool(role);
   const models = modelsFor(role);
-  const effectiveUrls = urls.length ? urls : ["http://127.0.0.1:11434/v1/chat/completions"];
+  const effectiveUrls = urls.length
+    ? urls
+    : ["http://127.0.0.1:11434/v1/chat/completions"];
   const output: Candidate[] = [];
-  for (let i = 0; i < effectiveUrls.length; i += 1) {
-    const url = effectiveUrls[i]!;
+  for (let urlIndex = 0; urlIndex < effectiveUrls.length; urlIndex += 1) {
+    const url = effectiveUrls[urlIndex]!;
     const protocol = inferProtocol(url);
-    const model = models[i % models.length]!;
-    output.push({ baseUrl: inferEndpoint(url, protocol), model, protocol, weight: i === 0 ? 1.2 : 1 });
+    for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
+      const model = models[modelIndex]!;
+      output.push({
+        baseUrl: inferEndpoint(url, protocol),
+        model,
+        protocol,
+        weight: urlIndex === 0 && modelIndex === 0 ? 1.2 : 1,
+      });
+    }
   }
-  return output;
+  return output.filter(
+    (candidate, index, all) =>
+      all.findIndex(
+        (other) =>
+          other.baseUrl === candidate.baseUrl &&
+          other.model === candidate.model &&
+          other.protocol === candidate.protocol,
+      ) === index,
+  );
 }
 
 function jsonInstruction(json: boolean | undefined) {
