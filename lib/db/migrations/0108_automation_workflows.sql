@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS merchant_automation_workflows (
   version integer NOT NULL DEFAULT 1 CHECK (version > 0),
   last_run_at timestamptz,
   next_scheduled_at timestamptz,
+  schedule_interval_seconds integer NOT NULL DEFAULT 0 CHECK (schedule_interval_seconds >= 0 AND schedule_interval_seconds <= 2592000),
   created_by text NOT NULL,
   updated_by text,
   created_at timestamptz NOT NULL DEFAULT now(),
