@@ -49,14 +49,25 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
   const locked=(await executeQuery(db,{sql:"SELECT s.*,c.name AS customer_name,c.email AS customer_email,p.name AS plan_name,p.grace_period_days,p.interval_unit,p.interval_count,m.store_name,sp.title AS product_title,sp.id AS product_id,l.id AS location_id FROM customer_subscriptions s JOIN customers c ON c.id=s.customer_id JOIN customer_subscription_plans p ON p.id=s.plan_id JOIN merchants m ON m.id=s.merchant_id JOIN supplier_products sp ON sp.id=p.product_id LEFT JOIN merchant_locations l ON l.merchant_id=s.merchant_id AND l.is_active=true AND l.is_default=true WHERE s.id=$1 AND s.manage_token_hash=$2 LIMIT 1",values:[subscriptionId,authHash]})).rows[0] as any;
   if(!locked)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
   if(!["pending_payment","active","past_due"].includes(String(locked.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
+  if(String(locked.status)==="active" && new Date(locked.next_charge_at).getTime()>Date.now()){
+    throw Object.assign(new Error("The next subscription renewal is not due yet"),{statusCode:409});
+  }
   if(!locked.location_id)throw new Error("Merchant has no active default location");
 
   const created=await db.transaction(async(tx)=>{
     const s=(await executeQuery(tx,{sql:"SELECT * FROM customer_subscriptions WHERE id=$1 AND manage_token_hash=$2 FOR UPDATE",values:[subscriptionId,authHash]})).rows[0] as any;
     if(!s)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
     if(!["pending_payment","active","past_due"].includes(String(s.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
-    const recent=await executeQuery(tx,{sql:"SELECT attempt_number,checkout_url FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') AND created_at>now()-interval '15 minutes' ORDER BY created_at DESC LIMIT 1",values:[subscriptionId]});
-    if(recent.rows.length)return {existing:true,paymentUrl:(recent.rows[0] as any).checkout_url||null,attemptNumber:Number((recent.rows[0] as any).attempt_number)};
+    const recent=await executeQuery(tx,{sql:"SELECT id,attempt_number,checkout_url,status FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') AND created_at>now()-interval '15 minutes' ORDER BY created_at DESC LIMIT 1",values:[subscriptionId]});
+    if(recent.rows.length){
+      const existing=recent.rows[0] as any;
+      if(String(existing.status)==="submitted" && typeof existing.checkout_url==="string" && existing.checkout_url.trim()){
+        return {existing:true,paymentUrl:existing.checkout_url,attemptNumber:Number(existing.attempt_number)};
+      }
+      if(String(existing.status)==="created"){
+        await executeQuery(tx,{sql:"UPDATE customer_subscription_payment_attempts SET status='expired',failure_reason='Checkout initialization did not complete',updated_at=now() WHERE id=$1 AND status='created'",values:[String(existing.id)]});
+      }
+    }
     const last=await executeQuery(tx,{sql:"SELECT COALESCE(MAX(attempt_number),0)::int AS n FROM customer_subscription_payment_attempts WHERE subscription_id=$1",values:[subscriptionId]});
     const n=Number((last.rows[0] as any)?.n||0)+1;
     const ref="CSUB-"+subscriptionId.slice(0,8)+"-"+Date.now()+"-"+randomUUID().slice(0,8);
