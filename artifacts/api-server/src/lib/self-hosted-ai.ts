@@ -80,7 +80,7 @@ export async function completeLocalVisionJson(prompt: string, imageUrl: string, 
         { type: "image_url", image_url: { url: imageUrl, detail: "auto" } },
       ],
     },
-  ], { json: true, maxTokens: options.maxTokens ?? 2500, timeoutMs: options.timeoutMs ?? 90_000 });
+  ], { json: true, model: process.env.LUNAVO_LOCAL_VISION_MODEL?.trim() || model(), maxTokens: options.maxTokens ?? 2500, timeoutMs: options.timeoutMs ?? 90_000 });
 }
 
 export function selfHostedAiConfigured(): boolean {
