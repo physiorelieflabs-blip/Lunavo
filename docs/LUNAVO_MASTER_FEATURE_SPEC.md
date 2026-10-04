@@ -1,6 +1,6 @@
 # Lunavo — Master Feature Coverage Specification
 
-This document is the canonical implementation checklist for the Lunavo rebuild. GitHub `main` is the source of truth for development. Replit is intentionally excluded from development.
+This document is the canonical implementation checklist for the Lunavo rebuild. GitHub is the source of truth for development.
 
 ## 1. Merchant workspace
 - Dashboard matching the approved Lunavo merchant reference: dark navigation, KPI cards, AI Control Room, Quick Actions, AI Visual Studio, AI Store Builder, Recent Activity, AI Recommendations, Sales Overview, Billing & Subscription, Referral Program, bank-transfer details, responsive mobile experience.
@@ -201,4 +201,4 @@ Every implementation batch must preserve:
 10. Build/typecheck/security simulation before declaring the batch complete.
 
 ## 20. Rebuild rule
-**Never use Replit to develop, edit, debug or implement Lunavo.** All code changes are made in GitHub. Replit is only a later deployment/runtime synchronization target when explicitly requested by the owner.
+**All Lunavo code changes are made in GitHub. The application is deployed and operated from its self-hosted infrastructure.**
