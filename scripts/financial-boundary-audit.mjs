@@ -8,25 +8,13 @@ const apiRoots = [
   path.join(root, "artifacts/api-server/src/lib"),
 ];
 
-const financialMarkers = [
-  "paymentsTable",
-  "paymentIntentsTable",
-  "paymentRecordsTable",
-  "ledgerEntriesTable",
-  "withdrawalsTable",
-  "refundRecordsTable",
-  "advertisingPaymentsTable",
-  "marketplaceBillingRecordsTable",
-  "tsPayTransfersTable",
-  "INSERT INTO payments",
-  "INSERT INTO payment_intents",
-  "INSERT INTO payment_records",
-  "INSERT INTO ledger_entries",
-  "INSERT INTO withdrawals",
-  "INSERT INTO refund_records",
-  "INSERT INTO advertising_payments",
-  "INSERT INTO marketplace_billing_records",
-  "INSERT INTO ts_pay_transfers",
+const financialMutationMarkers = [
+  /\.(?:insert)\((?:[^\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
+  /\.(?:update)\((?:[^\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
+  /\.(?:delete)\((?:[^\n]*?)?(?:paymentsTable|paymentIntentsTable|paymentRecordsTable|ledgerEntriesTable|withdrawalsTable|refundRecordsTable|advertisingPaymentsTable|marketplaceBillingRecordsTable|tsPayTransfersTable)/s,
+  /INSERT\s+INTO\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)/i,
+  /UPDATE\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)\b/i,
+  /DELETE\s+FROM\s+(?:payments|payment_intents|payment_records|ledger_entries|withdrawals|refund_records|advertising_payments|marketplace_billing_records|ts_pay_transfers)\b/i,
 ];
 
 const financialBoundaryFiles = new Set([
@@ -81,7 +69,7 @@ for (const dir of apiRoots) {
   for (const file of await walk(dir)) {
     const rel = path.relative(root, file).replaceAll(path.sep, "/");
     const source = await readFile(file, "utf8");
-    if (financialMarkers.some((marker) => source.includes(marker)) && !financialBoundaryFiles.has(rel)) {
+    if (financialMutationMarkers.some((marker) => marker.test(source)) && !financialBoundaryFiles.has(rel)) {
       failures.push(`Financial mutation outside an approved server boundary: ${rel}`);
     }
   }
