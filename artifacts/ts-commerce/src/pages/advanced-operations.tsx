@@ -39,6 +39,8 @@ export default function AdvancedOperations(){
  const [flagKey,setFlagKey]=useState("");
  const [flagEnabled,setFlagEnabled]=useState(false);
  const [experiments,setExperiments]=useState<Experiment[]>([]);
+ const [experimentKey,setExperimentKey]=useState(""); const [experimentName,setExperimentName]=useState("");
+ const [periodKey,setPeriodKey]=useState(""); const [periodStart,setPeriodStart]=useState(""); const [periodEnd,setPeriodEnd]=useState("");
  const [periods,setPeriods]=useState<Period[]>([]);
  const [message,setMessage]=useState("");
  const [error,setError]=useState(false);
@@ -116,6 +118,24 @@ export default function AdvancedOperations(){
   catch(e){setError(true);setMessage(e instanceof Error?e.message:"Feature flag update failed.");}
  };
 
+ const createExperiment=async()=>{
+  if(!experimentKey.trim()||!experimentName.trim())return;
+  try{
+   await customFetch("/api/merchant/experiments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({key:experimentKey,name:experimentName,variants:[{key:"control",weight:50},{key:"variant",weight:50}],metrics:["conversion_rate","revenue"]})});
+   setExperimentKey("");setExperimentName("");setMessage("Experiment created.");await load();
+  }catch(e){setError(true);setMessage(e instanceof Error?e.message:"Experiment creation failed.");}
+ };
+ const transitionPeriod=async(id:string,status:string)=>{
+  try{await customFetch("/api/merchant/accounting-periods/"+id+"/transition",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({status})});await load();}
+  catch(e){setError(true);setMessage(e instanceof Error?e.message:"Accounting-period transition failed.");}
+ };
+ const createPeriod=async()=>{
+  if(!periodKey.trim()||!periodStart||!periodEnd)return;
+  try{
+   await customFetch("/api/merchant/accounting-periods",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({periodKey,startDate:periodStart,endDate:periodEnd})});
+   setPeriodKey("");setPeriodStart("");setPeriodEnd("");setMessage("Accounting period created.");await load();
+  }catch(e){setError(true);setMessage(e instanceof Error?e.message:"Accounting period creation failed.");}
+ };
  if(loading)return <AppShell><LoadingState label="Loading advanced commerce workspace" /></AppShell>;
 
  return <AppShell>
@@ -155,13 +175,15 @@ export default function AdvancedOperations(){
     </div>
     <div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
       <SectionHeading eyebrow="Experimentation" title="A/B experiments" description="Persisted experiment definitions use deterministic subject assignment, avoiding random re-assignment." />
-      {experiments.length?experiments.map(function(e){return <div key={e.id} className="mt-3 rounded-lg bg-[#f7f4ed] p-3 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-extrabold">{e.name}</span><Badge tone={e.status==="active"?"success":"neutral"}>{e.status}</Badge></div><p className="mt-1 font-mono text-[#697687]">{e.key}</p></div>}):<p className="mt-4 text-sm text-[#697687]">No experiments are configured yet.</p>}
+      <div className="mt-4 grid gap-2"><input value={experimentKey} onChange={function(e){setExperimentKey(e.target.value)}} placeholder="checkout-hero" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><input value={experimentName} onChange={function(e){setExperimentName(e.target.value)}} placeholder="Checkout hero test" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><Button onClick={createExperiment} disabled={!experimentKey.trim()||!experimentName.trim()}>Create experiment</Button></div>
+      <div className="mt-4 space-y-2">{experiments.length?experiments.map(function(e){return <div key={e.id} className="rounded-lg bg-[#f7f4ed] p-3 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-extrabold">{e.name}</span><Badge tone={e.status==="active"?"success":"neutral"}>{e.status}</Badge></div><p className="mt-1 font-mono text-[#697687]">{e.key}</p></div>}):<p className="mt-4 text-sm text-[#697687]">No experiments are configured yet.</p>}</div>
     </div>
    </section>
 
    <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6">
     <SectionHeading eyebrow="Accounting" title="Reporting periods" description="Explicit open → closed → locked lifecycle for reporting and accounting operations." />
-    <div className="mt-5 grid gap-3 md:grid-cols-3">{periods.length?periods.map(function(p){return <div key={p.id} className="rounded-xl bg-[#f7f4ed] p-4"><div className="flex items-center justify-between"><p className="font-extrabold">{p.period_key}</p><Badge tone={p.status==="locked"?"success":"neutral"}>{p.status}</Badge></div><p className="mt-1 text-xs text-[#697687]">{p.start_date} → {p.end_date}</p></div>}):<p className="text-sm text-[#697687]">No periods configured.</p>}</div>
+    <div className="mt-5 grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]"><input value={periodKey} onChange={function(e){setPeriodKey(e.target.value)}} placeholder="2026-Q4" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><input value={periodStart} onChange={function(e){setPeriodStart(e.target.value)}} type="date" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><input value={periodEnd} onChange={function(e){setPeriodEnd(e.target.value)}} type="date" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><Button onClick={createPeriod} disabled={!periodKey||!periodStart||!periodEnd}>Create</Button></div>
+    <div className="mt-5 grid gap-3 md:grid-cols-3">{periods.length?periods.map(function(p){return <div key={p.id} className="rounded-xl bg-[#f7f4ed] p-4"><div className="flex items-center justify-between gap-3"><p className="font-extrabold">{p.period_key}</p><Badge tone={p.status==="locked"?"success":"neutral"}>{p.status}</Badge></div><p className="mt-1 text-xs text-[#697687]">{p.start_date} → {p.end_date}</p><div className="mt-3 flex flex-wrap gap-2">{p.status==="open"&&<button type="button" onClick={function(){void transitionPeriod(p.id,"closed")}} className="rounded-lg border border-[#d9d2c4] bg-white px-3 py-1.5 text-xs font-bold">Close</button>}{p.status==="closed"&&<button type="button" onClick={function(){void transitionPeriod(p.id,"locked")}} className="rounded-lg border border-[#d9d2c4] bg-white px-3 py-1.5 text-xs font-bold">Lock</button>}</div></div>}):<p className="text-sm text-[#697687]">No periods configured.</p>}</div>
    </section>
   </div>
  </AppShell>;
