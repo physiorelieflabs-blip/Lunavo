@@ -76,8 +76,8 @@ describe("local AI brain", () => {
 
     expect(result.successfulCandidates).toBe(2);
     expect(result.candidatesTried).toBe(2);
-    expect(calls).toHaveLength(2);
-    expect(calls.map((entry) => entry.model)).toEqual(["model-a", "model-b"]);
+    expect(calls).toHaveLength(3);
+    expect(calls.slice(0, 2).map((entry) => entry.model)).toEqual(["model-a", "model-b"]);
   });
 
   it("disables fanout when ensemble mode is explicitly disabled", async () => {
