@@ -7613,6 +7613,11 @@ router.post("/orders", async (req, res): Promise<void> => {
           )
           .limit(1)
       )[0];
+      const guardrail = (await tx.execute(sql`SELECT status,decision FROM dropship_product_guardrails WHERE merchant_id=${merchant.id} AND supplier_product_id=${supplierProductId} LIMIT 1`)).rows[0] as { status?: string; decision?: string } | undefined;
+      if (guardrail?.status === "paused" || guardrail?.decision === "PAUSE") {
+        throw new Error("Lunavo Profit Shield has paused this product because its recorded economics or supply evidence is unsafe for new orders.");
+      }
+
       if (
         !supplierProduct ||
         supplierProduct.status !== "active" ||
