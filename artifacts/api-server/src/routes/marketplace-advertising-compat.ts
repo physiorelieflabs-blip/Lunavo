@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { db, marketplaceBillingRecordsTable, merchantsTable } from "@workspace/db";
 
@@ -8,7 +8,7 @@ const router = Router();
 async function ownsBilling(req: any, billingId: number) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  const merchant = (await db.select({ id: merchantsTable.id }).from(merchantsTable).where(and(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.status, "active"))).limit(1))[0];
+  const merchant = (await db.select({ id: merchantsTable.id }).from(merchantsTable).where(and(eq(merchantsTable.status, "active"), or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)))).limit(1))[0];
   if (!merchant) return null;
   return (await db.select().from(marketplaceBillingRecordsTable).where(and(eq(marketplaceBillingRecordsTable.id, billingId), eq(marketplaceBillingRecordsTable.merchantId, merchant.id))).limit(1))[0] ?? null;
 }
