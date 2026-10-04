@@ -13,6 +13,10 @@ const operationKinds = [
   "return","exchange","booking","event","ticket","quote","purchase_order","expense",
   "lead","task","support_ticket","message_thread","preorder","waitlist","product_alert",
   "document","customer_document","app_listing","theme_listing","creator_listing",
+  "customer_subscription","b2b_account","price_list","sales_funnel","customer_intake",
+  "review","blog_post","business_goal","backup","data_repair","shipping_rule","tax_rule",
+  "delivery_issue","supplier_issue","dispute","chargeback","refund_request","store_transfer",
+  "beneficiary_change","security_incident",
 ] as const;
 type OperationKind = typeof operationKinds[number];
 
@@ -23,6 +27,12 @@ const permissionByKind: Record<OperationKind, "team.manage" | "customers.manage"
   preorder: "orders.manage", waitlist: "customers.manage", product_alert: "customers.manage",
   document: "team.manage", customer_document: "customers.manage", app_listing: "team.manage",
   theme_listing: "team.manage", creator_listing: "team.manage",
+  customer_subscription: "orders.manage", b2b_account: "customers.manage", price_list: "team.manage",
+  sales_funnel: "customers.manage", customer_intake: "customers.manage", review: "customers.manage",
+  blog_post: "team.manage", business_goal: "team.manage", backup: "team.manage", data_repair: "finance.manage",
+  shipping_rule: "team.manage", tax_rule: "team.manage", delivery_issue: "orders.manage", supplier_issue: "orders.manage",
+  dispute: "orders.manage", chargeback: "finance.manage", refund_request: "orders.manage",
+  store_transfer: "team.manage", beneficiary_change: "finance.manage", security_incident: "team.manage",
 };
 
 const initialStatus: Record<OperationKind, string> = {
@@ -31,6 +41,12 @@ const initialStatus: Record<OperationKind, string> = {
   support_ticket: "open", message_thread: "open", preorder: "pending", waitlist: "open",
   product_alert: "open", document: "active", customer_document: "active", app_listing: "pending",
   theme_listing: "pending", creator_listing: "pending",
+  customer_subscription: "pending", b2b_account: "draft", price_list: "draft",
+  sales_funnel: "draft", customer_intake: "open", review: "pending", blog_post: "draft",
+  business_goal: "draft", backup: "pending", data_repair: "pending", shipping_rule: "draft",
+  tax_rule: "draft", delivery_issue: "open", supplier_issue: "open", dispute: "open",
+  chargeback: "pending", refund_request: "pending", store_transfer: "pending",
+  beneficiary_change: "pending", security_incident: "open",
 };
 
 const transitions: Record<OperationKind, Record<string, string[]>> = {
@@ -54,6 +70,26 @@ const transitions: Record<OperationKind, Record<string, string[]>> = {
   app_listing: { pending:["approved","rejected"], approved:["archived"], rejected:["pending"], archived:[] },
   theme_listing: { pending:["approved","rejected"], approved:["archived"], rejected:["pending"], archived:[] },
   creator_listing: { pending:["approved","rejected"], approved:["archived"], rejected:["pending"], archived:[] },
+  customer_subscription: { pending:["approved","cancelled"], approved:["completed","cancelled"], completed:[], cancelled:[] },
+  b2b_account: { draft:["active","cancelled"], active:["closed","cancelled"], closed:[], cancelled:[] },
+  price_list: { draft:["active","archived"], active:["archived"], archived:[] },
+  sales_funnel: { draft:["active","archived"], active:["completed","archived"], completed:[], archived:[] },
+  customer_intake: { open:["in_progress","completed","cancelled"], in_progress:["completed","cancelled"], completed:[], cancelled:[] },
+  review: { pending:["approved","rejected"], approved:["archived"], rejected:["pending"], archived:[] },
+  blog_post: { draft:["scheduled","active","archived"], scheduled:["active","cancelled"], active:["archived"], archived:[], cancelled:[] },
+  business_goal: { draft:["active","completed","cancelled"], active:["completed","cancelled"], completed:[], cancelled:[] },
+  backup: { pending:["completed","failed","cancelled"], completed:[], failed:["pending"], cancelled:[] },
+  data_repair: { pending:["approved","completed","cancelled"], approved:["completed","cancelled"], completed:[], cancelled:[] },
+  shipping_rule: { draft:["active","archived"], active:["archived"], archived:[] },
+  tax_rule: { draft:["active","archived"], active:["archived"], archived:[] },
+  delivery_issue: { open:["in_progress","resolved","closed"], in_progress:["resolved","closed"], resolved:["closed"], closed:[] },
+  supplier_issue: { open:["in_progress","resolved","closed"], in_progress:["resolved","closed"], resolved:["closed"], closed:[] },
+  dispute: { open:["in_progress","resolved","closed"], in_progress:["resolved","closed"], resolved:["closed"], closed:[] },
+  chargeback: { pending:["in_progress","resolved","closed"], in_progress:["resolved","closed"], resolved:["closed"], closed:[] },
+  refund_request: { pending:["approved","rejected"], approved:["completed","cancelled"], rejected:["pending"], completed:[], cancelled:[] },
+  store_transfer: { pending:["approved","rejected"], approved:["completed","cancelled"], rejected:["pending"], completed:[], cancelled:[] },
+  beneficiary_change: { pending:["approved","rejected"], approved:["completed","cancelled"], rejected:["pending"], completed:[], cancelled:[] },
+  security_incident: { open:["in_progress","resolved","closed"], in_progress:["resolved","closed"], resolved:["closed"], closed:[] },
 };
 
 async function merchantFor(req: Request, permission: PermissionKey) {
