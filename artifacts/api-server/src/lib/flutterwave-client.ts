@@ -115,6 +115,12 @@ export function flutterwavePaymentOptionsForCurrency(currency: string): string {
 
 export const FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES = ["NGN", "GHS"] as const;
 
+/** Initial external payout rail: Nigerian bank accounts. */
+export const FLUTTERWAVE_PAYOUT_CURRENCIES = ["NGN"] as const;
+export function supportsFlutterwavePayoutCurrency(currency: string): boolean {
+  return FLUTTERWAVE_PAYOUT_CURRENCIES.includes(currency.trim().toUpperCase() as (typeof FLUTTERWAVE_PAYOUT_CURRENCIES)[number]);
+}
+
 export function supportsFlutterwaveDirectBankTransfer(currency: string): boolean {
   return FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES.includes(
     currency.trim().toUpperCase() as (typeof FLUTTERWAVE_DIRECT_BANK_TRANSFER_CURRENCIES)[number],
@@ -348,7 +354,7 @@ export async function createFlutterwaveTransfer(input: {
   narration: string;
 }): Promise<FlutterwaveTransfer> {
   const currency = input.currency.trim().toUpperCase();
-  if (!supportsFlutterwaveDirectBankTransfer(currency)) {
+  if (!supportsFlutterwavePayoutCurrency(currency)) {
     throw new Error(`Flutterwave payout rail is not enabled for ${currency}`);
   }
   const response = await flutterwaveRequest<FlutterwaveResponse<FlutterwaveTransfer>>("/transfers", {
