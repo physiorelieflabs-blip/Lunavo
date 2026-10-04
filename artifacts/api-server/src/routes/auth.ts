@@ -118,6 +118,18 @@ async function signIn(req: Request, res: any) {
     const suspiciousMasterLogin = user.role === "master_admin"
       ? await isLoginContextAnomalous(user.id, { ipAddress: req.ip, userAgent: req.get("user-agent") })
       : false;
+
+    // Email verification is a server-side authentication boundary. An unverified
+    // account must not receive a usable session and cannot rely on frontend gating.
+    if (!user.emailVerified && user.role !== "master_admin") {
+      return res.status(200).json({
+        success: true,
+        signedIn: false,
+        verificationRequired: true,
+        user: userResponse(user),
+      });
+    }
+
     setSessionCookie(res, await createLocalSession(user.id, { ipAddress: req.ip, userAgent: req.get("user-agent") }));
     if (user.role === "master_admin") {
       await auditLog(user.id, undefined, suspiciousMasterLogin ? "master_admin_suspicious_login" : "master_admin_login", "authentication", user.id, { emailVerified: user.emailVerified, suspiciousContext: suspiciousMasterLogin }, req.ip, req.get("user-agent"));
