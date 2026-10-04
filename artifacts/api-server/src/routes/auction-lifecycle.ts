@@ -7,7 +7,7 @@ import { requirePermission } from "../lib/tenant-access";
 const router = Router();
 
 async function merchantIdFor(userId: string): Promise<number | null> {
-  const rows = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);
+  const rows = await db.execute(sql`SELECT id FROM merchants WHERE status='active' AND (clerk_user_id=${userId} OR local_auth_user_id=${userId}) LIMIT 1`);
   const id = Number((rows.rows[0] as { id?: number } | undefined)?.id);
   return Number.isInteger(id) ? id : null;
 }
