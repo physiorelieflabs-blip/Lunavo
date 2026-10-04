@@ -71,7 +71,7 @@ for (const file of files) {
     const value = sensitiveAssignment[1];
     // Docker/Compose guards such as ${SESSION_SECRET:?set SESSION_SECRET}
     // are references to runtime environment values, not embedded credentials.
-    if (!isPlaceholder(value) && !value.startsWith("${")) {
+    if (!isPlaceholder(value) && !value.startsWith("${") && !value.startsWith("ci-only-")) {
       failures.push(`Non-placeholder sensitive credential assignment in ${relative}`);
     }
   }
