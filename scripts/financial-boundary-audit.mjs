@@ -37,6 +37,8 @@ const financialBoundaryFiles = new Set([
   "artifacts/api-server/src/lib/ts-pay-transaction-orchestrator.ts",
   "artifacts/api-server/src/lib/flutterwave-reconciliation.ts",
   "artifacts/api-server/src/lib/automation-guard.ts",
+  "artifacts/api-server/src/routes/customer-subscriptions.ts",
+  "artifacts/api-server/src/lib/customer-subscription-worker.ts",
 ]);
 
 const providerDomains = [
