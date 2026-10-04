@@ -1,5 +1,3 @@
-import { AbortController } from "node:abort_controller";
-
 export type BrainRole = "reasoning" | "fast" | "vision" | "critic";
 export type BrainMessage = {
   role: "system" | "user" | "assistant";
