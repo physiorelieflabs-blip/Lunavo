@@ -10108,7 +10108,7 @@ router.get("/public/checkout/:paymentToken/identifiers", async (req, res): Promi
   const customerCode = await ensureCustomerPaymentCode(db, order.customerId);
   const store = (await db.select({ id: merchantStorefrontsTable.id, publicKey: merchantStorefrontsTable.publicKey })
     .from(merchantStorefrontsTable)
-    .where(and(eq(merchantStorefrontsTable.merchantId, order.merchantId), eq(merchantStorefrontsTable.publicKey, order.merchantKey)))
+    .where(and(eq(merchantStorefrontsTable.merchantId, order.merchantId), eq(merchantStorefrontsTable.publicKey, order.merchantKey ?? "")))
     .limit(1))[0];
   const storeCode = store ? await ensureStoreCode(db, store.id) : null;
   res.json({
