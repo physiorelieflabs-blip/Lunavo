@@ -1,4 +1,15 @@
+import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
+  const literal = (value: unknown) => {
+    if (value === null || value === undefined) return "NULL";
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    if (value instanceof Date) return "'" + value.toISOString().replace(/'/g, "''") + "'";
+    return "'" + String(value).replace(/'/g, "''") + "'";
+  };
+  return executor.execute(sql.raw(query.sql.replace(/\$(\d+)/g, (_, n) => literal(query.values[Number(n) - 1]))));
+}
 import { db } from "@workspace/db";
 import { initializeFlutterwavePayment } from "./flutterwave-client";
 
@@ -16,9 +27,9 @@ async function runDueRenewals(){
       try{
         const attemptNo=Number(row.failed_attempts)+1;
         const created=await db.transaction(async(tx)=>{
-          const order=(await tx.execute({sql:"INSERT INTO orders (merchant_id,location_id,customer_id,order_number,subtotal,tax_amount,shipping_amount,total,quantity,currency,status,supplier_product_id,fulfillment_status,idempotency_key) VALUES ($1,$2,$3,$4,$5,0,0,$5,1,$6,'pending',$7,'not_applicable',$4) RETURNING id",values:[row.merchant_id,String(row.location_id),row.customer_id,ref,Number(row.amount_minor)/100,String(row.currency).toUpperCase(),row.product_id]})).rows[0] as any;
-          const intent=(await tx.execute({sql:"INSERT INTO payment_intents (merchant_id,order_id,amount_minor,currency,method,status,idempotency_key,customer_subscription_id) VALUES ($1,$2,$3,$4,'flutterwave','created',$5,$6) RETURNING id",values:[row.merchant_id,order.id,row.amount_minor,String(row.currency).toUpperCase(),ref,row.id]})).rows[0] as any;
-          const attempt=(await tx.execute({sql:"INSERT INTO customer_subscription_payment_attempts (subscription_id,attempt_number,payment_intent_id,order_id,amount_minor,currency,status,due_at) VALUES ($1,$2,$3,$4,$5,$6,'created',now()) RETURNING id",values:[row.id,attemptNo,intent.id,order.id,row.amount_minor,String(row.currency).toUpperCase()]})).rows[0] as any;
+          const order=(await executeQuery(tx,{sql:"INSERT INTO orders (merchant_id,location_id,customer_id,order_number,subtotal,tax_amount,shipping_amount,total,quantity,currency,status,supplier_product_id,fulfillment_status,idempotency_key) VALUES ($1,$2,$3,$4,$5,0,0,$5,1,$6,'pending',$7,'not_applicable',$4) RETURNING id",values:[row.merchant_id,String(row.location_id),row.customer_id,ref,Number(row.amount_minor)/100,String(row.currency).toUpperCase(),row.product_id]})).rows[0] as any;
+          const intent=(await executeQuery(tx,{sql:"INSERT INTO payment_intents (merchant_id,order_id,amount_minor,currency,method,status,idempotency_key,customer_subscription_id) VALUES ($1,$2,$3,$4,'flutterwave','created',$5,$6) RETURNING id",values:[row.merchant_id,order.id,row.amount_minor,String(row.currency).toUpperCase(),ref,row.id]})).rows[0] as any;
+          const attempt=(await executeQuery(tx,{sql:"INSERT INTO customer_subscription_payment_attempts (subscription_id,attempt_number,payment_intent_id,order_id,amount_minor,currency,status,due_at) VALUES ($1,$2,$3,$4,$5,$6,'created',now()) RETURNING id",values:[row.id,attemptNo,intent.id,order.id,row.amount_minor,String(row.currency).toUpperCase()]})).rows[0] as any;
           return {orderId:Number(order.id),paymentIntentId:Number(intent.id),attemptId:String(attempt.id)};
         });
         const base=(process.env.LUNAVO_PUBLIC_BASE_URL||"").trim(); if(!base)throw new Error("LUNAVO_PUBLIC_BASE_URL is required for renewal links");
