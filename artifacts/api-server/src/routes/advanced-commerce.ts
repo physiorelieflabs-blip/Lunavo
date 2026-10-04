@@ -15,7 +15,7 @@ const operationKinds = [
 ] as const;
 type OperationKind = typeof operationKinds[number];
 
-const permissionByKind: Record<OperationKind, "team.manage" | "customers.manage" | "finance.manage"> = {
+const permissionByKind: Record<OperationKind, "team.manage" | "customers.manage" | "finance.manage" | "orders.manage"> = {
   return: "orders.manage", exchange: "orders.manage", booking: "orders.manage", event: "orders.manage",
   ticket: "orders.manage", quote: "finance.manage", purchase_order: "finance.manage", expense: "finance.manage",
   lead: "customers.manage", task: "team.manage", support_ticket: "customers.manage", message_thread: "team.manage",
