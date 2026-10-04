@@ -38,6 +38,8 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
   const s=q.rows[0] as any;if(!s)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
   if(!["pending_payment","active","past_due"].includes(String(s.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
   if(!s.location_id)throw new Error("Merchant has no active default location");
+  const recent=await db.execute({sql:"SELECT attempt_number,checkout_url FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') AND created_at>now()-interval '15 minutes' ORDER BY created_at DESC LIMIT 1",values:[subscriptionId]});
+  if(recent.rows.length) return {paymentUrl:(recent.rows[0] as any).checkout_url||null,attemptNumber:Number((recent.rows[0] as any).attempt_number)};
   const last=await db.execute({sql:"SELECT COALESCE(MAX(attempt_number),0)::int AS n FROM customer_subscription_payment_attempts WHERE subscription_id=$1",values:[subscriptionId]});
   const n=Number((last.rows[0] as any)?.n||0)+1,ref="CSUB-"+subscriptionId.slice(0,8)+"-"+Date.now()+"-"+randomUUID().slice(0,8);
   const created=await db.transaction(async(tx)=>{
