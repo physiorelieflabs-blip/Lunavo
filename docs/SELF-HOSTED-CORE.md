@@ -1,4 +1,4 @@
-# Lunavo Self-Hosted Core Contract
+# Lunavo Self-Hosted Whole-App Contract
 
 This is an implementation rule, not a future aspiration.
 
@@ -11,7 +11,7 @@ Lunavo core may require provider credentials only for real-money movement. The i
 
 These secrets stay server-side, are never bundled into the client, and are never committed to GitHub.
 
-## 2. Everything else is API-independent by default
+## 2. The entire Lunavo-owned application is self-hosted by default
 
 The following capabilities must run from Lunavo-owned code/data/services without a customer-supplied third-party API key:
 
@@ -45,7 +45,7 @@ The first-party implementation remains the source of truth for records, permissi
 
 ## 4. AI boundary
 
-No OpenAI, Gemini, Anthropic or DeepSeek API key is required for Lunavo core. AI features must degrade gracefully to first-party deterministic tools and local/self-hosted model endpoints when a local model is deployed. AI output never becomes authoritative for money, inventory, permissions or payment verification.
+No OpenAI, Gemini, Anthropic, DeepSeek, Stability or other third-party AI API key is required anywhere in the Lunavo-owned application. AI features must degrade gracefully to first-party deterministic tools and local/self-hosted model endpoints when a local model is deployed. AI output never becomes authoritative for money, inventory, permissions or payment verification.
 
 ## 5. Integration boundary
 
@@ -53,7 +53,7 @@ Optional integration credentials belong in the encrypted server-side integration
 
 ## 6. Enforcement
 
-The platform-core provider policy and production preflight reject third-party AI/maps/messaging/search keys as core dependencies. This prevents future work from quietly reintroducing API-key requirements.
+The platform-core provider policy and production preflight rejects third-party AI/maps/messaging/search keys as Lunavo-owned dependencies. This prevents future work from quietly reintroducing API-key requirements.
 
 ## 7. Quality bar
 
