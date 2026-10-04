@@ -401,7 +401,6 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
   const sku = textValue(product?.sku) ?? textValue(offer.sku);
   const sourceProductId = textValue(product?.productID) ?? textValue(product?.mpn) ?? sku;
   const shippingInformation = objectValue(product?.shippingDetails);
-  const videoUrls = stringList(product?.video);
   const variants = product ? variantRecords(product) : [];
   const specifications = properties(product?.additionalProperty);
   const hasUsableProductData = Boolean(
