@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS customer_subscriptions (
   cancel_reason text,
   cancelled_at timestamptz,
   signup_idempotency_hash text,
+  manage_token_encrypted text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
