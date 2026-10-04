@@ -141,9 +141,9 @@
   --chart-4: 24 55% 55%;
   --chart-5: 3 58% 47%;
 
-  --app-font-sans: 'Manrope', sans-serif;
-  --app-font-serif: 'Instrument Serif', Georgia, serif;
-  --app-font-mono: 'DM Mono', monospace;
+  --app-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --app-font-serif: Georgia, 'Times New Roman', serif;
+  --app-font-mono: 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
   --radius: 0.5rem; /* 8px */
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0); /*replace with H S L */
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0); /*replace with H S L */
@@ -433,27 +433,27 @@
   }
 }
 
-/* TS Commerce visual system: quiet editorial operations studio. */
+/* Lunavo visual system: modern commerce command center. */
 :root {
-  --background: 38 27% 93%;
-  --foreground: 207 25% 18%;
-  --border: 38 17% 80%;
-  --input: 38 17% 80%;
-  --ring: 14 63% 53%;
-  --card: 42 35% 97%;
+  --background: 40 22% 96%;
+  --foreground: 214 21% 13%;
+  --border: 38 16% 85%;
+  --input: 38 16% 82%;
+  --ring: 10 72% 55%;
+  --card: 0 0% 100%;
   --card-foreground: 207 25% 18%;
   --card-border: 38 17% 80%;
   --popover: 42 35% 97%;
   --popover-foreground: 207 25% 18%;
   --popover-border: 38 17% 80%;
-  --primary: 207 25% 18%;
-  --primary-foreground: 42 35% 97%;
-  --secondary: 192 20% 87%;
-  --secondary-foreground: 207 25% 18%;
-  --muted: 38 18% 88%;
-  --muted-foreground: 207 12% 43%;
-  --accent: 14 63% 53%;
-  --accent-foreground: 42 35% 97%;
+  --primary: 214 21% 13%;
+  --primary-foreground: 40 22% 97%;
+  --secondary: 205 18% 92%;
+  --secondary-foreground: 214 21% 13%;
+  --muted: 40 13% 91%;
+  --muted-foreground: 214 10% 43%;
+  --accent: 10 72% 55%;
+  --accent-foreground: 0 0% 100%;
   --destructive: 4 58% 47%;
   --destructive-foreground: 42 35% 97%;
   --chart-1: 14 63% 53%;
@@ -461,16 +461,16 @@
   --chart-3: 207 25% 18%;
   --chart-4: 31 54% 51%;
   --chart-5: 4 58% 47%;
-  --sidebar: 207 25% 18%;
-  --sidebar-foreground: 38 27% 93%;
-  --sidebar-border: 207 17% 28%;
-  --sidebar-primary: 14 63% 53%;
-  --sidebar-primary-foreground: 42 35% 97%;
-  --sidebar-accent: 207 21% 25%;
-  --sidebar-accent-foreground: 38 27% 93%;
+  --sidebar: 214 21% 10%;
+  --sidebar-foreground: 40 22% 95%;
+  --sidebar-border: 214 13% 19%;
+  --sidebar-primary: 10 72% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 214 15% 17%;
+  --sidebar-accent-foreground: 40 22% 95%;
   --sidebar-ring: 14 63% 53%;
-  --app-font-sans: 'Manrope', sans-serif;
-  --app-font-mono: 'DM Mono', monospace;
+  --app-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --app-font-mono: 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
   --radius: 0.625rem;
 }
 
@@ -497,12 +497,12 @@
   --destructive: 4 58% 54%;
   --destructive-foreground: 39 33% 94%;
   --sidebar: 207 28% 9%;
-  --sidebar-foreground: 38 27% 93%;
+  --sidebar-foreground: 40 22% 95%;
   --sidebar-border: 207 17% 22%;
   --sidebar-primary: 14 63% 57%;
   --sidebar-primary-foreground: 207 25% 18%;
   --sidebar-accent: 207 21% 16%;
-  --sidebar-accent-foreground: 38 27% 93%;
+  --sidebar-accent-foreground: 40 22% 95%;
   --sidebar-ring: 14 63% 57%;
 }
 
@@ -578,3 +578,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .landing-display em { color: hsl(var(--accent)); font-style: italic; }
 .signal-line { position: relative; }
 .signal-line::before { content: ''; position: absolute; left: 0; top: .45em; width: 6px; height: 6px; border-radius: 999px; background: hsl(var(--accent)); box-shadow: 0 0 0 4px hsl(var(--accent) / .12); }
+
+/* Unified interaction language */
+button, [role="button"], input, select, textarea { font: inherit; }
+button:disabled { cursor: not-allowed; }
+.lunavo-surface { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: 0 12px 34px rgba(20,26,31,.045); }
+.lunavo-glass { background: color-mix(in srgb, hsl(var(--background)) 84%, transparent); border-bottom: 1px solid hsl(var(--border)); backdrop-filter: blur(18px); }
