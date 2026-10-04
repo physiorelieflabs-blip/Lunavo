@@ -2,7 +2,7 @@ name: Lunavo CI
 
 on:
   push:
-    branches: [main, feat/social-hub-ui-real, feat/lunavo-master-implementation]
+    branches: [main, feat/social-hub-ui-real, feat/lunavo-master-implementation, feat/lunavo-superintelligence-hardening-2026-10-04]
   pull_request:
     branches: [main, feat/lunavo-master-implementation]
 

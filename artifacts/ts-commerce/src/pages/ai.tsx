@@ -178,6 +178,7 @@ export default function AiControlRoom() {
   const [ownedStores, setOwnedStores] = useState<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>([]);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [imageExportMessage, setImageExportMessage] = useState('');
+  const [localRuntime, setLocalRuntime] = useState<{configured:boolean;embeddingsConfigured:boolean;profiles:Array<{profile:string;model:string;urlConfigured:boolean}>;ensemble:{enabledByCall:boolean;defaultProfiles:readonly string[];policy:string}} | null>(null);
 
   if (overview.isLoading || settings.isLoading || actions.isLoading) {
     return <AppShell><LoadingState label="Loading AI control room" /></AppShell>;
@@ -359,6 +360,12 @@ export default function AiControlRoom() {
     }
   };
   useEffect(() => {
+    void customFetch<NonNullable<typeof localRuntime>>('/api/merchant/ai/runtime', { responseType: 'json' })
+      .then((runtime) => setLocalRuntime(runtime))
+      .catch(() => setLocalRuntime(null));
+  }, []);
+
+  useEffect(() => {
     void customFetch<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>('/api/stores', {
       responseType: 'json',
     }).then((stores) => {
@@ -431,6 +438,12 @@ export default function AiControlRoom() {
       </div>
 
       {message && <div className="mt-7"><Notice tone={errorMessage ? 'danger' : 'success'} title={errorMessage ? 'Action not completed' : 'AI workspace updated'}>{message}</Notice></div>}
+
+       {localRuntime && <section className="mt-8 rounded-xl border border-[#dfe5ec] bg-white p-6 shadow-sm md:p-7">
+         <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Local intelligence fabric</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.04em]">Specialist models working together.</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#697687]">Lunavo routes work to local specialist models and can use a local review pass for high-effort reasoning. No hosted AI API key is required by the core application.</p></div><Badge tone={localRuntime.configured ? 'success' : 'warning'}>{localRuntime.configured ? 'Runtime connected' : 'Runtime not configured'}</Badge></div>
+         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{localRuntime.profiles.map((item) => <div key={item.profile} className="rounded-xl border border-[#e3e7ed] bg-[#f8fafc] p-4"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-black uppercase tracking-[.12em] text-[#7b899d]">{item.profile}</span><span className={`h-2 w-2 rounded-full ${item.urlConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} /></div><p className="mt-2 break-all font-mono text-xs font-bold text-[#223149]">{item.model}</p><p className="mt-1 text-[11px] text-[#7b899d]">{item.urlConfigured ? 'Local endpoint configured' : 'Uses shared endpoint'}</p></div>)}</div>
+         <div className="mt-4 rounded-xl border border-[#dfe5ec] bg-[#f8fafc] px-4 py-3 text-xs leading-5 text-[#697687]"><b>Ensemble:</b> {localRuntime.ensemble.enabledByCall ? 'available' : 'disabled'} · default {localRuntime.ensemble.defaultProfiles.join(' + ')} · {localRuntime.ensemble.policy}. Embeddings: {localRuntime.embeddingsConfigured ? 'connected' : 'not configured'}.</div>
+       </section>}
 
        <section className="mt-8 overflow-hidden rounded-xl border border-[#182333] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
          <div className="flex flex-wrap items-start justify-between gap-5">

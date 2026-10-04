@@ -82,12 +82,6 @@ importers:
 
   artifacts/api-server:
     dependencies:
-      '@clerk/express':
-        specifier: workspace:*
-        version: link:../../lib/clerk-express
-      '@clerk/shared':
-        specifier: workspace:*
-        version: link:../../lib/clerk-shared
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
@@ -337,13 +331,6 @@ importers:
         version: 4.5.4
 
   artifacts/ts-commerce:
-    dependencies:
-      '@clerk/react':
-        specifier: workspace:*
-        version: link:../../lib/clerk-react
-      '@clerk/themes':
-        specifier: workspace:*
-        version: link:../../lib/clerk-themes
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
