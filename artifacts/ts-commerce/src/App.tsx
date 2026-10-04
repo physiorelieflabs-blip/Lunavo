@@ -58,6 +58,7 @@ import AdvancedOperations from '@/pages/advanced-operations';
 import AdStudio from '@/pages/ad-studio';
 import { CustomerContextPage, InvoiceContextPage, OrderContextPage } from '@/pages/connected-record';
 import { useGetSubscription } from '@workspace/api-client-react';
+import { ConnectionStatus } from '@/components/connection-status';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -96,5 +97,5 @@ function AuthRoutes() { return <Switch>
   <Route path="/admin" component={() => <Protected admin><Admin /></Protected>} /><Route path="/admin/integrations" component={() => <Protected admin><AdminIntegrations /></Protected>} /><Route path="/admin/ai-stores" component={() => <Protected admin><AdminAiStores /></Protected>} /><Route path="/admin/merchants" component={() => <Protected admin><Merchants /></Protected>} /><Route path="/admin/withdrawals" component={() => <Protected admin><AdminWithdrawals /></Protected>} /><Route path="/admin/kyc" component={() => <Protected admin><AdminKyc /></Protected>} /><Route component={NotFound} />
   </Switch>; }
 function Router() { const [location] = useLocation(); return <ErrorBoundary resetKey={location}><AuthRoutes /></ErrorBoundary>; }
-function App() { return <TooltipProvider><WouterRouter base={basePath}><AuthProvider><QueryClientProvider client={queryClient}><Router /></QueryClientProvider></AuthProvider></WouterRouter><ThemeToggle /><Toaster /></TooltipProvider>; }
+function App() { return <TooltipProvider><ConnectionStatus /><WouterRouter base={basePath}><AuthProvider><QueryClientProvider client={queryClient}><Router /></QueryClientProvider></AuthProvider></WouterRouter><ThemeToggle /><Toaster /></TooltipProvider>; }
 export default App;
