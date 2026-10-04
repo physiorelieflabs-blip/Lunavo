@@ -797,48 +797,56 @@ function isSupportedCurrency(value: string): boolean {
 }
 
 async function getMarketExchangeRate(base: string, quote: string): Promise<FxPayload> {
-  if (base === quote) {
+  const normalizedBase = base.trim().toUpperCase();
+  const normalizedQuote = quote.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalizedBase) || !/^[A-Z]{3}$/.test(normalizedQuote)) {
+    throw new Error("Currency codes must be valid ISO 4217 codes");
+  }
+  if (normalizedBase === normalizedQuote) {
     const now = new Date().toISOString();
     return {
-      base,
-      quote,
+      base: normalizedBase,
+      quote: normalizedQuote,
       rate: 1,
       source: "Identity rate",
       fetchedAt: now,
       asOf: now,
     };
   }
-  const cacheKey = `${base}:${quote}`;
+  const cacheKey = `${normalizedBase}:${normalizedQuote}`;
   const cached = fxCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
-  const response = await fetch(
-    `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`,
-    { signal: AbortSignal.timeout(8_000) },
-  );
-  if (!response.ok) throw new Error(`FX provider returned ${response.status}`);
-  const body = (await response.json()) as {
-    rates?: Record<string, number>;
-    time_last_update_utc?: string;
-  };
-  const rate = Number(body.rates?.[quote]);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error("The selected currency pair is not available");
-  }
-  const fetchedAt = new Date().toISOString();
-  const asOfDate = body.time_last_update_utc
-    ? new Date(body.time_last_update_utc)
-    : null;
-  const payload = {
-    base,
-    quote,
+  const endpoint = process.env.LUNAVO_LOCAL_FX_URL?.trim();
+  if (!endpoint) throw new Error("Self-hosted FX service is not configured");
+  const url = new URL(endpoint);
+  url.searchParams.set("base", normalizedBase);
+  url.searchParams.set("quote", normalizedQuote);
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(8_000),
+  });
+  const body = await response.json().catch(() => null) as {
+    base?: unknown;
+    quote?: unknown;
+    rate?: unknown;
+    source?: unknown;
+    fetchedAt?: unknown;
+    asOf?: unknown;
+  } | null;
+  if (!response.ok) throw new Error(typeof (body as any)?.error === "string" ? (body as any).error : "Self-hosted FX service is unavailable");
+  const rate = Number(body?.rate);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("Self-hosted FX service returned an invalid rate");
+  const payload: FxPayload = {
+    base: typeof body?.base === "string" ? body.base : normalizedBase,
+    quote: typeof body?.quote === "string" ? body.quote : normalizedQuote,
     rate,
-    source: "ExchangeRate-API Open Access",
-    fetchedAt,
-    asOf:
-      asOfDate && !Number.isNaN(asOfDate.getTime())
-        ? asOfDate.toISOString()
-        : null,
+    source: typeof body?.source === "string" ? body.source : "self-hosted-fx-gateway",
+    fetchedAt: typeof body?.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
+    asOf: typeof body?.asOf === "string" ? body.asOf : null,
   };
+  if (payload.base !== normalizedBase || payload.quote !== normalizedQuote) {
+    throw new Error("Self-hosted FX service returned the wrong currency pair");
+  }
   fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, payload });
   return payload;
 }
