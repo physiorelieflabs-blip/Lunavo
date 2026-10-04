@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { db, merchantsTable } from "@workspace/db";
-import { requirePermission } from "../lib/tenant-access";
+import { requirePermission, type PermissionKey } from "../lib/tenant-access";
 
 const router = Router();
 
@@ -55,7 +55,7 @@ const transitions: Record<OperationKind, Record<string, string[]>> = {
   creator_listing: { pending:["approved","rejected"], approved:["archived"], rejected:["pending"], archived:[] },
 };
 
-async function merchantFor(req: Request, permission: "team.manage" | "customers.manage" | "finance.manage") {
+async function merchantFor(req: Request, permission: PermissionKey) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
   const merchant = (await db.execute(sql`
@@ -214,11 +214,12 @@ router.post("/merchant/api-keys", async (req, res, next) => {
     const raw = `lun_${randomBytes(28).toString("base64url")}`;
     const hash = createHash("sha256").update(raw).digest("hex");
     const prefix = raw.slice(0, 12);
-    const [row] = await db.execute(sql`
+    const result = await db.execute(sql`
       INSERT INTO merchant_api_keys(merchant_id,name,key_prefix,key_hash,scopes,created_by)
       VALUES(${merchant.id},${name},${prefix},${hash},${JSON.stringify(scopes)}::jsonb,${merchant.userId})
       RETURNING id,name,key_prefix,scopes,created_at
     `);
+    const row = result.rows[0];
     if (!row) return fail(res, 409, "API key could not be created");
     res.status(201).json({ key: raw, metadata: row });
   } catch (error) { next(error); }
@@ -341,7 +342,7 @@ router.post("/merchant/experiments/:id/assign", async (req, res, next) => {
     if (!experiment) return fail(res, 404, "Experiment not found");
     if (experiment.status !== "active") return fail(res, 409, "Experiment is not active");
     const variants = Array.isArray(experiment.variants) ? experiment.variants.filter((v): v is { key?: unknown; weight?: unknown } => !!v && typeof v === "object") : [];
-    const total = variants.reduce((sum, v) => sum + Math.max(0, Number(v.weight) || 0), 0);
+    const total = variants.reduce((sum: number, v: { key?: unknown; weight?: unknown }) => sum + Math.max(0, Number(v.weight) || 0), 0);
     if (total <= 0) return fail(res, 409, "Experiment has no valid weights");
     const digest = createHash("sha256").update(`${merchant.id}:${id}:${subjectKey}`).digest();
     const bucket = digest.readUInt32BE(0) / 0xFFFFFFFF * total;
