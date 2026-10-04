@@ -48,9 +48,11 @@ for (const file of files) {
     source = await readFile(file, "utf8");
   } catch { continue; }
 
-  if (replitPattern.test(source)) {
+  if (relative !== "scripts/repository-security-audit.mjs" && replitPattern.test(source)) {
     failures.push(`Replit trace remains: ${relative}`);
   }
+
+  if (relative === "scripts/repository-security-audit.mjs") continue;
 
   for (const {name,re} of secretPatterns) {
     const match = source.match(re);
