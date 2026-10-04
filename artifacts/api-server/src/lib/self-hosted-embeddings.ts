@@ -22,6 +22,14 @@ function validVector(vector: number[]): boolean {
 }
 
 export async function embedLocal(
+  input: string,
+  options?: { model?: string; timeoutMs?: number },
+): Promise<EmbeddingResponse>;
+export async function embedLocal(
+  input: string[],
+  options?: { model?: string; timeoutMs?: number },
+): Promise<{ model: string; embeddings: number[][] }>;
+export async function embedLocal(
   input: string | string[],
   options: { model?: string; timeoutMs?: number } = {},
 ): Promise<EmbeddingResponse | { model: string; embeddings: number[][] }> {
