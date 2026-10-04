@@ -218,7 +218,7 @@ for(const m of ["dispatchWorkflowEvent","processScheduledWorkflows","approveWork
 const automationRoute=await read("artifacts/api-server/src/routes/automation-workflows.ts");
 for(const m of ["/merchant/automation-workflows","/merchant/automation-runs/:id/decision","/runs","/run-now","requirePermission","isWorkflowTriggerEvent"])if(!automationRoute.includes(m))failures.push("Automation API invariant missing: "+m);
 const automationUi=await read("artifacts/ts-commerce/src/pages/automations.tsx");
-for(const m of ["Automation Studio","Execution safety","Preview only","Require approval","Automatic (guarded)","Test now","Run history"])if(!automationUi.includes(m))failures.push("Automation UI invariant missing: "+m);
+for(const m of ["Automation Studio","Execution safety","Preview only","Require approval","Automatic (guarded)","Preview test","Run history"])if(!automationUi.includes(m))failures.push("Automation UI invariant missing: "+m);
 const automationApp=await read("artifacts/ts-commerce/src/App.tsx");if(!automationApp.includes('path="/automations"'))failures.push("Automation Studio route missing");
 const automationNav=await read("artifacts/ts-commerce/src/components/app-shell.tsx");if(!automationNav.includes("Automation Studio"))failures.push("Automation Studio navigation missing");
 const automationPalette=await read("artifacts/ts-commerce/src/components/global-command-palette.tsx");if(!automationPalette.includes('href:"/automations"'))failures.push("Automation Studio command palette entry missing");
