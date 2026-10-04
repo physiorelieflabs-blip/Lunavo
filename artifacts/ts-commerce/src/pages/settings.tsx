@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useUser } from '@/components/local-auth';
-import { ArrowRight, Bell, CreditCard, LockKeyhole, Mail, MapPin, Monitor, RefreshCw, Save, ShieldCheck, Store, UserRound, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowRight, Bell, CreditCard, FileText, LockKeyhole, Mail, MapPin, Monitor, RefreshCw, Save, ShieldCheck, Store, UserRound, UsersRound, WalletCards } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { getGetCheckoutSettingsQueryKey, getGetCurrencySettingsQueryKey, useGetCheckoutSettings, useGetCurrencySettings, useUpdateCheckoutSettings, useUpdateCurrencySettings } from '@workspace/api-client-react';
