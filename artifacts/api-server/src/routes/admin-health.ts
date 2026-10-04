@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requireMasterAdmin } from "../lib/master-admin";
 import { getStoredFlutterwaveCredentials } from "../lib/flutterwave-runtime";
+import { checkLocalAiHealth, checkLocalFxHealth, checkMediaWorkersHealth, checkSocialGatewayHealth } from "../lib/runtime-health";
 
 const router = Router();
 
@@ -38,6 +39,12 @@ router.get("/admin/system/health", async (req, res, next) => {
     const eventsPendingResult = await db.execute(sql`SELECT count(*)::int AS count FROM domain_events WHERE status IN ('pending','processing')`);
     const eventsFailedResult = await db.execute(sql`SELECT count(*)::int AS count FROM domain_events WHERE status='failed'`);
     const flutterwave = await getStoredFlutterwaveCredentials();
+    const [aiHealth, fxHealth, socialHealth, mediaHealth] = await Promise.all([
+      checkLocalAiHealth(),
+      checkLocalFxHealth(),
+      checkSocialGatewayHealth(),
+      checkMediaWorkersHealth(),
+    ]);
     const schema = schemaResult.rows[0] as Record<string, string | null> | undefined;
     const number = (result: { rows: unknown[] }) => Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0);
     const requiredSchema = [schema?.merchants, schema?.local_auth_users, schema?.ledger_entries, schema?.dashboard_transactions, schema?.domain_events, schema?.social_publish_jobs, schema?.admin_ai_store_jobs].every(Boolean);
@@ -49,8 +56,11 @@ router.get("/admin/system/health", async (req, res, next) => {
       schema: { complete: requiredSchema },
       migrations: { applied: number(migrationsResult) },
       payments: { provider: "flutterwave", configured: Boolean(flutterwave.secretKey && flutterwave.webhookSecret), mode: flutterwave.mode, checkoutAvailable: Boolean(flutterwave.secretKey && flutterwave.webhookSecret) },
-      ai: { providerConfigured: aiConfigured, localLlmConfigured: Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim()), mode: "self-hosted" },
+      ai: { providerConfigured: aiConfigured, localLlmConfigured: aiHealth.configured, mode: "self-hosted", runtime: aiHealth },
       reconciliation: { openOrInvestigating: number(reconciliationResult) },
+      fx: fxHealth,
+      socialGateway: socialHealth,
+      mediaWorkers: mediaHealth,
       workers: {
         socialPublishing: { queuedOrProcessing: number(socialQueuedResult), failed: number(socialFailedResult) },
         adminAiStore: { queuedOrProcessing: number(aiQueuedResult), failed: number(aiFailedResult) },
@@ -58,6 +68,7 @@ router.get("/admin/system/health", async (req, res, next) => {
       },
       notes: [
         "Worker counts are observed queue state, not a fabricated process-heartbeat claim.",
+        "Runtime probes report reachability/availability separately from configuration.",
         "Payment readiness requires both Flutterwave API and webhook credentials; configuration alone never implies a successful payment.",
         "Core AI readiness uses only the configured self-hosted inference endpoint; hosted AI credentials are not accepted by core."
       ],
