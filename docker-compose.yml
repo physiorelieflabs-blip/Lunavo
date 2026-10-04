@@ -31,7 +31,7 @@ services:
     environment:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["ollama pull ${LUNAVO_LOCAL_LLM_MODEL:-qwen3:8b} && ollama pull ${LUNAVO_LOCAL_VISION_MODEL:-qwen3-vl:8b}"]
+    command: ["set -eu; for model in $(printf \"%s\" \"${LUNAVO_LOCAL_MODEL_PACK:-qwen3:4b,qwen3:14b,deepseek-r1:14b,gemma3:12b,nomic-embed-text}\" | tr ',' ' '); do echo \"Pulling $model\"; ollama pull \"$model\"; done"]
     volumes:
       - ollama_data:/root/.ollama
 
@@ -62,6 +62,9 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8081
+      FX_RATES_FILE: /data/lunavo/fx-rates.json
+    volumes:
+      - lunavo_data:/data/lunavo
     expose:
       - "8081"
 
