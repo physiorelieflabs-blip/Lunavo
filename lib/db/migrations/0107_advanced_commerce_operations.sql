@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS merchant_operation_records (
   )),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN (
     'draft','pending','open','active','approved','scheduled','in_progress','resolved',
-    'completed','cancelled','rejected','closed','archived'
+    'completed','failed','cancelled','rejected','closed','archived'
   )),
   title text NOT NULL,
   description text,
