@@ -39,8 +39,8 @@ async function authenticatedMerchant(req: Request) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
   const merchant = (await db.select().from(merchantsTable).where(and(
-    eq(merchantsTable.clerkUserId, userId),
     eq(merchantsTable.status, "active"),
+    or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)),
   )).limit(1))[0] ?? null;
   if (!merchant) return null;
   await requirePermission(userId, merchant.id, "marketplace.manage");
