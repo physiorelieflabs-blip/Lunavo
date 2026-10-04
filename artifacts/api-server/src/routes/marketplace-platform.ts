@@ -12,7 +12,7 @@ import {
   paymentDestinationsTable,
   supplierProductsTable,
 } from "@workspace/db";
-import { completeGeminiChat } from "../lib/gemini";
+import { completePrimaryReasoning } from "../lib/ai-provider";
 import {
   initializeFlutterwavePayment,
   initializeFlutterwaveVirtualAccount,
@@ -157,7 +157,7 @@ router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
 
   try {
     const catalog = rows.map(({ product, merchantName }) => ({ id: product.id, merchant: merchantName, title: product.title, description: product.description, category: product.category, price: Number(product.sellingPrice), currency: product.currency }));
-    const response = await completeGeminiChat([
+    const response = await completePrimaryReasoning([
       { role: "system", content: [
         "You are the TS Commerce shopper concierge.",
         "Recommend only products in the supplied catalog.",
