@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Search, ShieldCheck, UsersRound, Truck, PackageCheck } from "lucide-react";
 import { Link } from "wouter";
 import { Badge, Button, EmptyState, Notice, SectionHeading } from "@/components/primitives";
@@ -12,6 +12,8 @@ export default function SupplierReputation(){
   const [result,setResult]=useState<Passport|null>(null);
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [directory,setDirectory]=useState<Array<any>>([]);
+  const [directoryBusy,setDirectoryBusy]=useState(false);
 
   async function lookup(e:any){
     e.preventDefault();setBusy(true);setError("");setResult(null);
@@ -26,6 +28,15 @@ export default function SupplierReputation(){
     finally{setBusy(false);}
   }
 
+  async function loadDirectory(){
+    setDirectoryBusy(true);
+    try{
+      const r=await fetch("/api/public/supplier-intelligence",{headers:{Accept:"application/json"}});
+      const b=await r.json().catch(()=>({}));
+      if(r.ok)setDirectory(Array.isArray(b.suppliers)?b.suppliers:[]);
+    }finally{setDirectoryBusy(false);}
+  }
+  useEffect(()=>{void loadDirectory();},[]);
   return <main className="min-h-[100dvh] bg-[#f5f1e8] px-5 py-8 text-[#182333]">
     <div className="mx-auto max-w-[1120px]">
       <header className="flex items-center justify-between gap-4"><Link href="/" className="font-mono text-xs font-black tracking-[.14em]">Lunavo</Link><Link href="/sign-up" className="rounded-lg bg-[#182333] px-4 py-2 text-xs font-extrabold text-[#f8f3e8]">Start selling <ArrowRight className="ml-1 inline h-3.5 w-3.5"/></Link></header>
@@ -37,6 +48,7 @@ export default function SupplierReputation(){
         <div className="rounded-2xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8]"><SectionHeading eyebrow="Privacy boundary" title="Evidence without exposure." description={result.privacy}/><p className="mt-6 text-sm leading-6 text-[#b8c2cc]">Lunavo does not publish merchant names, order IDs, revenue, customer data, private notes, or individual complaints through this network.</p></div>
       </section>}
       {!result&&!error&&<div className="mt-10"><EmptyState title="Search a supplier" description="Public passports appear only after at least three independent merchants have opted their observations into the network." /></div>}
+      <section className="mt-12"><SectionHeading eyebrow="Supplier Hall of Trust" title="Browse suppliers with enough independent evidence." description="Only anonymized aggregate evidence with at least three independent merchant contributors can enter this public directory."/><div className="mt-5 grid gap-3 md:grid-cols-2">{directoryBusy?<p className="rounded-xl bg-[#fbfaf6] p-4 text-sm text-[#697687]">Loading the public evidence directory…</p>:directory.length?directory.map((item)=><div key={item.supplierDomain} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><div className="flex items-center justify-between gap-3"><div><p className="font-extrabold">{item.supplierDomain}</p><p className="mt-1 text-xs text-[#8994a2]">{item.independentMerchants} independent merchants · {item.observations} observations</p></div><Badge tone={item.passport.score>=80?"success":item.passport.score>=60?"warning":"danger"}>{item.passport.score}/100</Badge></div><div className="mt-4 grid grid-cols-3 gap-2 text-xs"><div className="rounded-lg bg-[#f3efe7] p-3"><p className="text-[#8994a2]">Quality</p><p className="mt-1 font-mono font-black">{item.qualityScore==null?"—":item.qualityScore}</p></div><div className="rounded-lg bg-[#f3efe7] p-3"><p className="text-[#8994a2]">Tracking</p><p className="mt-1 font-mono font-black">{item.trackingScore==null?"—":item.trackingScore}</p></div><div className="rounded-lg bg-[#f3efe7] p-3"><p className="text-[#8994a2]">ETA</p><p className="mt-1 font-mono font-black">{item.etaMaxDays==null?"—":item.etaMaxDays+"d"}</p></div></div><Link className="mt-4 inline-flex text-xs font-extrabold underline" href={"/supplier-intelligence?domain="+encodeURIComponent(item.supplierDomain)}>Open passport <ArrowRight className="ml-1 h-3.5 w-3.5"/></Link></div>):<p className="rounded-xl bg-[#fbfaf6] p-4 text-sm text-[#697687]">No supplier has crossed the independent-evidence publication threshold yet.</p>}</div></section>
     </div>
   </main>;
 }
