@@ -812,6 +812,10 @@ export async function processVerifiedFlutterwaveTransaction(
   if (intent?.marketplaceBillingRecordId) {
     return processMarketplaceAdvertisingPayment(transaction, eventId, rawPayload, intent);
   }
-  if (intent) return processOrderPayment(transaction, eventId, rawPayload, intent);
+  if (intent) {
+    const outcome = await processOrderPayment(transaction, eventId, rawPayload, intent);
+    await syncCustomerSubscriptionAfterPayment(intent.id, outcome, flutterwaveTransactionId(transaction as any), eventId);
+    return outcome;
+  }
   return processSubscriptionPayment(transaction, eventId, rawPayload, subscriptionPayment!);
 }
