@@ -12,7 +12,7 @@ export const domainEventTypes = [
   "ai.action_proposed", "ai.action_approved", "ai.action_executed", "ai.action_rejected", "ai.action_rolled_back",
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
-  "storefront.published",
+  "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","account.exported","account.deleted",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -46,7 +46,7 @@ export function nextEventState(attempt: number, maxAttempts = 8): "retry" | "dea
 export function safeProjectionError(_error: unknown): { code: string; message: string } { return { code: "projection_failed", message: "A notification projection could not be completed." }; }
 
 function notificationFor(event: typeof domainEventsTable.$inferSelect) {
-  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store" };
+  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations" };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
     "order.created": ["New order recorded", "An order was created.", "info"], "order.cancelled": ["Order cancelled", "A pending order was cancelled.", "warning"],
     "payment.verified": ["Payment verified", "Verified payment was posted to the authoritative ledger.", "success"], "payment.evidence_submitted": ["Payment evidence submitted", "A customer submitted payment evidence for merchant approval.", "warning"], "refund.processed": ["Refund processed", "A refund was processed against a verified payment.", "warning"],
@@ -57,6 +57,17 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "membership.role_changed": ["Staff role updated", "A staff member's role changed.", "info"], "membership.scope_changed": ["Staff location access updated", "A staff member's location access changed.", "info"], "membership.status_changed": ["Staff access updated", "A staff member's access status changed.", "warning"],
     "ts_pay.transfer_completed": ["TS Pay transfer sent", "An internal TS Pay transfer was completed.", "info"], "ts_pay.transfer_received": ["TS Pay transfer received", "An internal TS Pay transfer was received.", "success"],
     "storefront.published": ["Storefront published", "A new storefront version is live.", "success"],
+    "merchant.operation.created": ["Operation created", "A new operational workflow was recorded.", "info"],
+    "merchant.operation.transitioned": ["Operation updated", "An operational workflow changed status.", "info"],
+    "merchant.api_key.created": ["API key created", "A merchant developer key was created.", "warning"],
+    "merchant.api_key.revoked": ["API key revoked", "A merchant developer key was revoked.", "warning"],
+    "merchant.feature_flag.updated": ["Feature flag updated", "A merchant rollout control changed.", "info"],
+    "merchant.experiment.updated": ["Experiment updated", "A merchant experiment changed.", "info"],
+    "merchant.accounting_period.updated": ["Accounting period updated", "A reporting period changed.", "info"],
+    "merchant.message.created": ["Message sent", "An internal merchant message was recorded.", "info"],
+    "merchant.document.created": ["Document recorded", "A merchant document record was created.", "info"],
+    "account.exported": ["Account export created", "A privacy data export was generated.", "info"],
+    "account.deleted": ["Account disabled", "Merchant account access was disabled.", "warning"],
   };
   const label = labels[event.eventType as DomainEventType]; if (!label) return null;
   return { title: label[0], body: label[1], severity: label[2], deepLink: links[event.aggregateType] ?? null };

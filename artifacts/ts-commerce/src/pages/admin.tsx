@@ -150,6 +150,13 @@ export default function Admin() {
              >
                Manage merchants
              </Link>
+             <Link
+               href="/admin/integrations"
+               className="inline-flex items-center gap-2 rounded-lg border border-[#bfd6dc] bg-[#eef7f8] px-4 py-3 text-sm font-extrabold text-[#315e6c] hover:bg-[#e1f0f2]"
+               data-testid="link-flutterwave-setup"
+             >
+               Configure Flutterwave
+             </Link>
             </div>
         </div>
 
