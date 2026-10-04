@@ -236,6 +236,18 @@ router.get("/dropship-intelligence/overview", async (req, res, next) => {
         LIMIT 100
       `),
       db.execute(sql`
+        SELECT DISTINCT ON (o.supplier_product_id,o.supplier_domain)
+               o.supplier_product_id,p.title,o.supplier_domain,
+               COALESCE(o.supplier_name,o.supplier_domain) AS supplier_name,
+               o.observed_cost_minor,o.shipping_cost_minor,o.currency,
+               o.eta_min_days,o.eta_max_days,o.quality_score,o.tracking_score,o.observed_at
+        FROM dropship_supplier_observations o
+        JOIN supplier_products p ON p.id=o.supplier_product_id AND p.merchant_id=o.merchant_id
+        WHERE o.merchant_id=${merchant.id} AND o.supplier_product_id IS NOT NULL
+        ORDER BY o.supplier_product_id,o.supplier_domain,o.observed_at DESC
+        LIMIT 300
+      `),
+      db.execute(sql`
         SELECT fj.order_id,o.order_number,fj.status,fj.carrier,fj.tracking_number,
                fj.shipped_at,fj.delivered_at,fj.updated_at,
                t.last_recorded_at,t.expected_delivery_at,t.last_recorded_event,t.note
