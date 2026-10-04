@@ -43,9 +43,11 @@ CREATE TABLE IF NOT EXISTS customer_subscriptions (
   manage_token_hint text NOT NULL,
   cancel_reason text,
   cancelled_at timestamptz,
+  signup_idempotency_hash text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS customer_subscriptions_signup_idempotency_unique ON customer_subscriptions(signup_idempotency_hash) WHERE signup_idempotency_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS customer_subscriptions_merchant_status_idx ON customer_subscriptions(merchant_id,status,next_charge_at);
 CREATE INDEX IF NOT EXISTS customer_subscriptions_customer_idx ON customer_subscriptions(merchant_id,customer_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS customer_subscriptions_due_idx ON customer_subscriptions(status,next_charge_at) WHERE status IN ('active','past_due');
