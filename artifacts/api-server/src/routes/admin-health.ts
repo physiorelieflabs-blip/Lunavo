@@ -27,21 +27,26 @@ router.get("/admin/system/health", async (req, res, next) => {
         to_regclass('public.lunavo_dashboard_transactions')::text AS dashboard_transactions,
         to_regclass('public.domain_events')::text AS domain_events,
         to_regclass('public.social_publish_jobs')::text AS social_publish_jobs,
-        to_regclass('public.admin_ai_store_jobs')::text AS admin_ai_store_jobs
+        to_regclass('public.admin_ai_store_jobs')::text AS admin_ai_store_jobs,
+        to_regclass('public.merchant_automation_workflows')::text AS merchant_automation_workflows,
+        to_regclass('public.merchant_automation_runs')::text AS merchant_automation_runs,
+        to_regclass('public.customer_subscriptions')::text AS customer_subscriptions
     `);
     const migrationsResult = await db.execute(sql`SELECT count(*)::int AS count FROM "_ts_commerce_migrations"`);
     const reconciliationResult = await db.execute(sql`SELECT count(*)::int AS count FROM payment_reconciliation_exceptions WHERE status IN ('open','investigating')`);
     const socialQueuedResult = await db.execute(sql`SELECT count(*)::int AS count FROM social_publish_jobs WHERE status IN ('queued','processing')`);
     const socialFailedResult = await db.execute(sql`SELECT count(*)::int AS count FROM social_publish_jobs WHERE status='failed'`);
     const aiQueuedResult = await db.execute(sql`SELECT count(*)::int AS count FROM admin_ai_store_jobs WHERE status IN ('queued','researching','building')`);
+    const workflowQueuedResult = await db.execute(sql`SELECT count(*)::int AS count FROM merchant_automation_runs WHERE status IN ('running','approval_required')`);
+    const subscriptionDueResult = await db.execute(sql`SELECT count(*)::int AS count FROM customer_subscriptions WHERE status IN ('active','past_due') AND next_charge_at<=now()`);
     const aiFailedResult = await db.execute(sql`SELECT count(*)::int AS count FROM admin_ai_store_jobs WHERE status='failed'`);
     const eventsPendingResult = await db.execute(sql`SELECT count(*)::int AS count FROM domain_events WHERE status IN ('pending','processing')`);
     const eventsFailedResult = await db.execute(sql`SELECT count(*)::int AS count FROM domain_events WHERE status='failed'`);
     const flutterwave = await getStoredFlutterwaveCredentials();
     const schema = schemaResult.rows[0] as Record<string, string | null> | undefined;
     const number = (result: { rows: unknown[] }) => Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0);
-    const requiredSchema = [schema?.merchants, schema?.local_auth_users, schema?.ledger_entries, schema?.dashboard_transactions, schema?.domain_events, schema?.social_publish_jobs, schema?.admin_ai_store_jobs].every(Boolean);
-    const aiConfigured = Boolean(process.env.LUNAVO_DEEPSEEK_API_KEY?.trim() || process.env.LUNAVO_GEMINI_API_KEY?.trim() || process.env.LUNAVO_LOCAL_LLM_URL?.trim());
+    const requiredSchema = [schema?.merchants, schema?.local_auth_users, schema?.ledger_entries, schema?.dashboard_transactions, schema?.domain_events, schema?.social_publish_jobs, schema?.admin_ai_store_jobs, schema?.merchant_automation_workflows, schema?.merchant_automation_runs, schema?.customer_subscriptions].every(Boolean);
+    const aiConfigured = Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim());
     res.setHeader("Cache-Control", "no-store");
     res.json({
       checkedAt: new Date().toISOString(), checkedBy: userId,
@@ -49,11 +54,13 @@ router.get("/admin/system/health", async (req, res, next) => {
       schema: { complete: requiredSchema },
       migrations: { applied: number(migrationsResult) },
       payments: { provider: "flutterwave", configured: Boolean(flutterwave.secretKey && flutterwave.webhookSecret), mode: flutterwave.mode, checkoutAvailable: Boolean(flutterwave.secretKey && flutterwave.webhookSecret) },
-      ai: { providerConfigured: aiConfigured, deepSeekConfigured: Boolean(process.env.LUNAVO_DEEPSEEK_API_KEY?.trim()), geminiConfigured: Boolean(process.env.LUNAVO_GEMINI_API_KEY?.trim()), localLlmConfigured: Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim()) },
+      ai: { providerConfigured: aiConfigured, localLlmConfigured: aiConfigured, localImageConfigured: Boolean(process.env.LUNAVO_LOCAL_IMAGE_URL?.trim()) },
       reconciliation: { openOrInvestigating: number(reconciliationResult) },
       workers: {
         socialPublishing: { queuedOrProcessing: number(socialQueuedResult), failed: number(socialFailedResult) },
         adminAiStore: { queuedOrProcessing: number(aiQueuedResult), failed: number(aiFailedResult) },
+        automation: { runningOrAwaitingApproval: number(workflowQueuedResult) },
+        customerSubscriptions: { dueForRenewal: number(subscriptionDueResult) },
         domainEvents: { pendingOrProcessing: number(eventsPendingResult), failed: number(eventsFailedResult) },
       },
       notes: [
