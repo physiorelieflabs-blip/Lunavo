@@ -10,7 +10,7 @@ router.post("/merchant/ts-pay/transfers", async (req, res, next) => {
   try {
     const userId = getAuth(req).userId;
     if (!userId) return res.status(401).json({ error: "Authentication required" });
-    const source = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);
+    const source = await db.execute(sql`SELECT id FROM merchants WHERE status='active' AND (clerk_user_id=${userId} OR local_auth_user_id=${userId}) LIMIT 1`);
     const fromMerchantId = Number((source.rows[0] as { id?: number } | undefined)?.id);
     if (!Number.isInteger(fromMerchantId)) return res.status(404).json({ error: "Merchant workspace not found" });
 
@@ -76,7 +76,7 @@ router.get("/merchant/ts-pay/transfers", async (req, res, next) => {
   try {
     const userId = getAuth(req).userId;
     if (!userId) return res.status(401).json({ error:"Authentication required" });
-    const merchant = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);
+    const merchant = await db.execute(sql`SELECT id FROM merchants WHERE status='active' AND (clerk_user_id=${userId} OR local_auth_user_id=${userId}) LIMIT 1`);
     const merchantId = Number((merchant.rows[0] as { id?: number } | undefined)?.id);
     if (!Number.isInteger(merchantId)) return res.status(404).json({ error:"Merchant workspace not found" });
     const result = await db.execute(sql`SELECT id,from_merchant_id,to_merchant_id,amount_minor,currency,status,reference_key,note,created_at,completed_at FROM ts_pay_transfers WHERE from_merchant_id=${merchantId} OR to_merchant_id=${merchantId} ORDER BY created_at DESC LIMIT 100`);
