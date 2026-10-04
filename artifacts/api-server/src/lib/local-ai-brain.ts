@@ -113,7 +113,6 @@ function buildLlamaCppBody(candidate: Candidate, messages: BrainMessage[], optio
     prompt: flattened + "\n\n[ASSISTANT]\n",
     temperature: options.temperature ?? 0.2,
     n_predict: options.maxTokens ?? 4000,
-    ...(options.json ? { grammar: "json" } : {}),
     model: candidate.model,
   };
 }
