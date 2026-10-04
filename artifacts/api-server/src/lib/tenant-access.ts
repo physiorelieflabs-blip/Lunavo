@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import {
   db,
   merchantLocationsTable,
@@ -87,13 +87,13 @@ export async function getTenantAccess(clerkUserId: string, merchantId: number): 
   }
 
   const merchant = (await db.select({
-    clerkUserId: merchantsTable.clerkUserId,
+    clerkUserId: merchantsTable.clerkUserId, localAuthUserId: merchantsTable.localAuthUserId,
     status: merchantsTable.status,
   }).from(merchantsTable).where(eq(merchantsTable.id, merchantId)).limit(1))[0];
   // Banned/disabled merchant workspaces are not usable through ordinary
   // tenant permissions, even when an old membership row is still active.
   if (!merchant || merchant.status !== "active") return null;
-  if (merchant.clerkUserId === clerkUserId) await ensureTenantOwnerMembership(merchantId, clerkUserId);
+  if (merchant.clerkUserId === clerkUserId || merchant.localAuthUserId === clerkUserId) await ensureTenantOwnerMembership(merchantId, clerkUserId);
   const membership = (await db.select({
     id: merchantMembershipsTable.id, roleId: merchantMembershipsTable.roleId, roleKey: merchantRolesTable.key,
   }).from(merchantMembershipsTable).innerJoin(merchantRolesTable, eq(merchantMembershipsTable.roleId, merchantRolesTable.id))
