@@ -1,4 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { getAuth } from "../lib/auth-compat";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
@@ -15,6 +17,25 @@ import {
 } from "../lib/flutterwave-runtime";
 
 const router: IRouter = Router();
+const fxRatebookPath=()=>process.env.FX_RATES_FILE?.trim()||process.env.LUNAVO_FX_RATES_FILE?.trim()||path.join(process.env.LUNAVO_LOCAL_OBJECT_STORAGE_PATH?.trim()||(process.env.NODE_ENV==="production"?"/data/lunavo":"./data/lunavo"),"fx-rates.json");
+async function readFxRatebook(){
+  const file=fxRatebookPath();
+  try{
+    const parsed=JSON.parse(await readFile(file,"utf8")) as {version?:unknown;rates?:unknown;updatedAt?:unknown};
+    return {version:Number(parsed.version)||1,updatedAt:typeof parsed.updatedAt==="string"?parsed.updatedAt:null,rates:parsed.rates&&typeof parsed.rates==="object"&&!Array.isArray(parsed.rates)?parsed.rates as Record<string,Record<string,number>>:{}};
+  }catch(error){
+    if((error as NodeJS.ErrnoException)?.code==="ENOENT")return {version:1,updatedAt:null,rates:{}} as {version:number;updatedAt:string|null;rates:Record<string,Record<string,number>>};
+    throw error;
+  }
+}
+async function writeFxRatebook(ratebook:{version:number;updatedAt:string|null;rates:Record<string,Record<string,number>>}){
+  const file=fxRatebookPath(),dir=path.dirname(file),tmp=file+".tmp-"+process.pid;
+  await mkdir(dir,{recursive:true});
+  await writeFile(tmp,JSON.stringify({...ratebook,version:1,updatedAt:new Date().toISOString()},null,2)+"\n",{mode:0o600});
+  await rename(tmp,file);
+  return file;
+}
+
 
 async function requireAdmin(req: Request, res: Response): Promise<string | null> {
   const userId = getAuth(req).userId;
@@ -30,6 +51,29 @@ async function requireAdmin(req: Request, res: Response): Promise<string | null>
     return null;
   }
 }
+
+router.get("/admin/integrations/fx", async (req,res,next)=>{
+  try{
+    const userId=await requireAdmin(req,res); if(!userId)return;
+    const ratebook=await readFxRatebook();
+    res.json({provider:"self-hosted-fx",file:fxRatebookPath(),updatedAt:ratebook.updatedAt,rates:ratebook.rates});
+  }catch(error){next(error);}
+});
+
+router.put("/admin/integrations/fx", async (req,res,next)=>{
+  try{
+    const userId=await requireAdmin(req,res); if(!userId)return;
+    const base=typeof req.body?.base==="string"?req.body.base.trim().toUpperCase():"";
+    const quote=typeof req.body?.quote==="string"?req.body.quote.trim().toUpperCase():"";
+    const rate=Number(req.body?.rate);
+    if(!/^[A-Z]{3}$/.test(base)||!/^[A-Z]{3}$/.test(quote)||base===quote||!Number.isFinite(rate)||rate<=0||rate>1e9){res.status(400).json({error:"Enter two different ISO currency codes and a positive finite rate."});return;}
+    const ratebook=await readFxRatebook();
+    const rates={...ratebook.rates,[base]:{...(ratebook.rates[base]||{}),[quote]:rate}};
+    const file=await writeFxRatebook({version:1,updatedAt:null,rates});
+    await db.execute(sql`INSERT INTO audit_logs (user_id,merchant_id,action,resource_type,resource_id,changes,ip_address,user_agent,status,created_at) VALUES (${userId},NULL,'self_hosted_fx_rate_updated','platform_integration','fx',${JSON.stringify({base,quote,rate,file})}::jsonb,${req.ip??null},${req.get("user-agent")?.slice(0,500)??null},'success',now())`);
+    res.json({provider:"self-hosted-fx",base,quote,rate,updatedAt:new Date().toISOString(),rates});
+  }catch(error){next(error);}
+});
 
 router.get("/admin/integrations/flutterwave", async (req, res, next) => {
   try {
