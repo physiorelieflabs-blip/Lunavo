@@ -74,23 +74,27 @@ function conditionPasses(context: WorkflowContext, condition: Condition): boolea
     }
     case "gt": {
       const a = comparable(actual); const b = comparable(condition.value);
-      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
-      return a > b;
+      if (typeof a === "number" && typeof b === "number") return a > b;
+      if (typeof a === "string" && typeof b === "string") return a > b;
+      return false;
     }
     case "gte": {
       const a = comparable(actual); const b = comparable(condition.value);
-      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
-      return a >= b;
+      if (typeof a === "number" && typeof b === "number") return a >= b;
+      if (typeof a === "string" && typeof b === "string") return a >= b;
+      return false;
     }
     case "lt": {
       const a = comparable(actual); const b = comparable(condition.value);
-      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
-      return a < b;
+      if (typeof a === "number" && typeof b === "number") return a < b;
+      if (typeof a === "string" && typeof b === "string") return a < b;
+      return false;
     }
     case "lte": {
       const a = comparable(actual); const b = comparable(condition.value);
-      if (typeof a !== typeof b || (typeof a !== "number" && typeof a !== "string")) return false;
-      return a <= b;
+      if (typeof a === "number" && typeof b === "number") return a <= b;
+      if (typeof a === "string" && typeof b === "string") return a <= b;
+      return false;
     }
     default: return false;
   }
