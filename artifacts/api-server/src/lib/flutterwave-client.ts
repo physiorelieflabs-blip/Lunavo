@@ -316,6 +316,66 @@ export async function verifyFlutterwaveTransaction(transactionId: string): Promi
   return response.data;
 }
 
+export type FlutterwaveTransfer = {
+  id?: number | string;
+  reference?: string;
+  status?: string;
+  amount?: number | string;
+  currency?: string;
+  debit_currency?: string | null;
+  fee?: number | string;
+  account_number?: string;
+  bank_code?: string;
+  bank_name?: string;
+  full_name?: string;
+  complete_message?: string;
+};
+
+export function flutterwaveTransferStatus(value: FlutterwaveTransfer): "paid" | "failed" | "pending" {
+  const status = String(value.status ?? "").toUpperCase();
+  if (["SUCCESSFUL", "SUCCESS", "COMPLETED"].includes(status)) return "paid";
+  if (["FAILED", "CANCELLED", "CANCELED", "REVERSED", "DECLINED"].includes(status)) return "failed";
+  return "pending";
+}
+
+export async function createFlutterwaveTransfer(input: {
+  reference: string;
+  amount: number;
+  currency: string;
+  bankCode: string;
+  accountNumber: string;
+  beneficiaryName: string;
+  narration: string;
+}): Promise<FlutterwaveTransfer> {
+  const currency = input.currency.trim().toUpperCase();
+  if (!supportsFlutterwaveDirectBankTransfer(currency)) {
+    throw new Error(`Flutterwave payout rail is not enabled for ${currency}`);
+  }
+  const response = await flutterwaveRequest<FlutterwaveResponse<FlutterwaveTransfer>>("/transfers", {
+    method: "POST",
+    idempotencyKey: input.reference,
+    body: {
+      account_bank: input.bankCode.trim(),
+      account_number: input.accountNumber.trim(),
+      amount: Number(input.amount.toFixed(2)),
+      currency,
+      beneficiary_name: input.beneficiaryName.trim(),
+      narration: input.narration.slice(0, 120),
+      reference: input.reference,
+    },
+  });
+  if (!response.data) throw new Error("Flutterwave returned no transfer details");
+  return response.data;
+}
+
+export async function verifyFlutterwaveTransfer(transferId: string): Promise<FlutterwaveTransfer> {
+  const response = await flutterwaveRequest<FlutterwaveResponse<FlutterwaveTransfer>>(
+    `/transfers/${encodeURIComponent(transferId)}`,
+  );
+  if (!response.data) throw new Error("Flutterwave returned no transfer details");
+  return response.data;
+}
+
 export async function refundFlutterwaveTransaction(
   transactionId: string,
   amount: number,
