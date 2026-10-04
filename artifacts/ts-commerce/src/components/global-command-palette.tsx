@@ -24,7 +24,7 @@ const MERCHANT_ITEMS:Item[]=[
  {href:"/auctions/manage",label:"Auctions",description:"Create and manage live auctions",keywords:"bids bidding",icon:Gavel},
  {href:"/inventory",label:"Inventory",description:"Stock, reservations, warehouses and adjustments",keywords:"warehouse products stock",icon:Warehouse},
  {href:"/suppliers",label:"Suppliers & Sourcing",description:"Import and evaluate supplier products",keywords:"dropshipping sourcing",icon:Store},
- {href:"/dropshipping",label:"Fulfillment",description:"Supplier-backed fulfillment and tracking",keywords:"shipping delivery",icon:Route},
+ {href:"/dropshipping",label:"Fulfillment",description:"Supplier-backed fulfillment and tracking",keywords:"shipping delivery",icon:Route},{href:"/dropship-intelligence",label:"Dropship Intelligence",description:"Supplier passports, profit shield and tracking radar",keywords:"dropshipping supplier profit shipping",icon:BrainCircuit},
  {href:"/finance",label:"Finance / TS Pay",description:"Ledger, refunds, reconciliation and payment links",keywords:"money payments fees ledger",icon:WalletCards},
  {href:"/withdrawals",label:"Withdrawals",description:"Payout requests and KYC",keywords:"payout bank kyc",icon:WalletCards},
  {href:"/ts-pay",label:"TS Pay",description:"First-party payment orchestration and ledger",keywords:"transactions payments",icon:Landmark},
