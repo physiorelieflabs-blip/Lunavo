@@ -119,6 +119,15 @@ router.post("/merchant/operations", async (req, res, next) => {
     const endsAt = typeof req.body?.endsAt === "string" ? new Date(req.body.endsAt) : null;
     const dueAt = typeof req.body?.dueAt === "string" ? new Date(req.body.dueAt) : null;
     for (const date of [startsAt, endsAt, dueAt]) if (date && Number.isNaN(date.getTime())) return fail(res, 400, "Invalid date");
+    if (customerId !== null) {
+      const customer = await db.execute(sql`SELECT id FROM customers WHERE id=${customerId} AND merchant_id=${merchant.id} LIMIT 1`);
+      if (!customer.rows.length) return fail(res, 404, "Customer does not belong to this merchant");
+    }
+    if (orderId !== null) {
+      const order = await db.execute(sql`SELECT id FROM orders WHERE id=${orderId} AND merchant_id=${merchant.id} LIMIT 1`);
+      if (!order.rows.length) return fail(res, 404, "Order does not belong to this merchant");
+    }
+    if (startsAt && endsAt && startsAt > endsAt) return fail(res, 400, "Start time must be before end time");
     const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
     const [row] = await db.execute(sql`
       INSERT INTO merchant_operation_records
