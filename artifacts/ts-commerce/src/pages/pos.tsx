@@ -159,7 +159,6 @@ export default function Pos() {
       customerPhone: customerPhone.trim() || undefined,
       total: Number(total.toFixed(2)),
       quantity: Math.max(1, Number(quantity) || 1),
-      status: 'pending',
       supplierProductId: selectedProduct.id,
       idempotencyKey: crypto.randomUUID(),
     };
