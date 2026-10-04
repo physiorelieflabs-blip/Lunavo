@@ -381,7 +381,7 @@ import {
   refundFlutterwaveTransaction,
   verifyFlutterwaveTransaction,
   verifyFlutterwaveWebhookSignature,
-  supportsFlutterwaveDirectBankTransfer,
+  supportsFlutterwavePayoutCurrency,
   createFlutterwaveTransfer,
   flutterwaveTransferStatus,
   type FlutterwaveTransaction,
@@ -12263,7 +12263,7 @@ router.patch("/admin/withdrawals/:id/review", async (req, res): Promise<void> =>
       if (!destination.bankCode || !destination.accountNumber) {
         throw new Error("Withdrawal destination is incomplete");
       }
-      if (!supportsFlutterwaveDirectBankTransfer(current.currency)) {
+      if (!supportsFlutterwavePayoutCurrency(current.currency)) {
         throw new Error(
           `Flutterwave payout rail is not enabled for ${current.currency}. No manual payout is permitted.`,
         );
