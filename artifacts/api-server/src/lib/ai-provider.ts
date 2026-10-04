@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 type ReasoningRole = "primary" | "critic" | "vision" | "coding";
 type ReasoningMessage = { role: "system" | "user" | "assistant"; content: string };
 type VisionMessageContent = string | Array<
@@ -7,10 +8,24 @@ type VisionMessageContent = string | Array<
 type LocalCompletion = { choices?: Array<{ message?: { content?: string | null } }>; model?: string; error?: { message?: string } };
 export type LocalLlmEndpoint = { id: string; url: string; model: string; role?: ReasoningRole; weight: number };
 
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (host === "localhost" || host === "::1" || host.endsWith(".local") || host.endsWith(".internal") || !host.includes(".")) return true;
+  const ipVersion = isIP(host);
+  if (ipVersion === 4) {
+    const octets = host.split(".").map(Number);
+    const [a,b] = octets;
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  if (ipVersion === 6) return host === "::1" || /^f[cd]/i.test(host) || /^fe80:/i.test(host);
+  return false;
+}
+
 function endpointUrl(value: string, name: string): string {
   let parsed: URL;
   try { parsed = new URL(value); } catch { throw new Error(name + " must be a valid HTTP(S) URL"); }
   if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(name + " must use HTTP or HTTPS");
+  if (!isPrivateHost(parsed.hostname)) throw new Error(name + " must resolve through a private/local self-hosted endpoint; public AI hosts are forbidden");
   return value.replace(/\/$/, "");
 }
 
