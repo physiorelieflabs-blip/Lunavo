@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
+import { completeDeepSeekChat } from "../lib/deepseek";
 import { productEconomics, scoreSupplier, trackingGap } from "../lib/dropship-intelligence-core";
 
 const router = Router();
@@ -283,6 +284,35 @@ router.get("/dropship-intelligence/overview", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+router.post("/dropship-intelligence/suppliers/negotiate", async (req, res, next) => {
+  try {
+    const merchant=await merchantFor(req);
+    if(!merchant)return fail(res,401,"Authentication required");
+    const domain=text(req.body?.supplierDomain,160).toLowerCase();
+    const goal=text(req.body?.goal,500)||"Request better landed cost, reliable processing and predictable tracking.";
+    const productId=req.body?.supplierProductId==null?null:integer(req.body?.supplierProductId,1,2147483647);
+    if(!domain||!/^[a-z0-9.-]+$/.test(domain))return fail(res,400,"Valid supplier domain is required");
+    const observations=(await db.execute(sql`
+      SELECT supplier_name,source_url,supplier_product_id,observed_cost_minor,shipping_cost_minor,currency,
+             eta_min_days,eta_max_days,quality_score,tracking_score,defect_rate_bps,refund_rate_bps,
+             destination_country,notes,observed_at
+      FROM dropship_supplier_observations
+      WHERE merchant_id=${merchant.id} AND lower(supplier_domain)=${domain}
+        AND (${productId} IS NULL OR supplier_product_id=${productId})
+      ORDER BY observed_at DESC
+      LIMIT 12
+    `)).rows as Array<Record<string,unknown>>;
+    if(!observations.length)return fail(res,404,"No recorded evidence exists for that supplier yet.");
+    const evidence=observations.map((o,i)=>`Observation ${i+1}: cost=${o.observed_cost_minor==null?"unknown":Number(o.observed_cost_minor)/100} ${String(o.currency)}; shipping=${o.shipping_cost_minor==null?"unknown":Number(o.shipping_cost_minor)/100} ${String(o.currency)}; ETA=${o.eta_min_days??"?"}-${o.eta_max_days??"?"} days; quality=${o.quality_score??"unknown"}/100; tracking=${o.tracking_score??"unknown"}/100; defects=${o.defect_rate_bps==null?"unknown":Number(o.defect_rate_bps)/100}%; refunds=${o.refund_rate_bps==null?"unknown":Number(o.refund_rate_bps)/100}%; destination=${o.destination_country??"unknown"}; notes=${text(o.notes,700)}`).join("\n");
+    const product=(productId==null?null:(await db.execute(sql`SELECT title,selling_price,currency FROM supplier_products WHERE id=${productId} AND merchant_id=${merchant.id} LIMIT 1`)).rows[0]) as {title?:string|null;selling_price?:string|number|null;currency?:string|null}|undefined;
+    const response=await completeDeepSeekChat([
+      {role:"system",content:"You are Lunavo Supplier Negotiation Copilot. Draft a concise, professional supplier negotiation message using ONLY the evidence supplied. Never invent order volume, competing quotes, supplier failures, legal rights, certifications, delivery guarantees, target prices, or leverage. Ask for measurable concessions such as unit price, shipping price, processing SLA, packaging, sample inspection, photo proof, or tracking updates. Keep unknown facts as questions. Return only the ready-to-send message."},
+      {role:"user",content:"Supplier domain: "+domain+"\nGoal: "+goal+"\nProduct: "+(product?.title??"not specified")+"\nRecorded evidence:\n"+evidence}
+    ],{maxTokens:1600,reasoningEffort:"high"});
+    res.json({supplierDomain:domain,product:product??null,evidenceCount:observations.length,model:response.model,draft:response.content});
+  } catch(error){next(error);}
 });
 
 router.post("/dropship-intelligence/observations", async (req, res, next) => {
