@@ -5,6 +5,9 @@ type LocalMessage = {
 
 import { completeLocalBrain } from "./local-ai-brain";
 
+const DEFAULT_LOCAL_LLM_URL = "http://127.0.0.1:11434/v1/chat/completions";
+const DEFAULT_LOCAL_LLM_MODEL = "qwen3:32b";
+
 function localChat(
   messages: LocalMessage[],
   options: { json?: boolean; maxTokens?: number; vision?: boolean } = {},
@@ -26,11 +29,12 @@ export async function completeDeepSeekChat(
 
 export function deepSeekConfigured(): boolean {
   // A local endpoint always exists by default; production provisioning is checked by preflight.
-  return Boolean(
-    process.env.LUNAVO_LOCAL_LLM_URL?.trim() ||
-      process.env.LUNAVO_LOCAL_LLM_URLS?.trim() ||
-      true,
-  );
+  const endpoint = process.env.LUNAVO_LOCAL_LLM_URL?.trim() ||
+    process.env.LUNAVO_LOCAL_LLM_URLS?.trim() ||
+    DEFAULT_LOCAL_LLM_URL;
+  const model = process.env.LUNAVO_LOCAL_LLM_MODEL?.trim() || DEFAULT_LOCAL_LLM_MODEL;
+  // OpenAI-compatible local backends may use response_format for structured JSON; the local brain maps this to each native protocol.
+  return Boolean(endpoint && model);
 }
 
 function rejectUnsafeImageUrl(value: string): void {
