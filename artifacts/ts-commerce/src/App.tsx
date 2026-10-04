@@ -26,6 +26,7 @@ import Dropshipping from '@/pages/dropshipping';
 import Checkout from '@/pages/checkout';
 import AiControlRoom from '@/pages/ai';
 import Autopilot from '@/pages/autopilot';
+import Automations from '@/pages/automations';
 import Finance from '@/pages/finance';
 import Inventory from '@/pages/inventory';
 import StorePage from '@/pages/store';
