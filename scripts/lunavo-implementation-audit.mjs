@@ -208,7 +208,8 @@ for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Str
 const automationMigration=await read("lib/db/migrations/0108_automation_workflows.sql");
 for(const m of ["merchant_automation_workflows","merchant_automation_runs","merchant_automation_action_approvals","schedule_interval_seconds","expires_at timestamptz NOT NULL","idempotency_key text NOT NULL UNIQUE"])if(!automationMigration.includes(m))failures.push("Automation workflow migration invariant missing: "+m);
 const automationEngine=await read("artifacts/api-server/src/lib/automation-engine.ts");
-for(const m of ["dispatchWorkflowEvent","processScheduledWorkflows","approveWorkflowRun","reserveAutomationActionInTransaction","approval_required","dry_run","schedule.tick","pg_advisory_xact_lock","protectedFeatureKeyPrefixes","SAVEPOINT automation_actions"])if(!automationEngine.includes(m))failures.push("Automation engine invariant missing: "+m);
+if(automationEngine.includes('"account.deleted"'))failures.push("Automation must not expose account-deletion events as reusable workflow triggers");
+for(const m of ["dispatchWorkflowEvent","processScheduledWorkflows","approveWorkflowRun","reserveAutomationActionInTransaction","approval_required","dry_run","schedule.tick","pg_advisory_xact_lock","protectedFeatureKeyPrefixes","SAVEPOINT automation_actions","status='active'","JSON.stringify(context.payload).length > 32000"])if(!automationEngine.includes(m))failures.push("Automation engine invariant missing: "+m);
 const automationRoute=await read("artifacts/api-server/src/routes/automation-workflows.ts");
 for(const m of ["/merchant/automation-workflows","/merchant/automation-runs/:id/decision","/runs","/run-now","requirePermission","isWorkflowTriggerEvent",'String(workflow.mode)!=="dry_run"'])if(!automationRoute.includes(m))failures.push("Automation API invariant missing: "+m);
 const automationUi=await read("artifacts/ts-commerce/src/pages/automations.tsx");
