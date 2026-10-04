@@ -633,7 +633,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - CI verification
 - GitHub Actions
 - Deployment/runtime compatibility
-- No development dependency on Replit
+- No development dependency on hosted platform tooling
 
 ## 36. Data integrity rules
 - Immutable historical order pricing
