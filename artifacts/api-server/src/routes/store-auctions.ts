@@ -4,6 +4,7 @@ import { getAuth } from "../lib/auth-compat";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { requirePermission } from "../lib/tenant-access";
+import { toMinorUnits } from "../lib/money";
 
 const router = Router();
 const PROFIT_THRESHOLD_MINOR = 50_000_000;
@@ -15,7 +16,7 @@ function hash(value: string): string {
 async function merchantIdFor(req: Request, res: Response): Promise<number | null> {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
-  const result = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id = ${userId} LIMIT 1`);
+  const result = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id = ${userId} OR local_auth_user_id = ${userId} LIMIT 1`);
   const id = Number((result.rows[0] as { id?: number } | undefined)?.id);
   if (!Number.isInteger(id)) { res.status(404).json({ error: "Merchant workspace not found" }); return null; }
   try { await requirePermission(userId, id, "team.manage"); } catch { res.status(403).json({ error: "Permission required" }); return null; }
@@ -61,13 +62,17 @@ async function verifiedMetrics(tx: any, auctionId: number, merchantId: number, c
   const row = metrics.rows[0] as Record<string, string | number | null> | undefined;
   const verifiedProfit = Number(row?.verified_profit_minor ?? 0);
   if (!Number.isSafeInteger(verifiedProfit) || verifiedProfit < 0) throw new Error("Invalid verified financial record");
-  const revenue = Number(row?.revenue ?? 0);
+  const revenueMinor = toMinorUnits(row?.revenue);
+  const aovMinor = toMinorUnits(row?.aov);
   const orders = Number(row?.orders_count ?? 0);
+  const customersCount = Number(row?.customers_count ?? 0);
+  if (revenueMinor === null || aovMinor === null || !Number.isSafeInteger(orders) || orders < 0 || !Number.isSafeInteger(customersCount) || customersCount < 0) throw new Error("Invalid verified commerce metrics");
+  const expensesMinor = Math.max(0, revenueMinor - verifiedProfit);
   const snapshot = {
-    revenueMinor: Math.round(revenue * 100), verifiedProfitMinor: verifiedProfit, ordersCount: orders,
-    customersCount: Number(row?.customers_count ?? 0), aovMinor: Math.round(Number(row?.aov ?? 0) * 100),
+    revenueMinor, verifiedProfitMinor: verifiedProfit, ordersCount: orders,
+    customersCount, aovMinor,
     growthPercent: 0, trafficCount: 0, conversionPercent: 0,
-    expensesMinor: Math.max(0, Math.round(revenue * 100) - verifiedProfit),
+    expensesMinor,
     adSpendMinor: Number(row?.ad_spend ?? 0), adRevenueMinor: Number(row?.ad_revenue ?? 0),
     storeAgeDays: Math.max(0, Number(row?.store_age_days ?? 0)), inventoryUnits: Number(row?.units ?? 0),
     valuationIndicatorMinor: Math.max(0, verifiedProfit * 3), currency,
@@ -85,11 +90,11 @@ router.post("/merchant/store-auctions", async (req, res, next) => {
   try {
     const merchantId = await merchantIdFor(req, res); if (!merchantId) return;
     const storefrontId = String(req.body?.storefrontId ?? "");
-    const askingPrice = Number(req.body?.askingPrice);
+    const askingPriceMinor = toMinorUnits(req.body?.askingPrice);
     const currency = String(req.body?.currency ?? "USD").toUpperCase();
     const startsAt = new Date(String(req.body?.startsAt ?? ""));
     const endsAt = new Date(String(req.body?.endsAt ?? ""));
-    if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(askingPrice) || askingPrice <= 0 || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt || !/^[0-9a-f-]{36}$/i.test(storefrontId)) {
+    if (!/^[A-Z]{3}$/.test(currency) || askingPriceMinor === null || askingPriceMinor <= 0 || !Number.isSafeInteger(askingPriceMinor) || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt || !/^[0-9a-f-]{36}$/i.test(storefrontId)) {
       res.status(400).json({ error: "Invalid store auction parameters" }); return;
     }
     const result = await db.transaction(async tx => {
@@ -102,7 +107,7 @@ router.post("/merchant/store-auctions", async (req, res, next) => {
       if (!exempt && (!Number.isSafeInteger(profit) || profit < PROFIT_THRESHOLD_MINOR)) throw Object.assign(new Error("Store auction requires at least $500,000 verified profit"), { status: 403 });
       const inserted = await tx.execute(sql`
         INSERT INTO store_auction_listings (storefront_id,seller_merchant_id,asking_price,currency,starts_at,ends_at,status,seller_description)
-        VALUES (${storefrontId},${merchantId},${askingPrice},${currency},${startsAt.toISOString()},${endsAt.toISOString()},'active',${String(req.body?.sellerDescription ?? "").slice(0,5000)}) RETURNING id
+        VALUES (${storefrontId},${merchantId},${(askingPriceMinor / 100).toFixed(2)},${currency},${startsAt.toISOString()},${endsAt.toISOString()},'active',${String(req.body?.sellerDescription ?? "").slice(0,5000)}) RETURNING id
       `);
       const auctionId = Number((inserted.rows[0] as { id: string }).id);
       const snapshot = await verifiedMetrics(tx, auctionId, merchantId, currency);
@@ -115,8 +120,8 @@ router.post("/merchant/store-auctions", async (req, res, next) => {
 router.post("/store-auctions/:id/bids", async (req, res, next) => {
   try {
     const bidderId = await merchantIdFor(req, res); if (!bidderId) return;
-    const auctionId = Number(req.params.id); const amount = Number(req.body?.amount);
-    if (!Number.isInteger(auctionId) || !Number.isFinite(amount) || amount <= 0) { res.status(400).json({ error: "Invalid bid" }); return; }
+    const auctionId = Number(req.params.id); const bidAmountMinor = toMinorUnits(req.body?.amount);
+    if (!Number.isInteger(auctionId) || bidAmountMinor === null || !Number.isSafeInteger(bidAmountMinor) || bidAmountMinor <= 0) { res.status(400).json({ error: "Invalid bid" }); return; }
     const result = await db.transaction(async tx => {
       const auctionResult = await tx.execute(sql`SELECT id, seller_merchant_id, asking_price, currency, status, starts_at, ends_at FROM store_auction_listings WHERE id = ${auctionId} FOR UPDATE`);
       const auction = auctionResult.rows[0] as Record<string, any> | undefined;
@@ -125,13 +130,15 @@ router.post("/store-auctions/:id/bids", async (req, res, next) => {
       const now = Date.now();
       if (auction.status !== "active" || new Date(auction.starts_at).getTime() > now || new Date(auction.ends_at).getTime() <= now) throw Object.assign(new Error("Auction is not accepting bids"), { status: 409 });
       const current = await tx.execute(sql`SELECT COALESCE(MAX(amount),0) AS highest FROM store_auction_bids WHERE auction_id = ${auctionId} AND risk_status = 'accepted'`);
-      const highest = Number((current.rows[0] as { highest?: string } | undefined)?.highest ?? 0);
-      if (amount < Math.max(Number(auction.asking_price), highest + 0.01)) throw Object.assign(new Error("Bid must meet the asking price and exceed the current accepted bid"), { status: 409 });
+      const highestMinor = toMinorUnits((current.rows[0] as { highest?: string } | undefined)?.highest ?? "0");
+      const askingMinor = toMinorUnits(auction.asking_price);
+      if (highestMinor === null || askingMinor === null) throw new Error("Auction monetary state is invalid");
+      if (bidAmountMinor < Math.max(askingMinor, highestMinor + 1)) throw Object.assign(new Error("Bid must meet the asking price and exceed the current accepted bid"), { status: 409 });
       const merchant = await tx.execute(sql`SELECT email FROM merchants WHERE id = ${bidderId}`);
       const email = String((merchant.rows[0] as { email?: string } | undefined)?.email ?? "").trim().toLowerCase();
       const recent = await tx.execute(sql`SELECT COUNT(*)::int AS count FROM store_auction_bids WHERE auction_id = ${auctionId} AND normalized_bidder_email = ${email} AND risk_status <> 'rejected' AND created_at >= now() - interval '5 minutes'`);
       if (Number((recent.rows[0] as { count?: number } | undefined)?.count ?? 0) >= 12) throw Object.assign(new Error("Bid rate limit reached"), { status: 429 });
-      const inserted = await tx.execute(sql`INSERT INTO store_auction_bids (auction_id,bidder_merchant_id,amount,currency,normalized_bidder_email,ip_hash,user_agent_hash,risk_status) VALUES (${auctionId},${bidderId},${amount},${auction.currency},${email},${hash(req.ip ?? "")},${hash(req.get("user-agent") ?? "")},'accepted') RETURNING id, amount`);
+      const inserted = await tx.execute(sql`INSERT INTO store_auction_bids (auction_id,bidder_merchant_id,amount,currency,normalized_bidder_email,ip_hash,user_agent_hash,risk_status) VALUES (${auctionId},${bidderId},${(bidAmountMinor / 100).toFixed(2)},${auction.currency},${email},${hash(req.ip ?? "")},${hash(req.get("user-agent") ?? "")},'accepted') RETURNING id, amount`);
       return inserted.rows[0];
     });
     res.status(201).json({ bid: result });
