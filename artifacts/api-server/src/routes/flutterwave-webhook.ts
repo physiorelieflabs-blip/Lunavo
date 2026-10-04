@@ -6,6 +6,7 @@ import { flutterwaveTransferStatus, verifyFlutterwaveTransaction, verifyFlutterw
 import { settleVerifiedProductAuctionPayment } from "../lib/product-auction-settlement";
 import { settleVerifiedStoreAuctionPayment } from "../lib/store-auction-settlement";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
+import { buildTsPayWithdrawalLedgerEntry } from "../lib/ts-pay-ledger";
 
 const router = Router();
 type Payload = Record<string, unknown>;
@@ -97,16 +98,13 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
             paidAt: null,
           }).where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "approved"))).returning();
           if (!updated) return "processed";
-          await tx.insert(ledgerEntriesTable).values({
+          await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
             merchantId: current.merchantId,
             withdrawalId: current.id,
             amountMinor: Math.round(Number(current.amount) * 100),
             currency: current.currency,
-            entryType: "withdrawal_release",
-            amountMinor: Math.round(Number(current.amount) * 100),
-            referenceKey: `withdrawal:${current.id}:release`,
-            description: "Flutterwave payout failed; reserved funds released",
-          } as never).onConflictDoNothing();
+            event: "release",
+          })).onConflictDoNothing();
           return "processed";
         }
 
@@ -120,15 +118,13 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
             settledAt: new Date(),
           }).where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "approved"))).returning();
           if (!updated) return "processed";
-          await tx.insert(ledgerEntriesTable).values({
+          await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
             merchantId: current.merchantId,
             withdrawalId: current.id,
-            amountMinor: 0,
+            amountMinor: Math.round(Number(current.amount) * 100),
             currency: current.currency,
-            entryType: "withdrawal_paid",
-            referenceKey: `withdrawal:${current.id}:paid`,
-            description: "Flutterwave confirmed withdrawal settlement",
-          } as never).onConflictDoNothing();
+            event: "paid",
+          })).onConflictDoNothing();
         } else {
           await tx.update(withdrawalsTable).set({
             providerStatus: "pending",
