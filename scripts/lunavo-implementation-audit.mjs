@@ -192,5 +192,16 @@ const flwRoute=await read("artifacts/api-server/src/routes/admin-integrations.ts
 const privacyAuth=await read("artifacts/api-server/src/routes/auth.ts");for(const m of ["/auth/export","/auth/delete-account","financialHistoryPreserved","excludedSensitiveData"])if(!privacyAuth.includes(m))failures.push("Account privacy lifecycle invariant missing: "+m);
 const privacyLocalAuth=await read("artifacts/api-server/src/lib/local-auth.ts");for(const m of ["verifyLocalPasswordForUser","role<>'deleted'","u.role<>'deleted'"])if(!privacyLocalAuth.includes(m))failures.push("Deleted-account session invariant missing: "+m);
 const adminSetup=await read("artifacts/ts-commerce/src/pages/admin.tsx");if(!adminSetup.includes("Configure Flutterwave"))failures.push("Admin control room must expose Flutterwave setup");
+// Excellence pass invariants:
+const excellenceApp=await read("artifacts/api-server/src/app.ts");
+for(const m of ["pinoHttp({","X-Content-Type-Options","Referrer-Policy","Permissions-Policy","Cross-Origin-Resource-Policy"]) if(!excellenceApp.includes(m)) failures.push("Global API excellence invariant missing: "+m);
+const excellenceServer=await read("artifacts/api-server/src/index.ts");
+for(const m of ["requestTimeout=120000","headersTimeout=65000","keepAliveTimeout=65000","SIGTERM","pool.end()"]) if(!excellenceServer.includes(m)) failures.push("Graceful shutdown invariant missing: "+m);
+const excellenceFrontend=await read("artifacts/ts-commerce/src/App.tsx");
+if(!excellenceFrontend.includes("ConnectionStatus")) failures.push("Global connection status invariant missing");
+const excellenceShell=await read("artifacts/ts-commerce/src/components/app-shell.tsx");
+for(const m of ["GlobalCommandPalette","lunavo:open-command-palette","main-content","Skip to main content"]) if(!excellenceShell.includes(m)) failures.push("Global navigation excellence invariant missing: "+m);
+const providerRegistryTruth=await read("artifacts/api-server/src/lunavo-feature-registry.ts");
+for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Stripe adapter","optional")','F("payments","PayPal adapter","optional")']) if(!providerRegistryTruth.includes(m)) failures.push("Optional-provider truthfulness invariant missing: "+m);
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
