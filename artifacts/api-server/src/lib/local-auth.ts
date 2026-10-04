@@ -183,7 +183,7 @@ export async function updateLocalProfile(userId: string, input: { firstName?: st
   });
   const user = await localAuthUserForId(userId);
   if (!user) throw new Error("Account not found");
-  await db.execute(sql`UPDATE merchants SET name=${(user.firstName + " " + user.lastName).trim()} WHERE clerk_user_id=${userId}`);
+  await db.execute(sql`UPDATE merchants SET name=${(user.firstName + " " + user.lastName).trim()} WHERE clerk_user_id=${userId} OR local_auth_user_id=${userId}`);
   return user;
 }
 
