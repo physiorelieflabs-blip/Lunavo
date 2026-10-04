@@ -22,6 +22,7 @@ import {
   revokeOtherLocalSessions,
   isLoginContextAnomalous,
   sendMasterAdminLoginAlert,
+  verifyLocalPasswordForUser,
 } from "../lib/local-auth";
 import { createMasterAdminMfaChallenge, masterAdminMfaEnabled, requireMasterAdmin, beginMasterAdminMfaSetup, confirmMasterAdminMfa, verifyMasterAdminMfaChallenge } from "../lib/master-admin";
 
@@ -366,6 +367,87 @@ router.post("/auth/sessions/revoke-others", async (req, res) => {
   await auditLog(user.id, undefined, "local_other_sessions_revoked", "authentication_session", user.id, {}, req.ip, req.get("user-agent"));
   return res.json({ success: true });
 });
+
+router.get("/auth/export", async (req, res) => {
+  const user = currentUser(req);
+  if (!user) return res.status(401).json({ error: "Authentication required" });
+  const merchantResult = await db.execute(sql`
+    SELECT id,name,email,store_name,store_description,store_contact_email,store_phone,store_website,
+           store_address,currency,tax_rate,shipping_fee,free_shipping_threshold,status,registered_at
+    FROM merchants
+    WHERE local_auth_user_id=${user.id} OR clerk_user_id=${user.id}
+    LIMIT 1
+  `);
+  const merchant = merchantResult.rows[0] as Record<string, unknown> | undefined;
+  if (!merchant) return res.status(404).json({ error: "Merchant workspace not found" });
+  const merchantId = Number(merchant.id);
+
+  const [customers, orders, products, invoices, ledger, audit] = await Promise.all([
+    db.execute(sql`SELECT id,name,email,phone,created_at,updated_at FROM customers WHERE merchant_id=${merchantId} ORDER BY id`),
+    db.execute(sql`SELECT id,status,total,currency,customer_id,created_at,updated_at FROM orders WHERE merchant_id=${merchantId} ORDER BY id`),
+    db.execute(sql`SELECT id,title,description,selling_price,currency,availability,category,status,created_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY id`),
+    db.execute(sql`SELECT id,order_id,amount,currency,status,created_at,updated_at FROM invoices WHERE merchant_id=${merchantId} ORDER BY id`),
+    db.execute(sql`SELECT id,entry_type,amount_minor,currency,reference_key,created_at FROM ledger_entries WHERE merchant_id=${merchantId} ORDER BY id`),
+    db.execute(sql`SELECT id,action,entity_type,entity_id,status,occurred_at,metadata FROM audit_logs WHERE merchant_id=${merchantId} ORDER BY id`),
+  ]);
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    exportedAt: new Date().toISOString(),
+    user: { id:user.id,email:user.email,username:user.username,firstName:user.firstName,lastName:user.lastName,role:user.role },
+    merchant,
+    customers: customers.rows,
+    orders: orders.rows,
+    products: products.rows,
+    invoices: invoices.rows,
+    ledger: ledger.rows,
+    audit: audit.rows,
+    excludedSensitiveData: [
+      "password hashes",
+      "session tokens",
+      "payment-provider secrets",
+      "withdrawal PIN hashes",
+      "bank-account secret material",
+      "KYC document ciphertext/content",
+      "social OAuth tokens",
+    ],
+  });
+});
+
+router.post("/auth/delete-account", async (req, res) => {
+  const user = currentUser(req);
+  if (!user) return res.status(401).json({ error: "Authentication required" });
+  if (user.role === "master_admin") return res.status(403).json({ error: "The permanent Master Admin account cannot be deleted through merchant account controls." });
+  const password = typeof req.body?.currentPassword === "string" ? req.body.currentPassword : "";
+  const confirmation = typeof req.body?.confirmation === "string" ? req.body.confirmation.trim() : "";
+  if (confirmation !== "DELETE MY LUNAVO ACCOUNT") return res.status(400).json({ error: "Type DELETE MY LUNAVO ACCOUNT to confirm." });
+  if (!await verifyLocalPasswordForUser(user.id,password)) return res.status(401).json({ error: "Current password is incorrect." });
+
+  try {
+    await db.transaction(async tx => {
+      const merchant = (await tx.execute(sql`
+        SELECT id,status FROM merchants
+        WHERE local_auth_user_id=${user.id} OR clerk_user_id=${user.id}
+        LIMIT 1 FOR UPDATE
+      `)).rows[0] as {id?:number;status?:string}|undefined;
+      if (merchant?.id) {
+        await tx.execute(sql`UPDATE merchants SET status='deleted' WHERE id=${merchant.id}`);
+      }
+      await tx.execute(sql`UPDATE local_auth_users SET role='deleted',updated_at=now() WHERE id=${user.id} AND role<>'master_admin'`);
+      await tx.execute(sql`DELETE FROM local_auth_sessions WHERE user_id=${user.id}`);
+    });
+    await auditLog(user.id, undefined, "account_deleted", "user", user.id, { financialHistoryPreserved:true }, req.ip, req.get("user-agent"));
+    clearSessionCookie(res);
+    return res.json({
+      deleted: true,
+      financialHistoryPreserved: true,
+      message: "Your account access has been disabled. Financial and audit records are preserved as required for accounting and reconciliation.",
+    });
+  } catch (error) {
+    return res.status(409).json({ error: error instanceof Error ? error.message : "Account deletion could not be completed" });
+  }
+});
+
 
 router.get("/auth/me", async (req, res) => {
   const user = currentUser(req);
