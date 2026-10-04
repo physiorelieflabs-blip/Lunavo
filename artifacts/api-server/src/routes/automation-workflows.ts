@@ -171,8 +171,9 @@ router.post("/merchant/automation-workflows/:id/run-now", async(req,res,next)=>{
   try{
     const ctx=await merchantContext(req,res);if(!ctx)return;
     const id=text(req.params.id,40);if(!/^[0-9a-fA-F-]{36}$/.test(id))return fail(res,400,"Invalid workflow id");
-    const workflow=(await db.execute(sql`SELECT id,enabled,trigger_event FROM merchant_automation_workflows WHERE id=${id} AND merchant_id=${ctx.merchantId}`)).rows[0] as Record<string,unknown>|undefined;
+    const workflow=(await db.execute(sql`SELECT id,enabled,mode,trigger_event FROM merchant_automation_workflows WHERE id=${id} AND merchant_id=${ctx.merchantId}`)).rows[0] as Record<string,unknown>|undefined;
     if(!workflow)return fail(res,404,"Workflow not found");
+    if(String(workflow.mode)!=="dry_run")return fail(res,409,"Preview tests are only available in Preview only mode; automatic and approval workflows require real domain events");
     const eventId=randomUUID();
     const count=await dispatchWorkflowEvent({
       eventId,eventType:String(workflow.trigger_event),aggregateType:"automation_workflow_test",aggregateId:String(workflow.id),
