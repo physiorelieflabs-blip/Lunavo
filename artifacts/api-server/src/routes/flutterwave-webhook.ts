@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, ledgerEntriesTable, paymentWebhookEventsTable, withdrawalsTable } from "@workspace/db";
 import { flutterwaveTransferStatus, verifyFlutterwaveTransaction, verifyFlutterwaveTransfer, verifyFlutterwaveWebhookSignatureAsync } from "../lib/flutterwave-client";
 import { settleVerifiedProductAuctionPayment } from "../lib/product-auction-settlement";
