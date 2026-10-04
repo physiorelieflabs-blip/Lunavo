@@ -286,6 +286,89 @@ router.get("/dropship-intelligence/overview", async (req, res, next) => {
   }
 });
 
+router.get("/dropship-intelligence/orders/:id/defense-pack", async (req, res, next) => {
+  try {
+    const merchant=await merchantFor(req);
+    if(!merchant)return fail(res,401,"Authentication required");
+    const orderId=integer(req.params.id,1,2147483647);
+    if(orderId===null)return fail(res,400,"Invalid order id");
+    const order=(await db.execute(sql`
+      SELECT o.id,o.order_number,o.status,o.subtotal,o.tax_amount,o.shipping_amount,o.total,o.currency,
+             o.created_at,o.shipping_address,o.fulfillment_status,
+             c.name AS customer_name,c.email AS customer_email,c.phone AS customer_phone,
+             p.id AS product_id,p.title AS product_title,p.source_domain,p.source_url,p.sku,
+             pi.id AS payment_intent_id,pi.status AS payment_intent_status,pi.amount_minor AS payment_amount_minor,
+             pi.currency AS payment_currency,pi.method AS payment_method,pi.provider_transaction_id,
+             pj.status AS fulfillment_job_status,pj.supplier_order_reference,pj.carrier,pj.tracking_number,
+             pj.shipped_at,pj.delivered_at,pj.updated_at AS fulfillment_updated_at,
+             t.status AS tracking_status,t.first_scan_at,t.last_recorded_at,t.expected_delivery_at,t.last_recorded_event,t.note AS tracking_note
+      FROM orders o
+      JOIN customers c ON c.id=o.customer_id
+      LEFT JOIN supplier_products p ON p.id=o.supplier_product_id
+      LEFT JOIN payment_intents pi ON pi.order_id=o.id
+      LEFT JOIN fulfillment_jobs pj ON pj.order_id=o.id AND pj.merchant_id=o.merchant_id
+      LEFT JOIN dropship_tracking_checkpoints t ON t.order_id=o.id AND t.merchant_id=o.merchant_id
+      WHERE o.id=${orderId} AND o.merchant_id=${merchant.id}
+      ORDER BY pi.id DESC
+      LIMIT 1
+    `)).rows[0] as Record<string,unknown>|undefined;
+    if(!order)return fail(res,404,"Order not found");
+    const events=(await db.execute(sql`
+      SELECT occurred_at,event_type,actor_type,source,payload
+      FROM domain_events
+      WHERE merchant_id=${merchant.id} AND aggregate_id=${String(order.id)}
+      ORDER BY occurred_at ASC LIMIT 100
+    `)).rows;
+    const audit=(await db.execute(sql`
+      SELECT created_at,action,resource_type,resource_id,status,error_message
+      FROM audit_logs
+      WHERE merchant_id=${String(merchant.id)} AND resource_id IN (${String(order.id)},${String(order.payment_intent_id??"")})
+      ORDER BY created_at ASC LIMIT 100
+    `)).rows;
+    const evidence={
+      order:{id:Number(order.id),orderNumber:order.order_number,status:order.status,subtotal:order.subtotal,tax:order.tax_amount,shipping:order.shipping_amount,total:order.total,currency:order.currency,createdAt:order.created_at,shippingAddress:order.shipping_address,fulfillmentStatus:order.fulfillment_status},
+      customer:{name:order.customer_name,email:order.customer_email,phone:order.customer_phone},
+      product:order.product_id?{id:Number(order.product_id),title:order.product_title,sourceDomain:order.source_domain,sourceUrl:order.source_url,sku:order.sku}:null,
+      payment:{intentId:order.payment_intent_id?Number(order.payment_intent_id):null,status:order.payment_intent_status,amountMinor:order.payment_amount_minor?Number(order.payment_amount_minor):null,currency:order.payment_currency,method:order.payment_method,providerTransactionId:order.provider_transaction_id},
+      fulfillment:{status:order.fulfillment_job_status,supplierOrderReference:order.supplier_order_reference,carrier:order.carrier,trackingNumber:order.tracking_number,shippedAt:order.shipped_at,deliveredAt:order.delivered_at,lastUpdatedAt:order.fulfillment_updated_at},
+      tracking:{status:order.tracking_status,firstScanAt:order.first_scan_at,lastRecordedAt:order.last_recorded_at,expectedDeliveryAt:order.expected_delivery_at,lastRecordedEvent:order.last_recorded_event,note:order.tracking_note},
+      domainEvents:events,
+      auditTrail:audit,
+      generatedAt:new Date().toISOString(),
+      evidenceBoundary:"This pack contains only Lunavo-recorded evidence. It does not invent delivery proof, customer statements, carrier events, or payment confirmation."
+    };
+    res.json({defensePack:evidence});
+  } catch(error){next(error);}
+});
+
+router.post("/dropship-intelligence/orders/:id/customer-rescue", async (req, res, next) => {
+  try {
+    const merchant=await merchantFor(req);
+    if(!merchant)return fail(res,401,"Authentication required");
+    const orderId=integer(req.params.id,1,2147483647);
+    if(orderId===null)return fail(res,400,"Invalid order id");
+    const row=(await db.execute(sql`
+      SELECT o.order_number,o.status,o.total,o.currency,c.name AS customer_name,
+             p.title AS product_title,p.source_domain,
+             fj.status AS fulfillment_status,fj.carrier,fj.tracking_number,fj.shipped_at,fj.updated_at,
+             t.last_recorded_at,t.expected_delivery_at,t.last_recorded_event
+      FROM orders o JOIN customers c ON c.id=o.customer_id
+      LEFT JOIN supplier_products p ON p.id=o.supplier_product_id
+      LEFT JOIN fulfillment_jobs fj ON fj.order_id=o.id AND fj.merchant_id=o.merchant_id
+      LEFT JOIN dropship_tracking_checkpoints t ON t.order_id=o.id AND t.merchant_id=o.merchant_id
+      WHERE o.id=${orderId} AND o.merchant_id=${merchant.id}
+      LIMIT 1
+    `)).rows[0] as Record<string,unknown>|undefined;
+    if(!row)return fail(res,404,"Order not found");
+    const evidence=JSON.stringify({orderNumber:row.order_number,status:row.status,total:row.total,currency:row.currency,customerName:row.customer_name,productTitle:row.product_title,supplierDomain:row.source_domain,fulfillmentStatus:row.fulfillment_status,carrier:row.carrier,trackingNumber:row.tracking_number,shippedAt:row.shipped_at,lastRecordedAt:row.last_recorded_at,expectedDeliveryAt:row.expected_delivery_at,lastRecordedEvent:row.last_recorded_event});
+    const draft=await completeDeepSeekChat([
+      {role:"system",content:"You are Lunavo Customer Rescue Copilot. Write a calm, honest customer update using ONLY the recorded order evidence. Never promise a delivery date unless expectedDeliveryAt is supplied; never claim a carrier scan or location that is not supplied; never invent refunds, compensation, tracking events or supplier statements. Acknowledge uncertainty clearly. Return only the ready-to-send message."},
+      {role:"user",content:"Create a customer update for this shipment. Recorded evidence:\n"+evidence}
+    ],{maxTokens:900,reasoningEffort:"high"});
+    res.json({orderId,model:draft.model,draft:draft.content,evidenceBoundary:"Draft is generated only from recorded Lunavo evidence; review before sending."});
+  }catch(error){next(error);}
+});
+
 router.post("/dropship-intelligence/suppliers/negotiate", async (req, res, next) => {
   try {
     const merchant=await merchantFor(req);
