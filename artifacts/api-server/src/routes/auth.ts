@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { auditLog } from "../lib/middleware";
 import {
   clearSessionCookie,
