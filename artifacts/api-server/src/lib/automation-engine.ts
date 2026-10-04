@@ -236,7 +236,7 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
 
 export async function processScheduledWorkflows(limit = 25): Promise<number> {
   const result = await db.execute(sql`
-    SELECT id,merchant_id,event_id,workflow_key
+    SELECT id,merchant_id,next_scheduled_at,workflow_key
     FROM merchant_automation_workflows
     WHERE enabled=true AND trigger_event='schedule.tick'
       AND next_scheduled_at IS NOT NULL AND next_scheduled_at <= now()
