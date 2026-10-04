@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import * as crypto from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
