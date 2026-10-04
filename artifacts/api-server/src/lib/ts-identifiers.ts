@@ -7,7 +7,7 @@ function token(prefix: string): string {
   return `${prefix}-${randomBytes(5).toString("hex").toUpperCase()}`;
 }
 
-async function ensureCode(executor: SqlExecutor, query: ReturnType<typeof sql>, prefix: string, selectQuery: ReturnType<typeof sql>): Promise<string> {
+async function ensureCode(executor: SqlExecutor, query: (code: string) => ReturnType<typeof sql>, prefix: string, selectQuery: ReturnType<typeof sql>): Promise<string> {
   const existing = await executor.execute(selectQuery);
   const existingCode = String(existing.rows?.[0]?.code ?? "").trim();
   if (existingCode) return existingCode;
