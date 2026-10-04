@@ -69,9 +69,9 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){
 for(const p of authSurfaceFiles){const source=await optional(p);if(/from ["'](clerk\/express|clerk\/react|clerk\/shared)["']/.test(source))failures.push(`Non-workspace hosted auth package import remains: ${p}`)}
 const totalSelfHostedRuntime=await read("artifacts/api-server/src/lib/self-hosted-runtime.ts");
 for(const m of ["externalInfrastructure: \"none\"","noExternalUpstream: true","noRemoteSmtp: true","self-hosted-admin-ratebook"]) if(!totalSelfHostedRuntime.includes(m)) failures.push("Total self-hosted runtime invariant missing: "+m);
-const fxGateway=await read("services/fx-gateway/index.mjs");
-for(const m of ["FX_RATES_FILE","self-hosted-admin-ratebook","No locally configured FX rate"]) if(!fxGateway.includes(m)) failures.push("Self-hosted FX ratebook invariant missing: "+m);
-if(fxGateway.includes("FX_UPSTREAM_URL")||fxGateway.includes("open.er-api.com")||fxGateway.includes("fetch(")) failures.push("FX gateway must not call a remote upstream");
+const localFxGateway=await read("services/fx-gateway/index.mjs");
+for(const m of ["FX_RATES_FILE","self-hosted-admin-ratebook","No locally configured FX rate"]) if(!localFxGateway.includes(m)) failures.push("Self-hosted FX ratebook invariant missing: "+m);
+if(localFxGateway.includes("FX_UPSTREAM_URL")||localFxGateway.includes("open.er-api.com")||localFxGateway.includes("fetch(")) failures.push("FX gateway must not call a remote upstream");
 const localMail=await read("artifacts/api-server/src/lib/local-auth.ts");
 for(const m of ["deliverLocalMail","mail-outbox","LUNAVO_LOCAL_OBJECT_STORAGE_PATH"]) if(!localMail.includes(m)) failures.push("Self-hosted mail outbox invariant missing: "+m);
 if(localMail.includes("SMTP_HOST")||localMail.includes("nodemailer")) failures.push("Remote SMTP dependency remains in local auth");
