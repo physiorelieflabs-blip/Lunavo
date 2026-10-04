@@ -229,9 +229,10 @@ const localTenantFiles=[
 ];
 for(const file of localTenantFiles){const source=await read(file);if((!source.includes("local_auth_user_id")&&!source.includes("localAuthUserId"))||(!source.includes("OR")&&!source.includes("or(")))failures.push("Local-auth tenant resolution invariant missing: "+file);}
 const customerSubMigration=await read("lib/db/migrations/0109_customer_subscriptions.sql");
-for(const m of ["customer_subscription_plans","customer_subscriptions","customer_subscription_payment_attempts","customer_subscription_events","customer_subscription_id uuid"])if(!customerSubMigration.includes(m))failures.push("Customer subscription migration invariant missing: "+m);
+for(const m of ["customer_subscription_plans","customer_subscriptions","customer_subscription_payment_attempts","customer_subscription_events","customer_subscription_id uuid","signup_idempotency_hash","manage_token_encrypted"])if(!customerSubMigration.includes(m))failures.push("Customer subscription migration invariant missing: "+m);
 const customerSubRoutes=await read("artifacts/api-server/src/routes/customer-subscriptions.ts");
 for(const m of ["/commerce/customer-subscription-plans","/commerce/customer-subscriptions","/public/customer-subscription-plans/:id","/public/customer-subscriptions/subscribe","/public/customer-subscriptions/portal","/public/customer-subscriptions/pay","/public/customer-subscriptions/cancel","customer_subscription_id","initializeFlutterwavePayment","customers.manage"])if(!customerSubRoutes.includes(m))failures.push("Customer subscription API invariant missing: "+m);
+for(const m of ["encryptSecret","decryptSecret","ON CONFLICT (signup_idempotency_hash) DO NOTHING","idempotentReplay"])if(!customerSubRoutes.includes(m))failures.push("Customer subscription signup idempotency invariant missing: "+m);
 const customerSubWorker=await read("artifacts/api-server/src/lib/customer-subscription-worker.ts");
 for(const m of ["startCustomerSubscriptionWorker","customer_subscription_payment_attempts","status='submitted'","status='expired'","max_failed_attempts","initializeFlutterwavePayment"])if(!customerSubWorker.includes(m))failures.push("Customer subscription worker invariant missing: "+m);
 const customerSubProcessor=await read("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");
