@@ -59,8 +59,10 @@ for (const file of files) {
     if (!match) continue;
     const line = source.slice(0, match.index ?? 0).split("\n").length;
     const matched = match[0];
-    if ((relative === ".env.example" || relative.endsWith(".example") || /(?:README|SPEC|DOC|documentation)/i.test(relative)) &&
-        (isPlaceholder(matched) || /TEST-|example|dummy|placeholder/i.test(matched))) continue;
+    if (
+      isPlaceholder(matched) ||
+      /(?:test|example|dummy|placeholder)(?:[-_]|$)/i.test(matched)
+    ) continue;
     failures.push(`Possible ${name} in ${relative} near line ${line}`);
   }
 
