@@ -92,8 +92,12 @@ function conditionPasses(context: WorkflowContext, condition: Condition): boolea
   }
 }
 function conditionsPass(context: WorkflowContext, conditions: unknown): boolean {
-  if (!Array.isArray(conditions)) return false;
-  return conditions.every((condition) => conditionPasses(context, condition as Condition));
+  if (Array.isArray(conditions)) return conditions.every((condition) => conditionPasses(context, condition as Condition));
+  if (!conditions || typeof conditions !== "object") return false;
+  const group = conditions as { all?: unknown[]; any?: unknown[] };
+  if (Array.isArray(group.all)) return group.all.every((condition) => conditionsPass(context, condition));
+  if (Array.isArray(group.any)) return group.any.some((condition) => conditionsPass(context, condition));
+  return conditionPasses(context, conditions as Condition);
 }
 function boundedText(value: unknown, max: number, fallback = ""): string {
   return typeof value === "string" ? value.trim().slice(0, max) : fallback;
