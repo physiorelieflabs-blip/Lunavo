@@ -211,7 +211,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Earning-window enforcement
 - Withdrawal requests
 - Withdrawal status lifecycle
-- Manual withdrawal review
+- Provider-backed withdrawal review
 - Payout audit trail
 - Merchant payout PIN #1
 - Merchant payout PIN #2

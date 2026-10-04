@@ -12,5 +12,4 @@ export type AdminWithdrawalReviewInputStatus = typeof AdminWithdrawalReviewInput
 export const AdminWithdrawalReviewInputStatus = {
   approved: 'approved',
   rejected: 'rejected',
-  paid: 'paid',
 } as const;

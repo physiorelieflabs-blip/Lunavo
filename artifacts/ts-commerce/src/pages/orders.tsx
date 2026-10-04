@@ -77,7 +77,6 @@ export default function Orders() {
       orderNumber: orderNumber || undefined,
       supplierProductId: supplierProductId ? Number(supplierProductId) : undefined,
       shippingAddress: shippingAddress || undefined,
-      status: 'pending',
       idempotencyKey: idempotencyKey.current,
     } }, {
       onSuccess: () => {

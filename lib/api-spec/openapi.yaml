@@ -1740,7 +1740,7 @@ paths:
     patch:
       operationId: reviewWithdrawal
       tags: [admin]
-      summary: Review or mark a withdrawal request as paid
+      summary: Review a withdrawal request and initiate provider payout
       parameters:
         - name: id
           in: path
@@ -3263,9 +3263,8 @@ components:
       properties:
         status:
           type: string
-          enum: [approved, rejected, paid]
+          enum: [approved, rejected]
         note: { type: string, maxLength: 500 }
-        settlementReference: { type: string, minLength: 2, maxLength: 160 }
         securityCode: { type: string, pattern: "^[0-9]{6}$" }
         pinCodes:
           type: array
