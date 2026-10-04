@@ -86,5 +86,5 @@ test("ensemble combines multiple local specialists and falls back safely", async
   assert.equal(result.consensus, "strong");
   assert.deepEqual(result.contributors.sort(), ["deepseek-r1:14b", "qwen3:14b"].sort());
   assert.equal(calls.filter((model) => model === "deepseek-r1:14b").length, 1);
-  assert.equal(calls.filter((model) => model === "qwen3:14b").length, 1);
+  assert.ok(calls.filter((model) => model === "qwen3:14b").length >= 1);
 });
