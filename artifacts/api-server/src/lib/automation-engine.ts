@@ -213,6 +213,7 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
       const mode = String(workflow.mode);
       if (mode === "dry_run") {
         await tx.execute(sql`INSERT INTO merchant_automation_runs(workflow_id,merchant_id,event_id,status,idempotency_key,trigger_snapshot,result) VALUES(${workflowId},${context.merchantId},${context.eventId},'dry_run',${idempotencyKey},${JSON.stringify(context)}::jsonb,${JSON.stringify({plannedActions:validActions.map((a)=>a.kind)})}::jsonb)`);
+        await tx.execute(sql`UPDATE merchant_automation_workflows SET next_scheduled_at=CASE WHEN trigger_event='schedule.tick' AND schedule_interval_seconds > 0 THEN now() + make_interval(secs => schedule_interval_seconds) ELSE next_scheduled_at END,last_run_at=now(),updated_at=now() WHERE id=${workflowId}`);
         return;
       }
       if (mode === "approval") {
@@ -220,6 +221,7 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
         const run = inserted.rows[0] as { id?: string } | undefined;
         if (!run?.id) throw new Error("Workflow approval run could not be recorded");
         await tx.execute(sql`INSERT INTO merchant_automation_action_approvals(run_id,merchant_id,status) VALUES(${run.id},${context.merchantId},'pending')`);
+        await tx.execute(sql`UPDATE merchant_automation_workflows SET next_scheduled_at=CASE WHEN trigger_event='schedule.tick' AND schedule_interval_seconds > 0 THEN now() + make_interval(secs => schedule_interval_seconds) ELSE next_scheduled_at END,last_run_at=now(),updated_at=now() WHERE id=${workflowId}`);
         return;
       }
       const started = await tx.execute(sql`INSERT INTO merchant_automation_runs(workflow_id,merchant_id,event_id,status,idempotency_key,trigger_snapshot,result,started_at) VALUES(${workflowId},${context.merchantId},${context.eventId},'running',${idempotencyKey},${JSON.stringify(context)}::jsonb,'{}'::jsonb,now()) RETURNING id`);
