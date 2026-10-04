@@ -24,7 +24,7 @@ describe("local AI brain", () => {
     process.env.LUNAVO_LOCAL_CRITIC_MODEL = "critic-a";
 
     const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | URL) => {
       const url = String(input);
       calls.push(url);
       const isCritic = url.includes("9010");
@@ -59,7 +59,7 @@ describe("local AI brain", () => {
     process.env.LUNAVO_LOCAL_BRAIN_FANOUT = "2";
 
     const calls: Array<{ url: string; model: string }> = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | URL, init?: RequestInit) => {
       const url = String(input);
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       calls.push({ url, model: String(body.model) });
@@ -86,7 +86,7 @@ describe("local AI brain", () => {
     process.env.LUNAVO_LOCAL_BRAIN_FANOUT = "2";
 
     const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | URL) => {
       const url = String(input);
       calls.push(url);
       return new Response(JSON.stringify({
