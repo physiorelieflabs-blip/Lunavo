@@ -18,10 +18,9 @@ const WORKER_LOCK_KEY = "lunavo:customer-subscription-renewals";
 let running=false;
 async function runDueRenewals(){
   if(running)return; running=true;
-  let lockClient: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  const lockClient = await pool.connect();
   let lockAcquired = false;
   try{
-    lockClient = await pool.connect();
     const lock = await lockClient.query<{locked:boolean}>("SELECT pg_try_advisory_lock(hashtext($1)) AS locked",[WORKER_LOCK_KEY]);
     lockAcquired = lock.rows[0]?.locked === true;
     if(!lockAcquired)return;
@@ -50,13 +49,11 @@ async function runDueRenewals(){
     }
   }catch(error){console.error("Customer subscription worker failed",error);}
   finally{
-    if(lockClient){
-      if(lockAcquired){
-        try{await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))",[WORKER_LOCK_KEY]);}
-        catch(error){console.error("Customer subscription worker lock release failed",error);}
-      }
-      lockClient.release();
+    if(lockAcquired){
+      try{await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))",[WORKER_LOCK_KEY]);}
+      catch(error){console.error("Customer subscription worker lock release failed",error);}
     }
+    lockClient.release();
     running=false;
   }
 }
