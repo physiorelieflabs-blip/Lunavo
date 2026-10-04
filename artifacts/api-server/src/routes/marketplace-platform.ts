@@ -147,8 +147,15 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
 router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
   const query = typeof req.body?.query === "string" ? req.body.query.trim().slice(0, 1000) : "";
   if (query.length < 3) { res.status(400).json({ error: "Tell the shopping concierge what you are looking for." }); return; }
+  let rows: Awaited<ReturnType<typeof eligibleProducts>>;
   try {
-    const rows = await eligibleProducts({ limit: 40 });
+    rows = await eligibleProducts({ limit: 40 });
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Marketplace catalog is temporarily unavailable." });
+    return;
+  }
+
+  try {
     const catalog = rows.map(({ product, merchantName }) => ({ id: product.id, merchant: merchantName, title: product.title, description: product.description, category: product.category, price: Number(product.sellingPrice), currency: product.currency }));
     const response = await completeGeminiChat([
       { role: "system", content: [
