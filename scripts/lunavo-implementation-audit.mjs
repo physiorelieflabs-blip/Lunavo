@@ -132,7 +132,7 @@ const registry=await read("artifacts/api-server/src/lunavo-feature-registry.ts")
 const adminSecurityApp=await read("artifacts/api-server/src/app.ts");for(const m of ["sec-fetch-site","referer","Cross-site state-changing request rejected"])if(!adminSecurityApp.includes(m))failures.push(`Browser security invariant missing: ${m}`);const aiProvider=await read("artifacts/api-server/src/lib/ai-provider.ts");
 for(const m of ["completeDeepSeekChat","deepSeekConfigured","completeGeminiChat"])if(!aiProvider.includes(m))failures.push(`Primary AI provider invariant missing: ${m}`);
 const deepseek=await read("artifacts/api-server/src/lib/deepseek.ts");
-for(const m of ["deepseek-v4-pro","deepseek-flash","response_format","thinking"])if(!deepseek.includes(m))failures.push(`DeepSeek provider invariant missing: ${m}`);
+for(const m of ["LUNAVO_LOCAL_LLM_URL","LUNAVO_LOCAL_LLM_MODEL","/v1/chat/completions","response_format"])if(!deepseek.includes(m))failures.push(`Self-hosted LLM provider invariant missing: ${m}`);
 const supplierAi=await read("artifacts/api-server/src/lib/supplier-ai.ts");
 for(const m of ["fieldsOnlyWhenSourceMissing","evidencePayload","completeDeepSeekVisionJson","Never invent"])if(!supplierAi.includes(m))failures.push(`Supplier AI evidence invariant missing: ${m}`);
 const socialWorker=await read("artifacts/api-server/src/lib/social-publishing-worker.ts");
@@ -146,7 +146,7 @@ const kycRoutes=await read("artifacts/api-server/src/routes/commerce.ts");for(co
 const kycAdminUi=await read("artifacts/ts-commerce/src/pages/admin-kyc.tsx");for(const m of ["/api/admin/kyc","Approve KYC","Reject"])if(!kycAdminUi.includes(m))failures.push(`Admin KYC UI invariant missing: ${m}`);
 const kycMerchantUi=await read("artifacts/ts-commerce/src/pages/withdrawals.tsx");for(const m of ["/api/kyc","Submit KYC for review","kyc?.status === 'approved'"])if(!kycMerchantUi.includes(m))failures.push(`Merchant KYC UI invariant missing: ${m}`);
 const migrate=await optional("lib/db/src/migrate.ts");if(!migrate.includes("runMigrations();")||migrate.includes("const legacy"))failures.push("Migration entrypoint is not the canonical runner");
-const preflight=await read("scripts/production-preflight.mjs");for(const m of ["LUNAVO_MASTER_ADMIN_EMAIL","LUNAVO_MASTER_ADMIN_USER_ID","provider-backed AI features are unavailable"])if(!preflight.includes(m))failures.push(`Production preflight invariant missing: ${m}`);
+const preflight=await read("scripts/production-preflight.mjs");for(const m of ["LUNAVO_MASTER_ADMIN_EMAIL","LUNAVO_MASTER_ADMIN_USER_ID","LUNAVO_LOCAL_LLM_URL","self-hosted capability"])if(!preflight.includes(m))failures.push(`Production preflight invariant missing: ${m}`);
 const packageText=await read("package.json");if(packageText.includes("repair-generated-source.mjs"))failures.push("Typecheck must not rewrite generated source");
 const appShell=await read("artifacts/ts-commerce/src/components/app-shell.tsx");if(appShell.includes("ifeoluwaolowu4@gmail.com"))failures.push("App shell contains hardcoded master admin identity");
 const appTsx=await read("artifacts/ts-commerce/src/App.tsx");if(appTsx.includes("ifeoluwaolowu4@gmail.com"))failures.push("App route shell contains hardcoded master admin identity");
