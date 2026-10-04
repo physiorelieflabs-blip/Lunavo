@@ -181,6 +181,9 @@ export function isWorkflowTriggerEvent(value: unknown): value is WorkflowTrigger
 export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<number> {
   if (!Number.isInteger(context.merchantId) || context.merchantId <= 0) return 0;
   if (!isWorkflowTriggerEvent(context.eventType)) return 0;
+  if (context.payload && JSON.stringify(context.payload).length > 32000) return 0;
+  const activeMerchant = await db.execute(sql`SELECT id FROM merchants WHERE id=${context.merchantId} AND status='active' LIMIT 1`);
+  if (!activeMerchant.rows.length) return 0;
   const workflows = await db.execute(sql`
     SELECT id,merchant_id,workflow_key,name,enabled,mode,trigger_event,conditions,actions,cooldown_seconds,daily_run_limit,
            version,last_run_at,next_scheduled_at,schedule_interval_seconds
