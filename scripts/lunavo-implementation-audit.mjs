@@ -179,6 +179,8 @@ const referralUi=await read("artifacts/ts-commerce/src/pages/billing.tsx");
 for(const legacy of ["150+ unlocks 12 months free","Build toward 12 free months"]) if(referralUi.includes(legacy)) failures.push(`Legacy referral UI remains: ${legacy}`);
 const referralMigration=await read("lib/db/migrations/0105_remove_legacy_referral_free_months.sql");
 for(const marker of ["referral_free_months = 0","status = 'reversed'"]) if(!referralMigration.includes(marker)) failures.push(`Referral retirement migration missing: ${marker}`);
+const commerceSchema=await read("lib/db/src/schema/commerce.ts");if(!commerceSchema.includes('localAuthUserId: uuid("local_auth_user_id")'))failures.push("Drizzle merchant schema must declare local auth linkage");
+if(!migrationRunner.includes('"0108_automation_workflows"'))failures.push("Migration runner must register automation migration 0108");
 const advancedMigration=await read("lib/db/migrations/0107_advanced_commerce_operations.sql");
 for(const m of ["merchant_operation_records","merchant_operation_events","merchant_api_keys","merchant_feature_flags","merchant_experiments","merchant_experiment_assignments","merchant_accounting_periods","merchant_message_threads","merchant_messages","merchant_documents"])if(!advancedMigration.includes(m))failures.push("Advanced commerce migration missing invariant: "+m);
 const advancedRunner=await read("lib/db/src/migration-runner.ts");if(!advancedRunner.includes("0107_advanced_commerce_operations"))failures.push("Migration runner does not include 0107_advanced_commerce_operations");
@@ -203,5 +205,28 @@ const excellenceShell=await read("artifacts/ts-commerce/src/components/app-shell
 for(const m of ["GlobalCommandPalette","lunavo:open-command-palette","main-content","Skip to main content"]) if(!excellenceShell.includes(m)) failures.push("Global navigation excellence invariant missing: "+m);
 const providerRegistryTruth=await read("artifacts/api-server/src/lunavo-feature-registry.ts");
 for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Stripe adapter","optional")','F("payments","PayPal adapter","optional")']) if(!providerRegistryTruth.includes(m)) failures.push("Optional-provider truthfulness invariant missing: "+m);
+const automationMigration=await read("lib/db/migrations/0108_automation_workflows.sql");
+for(const m of ["merchant_automation_workflows","merchant_automation_runs","merchant_automation_action_approvals","schedule_interval_seconds","expires_at timestamptz NOT NULL","idempotency_key text NOT NULL UNIQUE"])if(!automationMigration.includes(m))failures.push("Automation workflow migration invariant missing: "+m);
+const automationEngine=await read("artifacts/api-server/src/lib/automation-engine.ts");
+if(automationEngine.includes('"account.deleted"'))failures.push("Automation must not expose account-deletion events as reusable workflow triggers");
+for(const m of ["dispatchWorkflowEvent","processScheduledWorkflows","approveWorkflowRun","reserveAutomationActionInTransaction","approval_required","dry_run","schedule.tick","pg_advisory_xact_lock","protectedFeatureKeyPrefixes","SAVEPOINT automation_actions","status='active'","JSON.stringify(context.payload).length > 32000"])if(!automationEngine.includes(m))failures.push("Automation engine invariant missing: "+m);
+const automationRoute=await read("artifacts/api-server/src/routes/automation-workflows.ts");
+for(const m of ["/merchant/automation-workflows","/merchant/automation-runs/:id/decision","/runs","/run-now","requirePermission","isWorkflowTriggerEvent",'String(workflow.mode)!=="dry_run"'])if(!automationRoute.includes(m))failures.push("Automation API invariant missing: "+m);
+const automationUi=await read("artifacts/ts-commerce/src/pages/automations.tsx");
+for(const m of ["Automation Studio","Execution safety","Preview only","Require approval","Automatic (guarded)","Preview test","Run history"])if(!automationUi.includes(m))failures.push("Automation UI invariant missing: "+m);
+const automationApp=await read("artifacts/ts-commerce/src/App.tsx");if(!automationApp.includes('path="/automations"'))failures.push("Automation Studio route missing");
+const automationNav=await read("artifacts/ts-commerce/src/components/app-shell.tsx");if(!automationNav.includes("Automation Studio"))failures.push("Automation Studio navigation missing");
+const automationPalette=await read("artifacts/ts-commerce/src/components/global-command-palette.tsx");if(!automationPalette.includes('href:"/automations"'))failures.push("Automation Studio command palette entry missing");
+const automationIndex=await read("artifacts/api-server/src/index.ts");for(const m of ["startScheduledWorkflowWorker","stopScheduledWorkflows"])if(!automationIndex.includes(m))failures.push("Scheduled automation worker lifecycle invariant missing");
+const automationOutbox=await read("artifacts/api-server/src/lib/domain-events.ts");if(!automationOutbox.includes("dispatchWorkflowEvent"))failures.push("Domain event outbox is not connected to workflow automation");
+const localTenantFiles=[
+  "artifacts/api-server/src/routes/merchant-control-plane.ts","artifacts/api-server/src/routes/ai-automation.ts",
+  "artifacts/api-server/src/routes/auctioneer-ai.ts","artifacts/api-server/src/routes/auctioneer-live-analysis.ts",
+  "artifacts/api-server/src/routes/auction-lifecycle.ts","artifacts/api-server/src/routes/merchant-financials.ts",
+  "artifacts/api-server/src/routes/daily-ai-advertising.ts","artifacts/api-server/src/routes/store-auction-payment.ts",
+  "artifacts/api-server/src/routes/ts-pay-transfers.ts","artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/routes/auth.ts","artifacts/api-server/src/routes/commerce-suite.ts","artifacts/api-server/src/routes/commerce-growth.ts"
+];
+for(const file of localTenantFiles){const source=await read(file);if((!source.includes("local_auth_user_id")&&!source.includes("localAuthUserId"))||(!source.includes("OR")&&!source.includes("or(")))failures.push("Local-auth tenant resolution invariant missing: "+file);}
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 

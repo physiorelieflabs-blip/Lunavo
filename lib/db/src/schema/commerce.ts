@@ -24,9 +24,23 @@ export const commerceMigrationsTable = pgTable("_ts_commerce_migrations", {
     .defaultNow(),
 });
 
+export const localAuthUsersTable = pgTable("local_auth_users", {
+  id: uuid("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  username: text("username").notNull().unique(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  emailVerified: boolean("email_verified").notNull().default(true),
+  role: text("role").notNull().default("merchant"),
+  createdAt: timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+});
+
 export const merchantsTable = pgTable("merchants", {
   id: serial("id").primaryKey(),
   clerkUserId: text("clerk_user_id").unique(),
+  localAuthUserId: uuid("local_auth_user_id").references(() => localAuthUsersTable.id),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   storeName: text("store_name").notNull(),

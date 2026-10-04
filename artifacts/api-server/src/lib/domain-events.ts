@@ -1,3 +1,4 @@
+import { dispatchWorkflowEvent } from "./automation-engine";
 import { randomUUID } from "node:crypto";
 import { and, eq, lte, sql } from "drizzle-orm";
 import { db, domainEventConsumptionsTable, domainEventsTable, notificationsTable } from "@workspace/db";
@@ -88,9 +89,23 @@ async function claimNextDomainEvent() {
 async function processClaimedDomainEvent(event: typeof domainEventsTable.$inferSelect) {
   try {
     await db.transaction(async (tx) => {
-      const current = (await tx.select().from(domainEventsTable).where(and(eq(domainEventsTable.id, event.id), eq(domainEventsTable.status, "processing"))).limit(1))[0]; if (!current) return;
+      const current = (await tx.select().from(domainEventsTable).where(and(eq(domainEventsTable.id, event.id), eq(domainEventsTable.status, "processing"))).limit(1))[0];
+      if (!current) return;
       const [receipt] = await tx.insert(domainEventConsumptionsTable).values({ eventId: event.id, consumer: "merchant_notification_projection" }).onConflictDoNothing().returning();
       if (receipt) await projectNotification(tx, current);
+    });
+    await dispatchWorkflowEvent({
+      eventId: event.id,
+      eventType: event.eventType,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      merchantId: event.merchantId,
+      payload: (event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {}) as Record<string, unknown>,
+      before: (event.before && typeof event.before === "object" && !Array.isArray(event.before) ? event.before : {}) as Record<string, unknown>,
+      after: (event.after && typeof event.after === "object" && !Array.isArray(event.after) ? event.after : {}) as Record<string, unknown>,
+      source: event.source,
+    });
+    await db.transaction(async (tx) => {
       await tx.update(domainEventsTable).set({ status: "processed", processedAt: new Date(), lastError: null }).where(and(eq(domainEventsTable.id, event.id), eq(domainEventsTable.status, "processing")));
     });
   } catch (error) {
@@ -100,7 +115,14 @@ async function processClaimedDomainEvent(event: typeof domainEventsTable.$inferS
   }
 }
 export async function processDomainEventOutbox(limit = 25) {
-  let processed = 0; for (let index = 0; index < Math.max(1, Math.min(limit, 100)); index += 1) { const event = await claimNextDomainEvent(); if (!event) break; await processClaimedDomainEvent(event); processed += 1; }
-  if (processed) logger.info({ count: processed }, "Domain event outbox batch processed"); return processed;
+  let processed = 0;
+  for (let index = 0; index < Math.max(1, Math.min(limit, 100)); index += 1) {
+    const event = await claimNextDomainEvent();
+    if (!event) break;
+    await processClaimedDomainEvent(event);
+    processed += 1;
+  }
+  if (processed) logger.info({ count: processed }, "Domain event outbox batch processed");
+  return processed;
 }
 export function startDomainEventOutbox(intervalMs = 10_000) { const timer = setInterval(() => { void processDomainEventOutbox().catch((err: unknown) => logger.error({ err }, "Domain event outbox batch crashed")); }, intervalMs); timer.unref(); return () => clearInterval(timer); }

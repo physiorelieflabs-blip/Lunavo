@@ -10,7 +10,7 @@ router.get("/merchant/dashboard/balance", async (req, res): Promise<void> => {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
   try {
-    const merchantRows = await db.execute(sql`SELECT id FROM merchants WHERE clerk_user_id=${userId} LIMIT 1`);
+    const merchantRows = await db.execute(sql`SELECT id FROM merchants WHERE status='active' AND (clerk_user_id=${userId} OR local_auth_user_id=${userId}) LIMIT 1`);
     const merchantId = Number((merchantRows.rows[0] as {id?:number}|undefined)?.id);
     if (!Number.isInteger(merchantId)) { res.status(404).json({ error: "Merchant account not found" }); return; }
     const rows = await db.execute(sql`
