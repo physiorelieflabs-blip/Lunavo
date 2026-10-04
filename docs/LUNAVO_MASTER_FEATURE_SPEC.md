@@ -44,7 +44,7 @@ This document is the canonical implementation checklist for the Lunavo rebuild. 
 
 ## 5. Payments — Lunavo Pay / internal accounting
 - First-party payment orchestration and internal ledger as accounting source of truth.
-- Provider adapters: Flutterwave initially, with architecture for Paystack, Stripe and PayPal.
+- Flutterwave is the initial and only external money-provider adapter. The internal payment abstraction remains extensible without requiring any additional provider key.
 - Provider checkout/virtual-account destinations must be real provider-returned data.
 - Provider webhooks, server-side verification and idempotency.
 - Transaction currency separated from settlement currency.
@@ -104,13 +104,13 @@ This document is the canonical implementation checklist for the Lunavo rebuild. 
 - Image editing.
 - Aspect-ratio controls.
 - Media gallery and durable persistence.
-- Pollinations image generation where configured.
+- Self-hosted local image generation endpoint; no hosted image provider is required.
 - Safe fallback when a provider is unavailable.
 - Validate image bytes and enforce upload size/type limits.
 
 ## 11. Ad Studio and marketing
 - Self-hosted deterministic ad planner.
-- Optional Gemini planning when configured.
+- Self-hosted local AI planning through Lunavo's model gateway.
 - Catalog-grounded facts.
 - Creative prompts are not treated as factual proof.
 - Image/video ad generation.
