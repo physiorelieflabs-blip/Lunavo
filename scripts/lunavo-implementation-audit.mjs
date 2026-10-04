@@ -67,6 +67,16 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){
   }
 }
 for(const p of authSurfaceFiles){const source=await optional(p);if(/from ["'](clerk\/express|clerk\/react|clerk\/shared)["']/.test(source))failures.push(`Non-workspace hosted auth package import remains: ${p}`)}
+const totalSelfHostedRuntime=await read("artifacts/api-server/src/lib/self-hosted-runtime.ts");
+for(const m of ["externalInfrastructure: \"none\"","noExternalUpstream: true","noRemoteSmtp: true","self-hosted-admin-ratebook"]) if(!totalSelfHostedRuntime.includes(m)) failures.push("Total self-hosted runtime invariant missing: "+m);
+const localFxGateway=await read("services/fx-gateway/index.mjs");
+for(const m of ["FX_RATES_FILE","self-hosted-admin-ratebook","No locally configured FX rate"]) if(!localFxGateway.includes(m)) failures.push("Self-hosted FX ratebook invariant missing: "+m);
+if(localFxGateway.includes("FX_UPSTREAM_URL")||localFxGateway.includes("open.er-api.com")||localFxGateway.includes("fetch(")) failures.push("FX gateway must not call a remote upstream");
+const localMail=await read("artifacts/api-server/src/lib/local-auth.ts");
+for(const m of ["deliverLocalMail","mail-outbox","LUNAVO_LOCAL_OBJECT_STORAGE_PATH"]) if(!localMail.includes(m)) failures.push("Self-hosted mail outbox invariant missing: "+m);
+if(localMail.includes("SMTP_HOST")||localMail.includes("nodemailer")) failures.push("Remote SMTP dependency remains in local auth");
+const composeTotal=await read("docker-compose.yml");
+for(const m of ["ollama","fx-gateway","social-gateway","FX_RATES_FILE: /data/lunavo/fx-rates.json","LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-http://ollama:11434/v1/embeddings}"]) if(!composeTotal.includes(m)) failures.push("Total self-hosted Compose invariant missing: "+m);
 const customerExperience=await read("artifacts/api-server/src/routes/customer-experience.ts");for(const m of ["/public/store/:merchantKey/cart/recovery","/merchant/cart-recovery","/merchant/customer-addresses","/public/store/:merchantKey/reviews","/merchant/reviews","/public/store/:merchantKey/saved-searches","/public/store/:merchantKey/price-watches","/public/store/:merchantKey/notification-preferences","verified-purchase","ON CONFLICT"])if(!customerExperience.includes(m))failures.push(`Customer experience invariant missing: ${m}`);
 const cartWorker=await read("artifacts/api-server/src/lib/cart-recovery-worker.ts");for(const m of ["runCartRecoverySweep","60 minutes","cart.abandoned","startCartRecoveryWorker"])if(!cartWorker.includes(m))failures.push(`Cart recovery worker invariant missing: ${m}`);
 const cxMigration=await read("lib/db/migrations/0110_customer_experience_completion.sql");for(const m of ["abandoned_carts","customer_addresses","product_reviews","customer_saved_searches","customer_price_watches","customer_notification_preferences"])if(!cxMigration.includes(m))failures.push(`Customer experience migration invariant missing: ${m}`);
@@ -180,7 +190,7 @@ const kycMerchantUi=await read("artifacts/ts-commerce/src/pages/withdrawals.tsx"
 const migrate=await optional("lib/db/src/migrate.ts");if(!migrate.includes("runMigrations();")||migrate.includes("const legacy"))failures.push("Migration entrypoint is not the canonical runner");
 const preflight=await read("scripts/production-preflight.mjs");for(const m of ["LUNAVO_MASTER_ADMIN_EMAIL","LUNAVO_MASTER_ADMIN_USER_ID","LUNAVO_LOCAL_LLM_URL","Self-hosted AI"])if(!preflight.includes(m))failures.push(`Production preflight invariant missing: ${m}`);
 const fxCore=await read("artifacts/api-server/src/routes/commerce.ts");if(fxCore.includes("open.er-api.com"))failures.push("Core commerce must not call the external FX provider directly");for(const m of ["LUNAVO_LOCAL_FX_URL","Self-hosted FX service is not configured"])if(m==="LUNAVO_LOCAL_FX_URL"&&!fxCore.includes(m))failures.push("Commerce FX path must use LUNAVO_LOCAL_FX_URL");
-const fxGateway=await read("services/fx-gateway/index.mjs");for(const m of ["/v1/rate","/health","FX_UPSTREAM_URL","self-hosted-fx-gateway"])if(!fxGateway.includes(m))failures.push("Self-hosted FX gateway invariant missing: "+m);
+const fxGateway=await read("services/fx-gateway/index.mjs");for(const m of ["/v1/rate","/health","self-hosted-admin-ratebook"])if(!fxGateway.includes(m))failures.push("Self-hosted FX gateway invariant missing: "+m);if(fxGateway.includes("FX_UPSTREAM_URL")||fxGateway.includes("open.er-api.com")||fxGateway.includes("fetch("))failures.push("Self-hosted FX gateway must not call a remote upstream");
 const fxDocker=await read("services/fx-gateway/Dockerfile");if(!fxDocker.includes("node:24-alpine"))failures.push("Self-hosted FX gateway must have a reproducible Node container");
 const envExample=await read(".env.example");
 for(const key of ["OPENAI_API_KEY","GEMINI_API_KEY","ANTHROPIC_API_KEY","DEEPSEEK_API_KEY","LUNAVO_DEEPSEEK_API_KEY","LUNAVO_GEMINI_API_KEY","GEMINI_IMAGE_API_KEY","STABLE_DIFFUSION_API_KEY"])if(new RegExp("^"+key+"=","m").test(envExample))failures.push(`Third-party AI credential remains in .env.example: ${key}`);
@@ -253,7 +263,7 @@ if(!excellenceFrontend.includes("ConnectionStatus")) failures.push("Global conne
 const excellenceShell=await read("artifacts/ts-commerce/src/components/app-shell.tsx");
 for(const m of ["GlobalCommandPalette","lunavo:open-command-palette","main-content","Skip to main content"]) if(!excellenceShell.includes(m)) failures.push("Global navigation excellence invariant missing: "+m);
 const providerRegistryTruth=await read("artifacts/api-server/src/lunavo-feature-registry.ts");
-for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Stripe adapter","optional")','F("payments","PayPal adapter","optional")']) if(!providerRegistryTruth.includes(m)) failures.push("Optional-provider truthfulness invariant missing: "+m);
+for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Stripe adapter","optional")','F("payments","PayPal adapter","optional")']) if(providerRegistryTruth.includes(m)) failures.push("Non-Flutterwave payment provider must not remain in the core feature registry: "+m);
 const automationMigration=await read("lib/db/migrations/0108_automation_workflows.sql");
 for(const m of ["merchant_automation_workflows","merchant_automation_runs","merchant_automation_action_approvals","schedule_interval_seconds","expires_at timestamptz NOT NULL","idempotency_key text NOT NULL UNIQUE"])if(!automationMigration.includes(m))failures.push("Automation workflow migration invariant missing: "+m);
 const automationEngine=await read("artifacts/api-server/src/lib/automation-engine.ts");

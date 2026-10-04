@@ -43,10 +43,23 @@ export const SELF_HOSTED_RUNTIME = {
     endpointEnv: "LUNAVO_LOCAL_VIDEO_URL",
     defaultUrl: "http://127.0.0.1:8189",
   },
+  fx: {
+    provider: "self-hosted-admin-ratebook",
+    endpointEnv: "LUNAVO_LOCAL_FX_URL",
+    ratebookEnv: "LUNAVO_FX_RATES_FILE",
+    defaultUrl: "http://127.0.0.1:8081/v1/rate",
+    noExternalUpstream: true,
+  },
+  mail: {
+    provider: "local-outbox",
+    pathEnv: "LUNAVO_LOCAL_OBJECT_STORAGE_PATH",
+    noRemoteSmtp: true,
+  },
   policy: {
     externalAiKeysRequired: false,
     externalCommerceAiRequired: false,
     externalPaymentRail: "flutterwave",
+    externalInfrastructure: "none",
     modelMayMoveMoney: false,
     modelMayConfirmPayment: false,
     modelMayChangeLedger: false,
