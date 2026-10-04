@@ -35,6 +35,12 @@ export async function revokeOtherLocalSessions(userId:string,currentToken:string
   else {await db.execute(sql`DELETE FROM local_auth_sessions WHERE user_id=${userId}`);}
 }
 export async function registerLocalUser(input:{email:string;username:string;firstName:string;lastName:string;password:string}){const email=input.email.trim().toLowerCase();const username=input.username.trim().toLowerCase();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))throw new Error("Enter a valid email address");if(!/^[a-z0-9_.-]{3,64}$/.test(username))throw new Error("Username must be 3–64 letters, numbers, dots, dashes, or underscores");if(input.password.length<PASSWORD_MIN_LENGTH)throw new Error(`Password must be at least ${PASSWORD_MIN_LENGTH} characters`);const id=randomUUID();const hash=await passwordHash(input.password);await db.transaction(async tx=>{await tx.execute(sql`INSERT INTO local_auth_users (id,email,username,first_name,last_name,password_hash,email_verified,role) VALUES (${id},${email},${username},${input.firstName.trim()},${input.lastName.trim()},${hash},false,${"merchant"})`);await tx.execute(sql`INSERT INTO merchants (local_auth_user_id,clerk_user_id,name,email,store_name,status) VALUES (${id},${id},${`${input.firstName} ${input.lastName}`.trim()},${email},${`${input.firstName}'s Store`.slice(0,120)},'active')`);await tx.execute(sql`INSERT INTO subscriptions (merchant_id,amount_due,amount_paid,earnings_held,status,payment_method) SELECT id,30,0,0,'pending',NULL FROM merchants WHERE local_auth_user_id=${id}`);});const user=await localAuthUserForId(id);if(!user)throw new Error("Account creation failed");await createEmailVerification(id,email);return user;}
+export async function verifyLocalPasswordForUser(userId:string,password:string):Promise<boolean>{
+  const result=await db.execute(sql`SELECT password_hash FROM local_auth_users WHERE id=${userId} LIMIT 1`);
+  const row=result.rows[0] as {password_hash?:unknown}|undefined;
+  if(!row?.password_hash) return false;
+  return verifyPassword(password,String(row.password_hash));
+}
 export async function verifyLocalCredentials(email:string,password:string){
   return db.transaction(async (tx)=>{
     const normalizedEmail=email.trim().toLowerCase();
