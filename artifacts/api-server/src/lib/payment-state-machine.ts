@@ -48,15 +48,10 @@ export function assertValidTransition(from: PaymentState, to: PaymentState): voi
 }
 
 /**
- * Determine if a payment is financially final (no reversals possible).
+ * Determine whether a payment is terminal and cannot transition again.
  */
 export function isFinalState(state: PaymentState): boolean {
-  return [
-    "successful", // Can still be refunded/disputed
-    "failed",
-    "cancelled",
-    "expired",
-  ].includes(state);
+  return ["failed", "cancelled", "expired", "chargeback"].includes(state);
 }
 
 /**
