@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowUpRight, BrainCircuit, CheckCircle2, CircleDollarSign, Clock3, PackageSearch, RefreshCw, Route, ShieldCheck, Truck, Warehouse, XCircle } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from "@/components/primitives";
+import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading } from "@/components/primitives";
 import { money } from "@/lib/format";
 
 type Product = {
