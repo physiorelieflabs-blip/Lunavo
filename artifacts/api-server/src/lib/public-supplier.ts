@@ -378,11 +378,18 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
   if (!SUPPORTED_SUPPLIER_CURRENCIES.includes(normalizedCurrency as (typeof SUPPORTED_SUPPLIER_CURRENCIES)[number])) {
     throw new Error(`Supplier product currency is not supported (${SUPPORTED_SUPPLIER_CURRENCIES.join(", ")})`);
   }
-  const imageUrls = [
+  const candidateImageUrls = [
     ...stringList(product?.image),
     ...stringList(product?.associatedMedia),
     ...[meta(html, "og:image")].filter((value): value is string => Boolean(value)),
   ].filter((value, index, values) => values.indexOf(value) === index).slice(0, 20);
+  const imageUrls = (await Promise.all(candidateImageUrls.map(async (value) => {
+    try { await assertPublicUrl(value); return value; } catch { return null; }
+  }))).filter((value): value is string => Boolean(value));
+  const candidateVideoUrls = stringList(product?.video);
+  const videoUrls = (await Promise.all(candidateVideoUrls.map(async (value) => {
+    try { await assertPublicUrl(value); return value; } catch { return null; }
+  }))).filter((value): value is string => Boolean(value));
   const brandValue = objectValue(product?.brand);
   const availability = normalizeAvailability(
     textValue(offer.availability) ?? textValue(product?.availability),
