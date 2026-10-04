@@ -34,6 +34,9 @@ export default function DropshipIntelligence(){
   const [negotiationGoal,setNegotiationGoal]=useState("Request a better landed cost and a clearer processing/tracking commitment.");
   const [negotiationDraft,setNegotiationDraft]=useState("");
   const [negotiationBusy,setNegotiationBusy]=useState(false);
+  const [defenseBusy,setDefenseBusy]=useState<number|null>(null);
+  const [rescueBusy,setRescueBusy]=useState<number|null>(null);
+  const [rescueDraft,setRescueDraft]=useState<string>("");
   const [observation,setObservation]=useState({
     supplierProductId:"",supplierDomain:"",supplierName:"",sourceUrl:"",destinationCountry:"",shareWithSupplierNetwork:false,
     observedCost:"",shippingCost:"",currency:"USD",etaMinDays:"",etaMaxDays:"",qualityScore:"",trackingScore:"",
@@ -104,6 +107,31 @@ export default function DropshipIntelligence(){
     finally{setScanBusy(false);}
   }
 
+  async function buildDefense(orderId:number){
+    setDefenseBusy(orderId);setNotice("");
+    try{
+      const r=await fetch("/api/dropship-intelligence/orders/"+orderId+"/defense-pack",{credentials:"same-origin",headers:{Accept:"application/json"}});
+      const b=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(String(b.error||"Defense pack could not be created"));
+      const text=JSON.stringify(b.defensePack,null,2);
+      await navigator.clipboard.writeText(text);
+      setNotice("Dispute Defense Pack copied for order "+String(orderId)+". It contains only recorded Lunavo evidence.");
+    }catch(e){setNotice(e instanceof Error?e.message:"Defense pack could not be created");}
+    finally{setDefenseBusy(null);}
+  }
+
+  async function rescueMessage(orderId:number){
+    setRescueBusy(orderId);setRescueDraft("");setNotice("");
+    try{
+      const r=await fetch("/api/dropship-intelligence/orders/"+orderId+"/customer-rescue",{method:"POST",credentials:"same-origin",headers:{Accept:"application/json"}});
+      const b=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(String(b.error||"Customer rescue draft could not be created"));
+      setRescueDraft(String(b.draft||""));
+      setNotice("Truthful customer rescue draft created for order "+String(orderId)+". Review it before sending.");
+    }catch(e){setNotice(e instanceof Error?e.message:"Customer rescue draft could not be created");}
+    finally{setRescueBusy(null);}
+  }
+
   async function resolveAlert(id:string){
     const r=await fetch("/api/dropship-intelligence/alerts/"+encodeURIComponent(id)+"/resolve",{method:"POST",credentials:"same-origin",headers:{Accept:"application/json"}});
     if(r.ok)await load();else setNotice("That alert could not be resolved.");
@@ -172,8 +200,8 @@ export default function DropshipIntelligence(){
       </div>}
 
       {tab==="tracking"&&<div className="mt-7 grid gap-7 lg:grid-cols-[1.35fr_.65fr]">
-        <section><SectionHeading eyebrow="Tracking-Gap Radar" title="Catch the silent days before the customer does." description="Without a carrier API, Lunavo monitors the last event you actually recorded. It never pretends that a silent carrier is a live feed."/><div className="mt-5 space-y-3">{data.tracking.length?data.tracking.map(t=><article key={t.orderId} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><Badge tone={t.gap.state==="critical"?"danger":t.gap.state==="warning"?"warning":"success"}>{t.gap.state}</Badge><span className="font-mono text-xs font-black">{t.orderNumber}</span></div><h3 className="mt-2 font-extrabold">{t.carrier||"Carrier not recorded"} · {t.trackingNumber||"No tracking number"}</h3><p className="mt-1 text-xs text-[#697687]">{t.lastRecordedEvent||"No latest event text recorded"}</p></div><p className="font-mono text-sm">{t.gap.gapHours==null?"—":t.gap.gapHours+"h silent"}</p></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-[#697687]">Last recorded: {new Date(t.lastRecordedAt).toLocaleString()}{t.expectedDeliveryAt?" · expected "+new Date(t.expectedDeliveryAt).toLocaleDateString():""}</p><a href={"/dropshipping?orderId="+t.orderId} className="inline-flex items-center gap-2 rounded-lg border border-[#d9d2c4] px-3 py-2 text-xs font-extrabold">Open fulfillment record <ArrowUpRight className="h-3.5 w-3.5"/></a></div></article>):<EmptyState title="No active tracked orders" description="Record a tracking checkpoint and the radar will monitor its recorded event age."/>}</div></section>
-        <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Recovery inbox" title="Open alerts"/><div className="mt-4 space-y-3">{data.alerts.length?data.alerts.map(a=><div key={a.id} className="rounded-xl border border-[#e0d9cc] bg-white p-4"><div className="flex items-center justify-between gap-3"><Badge tone={a.severity==="critical"?"danger":a.severity==="high"?"warning":"info"}>{a.severity}</Badge><button type="button" onClick={()=>void resolveAlert(a.id)} className="text-xs font-extrabold text-[#315e6c]">Resolve</button></div><p className="mt-2 text-sm font-extrabold">{a.title}</p><p className="mt-1 text-xs leading-5 text-[#697687]">{a.message}</p></div>):<p className="rounded-xl bg-[#f3efe7] p-4 text-sm text-[#697687]">No unresolved dropship alerts.</p>}</div></section>
+        <section><SectionHeading eyebrow="Tracking-Gap Radar" title="Catch the silent days before the customer does." description="Without a carrier API, Lunavo monitors the last event you actually recorded. It never pretends that a silent carrier is a live feed."/><div className="mt-5 space-y-3">{data.tracking.length?data.tracking.map(t=><article key={t.orderId} className="rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><Badge tone={t.gap.state==="critical"?"danger":t.gap.state==="warning"?"warning":"success"}>{t.gap.state}</Badge><span className="font-mono text-xs font-black">{t.orderNumber}</span></div><h3 className="mt-2 font-extrabold">{t.carrier||"Carrier not recorded"} · {t.trackingNumber||"No tracking number"}</h3><p className="mt-1 text-xs text-[#697687]">{t.lastRecordedEvent||"No latest event text recorded"}</p></div><p className="font-mono text-sm">{t.gap.gapHours==null?"—":t.gap.gapHours+"h silent"}</p></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-[#697687]">Last recorded: {new Date(t.lastRecordedAt).toLocaleString()}{t.expectedDeliveryAt?" · expected "+new Date(t.expectedDeliveryAt).toLocaleDateString():""}</p><a href={"/dropshipping?orderId="+t.orderId} className="inline-flex items-center gap-2 rounded-lg border border-[#d9d2c4] px-3 py-2 text-xs font-extrabold">Open fulfillment record <ArrowUpRight className="h-3.5 w-3.5"/></a><Button variant="secondary" onClick={()=>void buildDefense(t.orderId)} disabled={defenseBusy===t.orderId}>{defenseBusy===t.orderId?"Packing…":"Defense pack"}</Button><Button onClick={()=>void rescueMessage(t.orderId)} disabled={rescueBusy===t.orderId}>{rescueBusy===t.orderId?"Drafting…":"Rescue customer"}</Button></div></article>):<EmptyState title="No active tracked orders" description="Record a tracking checkpoint and the radar will monitor its recorded event age."/>}</div></section>
+        <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Recovery inbox" title="Open alerts"/>{rescueDraft&&<div className="mt-5 rounded-xl border border-[#b8d6ca] bg-[#eff8f3] p-4"><p className="text-[10px] font-mono uppercase tracking-[.12em] text-[#2f6958]">Customer Rescue Draft</p><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[#315e6c]">{rescueDraft}</p></div>}<div className="mt-4 space-y-3">{data.alerts.length?data.alerts.map(a=><div key={a.id} className="rounded-xl border border-[#e0d9cc] bg-white p-4"><div className="flex items-center justify-between gap-3"><Badge tone={a.severity==="critical"?"danger":a.severity==="high"?"warning":"info"}>{a.severity}</Badge><button type="button" onClick={()=>void resolveAlert(a.id)} className="text-xs font-extrabold text-[#315e6c]">Resolve</button></div><p className="mt-2 text-sm font-extrabold">{a.title}</p><p className="mt-1 text-xs leading-5 text-[#697687]">{a.message}</p></div>):<p className="rounded-xl bg-[#f3efe7] p-4 text-sm text-[#697687]">No unresolved dropship alerts.</p>}</div></section>
       </div>}
     </div>
   </AppShell>;
