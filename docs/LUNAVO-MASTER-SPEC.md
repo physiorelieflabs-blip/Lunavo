@@ -3,8 +3,6 @@
 ## Non-negotiable engineering rules
 - GitHub is the source of truth for Lunavo.
 - All Lunavo coding, fixes, refactors, migrations and frontend work are performed in GitHub.
-- Replit Agent must never be used to code or modify Lunavo.
-- Replit may only sync, run, preview or publish the GitHub source when explicitly needed.
 - Never replace real payment behavior with fake/demo payment behavior.
 - Preserve existing working backend contracts while rebuilding the presentation layer unless a contract is intentionally hardened.
 - Every feature must be connected to real server-side data and authoritative validation.
