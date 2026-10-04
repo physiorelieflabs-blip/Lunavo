@@ -40,8 +40,10 @@ export function calculateDashboardWindow(startedAt: Date, now = new Date()) {
 }
 
 export function calculateTsCommerceFeeMinor(grossAmountMinor: number): number {
-  const gross = Math.max(0, Math.round(grossAmountMinor));
-  return Math.round(gross * TS_COMMERCE_TRANSACTION_FEE_RATE);
+  const gross = Math.max(0, Math.trunc(grossAmountMinor));
+  if (!Number.isSafeInteger(gross)) throw new Error("Gross amount exceeds safe integer range");
+  // One percent in minor units; round half-up without floating-point multiplication.
+  return Math.floor(gross / 100 + 0.5);
 }
 
 export function calculateMerchantNetMinor(
