@@ -8,6 +8,7 @@ import {
   socialPublishJobsTable,
 } from "@workspace/db";
 import { logger } from "./logger";
+import { socialGatewayRequest } from "./social-gateway-client";
 
 const POLL_MS = 10_000;
 const LEASE_MS = 15 * 60_000;
@@ -54,85 +55,17 @@ function base64Bytes(value: string): Buffer {
   return bytes;
 }
 
-async function providerRequest(url: string, init: RequestInit): Promise<Record<string, unknown>> {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(120_000) });
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const message = typeof payload.error_description === "string"
-      ? payload.error_description
-      : typeof payload.error === "string"
-        ? payload.error
-        : `Provider returned HTTP ${response.status}`;
-    throw new SocialPublishError(message, response.status >= 500 || response.status === 429);
-  }
-  return payload;
-}
+async function providerRequest(_url:string,_init:RequestInit):Promise<Record<string,unknown>>{throw new SocialPublishError("Direct social provider requests are disabled; use the self-hosted social gateway");}
 
 async function refreshAccessToken(connection: Connection): Promise<{ connection: Connection; accessToken: string }> {
-  const accessToken = decryptToken(connection.accessTokenEncrypted);
-  if (!connection.tokenExpiresAt || connection.tokenExpiresAt.getTime() > Date.now() + 60_000 || !connection.refreshTokenEncrypted) {
-    return { connection, accessToken };
-  }
-
-  const refreshToken = decryptToken(connection.refreshTokenEncrypted);
-  let tokenUrl = "";
-  let body: URLSearchParams;
-  if (connection.provider === "youtube") {
-    const clientId = process.env.SOCIAL_GOOGLE_CLIENT_ID?.trim();
-    const clientSecret = process.env.SOCIAL_GOOGLE_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) throw new SocialPublishError("YouTube OAuth refresh is not configured");
-    tokenUrl = "https://oauth2.googleapis.com/token";
-    body = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" });
-  } else if (connection.provider === "linkedin") {
-    const clientId = process.env.SOCIAL_LINKEDIN_CLIENT_ID?.trim();
-    const clientSecret = process.env.SOCIAL_LINKEDIN_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) throw new SocialPublishError("LinkedIn OAuth refresh is not configured");
-    tokenUrl = "https://www.linkedin.com/oauth/v2/accessToken";
-    body = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" });
-  } else if (connection.provider === "tiktok") {
-    const clientId = process.env.SOCIAL_TIKTOK_CLIENT_KEY?.trim();
-    const clientSecret = process.env.SOCIAL_TIKTOK_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) throw new SocialPublishError("TikTok OAuth refresh is not configured");
-    tokenUrl = "https://open.tiktokapis.com/v2/oauth/token/";
-    body = new URLSearchParams({ client_key: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" });
-  } else if (connection.provider === "x") {
-    const clientId = process.env.SOCIAL_X_CLIENT_ID?.trim();
-    const clientSecret = process.env.SOCIAL_X_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) throw new SocialPublishError("X OAuth refresh is not configured");
-    tokenUrl = "https://api.x.com/2/oauth2/token";
-    body = new URLSearchParams({ client_id: clientId, refresh_token: refreshToken, grant_type: "refresh_token" });
-  } else {
-    return { connection, accessToken };
-  }
-
-  const refreshHeaders: Record<string,string> = { "content-type": "application/x-www-form-urlencoded" };
-  if (connection.provider === "x") {
-    const clientId = process.env.SOCIAL_X_CLIENT_ID?.trim();
-    const clientSecret = process.env.SOCIAL_X_CLIENT_SECRET?.trim();
-    if (clientId && clientSecret) refreshHeaders.authorization = "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  }
-  const payload = await providerRequest(tokenUrl, {
-    method: "POST",
-    headers: refreshHeaders,
-    body,
-  });
-  if (typeof payload.access_token !== "string") throw new SocialPublishError("Provider token refresh returned no access token");
-  const nextToken = payload.access_token;
-  const nextRefresh = typeof payload.refresh_token === "string" ? payload.refresh_token : refreshToken;
-  const expiresIn = Number(payload.expires_in);
-  const expiresAt = Number.isFinite(expiresIn) ? new Date(Date.now() + expiresIn * 1000) : null;
-  const [updated] = await db.update(socialConnectionsTable)
-    .set({
-      accessTokenEncrypted: encryptToken(nextToken),
-      refreshTokenEncrypted: encryptToken(nextRefresh),
-      tokenExpiresAt: expiresAt,
-      status: "connected",
-      updatedAt: new Date(),
-    })
-    .where(eq(socialConnectionsTable.id, connection.id))
-    .returning();
-  if (!updated) throw new SocialPublishError("Refreshed social connection could not be saved");
-  return { connection: updated, accessToken: nextToken };
+  const accessToken=decryptToken(connection.accessTokenEncrypted);
+  if(!connection.tokenExpiresAt||connection.tokenExpiresAt.getTime()>Date.now()+60_000||!connection.refreshTokenEncrypted)return{connection,accessToken};
+  const refreshToken=decryptToken(connection.refreshTokenEncrypted);
+  const payload=await socialGatewayRequest<any>("oauth.refresh",{provider:connection.provider,refreshToken});
+  const nextToken=String(payload.access_token||"");if(!nextToken)throw new SocialPublishError("Provider token refresh returned no access token");
+  const nextRefresh=typeof payload.refresh_token==="string"?payload.refresh_token:refreshToken;const expiresIn=Number(payload.expires_in);const expiresAt=Number.isFinite(expiresIn)?new Date(Date.now()+expiresIn*1000):null;
+  const[updated]=await db.update(socialConnectionsTable).set({accessTokenEncrypted:encryptToken(nextToken),refreshTokenEncrypted:encryptToken(nextRefresh),tokenExpiresAt:expiresAt,status:"connected",updatedAt:new Date()}).where(and(eq(socialConnectionsTable.id,connection.id),eq(socialConnectionsTable.merchantId,connection.merchantId))).returning();
+  if(!updated)throw new SocialPublishError("Refreshed social connection could not be saved");return{connection:updated,accessToken:nextToken};
 }
 
 function encryptToken(value: string): string {
@@ -165,148 +98,15 @@ async function loadMedia(job: Job): Promise<{ bytes: Buffer; mimeType: string; f
   return null;
 }
 
-async function publishX(token: string, job: Job, media: { bytes: Buffer; mimeType: string; filename: string } | null): Promise<string> {
-  if (media) throw new SocialPublishError("X publishing currently supports text-only jobs; media remains provider-gated");
-  const text = (job.caption || "").trim();
-  if (!text) throw new SocialPublishError("X publishing requires a caption");
-  if (Array.from(text).length > 280) throw new SocialPublishError("X text posts are limited to 280 characters in Lunavo");
-  const payload = await providerRequest("https://api.x.com/2/tweets", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
-  const data = payload.data && typeof payload.data === "object" ? payload.data as Record<string, unknown> : {};
-  if (typeof data.id !== "string") throw new SocialPublishError("X did not return a post id");
-  return data.id;
-}
+async function publishX(token:string,job:Job,media:{bytes:Buffer;mimeType:string;filename:string}|null):Promise<string>{const out=await socialGatewayRequest<any>("publish",{provider:"x",accessToken:token,job:{caption:job.caption},media:media?{base64:media.bytes.toString("base64"),mimeType:media.mimeType,filename:media.filename}:null});if(!out.postId)throw new SocialPublishError("X gateway did not return a post id");return String(out.postId);}
 
-async function publishYouTube(token: string, job: Job, media: { bytes: Buffer; mimeType: string; filename: string }): Promise<string> {
-  if (!media.mimeType.startsWith("video/")) throw new SocialPublishError("YouTube publishing requires video media");
-  const rawTitle = (job.caption || media.filename.replace(/\.[^.]+$/, "") || "Lunavo").replace(/\s+/g, " ").trim();
-  const metadata = {
-    snippet: { title: rawTitle.slice(0, 100) || "Lunavo", description: (job.caption || "").slice(0, 5000) },
-    status: { privacyStatus: "public" },
-  };
-  const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-  form.append("media", new Blob([new Uint8Array(media.bytes)], { type: media.mimeType }), media.filename);
-  const payload = await providerRequest("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=multipart&part=snippet,status", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
-  if (typeof payload.id !== "string") throw new SocialPublishError("YouTube did not return a video id");
-  return payload.id;
-}
+async function publishYouTube(token:string,job:Job,media:{bytes:Buffer;mimeType:string;filename:string}):Promise<string>{const out=await socialGatewayRequest<any>("publish",{provider:"youtube",accessToken:token,job:{caption:job.caption},media:{base64:media.bytes.toString("base64"),mimeType:media.mimeType,filename:media.filename}});if(!out.postId)throw new SocialPublishError("YouTube gateway did not return a video id");return String(out.postId);}
 
 type TikTokPublishOptions={privacyLevel:string;allowComment:boolean;allowDuet:boolean;allowStitch:boolean;isAigc:boolean;consentAt:string};
 
-async function publishTikTok(token: string, job: Job, media: { bytes: Buffer; mimeType: string }, options: TikTokPublishOptions): Promise<string> {
-  if (!media.mimeType.startsWith("video/")) throw new SocialPublishError("TikTok direct publishing currently supports video jobs in Lunavo");
-  const consentAt=Date.parse(options.consentAt);
-  if (!Number.isFinite(consentAt)||consentAt>Date.now()+60_000) throw new SocialPublishError("TikTok publish consent timestamp is invalid");
-  if (media.bytes.length > MAX_MEDIA_BYTES) throw new SocialPublishError("TikTok video exceeds Lunavo's publishing limit");
+async function publishTikTok(token:string,job:Job,media:{bytes:Buffer;mimeType:string},options:TikTokPublishOptions):Promise<string>{const out=await socialGatewayRequest<any>("publish",{provider:"tiktok",accessToken:token,job:{caption:job.caption,tiktokOptions:options},media:{base64:media.bytes.toString("base64"),mimeType:media.mimeType,filename:"lunavo-video.mp4"}});if(!out.postId)throw new SocialPublishError("TikTok gateway did not return a publish id");return String(out.postId);}
 
-  const creatorPayload = await providerRequest("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: "{}",
-  });
-  const creator = payloadData(creatorPayload);
-  const privacyOptions=Array.isArray(creator.privacy_level_options)?creator.privacy_level_options.filter((value):value is string=>typeof value==="string"):[];
-  if (!privacyOptions.includes(options.privacyLevel)) throw new SocialPublishError("TikTok privacy selection is no longer available for this creator; reload the creator settings");
-  if (creator.comment_disabled===true && options.allowComment) throw new SocialPublishError("TikTok has comments disabled for this creator");
-  if (creator.duet_disabled===true && options.allowDuet) throw new SocialPublishError("TikTok has Duet disabled for this creator");
-  if (creator.stitch_disabled===true && options.allowStitch) throw new SocialPublishError("TikTok has Stitch disabled for this creator");
-  const maxDuration=Number(creator.max_video_post_duration_sec);
-  if (Number.isFinite(maxDuration) && job.creativeId) {
-    const [creative] = await db.select({durationSeconds: adCreativesTable.durationSeconds}).from(adCreativesTable).where(and(eq(adCreativesTable.id, job.creativeId), eq(adCreativesTable.merchantId, job.merchantId))).limit(1);
-    if (creative && creative.durationSeconds > maxDuration) throw new SocialPublishError(`TikTok currently allows videos up to ${maxDuration} seconds for this creator`);
-  }
-
-  const chunkSize = 10_000_000;
-  const totalChunkCount = Math.ceil(media.bytes.length / chunkSize);
-  const title = (job.caption || "Lunavo").slice(0, 2200);
-  const init = await providerRequest("https://open.tiktokapis.com/v2/post/publish/video/init/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: JSON.stringify({
-      post_info: {
-        title,
-        privacy_level: options.privacyLevel,
-        disable_duet: !options.allowDuet,
-        disable_comment: !options.allowComment,
-        disable_stitch: !options.allowStitch,
-        brand_organic_toggle: true,
-        is_aigc: options.isAigc,
-      },
-      source_info: { source: "FILE_UPLOAD", video_size: media.bytes.length, chunk_size: chunkSize, total_chunk_count: totalChunkCount },
-    }),
-  });
-  const data = payloadData(init);
-  const publishId = typeof data.publish_id === "string" ? data.publish_id : "";
-  const uploadUrl = typeof data.upload_url === "string" ? data.upload_url : "";
-  if (!publishId || !uploadUrl) throw new SocialPublishError("TikTok did not return upload details");
-
-  for (let offset = 0; offset < media.bytes.length; offset += chunkSize) {
-    const chunk = media.bytes.subarray(offset, Math.min(offset + chunkSize, media.bytes.length));
-    const end = offset + chunk.length - 1;
-    const response = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": media.mimeType,
-        "Content-Length": String(chunk.length),
-        "Content-Range": `bytes ${offset}-${end}/${media.bytes.length}`,
-      },
-      body: chunk,
-      signal: AbortSignal.timeout(120_000),
-    });
-    if (!response.ok) throw new SocialPublishError(`TikTok media upload returned HTTP ${response.status}`, response.status >= 500 || response.status === 429);
-  }
-  const statusPayload = await providerRequest("https://open.tiktokapis.com/v2/post/publish/status/fetch/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: JSON.stringify({ publish_id: publishId }),
-  });
-  const statusData = payloadData(statusPayload);
-  const status = typeof statusData.status === "string" ? statusData.status : "";
-  if (status === "FAILED") throw new SocialPublishError(typeof statusData.fail_reason === "string" ? `TikTok rejected the post: ${statusData.fail_reason}` : "TikTok rejected the post");
-  return publishId;
-}
-
-async function publishLinkedIn(token: string, connection: Connection, job: Job): Promise<string> {
-  const metadata = connection.metadata && typeof connection.metadata === "object" ? connection.metadata as Record<string, unknown> : {};
-  const author = typeof metadata.authorUrn === "string" ? metadata.authorUrn : connection.accountId && connection.accountId.startsWith("urn:li:person:") ? connection.accountId : "";
-  if (!author) throw new SocialPublishError("LinkedIn member identity is not available; reconnect LinkedIn to refresh the account identity");
-  const version = process.env.SOCIAL_LINKEDIN_API_VERSION?.trim();
-  if (!version) throw new SocialPublishError("SOCIAL_LINKEDIN_API_VERSION is not configured");
-  const response = await fetch("https://api.linkedin.com/rest/posts", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "X-Restli-Protocol-Version": "2.0.0",
-      "Linkedin-Version": version,
-    },
-    body: JSON.stringify({
-      author,
-      commentary: (job.caption || "").slice(0, 3000),
-      visibility: "PUBLIC",
-      distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
-      lifecycleState: "PUBLISHED",
-      isReshareDisabledByAuthor: false,
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new SocialPublishError(detail.slice(0, 1000) || `LinkedIn returned HTTP ${response.status}`, response.status >= 500 || response.status === 429);
-  }
-  const postId = response.headers.get("x-restli-id") || "";
-  if (!postId) throw new SocialPublishError("LinkedIn did not return a post id");
-  return postId;
-}
+async function publishLinkedIn(token:string,connection:Connection,job:Job):Promise<string>{const metadata=connection.metadata&&typeof connection.metadata==="object"?connection.metadata as Record<string,unknown>:{};const author=typeof metadata.authorUrn==="string"?metadata.authorUrn:connection.accountId?.startsWith("urn:li:person:")?connection.accountId:"";if(!author)throw new SocialPublishError("LinkedIn member identity is not available; reconnect LinkedIn");const out=await socialGatewayRequest<any>("publish",{provider:"linkedin",accessToken:token,job:{caption:job.caption,authorUrn:author,linkedinApiVersion:process.env.SOCIAL_LINKEDIN_API_VERSION}});if(!out.postId)throw new SocialPublishError("LinkedIn gateway did not return a post id");return String(out.postId);}
 
 function payloadData(payload: Record<string, unknown>): Record<string, unknown> {
   return payload.data && typeof payload.data === "object" ? payload.data as Record<string, unknown> : {};
