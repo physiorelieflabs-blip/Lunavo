@@ -6,7 +6,7 @@
 - Inspect the existing codebase before making architectural or feature changes. Do not assume documentation is newer than the implementation.
 
 ## Mission
-Lunavo is intended to be a self-hosted global commerce OS, not a demo, mock, prototype, or Replit-only application.
+Lunavo is intended to be a self-hosted global commerce OS, not a demo, mock, or prototype. It is a self-hosted production application.
 Build real, persistent, production-grade functionality. Never invent successful payment, balance, withdrawal, inventory, AI, media, or fulfillment results.
 
 ## Required architecture
