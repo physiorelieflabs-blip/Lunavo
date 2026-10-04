@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, FlaskConical, GitBranch, PauseCircle, PlayCircle, ShieldCheck, Zap } from "lucide-react";
-import AppShell from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
 
 type Workflow = { id:string; workflow_key:string; name:string; description:string|null; enabled:boolean; mode:"dry_run"|"approval"|"automatic"; trigger_event:string; conditions:unknown; actions:unknown; cooldown_seconds:number; daily_run_limit:number; version:number; next_scheduled_at:string|null; schedule_interval_seconds:number; };
 type Run = { id:string; status:string; event_id:string|null; result:Record<string,unknown>; error_message:string|null; created_at:string; approval_status:string|null; };
