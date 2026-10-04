@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { Router, type Request } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, paymentWebhookEventsTable } from "@workspace/db";
-import { verifyFlutterwaveTransaction, verifyFlutterwaveWebhookSignatureAsync } from "../lib/flutterwave-client";
+import { db, ledgerEntriesTable, paymentWebhookEventsTable, withdrawalsTable } from "@workspace/db";
+import { flutterwaveTransferStatus, verifyFlutterwaveTransaction, verifyFlutterwaveTransfer, verifyFlutterwaveWebhookSignatureAsync } from "../lib/flutterwave-client";
 import { settleVerifiedProductAuctionPayment } from "../lib/product-auction-settlement";
 import { settleVerifiedStoreAuctionPayment } from "../lib/store-auction-settlement";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
@@ -31,15 +31,118 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
 
   try {
     const inserted = await db.transaction(async (tx) => {
-      const [existing] = await tx.select().from(paymentWebhookEventsTable).where(and(eq(paymentWebhookEventsTable.provider, "flutterwave"), eq(paymentWebhookEventsTable.webhookId, eventId))).limit(1);
-      if (existing) return false;
-      await tx.insert(paymentWebhookEventsTable).values({ provider: "flutterwave", webhookId: eventId, eventType, providerPaymentId: providerTransactionId || null, payload, status: "received" });
+      const [existing] = await tx.select().from(paymentWebhookEventsTable)
+        .where(and(eq(paymentWebhookEventsTable.provider, "flutterwave"), eq(paymentWebhookEventsTable.webhookId, eventId)))
+        .limit(1);
+      if (existing?.status === "processed") return false;
+      if (existing) {
+        await tx.update(paymentWebhookEventsTable).set({
+          status: "received",
+          error: null,
+          processedAt: null,
+          payload,
+          eventType,
+          providerPaymentId: providerTransactionId || existing.providerPaymentId,
+        }).where(eq(paymentWebhookEventsTable.id, existing.id));
+        return true;
+      }
+      await tx.insert(paymentWebhookEventsTable).values({
+        provider: "flutterwave",
+        webhookId: eventId,
+        eventType,
+        providerPaymentId: providerTransactionId || null,
+        payload,
+        status: "received",
+      });
       return true;
     });
     if (!inserted) { res.status(200).json({ received: true, duplicate: true }); return; }
     if (!providerTransactionId) {
       await db.update(paymentWebhookEventsTable).set({ status: "reconciliation_required", error: "Missing provider transaction id", processedAt: new Date() }).where(and(eq(paymentWebhookEventsTable.provider, "flutterwave"), eq(paymentWebhookEventsTable.webhookId, eventId)));
       res.status(200).json({ received: true, status: "reconciliation_required" }); return;
+    }
+
+    if (eventType.toLowerCase().includes("transfer")) {
+      // Payout webhooks use the transfer API, not the transaction verification API.
+      // Re-query Flutterwave and only then mutate the withdrawal ledger.
+      const transfer = await verifyFlutterwaveTransfer(providerTransactionId);
+      const providerStatus = flutterwaveTransferStatus(transfer);
+      const outcome = await db.transaction(async (tx) => {
+        const [withdrawal] = await tx.select().from(withdrawalsTable)
+          .where(eq(withdrawalsTable.providerPayoutId, providerTransactionId))
+          .limit(1);
+        if (!withdrawal) return "reconciliation_required";
+        await tx.execute(sql`select id from ${withdrawalsTable} where id=${withdrawal.id} for update`);
+        const [current] = await tx.select().from(withdrawalsTable)
+          .where(eq(withdrawalsTable.id, withdrawal.id))
+          .limit(1);
+        if (!current) return "reconciliation_required";
+
+        const amountMatches = Math.abs(Number(current.amount) - Number(transfer.amount ?? NaN)) < 0.005;
+        const currencyMatches = String(transfer.currency ?? "").toUpperCase() === current.currency.toUpperCase();
+        const referenceMatches = !transfer.reference || transfer.reference === current.settlementReference;
+        if (!amountMatches || !currencyMatches || !referenceMatches) {
+          return "reconciliation_required";
+        }
+        if (current.status === "paid" || current.status === "rejected") return "processed";
+
+        if (providerStatus === "failed") {
+          const [updated] = await tx.update(withdrawalsTable).set({
+            status: "rejected",
+            providerStatus: "failed",
+            providerFailureReason: transfer.complete_message || "Flutterwave payout failed",
+            settlementReference: transfer.reference ?? current.settlementReference,
+            reviewedAt: current.reviewedAt ?? new Date(),
+            settledAt: null,
+            paidAt: null,
+          }).where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "approved"))).returning();
+          if (!updated) return "processed";
+          await tx.insert(ledgerEntriesTable).values({
+            merchantId: current.merchantId,
+            withdrawalId: current.id,
+            amountMinor: Math.round(Number(current.amount) * 100),
+            currency: current.currency,
+            entryType: "withdrawal_release",
+            amountMinor: Math.round(Number(current.amount) * 100),
+            referenceKey: `withdrawal:${current.id}:release`,
+            description: "Flutterwave payout failed; reserved funds released",
+          } as never).onConflictDoNothing();
+          return "processed";
+        }
+
+        if (providerStatus === "paid") {
+          const [updated] = await tx.update(withdrawalsTable).set({
+            status: "paid",
+            providerStatus: "succeeded",
+            providerFailureReason: null,
+            settlementReference: transfer.reference ?? current.settlementReference,
+            paidAt: new Date(),
+            settledAt: new Date(),
+          }).where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "approved"))).returning();
+          if (!updated) return "processed";
+          await tx.insert(ledgerEntriesTable).values({
+            merchantId: current.merchantId,
+            withdrawalId: current.id,
+            amountMinor: 0,
+            currency: current.currency,
+            entryType: "withdrawal_paid",
+            referenceKey: `withdrawal:${current.id}:paid`,
+            description: "Flutterwave confirmed withdrawal settlement",
+          } as never).onConflictDoNothing();
+        } else {
+          await tx.update(withdrawalsTable).set({
+            providerStatus: "pending",
+            settlementReference: transfer.reference ?? current.settlementReference,
+          }).where(and(eq(withdrawalsTable.id, current.id), eq(withdrawalsTable.status, "approved")));
+        }
+        return "processed";
+      });
+      await db.update(paymentWebhookEventsTable).set({
+        status: outcome === "reconciliation_required" ? "reconciliation_required" : "processed",
+        processedAt: new Date(),
+      }).where(and(eq(paymentWebhookEventsTable.provider, "flutterwave"), eq(paymentWebhookEventsTable.webhookId, eventId)));
+      res.status(200).json({ received: true, status: outcome });
+      return;
     }
 
     // Webhooks are signals only. Re-query Flutterwave, then route store/product
