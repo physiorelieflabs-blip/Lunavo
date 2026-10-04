@@ -4928,18 +4928,6 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   }
 });
 
-function decodeHtml(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 router.post("/ai/research", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -4950,71 +4938,25 @@ router.post("/ai/research", async (req, res): Promise<void> => {
   }
   const query = parsed.data.query.trim();
   try {
-    if (process.env.LUNAVO_GEMINI_API_KEY?.trim()) {
-      try {
-        const grounded = await researchWithGemini(query);
-        res.json(
-          ResearchWebResponse.parse({
-            query,
-            summary: grounded.summary,
-            searchedAt: new Date().toISOString(),
-            source: "Gemini + Google Search",
-            limitations: [
-              "Grounded search uses Google's public web-search tool and may omit pages that are not indexed or accessible.",
-              "Citations point to the public URLs returned by the model; verify important commercial claims at the source.",
-              "No private merchant workspace data is sent to the search provider unless included directly in the query.",
-            ],
-            sources: grounded.sources,
-          }),
-        );
-        return;
-      } catch (error) {
-        req.log.warn({ err: error }, "Grounded Gemini research unavailable; falling back to public search");
-      }
-    }
-    const response = await fetch(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-      { headers: { "user-agent": "TS-Commerce-Research/1.0" }, signal: AbortSignal.timeout(10_000) },
-    );
-    if (!response.ok) throw new Error(`Search provider returned ${response.status}`);
-    const html = await response.text();
-    const sources: Array<{ title: string; url: string; snippet: string }> = [];
-    const resultPattern =
-      /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>|<div[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/div>)/g;
-    for (const match of html.matchAll(resultPattern)) {
-      const rawUrl = decodeHtml(match[1] ?? "");
-      const title = decodeHtml(match[2] ?? "");
-      const snippet = decodeHtml(match[3] ?? match[4] ?? "");
-      if (!rawUrl || !title) continue;
-      const url = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
-      if (!/^https?:\/\//i.test(url)) continue;
-      sources.push({ title, url, snippet });
-      if (sources.length >= 6) break;
-    }
-    const summary =
-      sources.length > 0
-        ? `I found ${sources.length} public sources for “${query}”. Review the snippets and open the cited sources before making a commercial decision.`
-        : `No public search results were returned for “${query}”. Try a more specific query.`;
-    const searchedAt = new Date().toISOString();
+    const grounded = await researchWithLocalSearch(query);
     res.json(
       ResearchWebResponse.parse({
         query,
-        summary,
-        searchedAt,
-        source: "DuckDuckGo HTML search",
+        summary: grounded.summary,
+        searchedAt: new Date().toISOString(),
+        source: "Self-hosted SearXNG + Lunavo local AI",
         limitations: [
-          "This is a read-only search pass, not a guarantee that every relevant page was found.",
-          "Search snippets can be incomplete or stale; verify claims at the cited source.",
-          "No private merchant data was sent to the search provider.",
+          "Search is served by the operator's self-hosted search instance; result coverage depends on the engines configured there.",
+          "Search snippets can be incomplete or stale; verify important commercial claims at the cited source.",
+          "No private merchant workspace data is sent to the search server beyond the submitted research query.",
         ],
-        sources,
+        sources: grounded.sources,
       }),
     );
   } catch (error) {
-    req.log.warn({ err: error }, "Web research failed");
-    res.status(502).json({
-      error: "Web research is temporarily unavailable. Your merchant data was not changed.",
-    });
+    req.log.warn({ err: error }, "Self-hosted web research failed");
+    const message = error instanceof Error ? error.message : "Self-hosted research is temporarily unavailable.";
+    res.status(503).json({ error: message });
   }
 });
 
