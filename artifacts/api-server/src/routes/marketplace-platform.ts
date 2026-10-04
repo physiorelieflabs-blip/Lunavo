@@ -147,8 +147,15 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
 router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
   const query = typeof req.body?.query === "string" ? req.body.query.trim().slice(0, 1000) : "";
   if (query.length < 3) { res.status(400).json({ error: "Tell the shopping concierge what you are looking for." }); return; }
+  let rows: Awaited<ReturnType<typeof eligibleProducts>>;
   try {
-    const rows = await eligibleProducts({ limit: 40 });
+    rows = await eligibleProducts({ limit: 40 });
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Marketplace catalog is temporarily unavailable." });
+    return;
+  }
+
+  try {
     const catalog = rows.map(({ product, merchantName }) => ({ id: product.id, merchant: merchantName, title: product.title, description: product.description, category: product.category, price: Number(product.sellingPrice), currency: product.currency }));
     const response = await completeGeminiChat([
       { role: "system", content: [
@@ -171,7 +178,53 @@ router.post("/shop/ai-concierge", async (req, res): Promise<void> => {
     }).filter(Boolean).slice(0, 6) : [];
     res.json({ summary: String(parsed.summary ?? "Here are the strongest matches from the current marketplace."), recommendations, model: response.model });
   } catch (error) {
-    res.status(503).json({ error: error instanceof Error ? error.message : "Shopping concierge is temporarily unavailable." });
+    // Provider-backed reasoning is an accelerator, not a launch dependency.
+    // Fall back to deterministic matching over the same authoritative marketplace
+    // rows rather than fabricating an AI answer or blocking the shopper.
+    const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((token: string) => token.length >= 2).slice(0, 24);
+    const ranked = rows.map(({ product, merchantKey, merchantName }) => {
+      const haystack = [product.title, product.description, product.category, product.brand]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matched = tokens.filter((token: string) => haystack.includes(token));
+      return {
+        matchScore: matched.length,
+        product,
+        merchantKey,
+        merchantName,
+        matched,
+      };
+    }).sort((a, b) =>
+      b.matchScore - a.matchScore ||
+      (b.product.publishedAt?.getTime() ?? 0) - (a.product.publishedAt?.getTime() ?? 0),
+    );
+
+    const chosen = ranked
+      .filter((item) => item.matchScore > 0)
+      .slice(0, 6);
+
+    if (chosen.length > 0) {
+      res.json({
+        summary: "Matches from the live marketplace catalog using local catalog search. No provider-generated facts were added.",
+        recommendations: chosen.map((item) => ({
+          ...publicProduct(item.product, item.merchantKey, item.merchantName),
+          reason: item.matched.length
+            ? "Matches your search terms in the current catalog."
+            : "Listed in the current marketplace catalog.",
+        })),
+        model: "local:authoritative-catalog-matcher",
+        fallback: true,
+      });
+      return;
+    }
+
+    res.json({
+      summary: "No strong catalog match was found for that request.",
+      recommendations: [],
+      model: "local:authoritative-catalog-matcher",
+      fallback: true,
+    });
   }
 });
 

@@ -103,7 +103,7 @@ router.post("/growth/discovery/events", async (req, res, next) => {
     const productId = typeof req.body?.productId === "string" ? req.body.productId.trim() : "";
     const eventType = typeof req.body?.eventType === "string" ? req.body.eventType : "view";
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(productId)) { res.status(400).json({ error: "Valid productId is required" }); return; }
-    const product = (await db.select({ id: supplierProductsTable.id }).from(supplierProductsTable).where(and(eq(supplierProductsTable.id, productId), eq(supplierProductsTable.status, "active"), eq(supplierProductsTable.visibility, "active")).limit(1))[0];
+    const product = (await db.select({ id: supplierProductsTable.id }).from(supplierProductsTable).where(and(eq(supplierProductsTable.id, productId), eq(supplierProductsTable.status, "active"), eq(supplierProductsTable.visibility, "active"))).limit(1))[0];
     if (!product) { res.status(404).json({ error: "Product not found or not publicly active" }); return; }
     if (!["impression", "click", "view", "add_to_cart"].includes(eventType)) { res.status(400).json({ error: "Unsupported discovery event. Purchase attribution is server-generated only." }); return; }
     const campaignId = typeof req.body?.campaignId === "string" ? req.body.campaignId.trim() : "";
