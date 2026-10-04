@@ -5,6 +5,7 @@ import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
 import { initializeFlutterwavePayment } from "../lib/flutterwave-client";
+import { encryptSecret, decryptSecret } from "../lib/withdrawal-security";
 
 const router=Router();
 const fail=(res:Response,status:number,error:string)=>{res.status(status).json({error});};
@@ -62,15 +63,34 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
 
 router.post("/public/customer-subscriptions/subscribe",async(req,res)=>{
   const planId=txt(req.body?.planId,80),name=txt(req.body?.customerName,120),customerEmail=email(req.body?.customerEmail),idem=txt(req.body?.idempotencyKey,120);
-  if(!planId||!name||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(customerEmail)||idem.length<8)return fail(res,400,"Plan, customer details and idempotency key are required");
-  const p=(await db.execute({sql:"SELECT * FROM customer_subscription_plans WHERE id=$1 AND status='active' LIMIT 1",values:[planId]})).rows[0] as any;if(!p)return fail(res,404,"Subscription plan not found");
-  const existing=(await db.execute({sql:"SELECT s.id FROM customer_subscriptions s JOIN customers c ON c.id=s.customer_id WHERE s.plan_id=$1 AND c.merchant_id=$2 AND lower(c.email)=$3 AND s.status IN ('pending_payment','active','past_due') LIMIT 1",values:[planId,Number(p.merchant_id),customerEmail]})).rows[0] as any;if(existing)return fail(res,409,"This email already has an active subscription for this plan");
+  if(!planId||!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(customerEmail)||idem.length<16)return fail(res,400,"Plan, customer details and a strong idempotency key are required");
+  const p=(await db.execute({sql:"SELECT * FROM customer_subscription_plans WHERE id=$1 AND status='active' LIMIT 1",values:[planId]})).rows[0] as any;
+  if(!p)return fail(res,404,"Subscription plan not found");
+  const signupIdem=hash(String(p.merchant_id)+":"+planId+":"+customerEmail+":"+idem);
+  const replay=(await db.execute({sql:"SELECT s.id,s.status,s.manage_token_encrypted FROM customer_subscriptions s WHERE s.signup_idempotency_hash=$1 LIMIT 1",values:[signupIdem]})).rows[0] as any;
+  if(replay){
+    let manageToken="";
+    try{manageToken=replay.manage_token_encrypted?decryptSecret(String(replay.manage_token_encrypted)):"";}catch{manageToken="";}
+    if(!manageToken)return fail(res,409,"This subscription request was already created; the private portal credential is unavailable and the request must be handled through merchant support.");
+    const attempt=(await db.execute({sql:"SELECT checkout_url FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') ORDER BY created_at DESC LIMIT 1",values:[String(replay.id)]})).rows[0] as any;
+    return res.status(200).json({subscriptionId:String(replay.id),manageToken,manageTokenHint:manageToken.slice(-6),paymentUrl:attempt?.checkout_url||null,status:String(replay.status),idempotentReplay:true});
+  }
+  const existing=(await db.execute({sql:"SELECT s.id FROM customer_subscriptions s JOIN customers c ON c.id=s.customer_id WHERE s.plan_id=$1 AND c.merchant_id=$2 AND lower(c.email)=$3 AND s.status IN ('pending_payment','active','past_due') LIMIT 1",values:[planId,Number(p.merchant_id),customerEmail]})).rows[0] as any;
+  if(existing)return fail(res,409,"This email already has an active subscription for this plan");
   const c=await db.execute({sql:"INSERT INTO customers (merchant_id,name,email) VALUES ($1,$2,$3) ON CONFLICT (merchant_id,email) DO UPDATE SET name=EXCLUDED.name,updated_at=now() RETURNING id",values:[Number(p.merchant_id),name,customerEmail]});
   const customerId=Number((c.rows[0] as any)?.id);if(!customerId)return fail(res,500,"Customer record could not be created");
-  const rawToken=token(),start=new Date(),end=addPeriod(start,String(p.interval_unit),Number(p.interval_count)),grace=new Date(end.getTime()+Number(p.grace_period_days)*86400000);
-  const sub=await db.execute({sql:"INSERT INTO customer_subscriptions (merchant_id,plan_id,customer_id,status,amount_minor,currency,interval_unit,interval_count,current_period_start,current_period_end,next_charge_at,grace_until,max_failed_attempts,manage_token_hash,manage_token_hint) VALUES ($1,$2,$3,'pending_payment',$4,$5,$6,$7,$8,$9,$8,$10,$11,$12,$13) RETURNING id",values:[Number(p.merchant_id),planId,customerId,Number(p.amount_minor),String(p.currency).toUpperCase(),String(p.interval_unit),Number(p.interval_count),start.toISOString(),end.toISOString(),grace.toISOString(),Number(p.max_failed_attempts),hash(rawToken),rawToken.slice(-6)]});
+  const rawToken=token(),startDate=new Date(),end=addPeriod(startDate,String(p.interval_unit),Number(p.interval_count)),grace=new Date(end.getTime()+Number(p.grace_period_days)*86400000),encryptedToken=encryptSecret(rawToken);
+  const sub=await db.execute({sql:"INSERT INTO customer_subscriptions (merchant_id,plan_id,customer_id,status,amount_minor,currency,interval_unit,interval_count,current_period_start,current_period_end,next_charge_at,grace_until,max_failed_attempts,manage_token_hash,manage_token_hint,signup_idempotency_hash,manage_token_encrypted) VALUES ($1,$2,$3,'pending_payment',$4,$5,$6,$7,$8,$9,$8,$10,$11,$12,$13,$14,$15) ON CONFLICT (signup_idempotency_hash) DO NOTHING RETURNING id,status",values:[Number(p.merchant_id),planId,customerId,Number(p.amount_minor),String(p.currency).toUpperCase(),String(p.interval_unit),Number(p.interval_count),startDate.toISOString(),end.toISOString(),grace.toISOString(),Number(p.max_failed_attempts),hash(rawToken),rawToken.slice(-6),signupIdem,encryptedToken]});
+  if(!sub.rows.length){
+    const raced=(await db.execute({sql:"SELECT id,status,manage_token_encrypted FROM customer_subscriptions WHERE signup_idempotency_hash=$1 LIMIT 1",values:[signupIdem]})).rows[0] as any;
+    if(!raced)return fail(res,409,"Subscription creation was retried concurrently; please retry with the same idempotency key");
+    const replayToken=decryptSecret(String(raced.manage_token_encrypted));
+    const attempt=(await db.execute({sql:"SELECT checkout_url FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND status IN ('created','submitted') ORDER BY created_at DESC LIMIT 1",values:[String(raced.id)]})).rows[0] as any;
+    return res.status(200).json({subscriptionId:String(raced.id),manageToken:replayToken,manageTokenHint:replayToken.slice(-6),paymentUrl:attempt?.checkout_url||null,status:String(raced.status),idempotentReplay:true});
+  }
   const subscriptionId=String((sub.rows[0] as any)?.id);if(!subscriptionId)throw new Error("Subscription could not be created");
-  try{const payment=await preparePayment(subscriptionId,rawToken,req);res.status(201).json({subscriptionId,manageToken:rawToken,manageTokenHint:rawToken.slice(-6),paymentUrl:payment.paymentUrl,status:"pending_payment"});}catch(e){await db.execute({sql:"UPDATE customer_subscriptions SET status='expired',cancel_reason=$1,updated_at=now() WHERE id=$2",values:[e instanceof Error?e.message:"Payment preparation failed",subscriptionId]});fail(res,(e as any)?.statusCode||503,e instanceof Error?e.message:"Payment could not be prepared");}
+  try{const payment=await preparePayment(subscriptionId,rawToken,req);res.status(201).json({subscriptionId,manageToken:rawToken,manageTokenHint:rawToken.slice(-6),paymentUrl:payment.paymentUrl,status:"pending_payment",idempotentReplay:false});}
+  catch(e){await db.execute({sql:"UPDATE customer_subscriptions SET status='expired',cancel_reason=$1,updated_at=now() WHERE id=$2",values:[e instanceof Error?e.message:"Payment preparation failed",subscriptionId]});fail(res,(e as any)?.statusCode||503,e instanceof Error?e.message:"Payment could not be prepared");}
 });
 
 router.get("/public/customer-subscriptions/portal",async(req,res)=>{
