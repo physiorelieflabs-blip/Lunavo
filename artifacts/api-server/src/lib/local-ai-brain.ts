@@ -166,7 +166,7 @@ async function callCandidate(candidate: Candidate, messages: BrainMessage[], opt
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload = (await response.json().catch(() => ({}))) as Record<string, any>;
     if (!response.ok) throw new Error(String(payload?.error?.message ?? payload?.error ?? `Local model returned HTTP ${response.status}`));
     const content = extractContent(payload, candidate.protocol);
     if (!content) throw new Error("Local model returned an empty response");
