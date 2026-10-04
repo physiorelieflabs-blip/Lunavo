@@ -369,6 +369,7 @@ import { completePrimaryReasoning } from "../lib/ai-provider";
 import { enrichSupplierProduct } from "../lib/supplier-ai";
 import { generateImage } from "../lib/pollinations";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
+import { ensureCustomerPaymentCode, ensureGlobalAdminCode, ensureMerchantAdminPaymentCode, ensureStoreCode } from "../lib/ts-identifiers";
 
 import { calendarDaysSince, safeTimeZone } from "../lib/regional-time";
 import {
@@ -3667,6 +3668,18 @@ function storefrontSlug(value: string): string {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70) || "store";
 }
 
+router.get("/merchant/ts-identifiers", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!identity.isAdmin && !(await requireTenantPermission(identity, merchant.id, "finance.read", res))) return;
+  const merchantAdminCode = await ensureMerchantAdminPaymentCode(db, merchant.id);
+  const globalAdminCode = identity.isAdmin ? await ensureGlobalAdminCode(db) : null;
+  const stores = await db.select({ id: merchantStorefrontsTable.id, name: merchantStorefrontsTable.name, publicKey: merchantStorefrontsTable.publicKey })
+    .from(merchantStorefrontsTable).where(eq(merchantStorefrontsTable.merchantId, merchant.id)).orderBy(asc(merchantStorefrontsTable.createdAt));
+  res.json({ merchantAdminCode, globalAdminCode, stores: await Promise.all(stores.map(async (store) => ({ ...store, storeCode: await ensureStoreCode(db, store.id) }))), warning: "These TS codes identify records only. They are never bank accounts, virtual accounts, wallets, payment destinations, passwords, or payment credentials." });
+});
+
 router.get("/stores", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
@@ -3730,6 +3743,7 @@ router.post("/stores", async (req, res): Promise<void> => {
     sections: storefrontSections(store.sections),
     published: store.published,
     url: `/store/${store.publicKey}`,
+    storeCode: await ensureStoreCode(db, store.id),
   });
 });
 
@@ -10071,6 +10085,17 @@ router.post("/public/checkout/:paymentToken/payment-reference", async (req, res)
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : "Flutterwave payment could not be verified" });
   }
+});
+
+router.get("/public/checkout/:paymentToken/identifiers", async (req, res): Promise<void> => {
+  const token=typeof req.params.paymentToken==="string"?req.params.paymentToken.trim():"";
+  if(!token||token.length>180){res.status(400).json({error:"Invalid checkout token"});return;}
+  const order=(await db.select({merchantId:ordersTable.merchantId,customerId:ordersTable.customerId,merchantKey:merchantsTable.publicStoreKey}).from(ordersTable).innerJoin(merchantsTable,eq(ordersTable.merchantId,merchantsTable.id)).where(eq(ordersTable.publicPaymentToken,token)).limit(1))[0];
+  if(!order){res.status(404).json({error:"Checkout session not found"});return;}
+  const customerCode=await ensureCustomerPaymentCode(db,order.customerId);
+  const store=(await db.select({id:merchantStorefrontsTable.id,publicKey:merchantStorefrontsTable.publicKey}).from(merchantStorefrontsTable).where(and(eq(merchantStorefrontsTable.merchantId,order.merchantId),eq(merchantStorefrontsTable.publicKey,order.merchantKey??""))).limit(1))[0];
+  const storeCode=store?await ensureStoreCode(db,store.id):null;
+  res.json({customerCode,storeCode,warning:"Identification codes are not payment destinations. Only provider-returned payment destinations may receive transfers."});
 });
 
 router.get("/public/invoices/:token", async (req, res): Promise<void> => {
