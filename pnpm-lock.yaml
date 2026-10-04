@@ -332,7 +332,6 @@ importers:
 
   artifacts/ts-commerce:
     devDependencies:
-    devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
         version: 3.10.0(react-hook-form@7.83.0(react@19.1.0))
