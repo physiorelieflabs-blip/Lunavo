@@ -6,6 +6,7 @@ import {
   flutterwavePaymentOptionsForCurrency,
   flutterwaveCredentialMode,
   flutterwaveStatus,
+  flutterwaveTransferStatus,
   flutterwaveTransactionId,
   verifyFlutterwaveWebhookSignature,
 } from "./flutterwave-client";
@@ -17,6 +18,13 @@ test("Flutterwave transaction helpers normalize provider responses", () => {
   assert.equal(flutterwaveStatus({ status: "successful" }), "paid");
   assert.equal(flutterwaveStatus({ status: "reversed" }), "failed");
   assert.equal(flutterwaveStatus({ status: "pending" }), "pending");
+});
+
+test("Flutterwave transfer helpers keep provider settlement states fail-closed", () => {
+  assert.equal(flutterwaveTransferStatus({ id: 1, status: "SUCCESSFUL" }), "paid");
+  assert.equal(flutterwaveTransferStatus({ id: 2, status: "FAILED" }), "failed");
+  assert.equal(flutterwaveTransferStatus({ id: 3, status: "PENDING" }), "pending");
+  assert.equal(flutterwaveTransferStatus({ id: 4, status: "NEW" }), "pending");
 });
 
 test("Flutterwave credential mode is classified without exposing the key", () => {
