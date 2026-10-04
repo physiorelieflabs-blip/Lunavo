@@ -45,7 +45,7 @@ router.get("/merchant/cart-recovery",async(req,res):Promise<void>=>{
 });
 
 router.get("/merchant/customer-addresses/:customerId",async(req,res):Promise<void>=>{
- const m=await merchantFor(req);if(!m){fail(res,401,"Authentication required");return;}const customerId=Number(req.params.customerId);if(!Number.isInteger(customerId)||customerId<1)return fail(res,400,"Invalid customer");
+ const m=await merchantFor(req);if(!m){fail(res,401,"Authentication required");return;}const customerId=Number(req.params.customerId);if(!Number.isInteger(customerId)||customerId<1){fail(res,400,"Invalid customer");return;}
  const [customer]=await db.select({id:customersTable.id}).from(customersTable).where(and(eq(customersTable.id,customerId),eq(customersTable.merchantId,m.id))).limit(1);if(!customer){fail(res,404,"Customer not found");return;}
  const result=await db.execute(sql`SELECT * FROM customer_addresses WHERE merchant_id=${m.id} AND customer_id=${customerId} ORDER BY is_default DESC,updated_at DESC`);res.json({addresses:result.rows});
 });
