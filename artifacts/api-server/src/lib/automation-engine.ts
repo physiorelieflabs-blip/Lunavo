@@ -189,6 +189,7 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
     await db.transaction(async (tx) => {
       const existing = await tx.execute(sql`SELECT id,status FROM merchant_automation_runs WHERE idempotency_key=${idempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length) return;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"lunavo-workflow-run:" + workflowId + ":"} || CURRENT_DATE::text))`);
       const cooldown = Number(workflow.cooldown_seconds ?? 0);
       if (cooldown > 0) {
         const recent = await tx.execute(sql`SELECT id FROM merchant_automation_runs WHERE workflow_id=${workflowId} AND created_at > now() - make_interval(secs => ${cooldown}) AND status IN ('completed','running','approval_required','dry_run') LIMIT 1`);
