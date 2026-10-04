@@ -130,11 +130,21 @@ const authSecurityRoutes=await read("artifacts/api-server/src/routes/auth.ts");f
 const routeIndex=await read("artifacts/api-server/src/routes/index.ts");for(const m of ["admin-health","admin-financial-trace"])if(!routeIndex.includes(m))failures.push(`Admin safeguard route is not mounted: ${m}`);
 const registry=await read("artifacts/api-server/src/lunavo-feature-registry.ts");if(!registry.includes("X OAuth 2 PKCE text publishing","implemented"))failures.push("Feature registry does not record implemented X PKCE text publishing");
 const adminSecurityApp=await read("artifacts/api-server/src/app.ts");for(const m of ["sec-fetch-site","referer","Cross-site state-changing request rejected"])if(!adminSecurityApp.includes(m))failures.push(`Browser security invariant missing: ${m}`);const aiProvider=await read("artifacts/api-server/src/lib/ai-provider.ts");
-for(const m of ["completeDeepSeekChat","deepSeekConfigured","completeGeminiChat"])if(!aiProvider.includes(m))failures.push(`Primary AI provider invariant missing: ${m}`);
+for(const m of ["completeLocalChat","self-hosted-ai"])if(!aiProvider.includes(m))failures.push(`Self-hosted primary AI invariant missing: ${m}`);
+const localAi=await read("artifacts/api-server/src/lib/self-hosted-ai.ts");
+for(const m of ["completeLocalChat","completeLocalVisionJson","LUNAVO_LOCAL_LLM_URL","selfHostedAiConfigured","response_format"])if(!localAi.includes(m))failures.push(`Self-hosted AI runtime invariant missing: ${m}`);
 const deepseek=await read("artifacts/api-server/src/lib/deepseek.ts");
-for(const m of ["deepseek-v4-pro","deepseek-flash","response_format","thinking"])if(!deepseek.includes(m))failures.push(`DeepSeek provider invariant missing: ${m}`);
+for(const m of ["completeLocalChat","completeLocalVisionJson","selfHostedAiConfigured"])if(!deepseek.includes(m))failures.push(`Self-hosted AI compatibility invariant missing: ${m}`);
 const supplierAi=await read("artifacts/api-server/src/lib/supplier-ai.ts");
-for(const m of ["fieldsOnlyWhenSourceMissing","evidencePayload","completeDeepSeekVisionJson","Never invent"])if(!supplierAi.includes(m))failures.push(`Supplier AI evidence invariant missing: ${m}`);
+for(const m of ["fieldsOnlyWhenSourceMissing","evidencePayload","completeLocalVisionJson","Never invent","self-hosted-local"])if(!supplierAi.includes(m))failures.push(`Supplier AI evidence invariant missing: ${m}`);
+const imageAi=await read("artifacts/api-server/src/lib/pollinations.ts");
+for(const m of ["LUNAVO_LOCAL_IMAGE_URL","Self-hosted image generation","base64"])if(!imageAi.includes(m))failures.push(`Self-hosted image runtime invariant missing: ${m}`);
+for(const forbidden of ["https://api.deepseek.com","generativelanguage.googleapis.com","image.pollinations.ai","api.stability.ai"]){
+  for(const file of ["artifacts/api-server/src/lib/ai-provider.ts","artifacts/api-server/src/lib/deepseek.ts","artifacts/api-server/src/lib/gemini.ts","artifacts/api-server/src/lib/pollinations.ts","artifacts/api-server/src/lib/ad-brain.ts","artifacts/api-server/src/lib/supplier-ai.ts"]){
+    const source=await optional(file);
+    if(source.includes(forbidden)) failures.push(`External AI endpoint remains in Lunavo core: ${file} -> ${forbidden}`);
+  }
+}
 const socialWorker=await read("artifacts/api-server/src/lib/social-publishing-worker.ts");
 for(const m of ["MAX_ATTEMPTS","FOR UPDATE SKIP LOCKED","locked_at","publishYouTube","publishTikTok","publishLinkedIn","not silently simulated"])if(!socialWorker.includes(m))failures.push(`Social publishing worker invariant missing: ${m}`);
 const index=await read("artifacts/api-server/src/index.ts");if(!index.includes("startSocialPublishingWorker"))failures.push("Social publishing worker must start with the API server");
@@ -146,12 +156,20 @@ const kycRoutes=await read("artifacts/api-server/src/routes/commerce.ts");for(co
 const kycAdminUi=await read("artifacts/ts-commerce/src/pages/admin-kyc.tsx");for(const m of ["/api/admin/kyc","Approve KYC","Reject"])if(!kycAdminUi.includes(m))failures.push(`Admin KYC UI invariant missing: ${m}`);
 const kycMerchantUi=await read("artifacts/ts-commerce/src/pages/withdrawals.tsx");for(const m of ["/api/kyc","Submit KYC for review","kyc?.status === 'approved'"])if(!kycMerchantUi.includes(m))failures.push(`Merchant KYC UI invariant missing: ${m}`);
 const migrate=await optional("lib/db/src/migrate.ts");if(!migrate.includes("runMigrations();")||migrate.includes("const legacy"))failures.push("Migration entrypoint is not the canonical runner");
-const preflight=await read("scripts/production-preflight.mjs");for(const m of ["LUNAVO_MASTER_ADMIN_EMAIL","LUNAVO_MASTER_ADMIN_USER_ID","provider-backed AI features are unavailable"])if(!preflight.includes(m))failures.push(`Production preflight invariant missing: ${m}`);
+const preflight=await read("scripts/production-preflight.mjs");for(const m of ["LUNAVO_MASTER_ADMIN_EMAIL","LUNAVO_MASTER_ADMIN_USER_ID","LUNAVO_LOCAL_LLM_URL","provider-backed AI features are unavailable"])if(!preflight.includes(m))failures.push(`Production preflight invariant missing: ${m}`);
+const envExample=await read(".env.example");
+for(const key of ["OPENAI_API_KEY","GEMINI_API_KEY","ANTHROPIC_API_KEY","DEEPSEEK_API_KEY","LUNAVO_DEEPSEEK_API_KEY","LUNAVO_GEMINI_API_KEY","GEMINI_IMAGE_API_KEY","STABLE_DIFFUSION_API_KEY"])if(new RegExp("^"+key+"=","m").test(envExample))failures.push(`Third-party AI credential remains in .env.example: ${key}`);
+for(const key of ["FLUTTERWAVE_SECRET_KEY","FLUTTERWAVE_WEBHOOK_SECRET"])if(!new RegExp("^"+key+"=","m").test(envExample))failures.push(`Flutterwave credential slot missing: ${key}`);
+
 const packageText=await read("package.json");if(packageText.includes("repair-generated-source.mjs"))failures.push("Typecheck must not rewrite generated source");
 const appShell=await read("artifacts/ts-commerce/src/components/app-shell.tsx");if(appShell.includes("ifeoluwaolowu4@gmail.com"))failures.push("App shell contains hardcoded master admin identity");
 const appTsx=await read("artifacts/ts-commerce/src/App.tsx");if(appTsx.includes("ifeoluwaolowu4@gmail.com"))failures.push("App route shell contains hardcoded master admin identity");
 const merchantUi=await read("artifacts/ts-commerce/src/pages/merchants.tsx");if(merchantUi.includes("ifeoluwaolowu4@gmail.com"))failures.push("Merchant management UI contains hardcoded master admin identity");
 if(!packageText.includes('"typecheck": "pnpm run typecheck:libs'))failures.push("Typecheck must operate on committed source only");
+const registry=await read("artifacts/api-server/src/lunavo-feature-registry.ts");
+if(registry.includes('F("ai","DeepSeek-primary architecture","implemented")'))failures.push("Feature registry must expose self-hosted primary AI");
+if(registry.includes('F("ai","Gemini research integration","implemented"'))failures.push("Feature registry must not describe hosted Gemini as core");
+if(registry.includes('F("ai","Pollinations image generation","implemented"'))failures.push("Feature registry must not describe hosted Pollinations as core");
 const adminHealth=await read("artifacts/api-server/src/routes/admin-health.ts");for(const m of ["/admin/system/health","getStoredFlutterwaveCredentials","social_publish_jobs","admin_ai_store_jobs","domain_events"])if(!adminHealth.includes(m))failures.push(`Admin health invariant missing: ${m}`);
 const financialTrace=await read("artifacts/api-server/src/routes/admin-financial-trace.ts");for(const m of ["/admin/financial-trace","payment_intents","ledger_entries","lunavo_dashboard_transactions","payment_reconciliation_exceptions"])if(!financialTrace.includes(m))failures.push(`Financial trace invariant missing: ${m}`);
 const adminOpsUi=await read("artifacts/ts-commerce/src/components/admin-ops-panel.tsx");for(const m of ["/api/admin/system/health","/api/admin/financial-trace","Financial investigator","No green status is invented"])if(!adminOpsUi.includes(m))failures.push(`Admin ops UI invariant missing: ${m}`);

@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { completePrimaryReasoning } from "./ai-provider";
-import { deepSeekConfigured } from "./deepseek";
+import { selfHostedAiConfigured } from "./self-hosted-ai";
 const INTERVAL_MS=30_000;let running=false;
 type Opportunity={name:string;reason:string;demandSignal:string;competitionSignal:string;risks:string[]};
 type ResearchResult={executiveSummary:string;targetCustomer:string;productOpportunities:Opportunity[];competitorSignals:string[];supplierResearch:string[];pricingGuidance:string[];launchPlan:string[];risks:string[];sources:Array<{title:string;url:string}>};
 function parseJson(text:string):ResearchResult{const cleaned=text.trim().replace(/^```(?:json)?/i,"").replace(/```$/i,"").trim();const value=JSON.parse(cleaned) as Partial<ResearchResult>;if(typeof value.executiveSummary!=="string"||typeof value.targetCustomer!=="string"||!Array.isArray(value.productOpportunities)||!Array.isArray(value.competitorSignals)||!Array.isArray(value.supplierResearch)||!Array.isArray(value.pricingGuidance)||!Array.isArray(value.launchPlan)||!Array.isArray(value.risks)||!Array.isArray(value.sources))throw new Error("Self-hosted AI research response failed schema validation");return value as ResearchResult;}
-function providerConfigured(): boolean { return Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim() || deepSeekConfigured() || process.env.LUNAVO_GEMINI_API_KEY?.trim()); }
+function providerConfigured(): boolean { return selfHostedAiConfigured(); }
 
 async function localModelResearch(niche:string|null):Promise<ResearchResult>{const endpoint=process.env.LUNAVO_LOCAL_LLM_URL?.trim();if(!endpoint)throw new Error("LUNAVO_LOCAL_LLM_URL is not configured");const prompt=`Return ONLY JSON matching this schema: {"executiveSummary":"","targetCustomer":"","productOpportunities":[{"name":"","reason":"","demandSignal":"","competitionSignal":"","risks":[]}],"competitorSignals":[],"supplierResearch":[],"pricingGuidance":[],"launchPlan":[],"risks":[],"sources":[{"title":"","url":""}]}. You are a self-hosted commerce analyst for Lunavo. Niche: ${niche||"choose a viable general commerce niche"}. Never invent current facts, live supplier availability, prices, competitor statistics, URLs or demand numbers. State uncertainty explicitly and keep sources empty unless the model has actually been given verified source URLs.`;const response=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:process.env.LUNAVO_LOCAL_LLM_MODEL||"local-model",messages:[{role:"system",content:"You are a non-fabricating commerce analyst. Output JSON only."},{role:"user",content:prompt}],temperature:0.2,response_format:{type:"json_object"}}),signal:AbortSignal.timeout(45_000)});const body=await response.text();if(!response.ok)throw new Error(`Self-hosted LLM request failed (${response.status})`);const payload=JSON.parse(body) as any;const text=payload?.choices?.[0]?.message?.content;if(typeof text!=="string"||!text.trim())throw new Error("Self-hosted LLM returned no research");return parseJson(text);}
 async function executeResearch(niche:string|null){
@@ -25,7 +25,7 @@ async function executeResearch(niche:string|null){
     ],{json:true,maxTokens:4000,reasoningEffort:"high"});
     return parseJson(response.content);
   }
-  throw new Error("No AI research provider is configured. Configure LUNAVO_LOCAL_LLM_URL, LUNAVO_DEEPSEEK_API_KEY, or LUNAVO_GEMINI_API_KEY.");
+  throw new Error("No self-hosted AI research provider is configured. Set LUNAVO_LOCAL_LLM_URL.");
 }
 function safeText(value:string,max=500){return value.replace(/\s+/g," ").trim().slice(0,max);}
 function slugify(value:string){return value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,70)||`lunavo-store-${Date.now()}`;}

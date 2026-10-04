@@ -41,7 +41,7 @@ router.get("/admin/system/health", async (req, res, next) => {
     const schema = schemaResult.rows[0] as Record<string, string | null> | undefined;
     const number = (result: { rows: unknown[] }) => Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0);
     const requiredSchema = [schema?.merchants, schema?.local_auth_users, schema?.ledger_entries, schema?.dashboard_transactions, schema?.domain_events, schema?.social_publish_jobs, schema?.admin_ai_store_jobs].every(Boolean);
-    const aiConfigured = Boolean(process.env.LUNAVO_DEEPSEEK_API_KEY?.trim() || process.env.LUNAVO_GEMINI_API_KEY?.trim() || process.env.LUNAVO_LOCAL_LLM_URL?.trim());
+    const aiConfigured = Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim());
     res.setHeader("Cache-Control", "no-store");
     res.json({
       checkedAt: new Date().toISOString(), checkedBy: userId,
@@ -49,7 +49,7 @@ router.get("/admin/system/health", async (req, res, next) => {
       schema: { complete: requiredSchema },
       migrations: { applied: number(migrationsResult) },
       payments: { provider: "flutterwave", configured: Boolean(flutterwave.secretKey && flutterwave.webhookSecret), mode: flutterwave.mode, checkoutAvailable: Boolean(flutterwave.secretKey && flutterwave.webhookSecret) },
-      ai: { providerConfigured: aiConfigured, deepSeekConfigured: Boolean(process.env.LUNAVO_DEEPSEEK_API_KEY?.trim()), geminiConfigured: Boolean(process.env.LUNAVO_GEMINI_API_KEY?.trim()), localLlmConfigured: Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim()) },
+      ai: { providerConfigured: aiConfigured, localLlmConfigured: Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim()), mode: "self-hosted" },
       reconciliation: { openOrInvestigating: number(reconciliationResult) },
       workers: {
         socialPublishing: { queuedOrProcessing: number(socialQueuedResult), failed: number(socialFailedResult) },
@@ -59,6 +59,7 @@ router.get("/admin/system/health", async (req, res, next) => {
       notes: [
         "Worker counts are observed queue state, not a fabricated process-heartbeat claim.",
         "Payment readiness requires both Flutterwave API and webhook credentials; configuration alone never implies a successful payment.",
+        "Core AI readiness uses only the configured self-hosted inference endpoint; hosted AI credentials are not accepted by core."
       ],
     });
   } catch (error) { next(error); }

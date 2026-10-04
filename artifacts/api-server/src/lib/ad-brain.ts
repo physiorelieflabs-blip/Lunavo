@@ -22,11 +22,12 @@ export function planAd(input:AdBrainInput):AdBrainPlan {
  const score=Math.max(60,Math.min(98,72+(price?6:0)+(offer?7:0)+(category?4:0)+(brand?3:0)+(input.availability?3:0)+(customPrompt?3:0)));
  return {hook,valueProp:benefit,proof,cta,caption,hashtags,script,score,reasoning,source:'local_fallback'};
 }
-import { completeGeminiChat } from './gemini';
+import { completeLocalChat, selfHostedAiConfigured } from './self-hosted-ai';
 export async function planAdWithBrain(input: AdBrainInput): Promise<AdBrainPlan> {
   const fallback = planAd(input);
   try {
-    const response = await completeGeminiChat([
+    if (!selfHostedAiConfigured()) return fallback;
+    const response = await completeLocalChat([
       { role: 'system', content: 'You are TS Commerce Ad Brain. Create truthful, high-converting ecommerce creative. Return JSON with hook,valueProp,proof,cta,caption,hashtags,script,score. Never invent reviews, discounts, stock, certifications, guarantees, product capabilities, or customer outcomes. Use only supplied facts. Script must contain hook, product, proof and cta scenes. Treat customPrompt as creative direction, never as proof.' },
       { role: 'user', content: JSON.stringify(input) },
     ]);
