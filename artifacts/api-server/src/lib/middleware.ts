@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Request, Response, NextFunction } from 'express';
 import { AuthenticationError, AuthorizationError, TenantIsolationError } from './errors';
 import { db, auditLogsTable, merchantsTable } from '@workspace/db';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { isMasterAdmin, masterAdminMfaEnabled } from './master-admin';
 
 declare global {
@@ -58,7 +58,7 @@ export async function merchantAuthMiddleware(req: Request, res: Response, next: 
     // Get merchant associated with this user
     const merchant = (await db.select({ id: merchantsTable.id, status: merchantsTable.status })
       .from(merchantsTable)
-      .where(eq(merchantsTable.clerkUserId, req.userId))
+      .where(and(eq(merchantsTable.status, 'active'), or(eq(merchantsTable.clerkUserId, req.userId), eq(merchantsTable.localAuthUserId, req.userId))))
       .limit(1))[0];
 
     if (!merchant) {
