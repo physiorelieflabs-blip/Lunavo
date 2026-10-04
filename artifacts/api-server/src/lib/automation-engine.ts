@@ -20,6 +20,7 @@ export type WorkflowTriggerEvent = typeof WORKFLOW_TRIGGER_EVENTS[number];
 const triggerSet = new Set<string>(WORKFLOW_TRIGGER_EVENTS);
 
 const actionKinds = ["create_operation","create_message","set_feature_flag","log"] as const;
+const protectedFeatureKeyPrefixes = ["payment","payout","withdrawal","ledger","provider","webhook","kyc","security","admin","auth"];
 type ActionKind = typeof actionKinds[number];
 
 type WorkflowContext = {
@@ -122,7 +123,7 @@ function safeAction(action: unknown): { kind: ActionKind; config: Record<string,
     if (!boundedText(config.title, 200)) return null;
   }
   if (value.kind === "create_message" && (!boundedText(config.subject, 200) || !boundedText(config.body, 4000))) return null;
-  if (value.kind === "set_feature_flag" && !/^[a-zA-Z0-9._:-]{1,80}$/.test(boundedText(config.key, 80))) return null;
+  if (value.kind === "set_feature_flag") { const key = boundedText(config.key,80); if (!/^[a-zA-Z0-9._:-]{1,80}$/.test(key)) return null; if (protectedFeatureKeyPrefixes.some(prefix => key.toLowerCase().startsWith(prefix))) return null; }
   return { kind: value.kind as ActionKind, config };
 }
 async function executeAction(
@@ -236,10 +237,20 @@ export async function dispatchWorkflowEvent(context: WorkflowContext): Promise<n
       const started = await tx.execute(sql`INSERT INTO merchant_automation_runs(workflow_id,merchant_id,event_id,status,idempotency_key,trigger_snapshot,result,started_at) VALUES(${workflowId},${context.merchantId},${context.eventId},'running',${idempotencyKey},${JSON.stringify(context)}::jsonb,'{}'::jsonb,now()) RETURNING id`);
       const run = started.rows[0] as { id?: string } | undefined;
       if (!run?.id) throw new Error("Workflow run could not be started");
-      const results: unknown[] = [];
-      for (const action of validActions) results.push(await executeAction(tx, workflowId, context, action));
-      await tx.execute(sql`UPDATE merchant_automation_runs SET status='completed',result=${JSON.stringify({actions:results})}::jsonb,completed_at=now() WHERE id=${run.id}`);
-      await tx.execute(sql`UPDATE merchant_automation_workflows SET last_run_at=now(), next_scheduled_at=CASE WHEN trigger_event='schedule.tick' AND schedule_interval_seconds > 0 THEN now() + make_interval(secs => schedule_interval_seconds) ELSE next_scheduled_at END, updated_at=now() WHERE id=${workflowId}`);
+      await tx.execute(sql`SAVEPOINT automation_actions`);
+      try {
+        const results: unknown[] = [];
+        for (const action of validActions) results.push(await executeAction(tx, workflowId, context, action));
+        await tx.execute(sql`RELEASE SAVEPOINT automation_actions`);
+        await tx.execute(sql`UPDATE merchant_automation_runs SET status='completed',result=${JSON.stringify({actions:results})}::jsonb,completed_at=now() WHERE id=${run.id}`);
+        await tx.execute(sql`UPDATE merchant_automation_workflows SET last_run_at=now(), next_scheduled_at=CASE WHEN trigger_event='schedule.tick' AND schedule_interval_seconds > 0 THEN now() + make_interval(secs => schedule_interval_seconds) ELSE next_scheduled_at END, updated_at=now() WHERE id=${workflowId}`);
+      } catch (error) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT automation_actions`);
+        await tx.execute(sql`RELEASE SAVEPOINT automation_actions`);
+        const message = error instanceof Error ? error.message.slice(0,1000) : "Automation action execution failed";
+        await tx.execute(sql`UPDATE merchant_automation_runs SET status='failed',error_code='action_failed',error_message=${message},result=${JSON.stringify({atomicRollback:true})}::jsonb,completed_at=now() WHERE id=${run.id}`);
+        await tx.execute(sql`UPDATE merchant_automation_workflows SET last_run_at=now(), next_scheduled_at=CASE WHEN trigger_event='schedule.tick' AND schedule_interval_seconds > 0 THEN now() + make_interval(secs => schedule_interval_seconds) ELSE next_scheduled_at END, updated_at=now() WHERE id=${workflowId}`);
+      }
       handled += 1;
     });
   }
