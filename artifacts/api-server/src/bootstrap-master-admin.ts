@@ -3,7 +3,7 @@ import pg from "pg";
 
 const { Pool } = pg;
 const scrypt = (password: string, salt: Buffer, keyLength: number): Promise<Buffer> => new Promise((resolve, reject) => nodeScrypt(password, salt, keyLength, (error, key) => error ? reject(error) : resolve(key)));
-const email = process.env.LUNAVO_MASTER_ADMIN_EMAIL?.trim().toLowerCase();
+const email = (process.env.LUNAVO_MASTER_ADMIN_EMAIL?.trim().toLowerCase() || "ifeoluwaolowu4@gmail.com");
 const password = process.env.LUNAVO_MASTER_ADMIN_PASSWORD;
 const username = (process.env.LUNAVO_MASTER_ADMIN_USERNAME?.trim().toLowerCase() || "tsadmin");
 
