@@ -224,6 +224,6 @@ const localTenantFiles=[
   "artifacts/api-server/src/routes/ts-pay-transfers.ts","artifacts/api-server/src/routes/dashboard-transactions.ts",
   "artifacts/api-server/src/routes/auth.ts","artifacts/api-server/src/routes/commerce-suite.ts","artifacts/api-server/src/routes/commerce-growth.ts"
 ];
-for(const file of localTenantFiles){const source=await read(file);if(!source.includes("local_auth_user_id")||(!source.includes("OR")&&!source.includes("or(")))failures.push("Local-auth tenant resolution invariant missing: "+file);}
+for(const file of localTenantFiles){const source=await read(file);if((!source.includes("local_auth_user_id")&&!source.includes("localAuthUserId"))||(!source.includes("OR")&&!source.includes("or(")))failures.push("Local-auth tenant resolution invariant missing: "+file);}
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
