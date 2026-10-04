@@ -51,6 +51,33 @@ describe("local AI brain", () => {
     expect(result.content).toBe("synthesized answer");
   });
 
+
+  it("can ensemble multiple self-hosted models behind one endpoint", async () => {
+    process.env.LUNAVO_LOCAL_LLM_URLS = "http://127.0.0.1:9003";
+    process.env.LUNAVO_LOCAL_REASONING_MODELS = "model-a,model-b";
+    process.env.LUNAVO_LOCAL_BRAIN_FANOUT = "2";
+
+    const calls: Array<{ url: string; model: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      calls.push({ url, model: String(body.model) });
+      return new Response(JSON.stringify({
+        model: body.model,
+        choices: [{ message: { content: String(body.model) } }],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+
+    const result = await completeLocalBrain(
+      [{ role: "user", content: "Compare models." }],
+      { ensemble: false },
+    );
+
+    expect(result.successfulCandidates).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.model).toBe("model-a");
+  });
+
   it("disables fanout when ensemble mode is explicitly disabled", async () => {
     process.env.LUNAVO_LOCAL_LLM_URLS = "http://127.0.0.1:9001,http://127.0.0.1:9002";
     process.env.LUNAVO_LOCAL_LLM_MODEL = "model-a";
