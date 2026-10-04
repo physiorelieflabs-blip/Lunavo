@@ -55,7 +55,7 @@ export function generateTotpSecret(): string {
 }
 
 export function createTotpUri(secret: string, email: string): string {
-  const label = encodeURIComponent(`TS Commerce:${email}`);
+  const label = encodeURIComponent(`Lunavo:${email}`);
   return `otpauth://totp/${label}?secret=${secret}&issuer=TS%20Commerce&algorithm=SHA1&digits=6&period=30`;
 }
 
