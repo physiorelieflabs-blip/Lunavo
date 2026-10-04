@@ -119,6 +119,8 @@ if(payoutRoutes.includes("bank transfer reference is required before a manual pa
 const payoutWebhook=await read("artifacts/api-server/src/routes/flutterwave-webhook.ts");for(const m of ["verifyFlutterwaveTransfer","buildTsPayWithdrawalLedgerEntry","providerPayoutId","transfer"])if(!payoutWebhook.includes(m))failures.push(`Flutterwave payout webhook invariant missing: ${m}`);
 const processor=await optional("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");for(const m of ["marketplace-ad-dashboard","subscription-dashboard","balanceImpact"])if(!processor.includes(m))failures.push(`External expense dashboard invariant missing: ${m}`);
 // Post-hardening invariants: these are source-level contracts, not feature counts.
+const subscriptionWorker=await read("artifacts/api-server/src/lib/customer-subscription-worker.ts");
+for(const m of ["WORKER_LOCK_KEY","pg_try_advisory_lock","pg_advisory_unlock","pool.connect"])if(!subscriptionWorker.includes(m))failures.push(`Subscription renewal worker distributed-lock invariant missing: ${m}`);
 const localAuth=await read("artifacts/api-server/src/lib/local-auth.ts");
 for(const m of ["scrypt","timingSafeEqual","createLocalSession","listLocalSessions","revokeLocalSession","lunavo_session","failed_login_attempts","login_locked_until","LIMIT 1 FOR UPDATE"])if(!localAuth.includes(m))failures.push(`Local auth hardening invariant missing: ${m}`);
 const emailVerification=await read("artifacts/api-server/src/routes/auth.ts");for(const m of ['router.post("/auth/verify-email"','router.post("/auth/resend-verification"',"verificationRequired","verifyEmailVerificationCode"])if(!emailVerification.includes(m))failures.push(`Email verification invariant missing: ${m}`);
@@ -130,11 +132,11 @@ const authSecurityRoutes=await read("artifacts/api-server/src/routes/auth.ts");f
 const routeIndex=await read("artifacts/api-server/src/routes/index.ts");for(const m of ["admin-health","admin-financial-trace"])if(!routeIndex.includes(m))failures.push(`Admin safeguard route is not mounted: ${m}`);
 const registry=await read("artifacts/api-server/src/lunavo-feature-registry.ts");if(!registry.includes("X OAuth 2 PKCE text publishing","implemented"))failures.push("Feature registry does not record implemented X PKCE text publishing");
 const adminSecurityApp=await read("artifacts/api-server/src/app.ts");for(const m of ["sec-fetch-site","referer","Cross-site state-changing request rejected"])if(!adminSecurityApp.includes(m))failures.push(`Browser security invariant missing: ${m}`);const aiProvider=await read("artifacts/api-server/src/lib/ai-provider.ts");
-for(const m of ["completeDeepSeekChat","deepSeekConfigured","completeGeminiChat"])if(!aiProvider.includes(m))failures.push(`Primary AI provider invariant missing: ${m}`);
-const deepseek=await read("artifacts/api-server/src/lib/deepseek.ts");
-for(const m of ["deepseek-v4-pro","deepseek-flash","response_format","thinking"])if(!deepseek.includes(m))failures.push(`DeepSeek provider invariant missing: ${m}`);
+for(const m of ["completePrimaryReasoning","LUNAVO_LOCAL_LLM_URL","response_format","completeLocalVisionJson","localAiConfigured"])if(!aiProvider.includes(m))failures.push(`Self-hosted AI provider invariant missing: ${m}`);
 const supplierAi=await read("artifacts/api-server/src/lib/supplier-ai.ts");
-for(const m of ["fieldsOnlyWhenSourceMissing","evidencePayload","completeDeepSeekVisionJson","Never invent"])if(!supplierAi.includes(m))failures.push(`Supplier AI evidence invariant missing: ${m}`);
+for(const m of ["fieldsOnlyWhenSourceMissing","evidencePayload","completeLocalVisionJson","Never invent","provider: \"self_hosted\""])if(!supplierAi.includes(m))failures.push(`Supplier AI evidence invariant missing: ${m}`);
+const imageAi=await read("artifacts/api-server/src/lib/pollinations.ts");
+for(const m of ["LUNAVO_LOCAL_IMAGE_URL","generateLocalImage","embedded image","self-hosted image generation is unavailable"])if(!imageAi.includes(m))failures.push(`Self-hosted image provider invariant missing: ${m}`);
 const socialWorker=await read("artifacts/api-server/src/lib/social-publishing-worker.ts");
 for(const m of ["MAX_ATTEMPTS","FOR UPDATE SKIP LOCKED","locked_at","publishYouTube","publishTikTok","publishLinkedIn","not silently simulated"])if(!socialWorker.includes(m))failures.push(`Social publishing worker invariant missing: ${m}`);
 const index=await read("artifacts/api-server/src/index.ts");if(!index.includes("startSocialPublishingWorker"))failures.push("Social publishing worker must start with the API server");
