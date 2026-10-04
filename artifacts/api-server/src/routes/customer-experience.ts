@@ -50,7 +50,7 @@ router.get("/merchant/customer-addresses/:customerId",async(req,res):Promise<voi
  const result=await db.execute(sql`SELECT * FROM customer_addresses WHERE merchant_id=${m.id} AND customer_id=${customerId} ORDER BY is_default DESC,updated_at DESC`);res.json({addresses:result.rows});
 });
 router.post("/merchant/customer-addresses/:customerId",async(req,res):Promise<void>=>{
- const m=await merchantFor(req);if(!m){fail(res,401,"Authentication required");return;}const customerId=Number(req.params.customerId);if(!Number.isInteger(customerId)||customerId<1)return fail(res,400,"Invalid customer");
+ const m=await merchantFor(req);if(!m){fail(res,401,"Authentication required");return;}const customerId=Number(req.params.customerId);if(!Number.isInteger(customerId)||customerId<1)fail(res,400,"Invalid customer");return;
  const [customer]=await db.select({id:customersTable.id}).from(customersTable).where(and(eq(customersTable.id,customerId),eq(customersTable.merchantId,m.id))).limit(1);if(!customer){fail(res,404,"Customer not found");return;}
  const label=txt(req.body?.label,80)||"Address",recipient=txt(req.body?.recipientName,160),line1=txt(req.body?.addressLine1,240),line2=txt(req.body?.addressLine2,240),city=txt(req.body?.city,120),state=txt(req.body?.state,120),postal=txt(req.body?.postalCode,40),country=txt(req.body?.country,120),phone=txt(req.body?.phone,40),isDefault=req.body?.isDefault===true;
  if(!recipient||!line1||!city||!country){fail(res,400,"Recipient, address, city and country are required");return;}if(isDefault)await db.execute(sql`UPDATE customer_addresses SET is_default=false,updated_at=now() WHERE merchant_id=${m.id} AND customer_id=${customerId}`);
