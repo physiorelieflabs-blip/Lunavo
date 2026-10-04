@@ -30,16 +30,6 @@ export default function SupplierReputation(){
   async function lookup(e:any){
     e.preventDefault();
     await lookupDomain(domain);
-    return;
-    try{
-      const value=domain.trim().toLowerCase();
-      if(!/^[a-z0-9.-]+$/.test(value))throw new Error("Enter a supplier domain such as supplier.example");
-      const r=await fetch("/api/public/supplier-intelligence/"+encodeURIComponent(value),{headers:{Accept:"application/json"}});
-      const b=await r.json().catch(()=>({}));
-      if(!r.ok)throw new Error(String(b.error||"No public passport is available for this supplier yet."));
-      setResult(b as Passport);
-    }catch(err){setError(err instanceof Error?err.message:"Supplier passport lookup failed");}
-    finally{setBusy(false);}
   }
 
   async function loadDirectory(){
