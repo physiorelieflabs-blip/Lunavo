@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { db, merchantsTable } from "@workspace/db";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
+import { emitDomainEvent } from "../lib/domain-events";
 
 const router = Router();
 
@@ -129,22 +130,32 @@ router.post("/merchant/operations", async (req, res, next) => {
     }
     if (startsAt && endsAt && startsAt > endsAt) return fail(res, 400, "Start time must be before end time");
     const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
-    const [row] = await db.execute(sql`
-      INSERT INTO merchant_operation_records
-        (merchant_id,kind,status,title,description,priority,customer_id,order_id,related_type,related_id,reference,amount_minor,currency,starts_at,ends_at,due_at,payload,created_by,updated_by)
-      VALUES
-        (${merchant.id},${kind},${initialStatus[kind]},${title},${description},${priority},
-         ${customerId},${orderId},${relatedType},${relatedId},${reference},
-         ${amount === null ? null : Math.round(amount * 100)},${typeof req.body?.currency === "string" ? req.body.currency.toUpperCase().slice(0,3) : null},
-         ${startsAt},${endsAt},${dueAt},${JSON.stringify(payload)}::jsonb,${merchant.userId},${merchant.userId})
-      RETURNING *
-    `);
-    const created = (row as Record<string, unknown>) ?? null;
-    if (!created) return fail(res, 500, "Operation could not be created");
-    await db.execute(sql`
-      INSERT INTO merchant_operation_events(operation_id,merchant_id,from_status,to_status,actor_id,reason)
-      VALUES(${created.id},${merchant.id},NULL,${String(created.status)},${merchant.userId},'created')
-    `);
+    const created = await db.transaction(async (tx) => {
+      const result = await tx.execute(sql`
+        INSERT INTO merchant_operation_records
+          (merchant_id,kind,status,title,description,priority,customer_id,order_id,related_type,related_id,reference,amount_minor,currency,starts_at,ends_at,due_at,payload,created_by,updated_by)
+        VALUES
+          (${merchant.id},${kind},${initialStatus[kind]},${title},${description},${priority},
+           ${customerId},${orderId},${relatedType},${relatedId},${reference},
+           ${amount === null ? null : Math.round(amount * 100)},${typeof req.body?.currency === "string" ? req.body.currency.toUpperCase().slice(0,3) : null},
+           ${startsAt},${endsAt},${dueAt},${JSON.stringify(payload)}::jsonb,${merchant.userId},${merchant.userId})
+        RETURNING *
+      `);
+      const row = result.rows[0] as Record<string, unknown> | undefined;
+      if (!row) throw new Error("Operation could not be created");
+      await tx.execute(sql`
+        INSERT INTO merchant_operation_events(operation_id,merchant_id,from_status,to_status,actor_id,reason)
+        VALUES(${row.id},${merchant.id},NULL,${String(row.status)},${merchant.userId},'created')
+      `);
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id, eventType:"merchant.operation.created", aggregateType:"merchant_operation",
+        aggregateId:String(row.id), actorType:"merchant", actorId:merchant.userId, source:"merchant_api",
+        idempotencyKey:`advanced-operation-created:${row.id}`,
+        payload:{kind,title,status:String(row.status),reference,customerId,orderId},
+        after:{id:String(row.id),kind,status:String(row.status),title},
+      });
+      return row;
+    });
     res.status(201).json({ operation: created });
   } catch (error) {
     next(error);
@@ -171,6 +182,13 @@ router.post("/merchant/operations/:id/transition", async (req, res, next) => {
       const next = result.rows[0] as Record<string, unknown> | undefined;
       if (!next) throw new Error("Operation transition failed");
       await tx.execute(sql`INSERT INTO merchant_operation_events(operation_id,merchant_id,from_status,to_status,actor_id,reason) VALUES(${id},${merchant.id},${String(current.status)},${toStatus},${merchant.userId},${reason})`);
+      await emitDomainEvent(tx, {
+        merchantId:merchant.id, eventType:"merchant.operation.transitioned", aggregateType:"merchant_operation",
+        aggregateId:id, actorType:"merchant", actorId:merchant.userId, source:"merchant_api",
+        idempotencyKey:`advanced-operation-transition:${id}:${String(current.status)}:${toStatus}:${Date.now()}`,
+        payload:{kind,statusFrom:String(current.status),statusTo:toStatus,reason},
+        before:{status:String(current.status)}, after:{status:toStatus},
+      });
       return next;
     });
     res.json({ operation: updated });
