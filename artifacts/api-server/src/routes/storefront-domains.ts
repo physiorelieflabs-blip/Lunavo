@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { resolveTxt } from "node:dns/promises";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { Router, type Request, type Response } from "express";
 import { getAuth } from "../lib/auth-compat";
 import { db, merchantStorefrontDomainsTable, merchantStorefrontsTable, merchantsTable } from "@workspace/db";
@@ -19,7 +19,7 @@ async function merchantFor(req: Request, res: Response) {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
   const merchant = (await db.select({ id: merchantsTable.id }).from(merchantsTable)
-    .where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0];
+    .where(and(eq(merchantsTable.status, "active"), or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)))).limit(1))[0];
   if (!merchant) { res.status(404).json({ error: "Merchant workspace not found" }); return null; }
   try { await requirePermission(userId, merchant.id, "team.manage"); } catch { res.status(403).json({ error: "Store domain management permission required" }); return null; }
   return { userId, merchantId: merchant.id };
