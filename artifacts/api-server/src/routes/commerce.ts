@@ -10105,7 +10105,6 @@ router.get("/public/checkout/:paymentToken/identifiers", async (req, res): Promi
   }).from(ordersTable).innerJoin(merchantsTable, eq(ordersTable.merchantId, merchantsTable.id))
     .where(eq(ordersTable.publicPaymentToken, token)).limit(1))[0];
   if (!order) { res.status(404).json({ error: "Checkout session not found" }); return; }
-  const merchantAdminCode = await ensureMerchantAdminPaymentCode(db, order.merchantId);
   const customerCode = await ensureCustomerPaymentCode(db, order.customerId);
   const store = (await db.select({ id: merchantStorefrontsTable.id, publicKey: merchantStorefrontsTable.publicKey })
     .from(merchantStorefrontsTable)
@@ -10113,7 +10112,6 @@ router.get("/public/checkout/:paymentToken/identifiers", async (req, res): Promi
     .limit(1))[0];
   const storeCode = store ? await ensureStoreCode(db, store.id) : null;
   res.json({
-    merchantAdminCode,
     customerCode,
     storeCode,
     warning: "Identification codes are not payment destinations. Only provider-returned payment destinations may receive transfers.",
