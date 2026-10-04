@@ -228,5 +228,19 @@ const localTenantFiles=[
   "artifacts/api-server/src/routes/auth.ts","artifacts/api-server/src/routes/commerce-suite.ts","artifacts/api-server/src/routes/commerce-growth.ts"
 ];
 for(const file of localTenantFiles){const source=await read(file);if((!source.includes("local_auth_user_id")&&!source.includes("localAuthUserId"))||(!source.includes("OR")&&!source.includes("or(")))failures.push("Local-auth tenant resolution invariant missing: "+file);}
+const customerSubMigration=await read("lib/db/migrations/0109_customer_subscriptions.sql");
+for(const m of ["customer_subscription_plans","customer_subscriptions","customer_subscription_payment_attempts","customer_subscription_events","customer_subscription_id uuid"])if(!customerSubMigration.includes(m))failures.push("Customer subscription migration invariant missing: "+m);
+const customerSubRoutes=await read("artifacts/api-server/src/routes/customer-subscriptions.ts");
+for(const m of ["/commerce/customer-subscription-plans","/commerce/customer-subscriptions","/public/customer-subscription-plans/:id","/public/customer-subscriptions/subscribe","/public/customer-subscriptions/portal","/public/customer-subscriptions/pay","/public/customer-subscriptions/cancel","customer_subscription_id","initializeFlutterwavePayment","customers.manage"])if(!customerSubRoutes.includes(m))failures.push("Customer subscription API invariant missing: "+m);
+const customerSubWorker=await read("artifacts/api-server/src/lib/customer-subscription-worker.ts");
+for(const m of ["startCustomerSubscriptionWorker","customer_subscription_payment_attempts","status='submitted'","status='expired'","max_failed_attempts","initializeFlutterwavePayment"])if(!customerSubWorker.includes(m))failures.push("Customer subscription worker invariant missing: "+m);
+const customerSubProcessor=await read("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");
+for(const m of ["syncCustomerSubscriptionAfterPayment","customer_subscription_id","payment_verified","payment_failed","payment_reversed"])if(!customerSubProcessor.includes(m))failures.push("Customer subscription payment synchronization invariant missing: "+m);
+const customerSubIndex=await read("artifacts/api-server/src/index.ts");
+for(const m of ["startCustomerSubscriptionWorker","stopCustomerSubscriptions"])if(!customerSubIndex.includes(m))failures.push("Customer subscription worker lifecycle invariant missing: "+m);
+const customerSubApp=await read("artifacts/ts-commerce/src/App.tsx");
+for(const m of ['path="/customer-subscriptions"','path="/subscribe/:id"','path="/subscription-portal"','path="/subscribe/return"'])if(!customerSubApp.includes(m))failures.push("Customer subscription UI route invariant missing: "+m);
+const customerSubUi=await read("artifacts/ts-commerce/src/pages/customer-subscriptions.tsx");
+for(const m of ["Create a recurring plan","Published subscription plans","Customer subscriptions","Server verified billing"])if(!customerSubUi.includes(m))failures.push("Merchant subscription UI invariant missing: "+m);
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
