@@ -180,7 +180,7 @@ for(const legacy of ["150+ unlocks 12 months free","Build toward 12 free months"
 const referralMigration=await read("lib/db/migrations/0105_remove_legacy_referral_free_months.sql");
 for(const marker of ["referral_free_months = 0","status = 'reversed'"]) if(!referralMigration.includes(marker)) failures.push(`Referral retirement migration missing: ${marker}`);
 const commerceSchema=await read("lib/db/src/schema/commerce.ts");if(!commerceSchema.includes('localAuthUserId: uuid("local_auth_user_id")'))failures.push("Drizzle merchant schema must declare local auth linkage");
-const migrationRunner=await read("lib/db/src/migration-runner.ts");if(!migrationRunner.includes('"0108_automation_workflows"'))failures.push("Migration runner must register automation migration 0108");
+if(!migrationRunner.includes('"0108_automation_workflows"'))failures.push("Migration runner must register automation migration 0108");
 const advancedMigration=await read("lib/db/migrations/0107_advanced_commerce_operations.sql");
 for(const m of ["merchant_operation_records","merchant_operation_events","merchant_api_keys","merchant_feature_flags","merchant_experiments","merchant_experiment_assignments","merchant_accounting_periods","merchant_message_threads","merchant_messages","merchant_documents"])if(!advancedMigration.includes(m))failures.push("Advanced commerce migration missing invariant: "+m);
 const advancedRunner=await read("lib/db/src/migration-runner.ts");if(!advancedRunner.includes("0107_advanced_commerce_operations"))failures.push("Migration runner does not include 0107_advanced_commerce_operations");
