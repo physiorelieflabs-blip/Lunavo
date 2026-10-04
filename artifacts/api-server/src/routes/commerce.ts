@@ -9454,6 +9454,10 @@ router.post(
          ) {
            throw new Error("That product is no longer available");
          }
+         const guardrail = (await tx.execute(sql`SELECT status,decision FROM dropship_product_guardrails WHERE merchant_id=${merchant.id} AND supplier_product_id=${product.id} LIMIT 1`)).rows[0] as { status?: string; decision?: string } | undefined;
+         if (guardrail?.status === "paused" || guardrail?.decision === "PAUSE") {
+           throw new Error("This product is temporarily unavailable because Lunavo Profit Shield has paused new orders for safety.");
+         }
          if (product.currency !== merchant.currency) {
            throw new Error("This product is not available in the store's settlement currency");
          }
