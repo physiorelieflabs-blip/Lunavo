@@ -32,6 +32,7 @@ import {
   qualifyReferralForPayment,
   reverseReferralReward,
 } from "../lib/referrals";
+import { multiplyMinorUnits, toMinorUnits } from "../lib/money";
 
 type ProviderTransaction = Record<string, unknown>;
 function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
@@ -70,17 +71,13 @@ function metaNumber(value: ProviderTransaction, key: string): string | null {
   return raw === undefined || raw === null ? null : String(raw);
 }
 function providerFeeMinor(value: ProviderTransaction): number | null {
-  const raw = value.app_fee;
-  if (raw === undefined || raw === null || raw === "") return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  const minor = toMinorUnits(value.app_fee);
+  return minor === null || minor < 0 ? null : minor;
 }
 function providerSettlementMinor(value: ProviderTransaction): number | null {
   for (const key of ["settlement_amount", "settled_amount", "settlementAmount", "settledAmount"]) {
-    const raw = value[key];
-    if (raw === undefined || raw === null || raw === "") continue;
-    const n = Number(raw);
-    if (Number.isFinite(n) && n >= 0) return Math.round(n * 100);
+    const minor = toMinorUnits(value[key]);
+    if (minor !== null && minor >= 0) return minor;
   }
   return null;
 }
@@ -348,7 +345,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
   }
 
   const amount = flutterwaveAmount(transaction as any);
-  const observedMinor = Number.isFinite(amount) ? Math.round(amount * 100) : null;
+  const observedMinor = toMinorUnits(amount);
   const currency = text(transaction.currency).toUpperCase();
   if (observedMinor === null || observedMinor !== intent.amountMinor || currency !== intent.currency.toUpperCase()) {
     await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, orderId: order.id, paymentIntentId: intent.id, expectedAmountMinor: intent.amountMinor, observedAmountMinor: observedMinor, expectedCurrency: intent.currency, observedCurrency: currency || null, reason: "Flutterwave amount or currency does not match the server payment session", payload: rawPayload });
@@ -447,11 +444,12 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       if (autoDs?.enabled) {
         const sourceCost = supplierProduct.salePrice ?? supplierProduct.price;
         const selling = supplierProduct.sellingPrice;
-        const costNumber = sourceCost === null ? null : Number(sourceCost);
-        const sellNumber = selling === null ? null : Number(selling);
-        const marginPercent = costNumber !== null && sellNumber !== null && sellNumber > 0
-          ? ((sellNumber - costNumber) / sellNumber) * 100
+        const costMinorPerUnit = sourceCost === null ? null : toMinorUnits(sourceCost);
+        const sellingMinorPerUnit = selling === null ? null : toMinorUnits(selling);
+        const marginPercent = costMinorPerUnit !== null && sellingMinorPerUnit !== null && sellingMinorPerUnit > 0
+          ? ((sellingMinorPerUnit - costMinorPerUnit) / sellingMinorPerUnit) * 100
           : null;
+        const totalCostMinor = costMinorPerUnit === null ? null : multiplyMinorUnits(costMinorPerUnit, order.quantity);
         if (marginPercent === null || marginPercent >= Number(autoDs.minimumMarginPercent)) {
           await tx.insert(fulfillmentJobsTable).values({
             merchantId: merchant.id,
@@ -466,7 +464,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
               phone: customer.phone,
               shippingAddress: order.shippingAddress,
             },
-            costMinor: costNumber === null ? null : Math.round(costNumber * 100) * order.quantity,
+            costMinor: totalCostMinor,
             currency: order.currency,
             attempts: 0,
             idempotencyKey: `autods:order:${order.id}`,
@@ -507,11 +505,13 @@ async function processMarketplaceAdvertisingPayment(
   }
 
   const amount = flutterwaveAmount(transaction as any);
-  const amountMinor = Number.isFinite(amount) ? Math.round(amount * 100) : null;
+  const amountMinor = toMinorUnits(amount);
+  const expectedBillingMinor = toMinorUnits(billing.amount);
   const currency = text(transaction.currency).toUpperCase();
   if (
     amountMinor === null ||
-    amountMinor !== Math.round(Number(billing.amount) * 100) ||
+    expectedBillingMinor === null ||
+    amountMinor !== expectedBillingMinor ||
     currency !== billing.currency.toUpperCase()
   ) {
     await recordReconciliationException({
@@ -520,7 +520,7 @@ async function processMarketplaceAdvertisingPayment(
       paymentReference: reference || null,
       merchantId: billing.merchantId,
       paymentIntentId: intent.id,
-      expectedAmountMinor: Math.round(Number(billing.amount) * 100),
+      expectedAmountMinor: expectedBillingMinor,
       observedAmountMinor: amountMinor,
       expectedCurrency: billing.currency,
       observedCurrency: currency || null,
@@ -562,7 +562,8 @@ async function processMarketplaceAdvertisingPayment(
           eq(marketplaceListingsTable.merchantId, billing.merchantId),
         ));
       }
-      const refundMinor = Math.round(Number(billing.amount) * 100);
+      const refundMinor = toMinorUnits(billing.amount);
+    if (refundMinor === null || refundMinor <= 0) throw new Error("Marketplace advertising billing amount is invalid");
       await recordExternalDashboardTransaction({
         merchantId: billing.merchantId,
         transactionType: "marketplace_advertising_refund",
@@ -633,7 +634,8 @@ async function processMarketplaceAdvertisingPayment(
         ));
     }
 
-    const adAmountMinor = Math.round(Number(currentBilling.amount) * 100);
+    const adAmountMinor = toMinorUnits(currentBilling.amount);
+    if (adAmountMinor === null || adAmountMinor <= 0) throw new Error("Marketplace advertising billing amount is invalid");
     await recordExternalDashboardTransaction({
       merchantId: billing.merchantId,
       transactionType: "marketplace_advertising_payment",
@@ -692,8 +694,8 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
     return "reconciliation_required" as const;
   }
   const amount = flutterwaveAmount(transaction as any);
-  const amountMinor = Number.isFinite(amount) ? Math.round(amount * 100) : null;
-  const expectedMinor = Math.round(Number(payment.amount) * 100);
+  const amountMinor = toMinorUnits(amount);
+  const expectedMinor = toMinorUnits(payment.amount);
   const currency = text(transaction.currency).toUpperCase();
   if (amountMinor === null || amountMinor !== expectedMinor || currency !== payment.currency.toUpperCase()) {
     await recordReconciliationException({ eventId, providerTransactionId: providerId, paymentReference: reference || null, merchantId: merchant.id, expectedAmountMinor: expectedMinor, observedAmountMinor: amountMinor, expectedCurrency: payment.currency, observedCurrency: currency || null, reason: "Flutterwave subscription amount or currency mismatch", payload: rawPayload });
