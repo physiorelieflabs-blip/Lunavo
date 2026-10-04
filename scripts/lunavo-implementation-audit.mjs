@@ -119,6 +119,12 @@ if(payoutRoutes.includes("bank transfer reference is required before a manual pa
 const payoutWebhook=await read("artifacts/api-server/src/routes/flutterwave-webhook.ts");for(const m of ["verifyFlutterwaveTransfer","buildTsPayWithdrawalLedgerEntry","providerPayoutId","transfer"])if(!payoutWebhook.includes(m))failures.push(`Flutterwave payout webhook invariant missing: ${m}`);
 const processor=await optional("artifacts/api-server/src/routes/flutterwave-payment-processor.ts");for(const m of ["marketplace-ad-dashboard","subscription-dashboard","balanceImpact"])if(!processor.includes(m))failures.push(`External expense dashboard invariant missing: ${m}`);
 // Post-hardening invariants: these are source-level contracts, not feature counts.
+const selfHostedEnv=await read(".env.example");
+for(const key of ["LUNAVO_DEEPSEEK_API_KEY","LUNAVO_GEMINI_API_KEY","GEMINI_IMAGE_API_KEY","STABLE_DIFFUSION_API_KEY"]) if(new RegExp("^"+key+"=", "m").test(selfHostedEnv)) failures.push(`External AI credential must not be part of the core environment template: ${key}`);
+const aiProviderSource=await read("artifacts/api-server/src/lib/ai-provider.ts");
+if(/from ["']\.\/deepseek["']|from ["']\.\/gemini["']/.test(aiProviderSource)) failures.push("Core AI provider must not import external DeepSeek/Gemini adapters");
+const imageProviderSource=await read("artifacts/api-server/src/lib/pollinations.ts");
+for(const marker of ["https://image.pollinations.ai","generativelanguage.googleapis.com","api.stability.ai"]) if(imageProviderSource.includes(marker)) failures.push(`Core image provider must not call external service: ${marker}`);
 const subscriptionWorker=await read("artifacts/api-server/src/lib/customer-subscription-worker.ts");
 for(const m of ["WORKER_LOCK_KEY","pg_try_advisory_lock","pg_advisory_unlock","pool.connect"])if(!subscriptionWorker.includes(m))failures.push(`Subscription renewal worker distributed-lock invariant missing: ${m}`);
 const localAuth=await read("artifacts/api-server/src/lib/local-auth.ts");
