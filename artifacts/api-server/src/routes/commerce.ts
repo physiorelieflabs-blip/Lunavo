@@ -9303,6 +9303,7 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     eq(supplierProductsTable.status, "active"),
     eq(supplierProductsTable.visibility, "active"),
     sql`${supplierProductsTable.sellingPrice} is not null`,
+    sql`NOT EXISTS (SELECT 1 FROM dropship_product_guardrails g WHERE g.merchant_id=${merchant.id} AND g.supplier_product_id=${supplierProductsTable.id} AND (g.status='paused' OR g.decision='PAUSE'))`,
   )).orderBy(desc(supplierProductsTable.importedAt)).limit(100);
   res.json(GetPublicStoreResponse.parse({
     merchantKey: key,
