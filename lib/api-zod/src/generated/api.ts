@@ -4056,7 +4056,7 @@ export const ListAdminWithdrawalsResponse = zod.array(ListAdminWithdrawalsRespon
 
 
 /**
- * @summary Review or mark a withdrawal request as paid
+ * @summary Review a withdrawal request and initiate provider payout
  */
 export const ReviewWithdrawalParams = zod.object({
   "id": zod.coerce.number().int()
@@ -4075,7 +4075,7 @@ export const reviewWithdrawalBodyConfirmationMax = 80;
 
 
 export const ReviewWithdrawalBody = zod.object({
-  "status": zod.enum(['approved', 'rejected', 'paid']),
+  "status": zod.enum(['approved', 'rejected']),
   "note": zod.string().max(reviewWithdrawalBodyNoteMax).optional(),
   "securityCode": zod.string().regex(reviewWithdrawalBodySecurityCodeRegExp),
   "pinCodes": zod.array(zod.string().regex(reviewWithdrawalBodyPinCodesItemRegExp)).min(reviewWithdrawalBodyPinCodesMin).max(reviewWithdrawalBodyPinCodesMax),
