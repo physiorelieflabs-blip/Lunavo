@@ -8,7 +8,7 @@ function localConfig(vision = false) {
   return { baseUrl, model };
 }
 
-async function localChat(messages: LocalMessage[], options: { json?: boolean; maxTokens?: number; vision?: boolean } = {}) {
+// OpenAI-compatible self-hosted adapters use response_format when structured JSON is requested; Ollama/llama.cpp receive their native equivalent through the local brain.\nasync function localChat(messages: LocalMessage[], options: { json?: boolean; maxTokens?: number; vision?: boolean } = {}) {
   const result = await completeLocalBrain(messages, {
     json: options.json,
     maxTokens: options.maxTokens || 4000,
