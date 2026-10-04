@@ -1,4 +1,5 @@
 type LocalMessage = { role: "system" | "user" | "assistant"; content: string | Array<Record<string, unknown>> };
+import { completeLocalBrain } from "./local-ai-brain";
 type LocalResponse = { model?: string; choices?: Array<{ message?: { content?: string | null } }>; error?: { message?: string } };
 
 function localConfig(vision = false) {
@@ -8,24 +9,12 @@ function localConfig(vision = false) {
 }
 
 async function localChat(messages: LocalMessage[], options: { json?: boolean; maxTokens?: number; vision?: boolean } = {}) {
-  const { baseUrl, model } = localConfig(Boolean(options.vision));
-  const payload = {
-    model,
-    messages,
-    max_tokens: options.maxTokens || 4000,
-    ...(options.json ? { response_format: { type: "json_object" } } : {}),
-  };
-  const response = await fetch(baseUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(120_000),
+  const result = await completeLocalBrain(messages, {
+    json: options.json,
+    maxTokens: options.maxTokens || 4000,
+    role: options.vision ? "vision" : "reasoning",
   });
-  const body = (await response.json().catch(() => ({}))) as LocalResponse;
-  if (!response.ok) throw new Error(body.error?.message || `Self-hosted LLM returned HTTP ${response.status}`);
-  const content = body.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("Self-hosted LLM returned an empty response");
-  return { model: body.model || model, content };
+  return { model: result.model, content: result.content };
 }
 
 export async function completeDeepSeekChat(
