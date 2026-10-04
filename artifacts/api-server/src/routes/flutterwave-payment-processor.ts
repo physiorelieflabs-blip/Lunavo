@@ -274,8 +274,7 @@ function customerSubscriptionPeriodEnd(start: Date, unit: string, count: number)
 }
 
 async function syncCustomerSubscriptionAfterPayment(intentId: number, outcome: string, providerId: string | null, eventId: string) {
-  const linkage = await db.execute({
-    sql: "SELECT customer_subscription_id FROM payment_intents WHERE id=$1 LIMIT 1",
+  const linkage = await executeQuery(db,{sql: "SELECT customer_subscription_id FROM payment_intents WHERE id=$1 LIMIT 1",
     values: [intentId],
   });
   const subscriptionId = (linkage.rows[0] as any)?.customer_subscription_id;
