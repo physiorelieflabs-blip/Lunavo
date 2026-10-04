@@ -1740,7 +1740,7 @@ paths:
     patch:
       operationId: reviewWithdrawal
       tags: [admin]
-      summary: Review or mark a withdrawal request as paid
+      summary: Review a withdrawal request and initiate provider payout
       parameters:
         - name: id
           in: path
