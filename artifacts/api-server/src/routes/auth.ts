@@ -388,7 +388,7 @@ router.get("/auth/export", async (req, res) => {
     db.execute(sql`SELECT id,title,description,selling_price,currency,availability,category,status,created_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY id`),
     db.execute(sql`SELECT id,order_id,amount,currency,status,created_at,updated_at FROM invoices WHERE merchant_id=${merchantId} ORDER BY id`),
     db.execute(sql`SELECT id,entry_type,amount_minor,currency,reference_key,created_at FROM ledger_entries WHERE merchant_id=${merchantId} ORDER BY id`),
-    db.execute(sql`SELECT id,action,entity_type,entity_id,status,occurred_at,metadata FROM audit_logs WHERE merchant_id=${merchantId} ORDER BY id`),
+    db.execute(sql`SELECT id,action,resource_type,resource_id,status,created_at,changes FROM audit_logs WHERE merchant_id=${String(merchantId)} ORDER BY id`),
   ]);
 
   res.setHeader("Cache-Control", "no-store");
