@@ -203,5 +203,18 @@ const excellenceShell=await read("artifacts/ts-commerce/src/components/app-shell
 for(const m of ["GlobalCommandPalette","lunavo:open-command-palette","main-content","Skip to main content"]) if(!excellenceShell.includes(m)) failures.push("Global navigation excellence invariant missing: "+m);
 const providerRegistryTruth=await read("artifacts/api-server/src/lunavo-feature-registry.ts");
 for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Stripe adapter","optional")','F("payments","PayPal adapter","optional")']) if(!providerRegistryTruth.includes(m)) failures.push("Optional-provider truthfulness invariant missing: "+m);
+const automationMigration=await read("lib/db/migrations/0108_automation_workflows.sql");
+for(const m of ["merchant_automation_workflows","merchant_automation_runs","merchant_automation_action_approvals","schedule_interval_seconds","idempotency_key text NOT NULL UNIQUE"])if(!automationMigration.includes(m))failures.push("Automation workflow migration invariant missing: "+m);
+const automationEngine=await read("artifacts/api-server/src/lib/automation-engine.ts");
+for(const m of ["dispatchWorkflowEvent","processScheduledWorkflows","approveWorkflowRun","reserveAutomationActionInTransaction","approval_required","dry_run","schedule.tick","make_interval"])if(!automationEngine.includes(m))failures.push("Automation engine invariant missing: "+m);
+const automationRoute=await read("artifacts/api-server/src/routes/automation-workflows.ts");
+for(const m of ["/merchant/automation-workflows","/merchant/automation-runs/:id/decision","/runs","/run-now","requirePermission","isWorkflowTriggerEvent"])if(!automationRoute.includes(m))failures.push("Automation API invariant missing: "+m);
+const automationUi=await read("artifacts/ts-commerce/src/pages/automations.tsx");
+for(const m of ["Automation Studio","Execution safety","Preview only","Require approval","Automatic (guarded)","Test now","Run history"])if(!automationUi.includes(m))failures.push("Automation UI invariant missing: "+m);
+const automationApp=await read("artifacts/ts-commerce/src/App.tsx");if(!automationApp.includes('path="/automations"'))failures.push("Automation Studio route missing");
+const automationNav=await read("artifacts/ts-commerce/src/components/app-shell.tsx");if(!automationNav.includes("Automation Studio"))failures.push("Automation Studio navigation missing");
+const automationPalette=await read("artifacts/ts-commerce/src/components/global-command-palette.tsx");if(!automationPalette.includes('href:"/automations"'))failures.push("Automation Studio command palette entry missing");
+const automationIndex=await read("artifacts/api-server/src/index.ts");for(const m of ["startScheduledWorkflowWorker","stopScheduledWorkflows"])if(!automationIndex.includes(m))failures.push("Scheduled automation worker lifecycle invariant missing");
+const automationOutbox=await read("artifacts/api-server/src/lib/domain-events.ts");if(!automationOutbox.includes("dispatchWorkflowEvent"))failures.push("Domain event outbox is not connected to workflow automation");
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
