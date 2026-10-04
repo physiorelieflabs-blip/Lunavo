@@ -47,15 +47,11 @@ export default function AdminWithdrawals() {
     queryClient.invalidateQueries({ queryKey: getGetDashboardOverviewQueryKey() }),
     queryClient.invalidateQueries({ queryKey: getGetCurrencySettingsQueryKey() }),
   ]);
-  const act = (id: number, status: 'approved' | 'rejected' | 'paid') => {
+  const act = (id: number, status: 'approved' | 'rejected') => {
     const confirmation = window.prompt(`Type ${status.toUpperCase()} WITHDRAWAL ${id} to continue`) ?? '';
     if (!confirmation) return;
     const note = window.prompt('Optional note for the merchant') ?? undefined;
-    const settlementReference = status === 'paid'
-      ? window.prompt('Enter the bank transfer reference used for this manual payout')?.trim()
-      : undefined;
-    if (status === 'paid' && !settlementReference) return;
-    review.mutate({ id, data: { status, securityCode, pinCodes: adminPins, confirmation, note: note || undefined, settlementReference } }, {
+    review.mutate({ id, data: { status, securityCode, pinCodes: adminPins, confirmation, note: note || undefined } }, {
       onSuccess: () => { setMessage(`Withdrawal #${id} is now ${status}.`); refresh(); },
       onError: () => setMessage('Admin action failed. Check your authenticator code, typed confirmation, and the current request status.'),
     });
