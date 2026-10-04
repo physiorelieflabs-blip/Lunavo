@@ -57,6 +57,11 @@ export default function Checkout() {
       .catch(() => window.localStorage.removeItem(recoveryStorageKey))
       .finally(() => setRecoveryLoaded(true));
   }, [merchantKey, store.data?.products?.length, recoveryLoaded]);
+  const selected = useMemo(
+    () => store.data?.products.find((product) => product.id === selectedId) ?? null,
+    [selectedId, store.data?.products],
+  );
+
   useEffect(() => {
     if (!merchantKey || !selected || !customerEmail || !customerName || receipt) return;
     let sessionKey = window.localStorage.getItem(sessionStorageKey);
@@ -83,11 +88,6 @@ export default function Checkout() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [merchantKey, selected?.id, selected?.price, selected?.currency, selected?.title, quantity, paymentCurrency, customerEmail, customerName, receipt, recoveryStorageKey, sessionStorageKey]);
-
-  const selected = useMemo(
-    () => store.data?.products.find((product) => product.id === selectedId) ?? null,
-    [selectedId, store.data?.products],
-  );
 
   if (store.isLoading) return <main className="min-h-[100dvh] bg-[#f1eee7] px-5 py-8"><LoadingState label="Loading storefront" /></main>;
   if (store.isError || !store.data) return <main className="min-h-[100dvh] bg-[#f1eee7] px-5 py-8"><ErrorState onRetry={() => void store.refetch()} /></main>;
