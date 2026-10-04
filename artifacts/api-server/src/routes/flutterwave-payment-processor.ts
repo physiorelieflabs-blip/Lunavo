@@ -34,6 +34,17 @@ import {
 } from "../lib/referrals";
 
 type ProviderTransaction = Record<string, unknown>;
+function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
+  const literal = (value: unknown) => {
+    if (value === null || value === undefined) return "NULL";
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    if (value instanceof Date) return "'" + value.toISOString().replace(/'/g, "''") + "'";
+    return "'" + String(value).replace(/'/g, "''") + "'";
+  };
+  return executor.execute(sql.raw(query.sql.replace(/\$(\d+)/g, (_, n) => literal(query.values[Number(n) - 1]))));
+}
+
 
 type OrderIntent = NonNullable<Awaited<ReturnType<typeof findIntentByReference>>>;
 type SubscriptionPayment = NonNullable<Awaited<ReturnType<typeof findSubscriptionPaymentByReference>>>;
@@ -250,6 +261,61 @@ async function markOrderPaymentDisputed(input: {
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: input.merchantId, orderId: input.orderId, paymentIntentId: input.intentId, entityType: "payment_intent", fromStatus: intent.status, toStatus: "disputed", actorId: "flutterwave_webhook", note: input.reason });
   });
   return "disputed" as const;
+}
+
+
+function customerSubscriptionPeriodEnd(start: Date, unit: string, count: number) {
+  const d = new Date(start);
+  if (unit === "day") d.setUTCDate(d.getUTCDate() + count);
+  else if (unit === "week") d.setUTCDate(d.getUTCDate() + count * 7);
+  else if (unit === "month") d.setUTCMonth(d.getUTCMonth() + count);
+  else d.setUTCFullYear(d.getUTCFullYear() + count);
+  return d;
+}
+
+async function syncCustomerSubscriptionAfterPayment(intentId: number, outcome: string, providerId: string | null, eventId: string) {
+  const linkage = await executeQuery(db,{sql: "SELECT customer_subscription_id FROM payment_intents WHERE id=$1 LIMIT 1",
+    values: [intentId],
+  });
+  const subscriptionId = (linkage.rows[0] as any)?.customer_subscription_id;
+  if (!subscriptionId) return;
+  await db.transaction(async (tx) => {
+    await executeQuery(tx,{sql: "SELECT id FROM customer_subscriptions WHERE id=$1 FOR UPDATE", values: [subscriptionId] });
+    const current = (await executeQuery(tx,{sql: "SELECT id,status,amount_minor,currency,interval_unit,interval_count,max_failed_attempts,failed_attempts,current_period_end FROM customer_subscriptions WHERE id=$1 LIMIT 1",
+      values: [subscriptionId],
+    })).rows[0] as any;
+    if (!current) return;
+    const attempt = (await executeQuery(tx,{sql: "SELECT id,attempt_number,status FROM customer_subscription_payment_attempts WHERE subscription_id=$1 AND payment_intent_id=$2 LIMIT 1",
+      values: [subscriptionId,intentId],
+    })).rows[0] as any;
+    if (outcome === "successful" || outcome === "duplicate") {
+      const start = new Date();
+      const end = customerSubscriptionPeriodEnd(start, String(current.interval_unit), Number(current.interval_count));
+      await executeQuery(tx,{sql: "UPDATE customer_subscriptions SET status='active',current_period_start=$1,current_period_end=$2,next_charge_at=$2,grace_until=NULL,failed_attempts=0,last_payment_intent_id=$3,last_order_id=(SELECT order_id FROM payment_intents WHERE id=$3),updated_at=now() WHERE id=$4 AND status <> 'cancelled'",
+        values: [start.toISOString(),end.toISOString(),intentId,subscriptionId],
+      });
+      if (attempt) await executeQuery(tx,{sql: "UPDATE customer_subscription_payment_attempts SET status='successful',provider_transaction_id=$1,provider_event_id=$2,updated_at=now() WHERE id=$3",
+        values: [providerId,eventId,attempt.id],
+      });
+      await executeQuery(tx,{sql: "INSERT INTO customer_subscription_events(subscription_id,event_type,event_key,payload) VALUES ($1,'payment_verified',$2,$3::jsonb) ON CONFLICT(event_key) DO NOTHING",
+        values: [subscriptionId,"verified:"+eventId,JSON.stringify({intentId,providerId,attemptId:attempt?.id??null})],
+      });
+      return;
+    }
+    if (outcome === "failed") {
+      const nextFailed = Number(current.failed_attempts) + 1;
+      const status = nextFailed >= Number(current.max_failed_attempts) ? "expired" : "past_due";
+      await executeQuery(tx,{sql: "UPDATE customer_subscriptions SET failed_attempts=$1,status=$2,updated_at=now() WHERE id=$3 AND status NOT IN ('cancelled','expired')", values: [nextFailed,status,subscriptionId] });
+      if (attempt) await executeQuery(tx,{sql: "UPDATE customer_subscription_payment_attempts SET status='failed',failure_reason='Flutterwave reported a failed payment',provider_transaction_id=$1,provider_event_id=$2,updated_at=now() WHERE id=$3", values: [providerId,eventId,attempt.id] });
+      await executeQuery(tx,{sql: "INSERT INTO customer_subscription_events(subscription_id,event_type,event_key,payload) VALUES ($1,'payment_failed',$2,$3::jsonb) ON CONFLICT(event_key) DO NOTHING", values: [subscriptionId,"failed:"+eventId,JSON.stringify({intentId,providerId,nextFailed,status})] });
+      return;
+    }
+    if (outcome === "refunded" || outcome === "charged_back" || outcome === "reversed") {
+      await executeQuery(tx,{sql: "UPDATE customer_subscriptions SET status='past_due',failed_attempts=failed_attempts+1,next_charge_at=now(),grace_until=now()+interval '3 days',updated_at=now() WHERE id=$1 AND status <> 'cancelled'", values: [subscriptionId] });
+      if (attempt) await executeQuery(tx,{sql: "UPDATE customer_subscription_payment_attempts SET status=$1,provider_transaction_id=$2,provider_event_id=$3,updated_at=now() WHERE id=$4", values: [outcome === "refunded" ? "refunded" : "charged_back",providerId,eventId,attempt.id] });
+      await executeQuery(tx,{sql: "INSERT INTO customer_subscription_events(subscription_id,event_type,event_key,payload) VALUES ($1,'payment_reversed',$2,$3::jsonb) ON CONFLICT(event_key) DO NOTHING", values: [subscriptionId,"reversed:"+eventId,JSON.stringify({intentId,providerId,reason:outcome})] });
+    }
+  });
 }
 
 async function processOrderPayment(transaction: ProviderTransaction, eventId: string, rawPayload: ProviderTransaction, intent: OrderIntent) {
@@ -751,6 +817,10 @@ export async function processVerifiedFlutterwaveTransaction(
   if (intent?.marketplaceBillingRecordId) {
     return processMarketplaceAdvertisingPayment(transaction, eventId, rawPayload, intent);
   }
-  if (intent) return processOrderPayment(transaction, eventId, rawPayload, intent);
+  if (intent) {
+    const outcome = await processOrderPayment(transaction, eventId, rawPayload, intent);
+    await syncCustomerSubscriptionAfterPayment(intent.id, outcome, flutterwaveTransactionId(transaction as any), eventId);
+    return outcome;
+  }
   return processSubscriptionPayment(transaction, eventId, rawPayload, subscriptionPayment!);
 }
