@@ -2,6 +2,7 @@ import express,{type Express} from "express";
 import path from "node:path";
 import {existsSync} from "node:fs";
 import pinoHttp from "pino-http";
+import { randomUUID } from "node:crypto";
 import router from "./routes";
 import {logger} from "./lib/logger";
 import {and, eq} from "drizzle-orm";
@@ -9,6 +10,7 @@ import {db, merchantStorefrontDomainsTable, merchantStorefrontsTable, merchantsT
 import {authenticateRequest} from "./lib/local-auth";
 const app:Express=express();
 app.set("trust proxy",1);
+app.use(pinoHttp({ logger, genReqId(){ return "req_"+randomUUID(); }, customLogLevel(_req,res,err){ if(err||res.statusCode>=500)return "error"; if(res.statusCode>=400)return "warn"; return "info"; } }));
 const rateBuckets=new Map<string,{windowStartedAt:number;count:number}>();
 const MAX_RATE_KEYS = 20_000;
 function rateLimit(prefix:string,limit:number,windowMs:number){return(req:express.Request,res:express.Response,next:express.NextFunction)=>{const ip=(req.ip||"unknown").trim();const key=prefix+":"+ip;const now=Date.now();const current=rateBuckets.get(key);if(!current||now-current.windowStartedAt>=windowMs){if(!current&&rateBuckets.size>=MAX_RATE_KEYS){let oldestKey:string|undefined;let oldestAt=Number.POSITIVE_INFINITY;for(const[candidateKey,candidate]of rateBuckets){if(candidate.windowStartedAt<oldestAt){oldestKey=candidateKey;oldestAt=candidate.windowStartedAt;}}if(oldestKey)rateBuckets.delete(oldestKey);}rateBuckets.set(key,{windowStartedAt:now,count:1});next();return;}current.count+=1;if(current.count>limit){res.setHeader("Retry-After",String(Math.ceil((windowMs-(now-current.windowStartedAt))/1000)));res.status(429).json({error:"Too many requests. Please try again shortly."});return;}next();};}
@@ -16,6 +18,7 @@ setInterval(()=>{const cutoff=Date.now()-10*60*1000;for(const[key,value]of rateB
 const customDomainCache=new Map<string,{found:boolean;expiresAt:number}>();
 function normalizeHost(value:string){const raw=value.trim().toLowerCase();if(!raw)return "";try{return new URL(raw.includes("://")?raw:`https://${raw}`).hostname.replace(/^www\./,"");}catch{return raw.replace(/^https?:\/\//,"").split("/")[0].replace(/^www\./,"");}}
 app.disable("x-powered-by");
+app.use((_req,res,next)=>{ res.setHeader("X-Content-Type-Options","nosniff"); res.setHeader("X-Frame-Options","SAMEORIGIN"); res.setHeader("Referrer-Policy","strict-origin-when-cross-origin"); res.setHeader("Permissions-Policy","camera=(), microphone=(), geolocation=()"); res.setHeader("Cross-Origin-Resource-Policy","same-origin"); if(process.env.NODE_ENV==="production")res.setHeader("Strict-Transport-Security","max-age=31536000; includeSubDomains"); next(); });
 app.use(authenticateRequest);
 app.use((req,res,next)=>{
   if((req.method==="GET"||req.method==="HEAD"||req.method==="OPTIONS") || req.path.startsWith("/api/webhooks/")) { next(); return; }
