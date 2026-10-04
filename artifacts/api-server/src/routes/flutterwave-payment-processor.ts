@@ -741,13 +741,13 @@ async function synchronizeCustomerSubscriptionPayment(
   intent: OrderIntent,
   transaction: ProviderTransaction,
   eventId: string,
-  outcome: "successful" | "duplicate" | "failed" | "reversed",
+  outcome: "successful" | "duplicate" | "failed" | "refunded" | "charged_back",
 ) {
   const subscriptionId = intent.customerSubscriptionId;
   if (!subscriptionId) return outcome;
   const providerId = flutterwaveTransactionId(transaction as any);
-  const providerState = outcome === "reversed"
-    ? (providerReversal(transaction) ?? "reversed")
+  const providerState = outcome === "refunded" || outcome === "charged_back"
+    ? outcome
     : outcome;
   const metadata = meta(transaction);
   const observedSubscriptionId = metaNumber(metadata, "customer_subscription_id");
@@ -836,12 +836,12 @@ async function synchronizeCustomerSubscriptionPayment(
       return;
     }
 
-    if (outcome === "reversed") {
+    if (outcome === "refunded" || outcome === "charged_back") {
       if (["refunded","charged_back"].includes(String(attempt.status))) return;
       const grace = new Date(Date.now() + Number(state.grace_period_days) * 86400000);
       await tx.execute(sql`
         UPDATE customer_subscription_payment_attempts
-        SET status=${providerState === "refunded" ? "refunded" : "charged_back"},
+        SET status=${outcome === "refunded" ? "refunded" : "charged_back"},
             provider_transaction_id=${providerId},
             provider_event_id=${eventId},
             updated_at=now()
@@ -908,7 +908,7 @@ export async function processVerifiedFlutterwaveTransaction(
   }
   if (intent?.customerSubscriptionId) {
     const outcome = await processOrderPayment(transaction, eventId, rawPayload, intent);
-    if (outcome === "successful" || outcome === "duplicate" || outcome === "failed" || outcome === "reversed") {
+    if (outcome === "successful" || outcome === "duplicate" || outcome === "failed" || outcome === "refunded" || outcome === "charged_back") {
       return synchronizeCustomerSubscriptionPayment(intent, transaction, eventId, outcome);
     }
     return outcome;
