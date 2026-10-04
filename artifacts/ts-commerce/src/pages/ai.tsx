@@ -454,7 +454,7 @@ export default function AiControlRoom() {
         <section className="mt-8 overflow-hidden rounded-xl border border-[#526b8a] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="max-w-2xl">
-              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">Gemini image studio</p>
+              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">Lunavo local image studio</p>
               <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Create a storefront image.</h2>
               <p className="mt-3 text-sm leading-6 text-[#b8c2cc]">Describe a product shot, hero scene, or campaign visual. The generated PNG is saved as a public asset in your tenant-owned media library and can be reused in your storefront.</p>
             </div>
