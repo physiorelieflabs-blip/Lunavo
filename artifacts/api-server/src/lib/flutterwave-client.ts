@@ -84,6 +84,7 @@ async function flutterwaveRequest<T>(
       ...(options.idempotencyKey ? { "X-Idempotency-Key": options.idempotencyKey } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(30_000),
   });
   const text = await response.text();
   let payload: unknown = null;
