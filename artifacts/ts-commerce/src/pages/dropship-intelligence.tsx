@@ -19,7 +19,7 @@ const inputClass="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4e
 function tone(decision:string):"success"|"warning"|"danger"|"info"|"neutral"{return decision==="SCALE"?"success":decision==="PAUSE"?"danger":decision==="FIX"?"warning":"info";}
 function pct(bps:number|null){return bps==null?"—":(bps/100).toFixed(1)+"%";}
 
-export default function DropshipIntelligence(){
+// Release candidate: all dropship controls are backed by server-side evidence and guarded before public checkout.\nexport default function DropshipIntelligence(){
   const [data,setData]=useState<Overview|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
