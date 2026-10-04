@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS merchant_automation_action_approvals (
   reviewer_id text,
   reviewed_at timestamptz,
   note text,
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours'),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (run_id)
 );
