@@ -14,6 +14,7 @@ type LocalChatOptions = {
   temperature?: number;
   model?: string;
   timeoutMs?: number;
+  reasoningEffort?: "low" | "high" | "max";
 };
 
 function endpoint(): string {
@@ -50,7 +51,7 @@ export async function completeLocalChat(messages: LocalAiMessage[], options: Loc
       model: selectedModel,
       messages,
       stream: false,
-      temperature: options.temperature ?? 0.2,
+      temperature: options.reasoningEffort === "max" ? 0.1 : options.reasoningEffort === "low" ? 0.3 : options.temperature ?? 0.2,
       max_tokens: options.maxTokens ?? 4000,
       ...(options.json ? { response_format: { type: "json_object" } } : {}),
     };
