@@ -162,7 +162,8 @@ export async function attributeReferral(
   if (referred.status === "banned") {
     throw new Error("A banned merchant cannot receive a referral attribution");
   }
-  if (referrer.id === referred.id || referrer.clerkUserId === referred.clerkUserId) {
+  if (referrer.id === referred.id || referrer.clerkUserId === referred.clerkUserId ||
+      (referrer.localAuthUserId && referred.localAuthUserId && referrer.localAuthUserId === referred.localAuthUserId)) {
     throw new Error("A merchant cannot refer itself");
   }
   if (normalizedIdentityEmail(referrer.email) === normalizedIdentityEmail(referred.email)) {
