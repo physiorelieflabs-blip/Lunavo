@@ -46,6 +46,40 @@ async function merchantFor(req: Request) {
   return { ...row, userId };
 }
 
+router.post("/public/profit-reality-check", async (req, res, next) => {
+  try {
+    const parseMinor=(value:unknown)=>{
+      const n=Number(value);
+      if(!Number.isFinite(n)||n<0||!Number.isSafeInteger(Math.round(n*100)))return null;
+      return Math.round(n*100);
+    };
+    const selling=parseMinor(req.body?.sellingPrice);
+    const supplier=parseMinor(req.body?.supplierCost);
+    const shipping=parseMinor(req.body?.shippingCost);
+    const ads=parseMinor(req.body?.adSpendPerOrder);
+    const providerFee=parseMinor(req.body?.providerFeePerOrder);
+    const refund=parseMinor(req.body?.refundRatePercent);
+    const margin=Number(req.body?.targetMarginPercent);
+    if(selling===null||selling<=0||supplier===null||shipping===null)return fail(res,400,"Selling price, supplier cost and shipping cost are required");
+    const safeMargin=Number.isFinite(margin)?Math.min(90,Math.max(0,margin)):20;
+    const result=productEconomics({
+      sellingPriceMinor:selling,
+      supplierCostMinor:supplier,
+      shippingCostMinor:shipping,
+      adSpendPerOrderMinor:ads,
+      providerFeeMinor:providerFee,
+      refundRateBps:refund===null?null:Math.round(refund),
+      targetMarginBps:Math.round(safeMargin*100)
+    });
+    res.json({
+      economics:result,
+      methodology:"Landed cost + Lunavo's 1% platform fee + optional provider fee + optional ad spend. Missing inputs are not invented.",
+      callToAction:result.decision==="SCALE"?"Bring the product into Lunavo and build evidence through real fulfillment.":"Use the result to fix the economics before risking more ad spend.",
+      selfHosted:true
+    });
+  } catch(error){next(error);}
+});
+
 router.get("/public/supplier-intelligence", async (_req, res, next) => {
   try {
     const rows=(await db.execute(sql`
