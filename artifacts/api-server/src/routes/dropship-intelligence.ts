@@ -50,7 +50,7 @@ router.get("/dropship-intelligence/overview", async (req, res, next) => {
     const merchant = await merchantFor(req);
     if (!merchant) return fail(res, 401, "Authentication required");
 
-    const [products, suppliers, tracking, alerts] = await Promise.all([
+    const [products, suppliers, switchboard, tracking, alerts] = await Promise.all([
       db.execute(sql`
         SELECT p.id,p.title,p.source_domain,p.source_url,p.price,p.selling_price,p.currency,
                p.availability,p.availability_quantity,p.inventory_status,p.status,p.visibility,
@@ -186,6 +186,14 @@ router.get("/dropship-intelligence/overview", async (req, res, next) => {
         observations: Number(row.observations),
         fulfilledOrders: Number(row.fulfilled_orders),
       }),
+    }));
+
+    const switchboardRows = (switchboard.rows as Array<Record<string, unknown>>).map((row) => ({
+      productId: Number(row.supplier_product_id), productTitle: String(row.title), supplierDomain: String(row.supplier_domain), supplierName: String(row.supplier_name),
+      supplierCost: row.observed_cost_minor == null ? null : Number(row.observed_cost_minor)/100,
+      shippingCost: row.shipping_cost_minor == null ? null : Number(row.shipping_cost_minor)/100,
+      currency: String(row.currency), etaMinDays: row.eta_min_days == null ? null : Number(row.eta_min_days), etaMaxDays: row.eta_max_days == null ? null : Number(row.eta_max_days),
+      qualityScore: row.quality_score == null ? null : Number(row.quality_score), trackingScore: row.tracking_score == null ? null : Number(row.tracking_score), observedAt: row.observed_at,
     }));
 
     const trackingRows = (tracking.rows as Array<Record<string, unknown>>).map((row) => ({
