@@ -381,6 +381,7 @@ import {
   refundFlutterwaveTransaction,
   verifyFlutterwaveTransaction,
   verifyFlutterwaveWebhookSignature,
+  supportsFlutterwaveDirectBankTransfer,
   supportsFlutterwavePayoutCurrency,
   createFlutterwaveTransfer,
   flutterwaveTransferStatus,
