@@ -1,246 +1,41 @@
-const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const STABILITY_IMAGE_MODEL = "stable-image/generate/core";
-const STABILITY_IMAGE_URL = `https://api.stability.ai/v2beta/${STABILITY_IMAGE_MODEL}`;
+type GeneratedImage = { model: string; mimeType: string; data: string; bytes: Buffer };
 
-type GeminiImageResponse = {
-  candidates?: Array<{
-    finishReason?: string;
-    content?: {
-      parts?: Array<{
-        text?: string;
-        inlineData?: {
-          data?: string;
-          mimeType?: string;
-        };
-      }>;
-    };
-  }>;
-  promptFeedback?: {
-    blockReason?: string;
-  };
-  error?: {
-    message?: string;
-  };
-};
-
-function apiKey(name: "GEMINI_IMAGE_API_KEY" | "LUNAVO_GEMINI_API_KEY" | "STABLE_DIFFUSION_API_KEY"): string | null {
-  return process.env[name]?.trim() || null;
-}
-
-type GeneratedImage = {
-  model: string;
-  mimeType: string;
-  data: string;
-  bytes: Buffer;
-};
-
-async function generateGeminiImage(prompt: string, key: string): Promise<GeneratedImage> {
-  // Prefer the Gemini Interactions API for the current Nano Banana 2 image model.
-  const interactionResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": key,
-    },
-    body: JSON.stringify({
-      model: GEMINI_IMAGE_MODEL,
-      input: prompt,
-      response_format: {
-        type: "image",
-        aspect_ratio: "1:1",
-        image_size: "2K",
-      },
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
-
-  const interactionPayload = (await interactionResponse.json().catch(() => ({}))) as Record<string, unknown>;
-  if (interactionResponse.ok) {
-    const outputImage = interactionPayload.output_image;
-    if (outputImage && typeof outputImage === "object") {
-      const image = outputImage as Record<string, unknown>;
-      const data = typeof image.data === "string" ? image.data : "";
-      const mimeType = typeof image.mime_type === "string" ? image.mime_type : "image/png";
-      if (data && mimeType.startsWith("image/")) {
-        const bytes = Buffer.from(data, "base64");
-        if (bytes.length) {
-          return {
-            model: `gemini:${GEMINI_IMAGE_MODEL}`,
-            mimeType,
-            data: `data:${mimeType};base64,${data}`,
-            bytes,
-          };
-        }
-      }
-    }
-    const steps = Array.isArray(interactionPayload.steps) ? interactionPayload.steps : [];
-    for (const step of steps) {
-      if (!step || typeof step !== "object") continue;
-      const content = (step as Record<string, unknown>).content;
-      if (!Array.isArray(content)) continue;
-      for (const block of content) {
-        if (!block || typeof block !== "object") continue;
-        const candidate = block as Record<string, unknown>;
-        if (candidate.type !== "image") continue;
-        const data = typeof candidate.data === "string" ? candidate.data : "";
-        const mimeType = typeof candidate.mime_type === "string" ? candidate.mime_type : "image/png";
-        if (!data || !mimeType.startsWith("image/")) continue;
-        const bytes = Buffer.from(data, "base64");
-        if (!bytes.length) continue;
-        return {
-          model: `gemini:${GEMINI_IMAGE_MODEL}`,
-          mimeType,
-          data: `data:${mimeType};base64,${data}`,
-          bytes,
-        };
-      }
-    }
-  }
-
-  // Backward-compatible GenerateContent fallback for Gemini API configurations
-  // that have not exposed the Interactions endpoint to the project yet.
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{
-            text: [
-              "Generate exactly one image that follows the user's brief precisely.",
-              "Prioritize realistic ecommerce composition, material fidelity, coherent lighting, and clean commercial presentation.",
-              "USER IMAGE BRIEF:",
-              prompt,
-            ].join("\n"),
-          }],
-        }],
-        generationConfig: {
-          responseModalities: ["IMAGE"],
-          imageSize: "2K",
-        },
-      }),
-      signal: AbortSignal.timeout(120_000),
-    },
-  );
-  const payload = (await response.json().catch(() => ({}))) as GeminiImageResponse;
-  if (!response.ok) {
-    throw new Error(payload.error?.message || (interactionResponse.ok ? `Gemini returned HTTP ${response.status}` : `Gemini returned HTTP ${interactionResponse.status}`));
-  }
-
-  const candidate = payload.candidates?.[0];
-  const imagePart = candidate?.content?.parts?.find(
-    (part) => part.inlineData?.data && part.inlineData.mimeType?.startsWith("image/"),
-  );
-  if (!imagePart?.inlineData?.data) {
-    const reason = payload.promptFeedback?.blockReason || candidate?.finishReason;
-    throw new Error(reason ? `Gemini did not return an image (${reason})` : "Gemini returned no image data");
-  }
-
-  const mimeType = imagePart.inlineData.mimeType || "image/png";
-  const bytes = Buffer.from(imagePart.inlineData.data, "base64");
-  if (!bytes.length) throw new Error("Gemini returned an empty image");
-  return {
-    model: `gemini:${GEMINI_IMAGE_MODEL}`,
-    mimeType,
-    data: `data:${mimeType};base64,${imagePart.inlineData.data}`,
-    bytes,
-  };
-}
-
-async function generateStabilityImage(prompt: string, key: string): Promise<GeneratedImage> {
-  const body = new FormData();
-  body.set("prompt", prompt);
-  body.set("output_format", "png");
-  body.set("aspect_ratio", "1:1");
-
-  const response = await fetch(STABILITY_IMAGE_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      Accept: "image/*",
-    },
-    body,
-    signal: AbortSignal.timeout(120_000),
-  });
-  const mimeType = response.headers.get("content-type")?.split(";")[0].trim() || "image/png";
-  if (!response.ok) {
-    const providerMessage = await response.text().catch(() => "");
-    throw new Error(providerMessage.slice(0, 300) || `Stability returned HTTP ${response.status}`);
-  }
-  if (!mimeType.startsWith("image/")) {
-    throw new Error("Stability returned a non-image response");
-  }
-
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (!bytes.length) throw new Error("Stability returned an empty image");
-  const encoded = bytes.toString("base64");
-  return {
-    model: "stability:stable-image/core",
-    mimeType,
-    data: `data:${mimeType};base64,${encoded}`,
-    bytes,
-  };
-}
-
-async function generatePollinationsImage(prompt: string): Promise<GeneratedImage> {
-  const imageUrl = new URL(`https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`);
-  imageUrl.searchParams.set("model", "flux");
-  imageUrl.searchParams.set("width", "768");
-  imageUrl.searchParams.set("height", "768");
-  imageUrl.searchParams.set("nologo", "true");
-  imageUrl.searchParams.set("enhance", "false");
-
-  const response = await fetch(imageUrl, {
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Pollinations returned HTTP ${response.status}`);
-  }
-
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (!bytes.length) throw new Error("Pollinations returned an empty image");
-  const responseType = response.headers.get("content-type")?.split(";")[0].trim();
-  const mimeType = responseType?.startsWith("image/") ? responseType : "image/jpeg";
-  const encoded = bytes.toString("base64");
-
-  return {
-    model: "pollinations:flux-fallback",
-    mimeType,
-    data: `data:${mimeType};base64,${encoded}`,
-    bytes,
-  };
+function imageConfig() {
+  return (process.env.LUNAVO_LOCAL_IMAGE_URL?.trim() || "http://127.0.0.1:7860/sdapi/v1/txt2img").replace(/\\/$/, "");
 }
 
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
-  const stabilityKey = apiKey("STABLE_DIFFUSION_API_KEY");
-  const geminiKey = apiKey("GEMINI_IMAGE_API_KEY") || apiKey("LUNAVO_GEMINI_API_KEY");
-  const failures: string[] = [];
-
-  // Prefer the current Gemini image model for the highest-quality smart generation.
-  if (geminiKey) {
-    try {
-      return await generateGeminiImage(prompt, geminiKey);
-    } catch (error) {
-      failures.push(`Gemini image: ${error instanceof Error ? error.message : "request failed"}`);
-    }
+  const endpoint = imageConfig();
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt.slice(0, 12000),
+      negative_prompt: "watermark, fake logo, distorted text, malformed hands, duplicate objects, low quality",
+      width: 1024,
+      height: 1024,
+      steps: 32,
+      cfg_scale: 7,
+      batch_size: 1,
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const contentType = response.headers.get("content-type")?.split(";")[0].trim() || "";
+  if (!response.ok) {
+    const message = (await response.text().catch(() => "")).slice(0, 500);
+    throw new Error(message || `Self-hosted image service returned HTTP ${response.status}`);
   }
-
-  if (stabilityKey) {
-    try {
-      return await generateStabilityImage(prompt, stabilityKey);
-    } catch (error) {
-      failures.push(`Stability: ${error instanceof Error ? error.message : "request failed"}`);
-    }
+  if (contentType.startsWith("image/")) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length) throw new Error("Self-hosted image service returned an empty image");
+    const encoded = bytes.toString("base64");
+    return { model: "self-hosted:stable-diffusion", mimeType: contentType, data: `data:${contentType};base64,${encoded}`, bytes };
   }
-
-  try {
-    return await generatePollinationsImage(prompt);
-  } catch (error) {
-    failures.push(`Fallback image provider: ${error instanceof Error ? error.message : "request failed"}`);
-  }
-
-  throw new Error(failures.join(" · ") || "All image providers failed");
+  const payload = (await response.json().catch(() => ({}))) as { images?: unknown[] };
+  const encoded = typeof payload.images?.[0] === "string" ? payload.images[0] : "";
+  if (!encoded) throw new Error("Self-hosted image service returned no image data");
+  const normalized = encoded.includes(",") ? encoded.slice(encoded.indexOf(",") + 1) : encoded;
+  const bytes = Buffer.from(normalized, "base64");
+  if (!bytes.length || bytes.length > 25 * 1024 * 1024) throw new Error("Self-hosted generated image is empty or exceeds the 25 MB limit");
+  return { model: "self-hosted:stable-diffusion", mimeType: "image/png", data: `data:image/png;base64,${normalized}`, bytes };
 }
