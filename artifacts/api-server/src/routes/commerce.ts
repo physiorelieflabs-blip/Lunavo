@@ -337,7 +337,8 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
-import { enhanceImagePrompt, researchWithGemini } from "../lib/gemini";
+import { completePrimaryReasoning } from "../lib/ai-provider";
+import { researchWithLocalSearch } from "../lib/local-search";
 import { DASHBOARD_EARNING_WINDOW_DAYS, calculateDashboardWindow } from "../lib/critical-payment-rules";
 import {
   buildTsPayLedgerPostings,
@@ -365,7 +366,6 @@ import {
   trainMerchantAiModel,
   simulateMerchantScenario,
 } from "../lib/ai";
-import { completePrimaryReasoning } from "../lib/ai-provider";
 import { enrichSupplierProduct } from "../lib/supplier-ai";
 import { generateImage } from "../lib/pollinations";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
