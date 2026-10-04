@@ -395,5 +395,5 @@ export function startSocialPublishingWorker(intervalMs = POLL_MS) {
   }, intervalMs);
   timer.unref();
   void processOne().catch((error) => logger.error({ err: error }, "Initial social publishing worker run failed"));
-  return timer;
+  return () => clearInterval(timer);
 }
