@@ -15,8 +15,11 @@ async function ensureCode(executor: SqlExecutor, query: (code: string) => Return
     const code = token(prefix);
     try {
       const inserted = await executor.execute(query(code));
-      const insertedCode = String(inserted.rows?.[0]?.code ?? code).trim();
+      const insertedCode = String(inserted.rows?.[0]?.code ?? "").trim();
       if (insertedCode) return insertedCode;
+      const concurrent = await executor.execute(selectQuery);
+      const concurrentCode = String(concurrent.rows?.[0]?.code ?? "").trim();
+      if (concurrentCode) return concurrentCode;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/unique|duplicate/i.test(message)) throw error;
