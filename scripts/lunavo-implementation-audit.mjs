@@ -203,6 +203,14 @@ const excellenceShell=await read("artifacts/ts-commerce/src/components/app-shell
 for(const m of ["GlobalCommandPalette","lunavo:open-command-palette","main-content","Skip to main content"]) if(!excellenceShell.includes(m)) failures.push("Global navigation excellence invariant missing: "+m);
 const providerRegistryTruth=await read("artifacts/api-server/src/lunavo-feature-registry.ts");
 for(const m of ['F("payments","Paystack adapter","optional")','F("payments","Stripe adapter","optional")','F("payments","PayPal adapter","optional")']) if(!providerRegistryTruth.includes(m)) failures.push("Optional-provider truthfulness invariant missing: "+m);
+const localTenantFiles=[
+  "artifacts/api-server/src/routes/merchant-control-plane.ts","artifacts/api-server/src/routes/ai-automation.ts",
+  "artifacts/api-server/src/routes/auctioneer-ai.ts","artifacts/api-server/src/routes/auctioneer-live-analysis.ts",
+  "artifacts/api-server/src/routes/auction-lifecycle.ts","artifacts/api-server/src/routes/merchant-financials.ts",
+  "artifacts/api-server/src/routes/daily-ai-advertising.ts","artifacts/api-server/src/routes/store-auction-payment.ts",
+  "artifacts/api-server/src/routes/ts-pay-transfers.ts","artifacts/api-server/src/routes/dashboard-transactions.ts"
+];
+for(const file of localTenantFiles){const source=await read(file);if(!source.includes("local_auth_user_id")||!source.includes("status='active'"))failures.push("Local-auth tenant resolution invariant missing: "+file);}
 const automationMigration=await read("lib/db/migrations/0108_automation_workflows.sql");
 for(const m of ["merchant_automation_workflows","merchant_automation_runs","merchant_automation_action_approvals","schedule_interval_seconds","idempotency_key text NOT NULL UNIQUE"])if(!automationMigration.includes(m))failures.push("Automation workflow migration invariant missing: "+m);
 const automationEngine=await read("artifacts/api-server/src/lib/automation-engine.ts");
