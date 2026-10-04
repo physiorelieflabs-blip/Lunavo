@@ -4064,9 +4064,6 @@ export const ReviewWithdrawalParams = zod.object({
 
 export const reviewWithdrawalBodyNoteMax = 500;
 
-export const reviewWithdrawalBodySettlementReferenceMin = 2;
-export const reviewWithdrawalBodySettlementReferenceMax = 160;
-
 export const reviewWithdrawalBodySecurityCodeRegExp = new RegExp('^[0-9]{6}$');
 export const reviewWithdrawalBodyPinCodesItemRegExp = new RegExp('^[0-9]{6}$');
 export const reviewWithdrawalBodyPinCodesMin = 5;
@@ -4080,7 +4077,6 @@ export const reviewWithdrawalBodyConfirmationMax = 80;
 export const ReviewWithdrawalBody = zod.object({
   "status": zod.enum(['approved', 'rejected', 'paid']),
   "note": zod.string().max(reviewWithdrawalBodyNoteMax).optional(),
-  "settlementReference": zod.string().min(reviewWithdrawalBodySettlementReferenceMin).max(reviewWithdrawalBodySettlementReferenceMax).optional(),
   "securityCode": zod.string().regex(reviewWithdrawalBodySecurityCodeRegExp),
   "pinCodes": zod.array(zod.string().regex(reviewWithdrawalBodyPinCodesItemRegExp)).min(reviewWithdrawalBodyPinCodesMin).max(reviewWithdrawalBodyPinCodesMax),
   "confirmation": zod.string().min(reviewWithdrawalBodyConfirmationMin).max(reviewWithdrawalBodyConfirmationMax)
