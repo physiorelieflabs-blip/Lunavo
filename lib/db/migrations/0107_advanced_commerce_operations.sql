@@ -6,7 +6,11 @@ CREATE TABLE IF NOT EXISTS merchant_operation_records (
   kind text NOT NULL CHECK (kind IN (
     'return','exchange','booking','event','ticket','quote','purchase_order','expense',
     'lead','task','support_ticket','message_thread','preorder','waitlist','product_alert',
-    'document','customer_document','app_listing','theme_listing','creator_listing'
+    'document','customer_document','app_listing','theme_listing','creator_listing',
+    'customer_subscription','b2b_account','price_list','sales_funnel','customer_intake',
+    'review','blog_post','business_goal','backup','data_repair','shipping_rule','tax_rule',
+    'delivery_issue','supplier_issue','dispute','chargeback','refund_request','store_transfer',
+    'beneficiary_change','security_incident'
   )),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN (
     'draft','pending','open','active','approved','scheduled','in_progress','resolved',
