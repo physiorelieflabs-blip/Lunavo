@@ -56,7 +56,7 @@ jobs:
       - name: Implementation invariants
         run: |
           set -o pipefail
-          node scripts/lunavo-implementation-audit.mjs 2>&1 | tee lunavo-implementation-audit.log
+          node scripts/lunavo-ci-audit.mjs 2>&1 | tee lunavo-implementation-audit.log
       - name: Upload implementation audit log on failure
         if: failure()
         uses: actions/upload-artifact@v4
