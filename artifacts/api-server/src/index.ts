@@ -22,5 +22,5 @@ startAdminAiStoreWorker();
 startSocialPublishingWorker();
 startCustomerSubscriptionWorker();
 // Start the self-hosted dropship tracking watchdog alongside the other durable workers.
-startDropshipIntelligenceWorker();
+void import("./lib/dropship-intelligence-worker").then(({ startDropshipIntelligenceWorker }) => startDropshipIntelligenceWorker()).catch((err: unknown) => logger.error({ err }, "Dropship Intelligence worker startup failed"));
 app.listen(port,(err)=>{if(err){logger.error({err},"Error listening on port");process.exit(1);}logger.info({port},"Server listening");});
