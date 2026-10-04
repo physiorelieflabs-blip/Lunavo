@@ -45,6 +45,51 @@ async function merchantFor(req: Request) {
   return { ...row, userId };
 }
 
+router.get("/public/supplier-intelligence/:domain", async (req, res, next) => {
+  try {
+    const domain=text(req.params.domain,160).toLowerCase();
+    if(!domain || !/^[a-z0-9.-]+$/.test(domain)) return fail(res,400,"Invalid supplier domain");
+    const row=(await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS observations,
+        COUNT(DISTINCT merchant_id)::int AS merchants,
+        ROUND(AVG(quality_score))::int AS quality_score,
+        ROUND(AVG(tracking_score))::int AS tracking_score,
+        ROUND(AVG(defect_rate_bps))::int AS defect_rate_bps,
+        ROUND(AVG(refund_rate_bps))::int AS refund_rate_bps,
+        ROUND(AVG(eta_max_days))::int AS eta_max_days,
+        MIN(observed_at) AS evidence_since,
+        MAX(observed_at) AS last_observed_at
+      FROM dropship_supplier_observations
+      WHERE share_with_supplier_network=true AND lower(supplier_domain)=${domain}
+    `)).rows[0] as Record<string,unknown> | undefined;
+    const merchants=Number(row?.merchants??0), observations=Number(row?.observations??0);
+    if(merchants<3) return res.status(404).json({error:"Not enough independent network evidence to publish this supplier passport",minimumIndependentMerchants:3});
+    const passport=scoreSupplier({
+      qualityScore:row?.quality_score==null?null:Number(row.quality_score),
+      trackingScore:row?.tracking_score==null?null:Number(row.tracking_score),
+      lateRateBps:null,
+      defectRateBps:row?.defect_rate_bps==null?null:Number(row.defect_rate_bps),
+      observations,
+      fulfilledOrders:0,
+    });
+    res.json({
+      supplierDomain:domain,
+      passport,
+      independentMerchants:merchants,
+      observations,
+      qualityScore:row?.quality_score==null?null:Number(row.quality_score),
+      trackingScore:row?.tracking_score==null?null:Number(row.tracking_score),
+      defectRateBps:row?.defect_rate_bps==null?null:Number(row.defect_rate_bps),
+      refundRateBps:row?.refund_rate_bps==null?null:Number(row.refund_rate_bps),
+      etaMaxDays:row?.eta_max_days==null?null:Number(row.eta_max_days),
+      evidenceSince:row?.evidence_since,
+      lastObservedAt:row?.last_observed_at,
+      privacy:"Only aggregated evidence from merchants who opted into the supplier reputation network is exposed."
+    });
+  } catch(error){next(error);}
+});
+
 router.get("/dropship-intelligence/overview", async (req, res, next) => {
   try {
     const merchant = await merchantFor(req);
@@ -267,11 +312,11 @@ router.post("/dropship-intelligence/observations", async (req, res, next) => {
       INSERT INTO dropship_supplier_observations
         (merchant_id,supplier_product_id,supplier_domain,supplier_name,source_url,destination_country,
          observed_cost_minor,shipping_cost_minor,currency,eta_min_days,eta_max_days,
-         quality_score,tracking_score,defect_rate_bps,refund_rate_bps,notes,created_by)
+         quality_score,tracking_score,defect_rate_bps,refund_rate_bps,notes,share_with_supplier_network,created_by)
       VALUES
         (${merchant.id},${productId},${supplierDomain},${text(req.body?.supplierName,160) || null},${sourceUrl || null},${destinationCountry || null},
          ${cost},${shipping},${currency},${etaMin},${etaMax},
-         ${quality},${tracking},${defect},${refund},${text(req.body?.notes,2000) || null},${merchant.userId})
+         ${quality},${tracking},${defect},${refund},${text(req.body?.notes,2000) || null},${req.body?.shareWithSupplierNetwork === true},${merchant.userId})
       RETURNING *
     `)).rows[0];
     res.status(201).json({ observation: row });
