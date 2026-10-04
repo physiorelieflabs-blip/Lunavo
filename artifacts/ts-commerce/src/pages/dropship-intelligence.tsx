@@ -13,7 +13,7 @@ type Supplier = {domain:string;name:string;observations:number;productsObserved:
 type SupplierOption = {productId:number;productTitle:string;supplierDomain:string;supplierName:string;supplierCost:number|null;shippingCost:number|null;currency:string;etaMinDays:number|null;etaMaxDays:number|null;qualityScore:number|null;trackingScore:number|null;observedAt:string};
 type Tracking = {orderId:number;orderNumber:string;status:string;carrier:string|null;trackingNumber:string|null;lastRecordedAt:string;expectedDeliveryAt:string|null;lastRecordedEvent:string|null;gap:{state:"healthy"|"warning"|"critical"|"unknown";gapHours:number|null;message:string}};
 type Alert = {id:string;severity:string;title:string;message:string};
-type Overview = {generatedAt:string;sourceOfTruth:string;products:Product[];suppliers:Supplier[];tracking:Tracking[];alerts:Alert[];metrics:{products:number;scale:number;test:number;fix:number;pause:number;openAlerts:number;criticalAlerts:number;trackingGaps:number}};
+type Overview = {generatedAt:string;sourceOfTruth:string;products:Product[];suppliers:Supplier[];tracking:Tracking[];alerts:Alert[];metrics:{products:number;scale:number;test:number;fix:number;pause:number;openAlerts:number;criticalAlerts:number;trackingGaps:number};supplierOptions:SupplierOption[]};
 
 const inputClass="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm outline-none focus:border-[#bca26a]";
 function tone(decision:string):"success"|"warning"|"danger"|"info"|"neutral"{return decision==="SCALE"?"success":decision==="PAUSE"?"danger":decision==="FIX"?"warning":"info";}
@@ -31,7 +31,7 @@ export default function DropshipIntelligence(){
   const [busy,setBusy]=useState<number|null>(null);
   const [scanBusy,setScanBusy]=useState(false);
   const [observation,setObservation]=useState({
-    supplierProductId:"",supplierDomain:"",supplierName:"",sourceUrl:"",destinationCountry:"",
+    supplierProductId:"",supplierDomain:"",supplierName:"",sourceUrl:"",destinationCountry:"",shareWithSupplierNetwork:false,
     observedCost:"",shippingCost:"",currency:"USD",etaMinDays:"",etaMaxDays:"",qualityScore:"",trackingScore:"",
     defectRate:"",refundRate:"",notes:""
   });
@@ -150,7 +150,7 @@ export default function DropshipIntelligence(){
           <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">Supplier cost<input className={inputClass} type="number" min="0" step="0.01" value={observation.observedCost} onChange={e=>setObservation(v=>({...v,observedCost:e.target.value}))}/></label><label className="text-sm font-bold">Shipping cost<input className={inputClass} type="number" min="0" step="0.01" value={observation.shippingCost} onChange={e=>setObservation(v=>({...v,shippingCost:e.target.value}))}/></label></div>
           <div className="grid gap-3 sm:grid-cols-4">{[["etaMinDays","Min days"],["etaMaxDays","Max days"],["qualityScore","Quality /100"],["trackingScore","Tracking /100"]].map(x=><label key={x[0]} className="text-sm font-bold">{x[1]}<input className={inputClass} type="number" min="0" max={x[0].includes("Score")?"100":"365"} value={(observation as any)[x[0]]} onChange={e=>setObservation(v=>({...v,[x[0]]:e.target.value}))}/></label>)}</div>
           <label className="block text-sm font-bold">Source URL<input className={inputClass} value={observation.sourceUrl} onChange={e=>setObservation(v=>({...v,sourceUrl:e.target.value}))} placeholder="https://supplier.example/product/..."/></label>
-          <label className="block text-sm font-bold">Notes<textarea className="mt-1 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 text-sm outline-none" rows={4} value={observation.notes} onChange={e=>setObservation(v=>({...v,notes:e.target.value}))} placeholder="Quote, sample, tracking evidence, defect report…"/></label>
+          <label className="flex items-center gap-2 text-xs font-bold text-[#536174]"><input type="checkbox" checked={observation.shareWithSupplierNetwork} onChange={e=>setObservation(v=>({...v,shareWithSupplierNetwork:e.target.checked}))}/>Contribute this observation to the anonymized Supplier Reputation Network</label><p className="text-[11px] leading-5 text-[#8994a2]">Only aggregate evidence may become public. Merchant names, customers, order IDs and private notes are never published.</p><label className="block text-sm font-bold">Notes<textarea className="mt-1 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 text-sm outline-none" rows={4} value={observation.notes} onChange={e=>setObservation(v=>({...v,notes:e.target.value}))} placeholder="Quote, sample, tracking evidence, defect report…"/></label>
           <Button type="submit" className="w-full"><CheckCircle2 className="h-4 w-4"/>Record supplier evidence</Button>
         </form></section>
       </div>}
