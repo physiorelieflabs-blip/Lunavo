@@ -8,7 +8,7 @@ const router = Router();
 async function merchantFor(req: Request, permission: PermissionKey) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  const merchant = (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0] ?? null;
+  const merchant = (await db.select().from(merchantsTable).where(and(eq(merchantsTable.status, "active"), or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)))).limit(1))[0] ?? null;
   if (!merchant) return null;
   await requirePermission(userId, merchant.id, permission);
   return merchant;
