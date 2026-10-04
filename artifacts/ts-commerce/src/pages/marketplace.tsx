@@ -41,6 +41,16 @@ export default function Marketplace() {
   const [savedIds, setSavedIds] = useState<number[]>(() => {
     try { return JSON.parse(window.localStorage.getItem('lunavo-saved-products') ?? '[]'); } catch { return []; }
   });
+  const [visitorKey] = useState(() => {
+    const key = window.localStorage.getItem('lunavo-visitor-key');
+    if (key) return key;
+    const generated = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.localStorage.setItem('lunavo-visitor-key', generated);
+    return generated;
+  });
+  const [compareIds, setCompareIds] = useState<number[]>(() => {
+    try { return JSON.parse(window.localStorage.getItem('lunavo-compare-products') ?? '[]'); } catch { return []; }
+  });
   const [conciergeOpen, setConciergeOpen] = useState(false);
   const [conciergeQuery, setConciergeQuery] = useState('');
   const [concierge, setConcierge] = useState<ConciergeResponse | null>(null);
@@ -50,6 +60,9 @@ export default function Marketplace() {
   useEffect(() => {
     window.localStorage.setItem('lunavo-saved-products', JSON.stringify(savedIds));
   }, [savedIds]);
+  useEffect(() => {
+    window.localStorage.setItem('lunavo-compare-products', JSON.stringify(compareIds));
+  }, [compareIds]);
 
   const load = async () => {
     setLoading(true);
@@ -81,8 +94,54 @@ export default function Marketplace() {
     return copy;
   }, [products, sort]);
 
-  const toggleSaved = (id: number) => {
-    setSavedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  const toggleSaved = async (product: ShopProduct) => {
+    setSavedIds((current) => current.includes(product.id) ? current.filter((value) => value !== product.id) : [...current, product.id]);
+    if (!product.merchantKey) return;
+    try {
+      if (savedIds.includes(product.id)) {
+        await customFetch(`/api/public/store/${encodeURIComponent(product.merchantKey)}/engagement/wishlist`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ visitorKey, productId: product.id }),
+        });
+      } else {
+        await customFetch(`/api/public/store/${encodeURIComponent(product.merchantKey)}/engagement/wishlist`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ visitorKey, productId: product.id }),
+        });
+      }
+    } catch {
+      setNotice('Your saved list could not be synchronized; the local copy is still available on this device.');
+    }
+  };
+  const toggleCompare = (id: number) => {
+    setCompareIds((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 4 ? [...current, id] : current);
+  };
+  const recordView = async (product: ShopProduct) => {
+    if (!product.merchantKey) return;
+    try {
+      await customFetch(`/api/public/store/${encodeURIComponent(product.merchantKey)}/engagement/view`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ visitorKey, productId: product.id }),
+      });
+    } catch {
+      // Recently-viewed tracking is non-blocking and never prevents checkout.
+    }
+  };
+  const notifyStock = async (product: ShopProduct) => {
+    if (!product.merchantKey) return;
+    try {
+      await customFetch(`/api/public/store/${encodeURIComponent(product.merchantKey)}/alerts/stock`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ visitorKey, productId: product.id }),
+      });
+      setNotice(`We'll remember that you want a stock alert for ${product.title}.`);
+    } catch {
+      setNotice('Stock alerts are temporarily unavailable for this product.');
+    }
   };
 
   const runConcierge = async () => {
@@ -147,7 +206,9 @@ export default function Marketplace() {
 
         <div className="mt-9 flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><p className="font-mono text-[10px] font-bold uppercase tracking-[.16em] text-[#a2772e]">Paid discovery feed</p><h2 className="mt-1 text-2xl font-extrabold tracking-[-.05em]">Products shoppers can actually buy</h2><p className="mt-2 text-sm text-[#697687]">{displayed.length} currently eligible placement{displayed.length === 1 ? '' : 's'}</p></div><div className="flex items-center gap-2"><label htmlFor="shop-sort" className="text-xs font-bold uppercase tracking-[.1em] text-[#7d8792]">Sort</label><select id="shop-sort" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-10 rounded-lg border border-[#d9d2c4] bg-[#fcfbf7] px-3 text-xs font-bold outline-none"><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select></div></div>
 
-        <div className="mt-5">{loading ? <LoadingState label="Loading paid discovery marketplace" /> : error ? <ErrorState onRetry={() => void load()} /> : displayed.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{displayed.map((product, index) => <article key={product.id} className="group relative overflow-hidden rounded-2xl border border-[#ddd5c8] bg-[#fcfbf7] shadow-[0_10px_28px_rgba(24,35,51,.045)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_44px_rgba(24,35,51,.10)]"><div className="relative aspect-[4/3] overflow-hidden bg-[#eee8dc]">{product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]" /> : <div className="grid h-full place-items-center text-[#85601b]"><ShoppingBag className="h-10 w-10" /></div>}<div className="absolute left-3 top-3 flex flex-wrap gap-2"><span className="inline-flex items-center gap-1 rounded-full bg-[#182333]/90 px-2.5 py-1 text-[10px] font-extrabold text-[#f8f3e8]"><Sparkles className="h-3 w-3 text-[#d6aa46]" />Promoted</span><span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold text-[#315e6c]"><BadgeCheck className="h-3 w-3" />Paid placement</span></div><button type="button" onClick={() => toggleSaved(product.id)} className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#56616d] shadow-sm hover:text-[#b14f36]" aria-label={savedIds.includes(product.id) ? 'Remove saved product' : 'Save product'}>{savedIds.includes(product.id) ? <Heart className="h-4 w-4 fill-current text-[#b14f36]" /> : <Bookmark className="h-4 w-4" />}</button></div><div className="p-5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-[#8a6826]"><Store className="h-3 w-3" />{product.merchantName}</div><h3 className="mt-2 line-clamp-2 text-base font-extrabold leading-6">{product.title}</h3></div></div>{product.category && <p className="mt-1 text-xs text-[#697687]">{product.category}</p>}{product.description && <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#78828e]">{product.description}</p>}<div className="mt-5 flex items-end justify-between gap-3"><div><p className="font-mono text-lg font-bold">{money(product.price, product.currency)}</p><p className="mt-1 text-[10px] uppercase tracking-[.1em] text-[#7d8792]">{product.availability ?? 'Availability shown at checkout'}</p></div>{product.productUrl ? <Link href={product.productUrl} className="inline-flex items-center gap-2 rounded-lg bg-[#182333] px-3 py-2 text-xs font-extrabold text-[#f8f3e8] hover:bg-[#2b3a4b]">Shop <ArrowRight className="h-3.5 w-3.5" /></Link> : null}</div></div></article>)}</div> : <EmptyState title="No promoted products match" description="Try another search or filter. Public discovery is intentionally restricted to eligible, approved, paid placements." />}</div>
+        {compareIds.length > 0 && <section className="mt-5 rounded-2xl border border-[#d9d2c4] bg-[#fcfbf7] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">Compare</p><p className="mt-1 text-sm font-bold">{compareIds.length} product{compareIds.length === 1 ? '' : 's'} selected · choose up to 4</p></div><div className="flex flex-wrap gap-2">{compareIds.map((id) => { const p = products.find((item) => item.id === id); return p ? <button key={id} type="button" onClick={() => toggleCompare(id)} className="rounded-full border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-1.5 text-xs font-bold">{p.title} ×</button> : null; })}</div></div></section>}
+
+        <div className="mt-5">{loading ? <LoadingState label="Loading paid discovery marketplace" /> : error ? <ErrorState onRetry={() => void load()} /> : displayed.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{displayed.map((product, index) => <article key={product.id} className="group relative overflow-hidden rounded-2xl border border-[#ddd5c8] bg-[#fcfbf7] shadow-[0_10px_28px_rgba(24,35,51,.045)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_44px_rgba(24,35,51,.10)]"><div className="relative aspect-[4/3] overflow-hidden bg-[#eee8dc]">{product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]" /> : <div className="grid h-full place-items-center text-[#85601b]"><ShoppingBag className="h-10 w-10" /></div>}<div className="absolute left-3 top-3 flex flex-wrap gap-2"><span className="inline-flex items-center gap-1 rounded-full bg-[#182333]/90 px-2.5 py-1 text-[10px] font-extrabold text-[#f8f3e8]"><Sparkles className="h-3 w-3 text-[#d6aa46]" />Promoted</span><span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold text-[#315e6c]"><BadgeCheck className="h-3 w-3" />Paid placement</span></div><button type="button" onClick={() => void toggleSaved(product)} className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#56616d] shadow-sm hover:text-[#b14f36]" aria-label={savedIds.includes(product.id) ? 'Remove saved product' : 'Save product'}>{savedIds.includes(product.id) ? <Heart className="h-4 w-4 fill-current text-[#b14f36]" /> : <Bookmark className="h-4 w-4" />}</button></div><div className="p-5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-[#8a6826]"><Store className="h-3 w-3" />{product.merchantName}</div><h3 className="mt-2 line-clamp-2 text-base font-extrabold leading-6">{product.title}</h3></div></div>{product.category && <p className="mt-1 text-xs text-[#697687]">{product.category}</p>}{product.description && <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#78828e]">{product.description}</p>}<div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => toggleCompare(product.id)} className={`rounded-lg border px-3 py-2 text-[11px] font-extrabold ${compareIds.includes(product.id) ? 'border-[#182333] bg-[#182333] text-[#f8f3e8]' : 'border-[#d9d2c4] bg-[#f7f4ed] text-[#45515e]'}`}>{compareIds.includes(product.id) ? 'Compared' : 'Compare'}</button>{product.availabilityQuantity === 0 && <button type="button" onClick={() => void notifyStock(product)} className="rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 py-2 text-[11px] font-extrabold text-[#45515e]">Notify me</button>}</div><div className="mt-5 flex items-end justify-between gap-3"><div><p className="font-mono text-lg font-bold">{money(product.price, product.currency)}</p><p className="mt-1 text-[10px] uppercase tracking-[.1em] text-[#7d8792]">{product.availability ?? 'Availability shown at checkout'}</p></div>{product.productUrl ? <Link onClick={() => void recordView(product)} href={product.productUrl} className="inline-flex items-center gap-2 rounded-lg bg-[#182333] px-3 py-2 text-xs font-extrabold text-[#f8f3e8] hover:bg-[#2b3a4b]">Shop <ArrowRight className="h-3.5 w-3.5" /></Link> : null}</div></div></article>)}</div> : <EmptyState title="No promoted products match" description="Try another search or filter. Public discovery is intentionally restricted to eligible, approved, paid placements." />}</div>
 
         <section className="mt-12 grid gap-5 md:grid-cols-3"><div className="rounded-2xl border border-[#d9d2c4] bg-[#fcfbf7] p-5"><p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">01 · Transparency</p><h3 className="mt-2 font-extrabold">Ads are labeled.</h3><p className="mt-2 text-sm leading-6 text-[#697687]">Paid placement affects discovery visibility. It does not turn an unapproved product into a trustworthy product.</p></div><div className="rounded-2xl border border-[#d9d2c4] bg-[#fcfbf7] p-5"><p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">02 · Commerce</p><h3 className="mt-2 font-extrabold">Checkout stays merchant-specific.</h3><p className="mt-2 text-sm leading-6 text-[#697687]">Shopper orders remain associated with the actual merchant/store and flow through Lunavo Pay's verified payment path.</p></div><div className="rounded-2xl border border-[#d9d2c4] bg-[#fcfbf7] p-5"><p className="font-mono text-[10px] font-bold uppercase tracking-[.14em] text-[#a2772e]">03 · Intelligence</p><h3 className="mt-2 font-extrabold">AI recommends real inventory.</h3><p className="mt-2 text-sm leading-6 text-[#697687]">The shopping concierge can reason over the live eligible catalog without inventing products, prices, or seller claims.</p></div></section>
       </div>
