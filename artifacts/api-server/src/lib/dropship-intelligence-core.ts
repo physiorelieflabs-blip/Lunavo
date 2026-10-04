@@ -73,10 +73,10 @@ export function productEconomics(input: ProductEconomicsInput): ProductEconomics
   const adSpend = finiteMinor(input.adSpendPerOrderMinor);
   const platformFee = Math.round(revenue * 0.01);
   const landed = supplierCost === null || shippingCost === null ? null : supplierCost + shippingCost;
-  const beforeAds = landed === null ? null : Math.max(0, revenue - landed - platformFee - (providerFee ?? 0));
-  const afterAds = beforeAds === null ? null : Math.max(0, beforeAds - (adSpend ?? 0));
+  const beforeAds = landed === null ? null : revenue - landed - platformFee - (providerFee ?? 0);
+  const afterAds = beforeAds === null ? null : beforeAds - (adSpend ?? 0);
   const marginBps = beforeAds === null ? null : Math.round((beforeAds / revenue) * 10_000);
-  const breakEvenCpa = beforeAds;
+  const breakEvenCpa = beforeAds === null ? null : Math.max(0, beforeAds);
   const breakEvenRoas = breakEvenCpa && breakEvenCpa > 0 ? Math.round((revenue / breakEvenCpa) * 100) : null;
 
   let score = 100;
