@@ -1,6 +1,16 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
+  const literal = (value: unknown) => {
+    if (value === null || value === undefined) return "NULL";
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    if (value instanceof Date) return "'" + value.toISOString().replace(/'/g, "''") + "'";
+    return "'" + String(value).replace(/'/g, "''") + "'";
+  };
+  return executor.execute(sql.raw(query.sql.replace(/\$(\d+)/g, (_, n) => literal(query.values[Number(n) - 1]))));
+}
 import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
@@ -44,11 +54,11 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
   const last=await db.execute({sql:"SELECT COALESCE(MAX(attempt_number),0)::int AS n FROM customer_subscription_payment_attempts WHERE subscription_id=$1",values:[subscriptionId]});
   const n=Number((last.rows[0] as any)?.n||0)+1,ref="CSUB-"+subscriptionId.slice(0,8)+"-"+Date.now()+"-"+randomUUID().slice(0,8);
   const created=await db.transaction(async(tx)=>{
-    const order=(await tx.execute({sql:"INSERT INTO orders (merchant_id,location_id,customer_id,order_number,subtotal,tax_amount,shipping_amount,total,quantity,currency,status,supplier_product_id,fulfillment_status,idempotency_key) VALUES ($1,$2,$3,$4,$5,0,0,$5,1,$6,'pending',$7,'not_applicable',$4) RETURNING id",values:[Number(s.merchant_id),String(s.location_id),Number(s.customer_id),ref,Number(s.amount_minor)/100,String(s.currency).toUpperCase(),Number(s.product_id)]})).rows[0] as any;
+    const order=(await executeQuery(tx,{sql:"INSERT INTO orders (merchant_id,location_id,customer_id,order_number,subtotal,tax_amount,shipping_amount,total,quantity,currency,status,supplier_product_id,fulfillment_status,idempotency_key) VALUES ($1,$2,$3,$4,$5,0,0,$5,1,$6,'pending',$7,'not_applicable',$4) RETURNING id",values:[Number(s.merchant_id),String(s.location_id),Number(s.customer_id),ref,Number(s.amount_minor)/100,String(s.currency).toUpperCase(),Number(s.product_id)]})).rows[0] as any;
     if(!order)throw new Error("Subscription order could not be created");
-    const intent=(await tx.execute({sql:"INSERT INTO payment_intents (merchant_id,order_id,amount_minor,currency,method,status,idempotency_key,customer_subscription_id) VALUES ($1,$2,$3,$4,'flutterwave','created',$5,$6) RETURNING id",values:[Number(s.merchant_id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase(),ref,subscriptionId]})).rows[0] as any;
+    const intent=(await executeQuery(tx,{sql:"INSERT INTO payment_intents (merchant_id,order_id,amount_minor,currency,method,status,idempotency_key,customer_subscription_id) VALUES ($1,$2,$3,$4,'flutterwave','created',$5,$6) RETURNING id",values:[Number(s.merchant_id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase(),ref,subscriptionId]})).rows[0] as any;
     if(!intent)throw new Error("Subscription payment intent could not be created");
-    const attempt=(await tx.execute({sql:"INSERT INTO customer_subscription_payment_attempts (subscription_id,attempt_number,payment_intent_id,order_id,amount_minor,currency,status,due_at) VALUES ($1,$2,$3,$4,$5,$6,'created',$7) RETURNING id",values:[subscriptionId,n,Number(intent.id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase(),new Date().toISOString()]})).rows[0] as any;
+    const attempt=(await executeQuery(tx,{sql:"INSERT INTO customer_subscription_payment_attempts (subscription_id,attempt_number,payment_intent_id,order_id,amount_minor,currency,status,due_at) VALUES ($1,$2,$3,$4,$5,$6,'created',$7) RETURNING id",values:[subscriptionId,n,Number(intent.id),Number(order.id),Number(s.amount_minor),String(s.currency).toUpperCase(),new Date().toISOString()]})).rows[0] as any;
     if(!attempt)throw new Error("Subscription payment attempt could not be created");
     return {orderId:Number(order.id),paymentIntentId:Number(intent.id),attemptId:String(attempt.id),attemptNumber:n,reference:ref};
   });
