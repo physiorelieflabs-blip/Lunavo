@@ -11,10 +11,16 @@ type AutoDsResponse = {
 };
 
 type Discount = { id:number; code:string; kind:string; value:string; active:boolean; usageCount:number; usageLimit:number|null; currency:string|null };
+type GiftCard = { id:number; codeLast4:string; initialAmountMinor:number; balanceMinor:number; currency:string; status:string; recipientEmail:string|null; expiresAt:string|null };
+type CustomerTools = { wishlists:Array<{customerId:number;productId:number;createdAt:string}>; savedCarts:Array<{id:number;customerId:number;name:string;updatedAt:string}>; loyalty:Array<{customerId:number;pointsBalance:number;lifetimePoints:number;tier:string}> };
 
 export default function CommerceSuite() {
   const [data,setData]=useState<AutoDsResponse|null>(null);
   const [discounts,setDiscounts]=useState<Discount[]>([]);
+  const [giftCards,setGiftCards]=useState<GiftCard[]>([]);
+  const [customerTools,setCustomerTools]=useState<CustomerTools|null>(null);
+  const [giftAmount,setGiftAmount]=useState('25000');
+  const [giftEmail,setGiftEmail]=useState('');
   const [enabled,setEnabled]=useState(false);
   const [mode,setMode]=useState<'assisted'|'auto'>('assisted');
   const [autoAllocate,setAutoAllocate]=useState(false);
@@ -31,11 +37,13 @@ export default function CommerceSuite() {
   const load=async()=>{
     setLoading(true);
     try{
-      const [auto,discount] = await Promise.all([
+      const [auto,discount,gifts,tools] = await Promise.all([
         customFetch<AutoDsResponse>('/api/automation/auto-ds'),
-        customFetch<{codes:Discount[]}>('/api/commerce/discount-codes')
+        customFetch<{codes:Discount[]}>('/api/commerce/discount-codes'),
+        customFetch<{cards:GiftCard[]}>('/api/commerce/gift-cards'),
+        customFetch<CustomerTools>('/api/commerce/customer-tools')
       ]);
-      setData(auto); setDiscounts(discount.codes);
+      setData(auto); setDiscounts(discount.codes); setGiftCards(gifts.cards); setCustomerTools(tools);
       setEnabled(auto.settings.enabled); setMode(auto.settings.mode==='auto'?'auto':'assisted');
       setAutoAllocate(auto.settings.autoAllocateSupplierCost); setApproval(auto.settings.requireApprovalBeforeExternalOrder);
       setMargin(String(auto.settings.minimumMarginPercent)); setCarrier(auto.settings.defaultCarrier??'');
@@ -53,6 +61,8 @@ export default function CommerceSuite() {
     finally{setSaving(false);}
   };
 
+  const createGiftCard=async()=>{try{const amount=Number(giftAmount);if(!Number.isSafeInteger(amount)||amount<=0){setMessage('Enter a valid gift-card amount in minor currency units.');return;}const result=await customFetch<{card:GiftCard;code:string}>('/api/commerce/gift-cards',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({amountMinor:amount,currency:data?.settings?.defaultCurrency??undefined,recipientEmail:giftEmail||undefined})});setGiftEmail('');setMessage('Gift card created. Store the one-time code securely: '+result.code);await load();}catch(e){setMessage(e instanceof Error?e.message:'Gift card could not be created.');}};
+
   const createDiscount=async()=>{
     try{
       await customFetch('/api/commerce/discount-codes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,value:Number(value),kind})});
@@ -66,6 +76,11 @@ export default function CommerceSuite() {
     <div className="mx-auto max-w-[1240px]">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#a2772e]">TS Commerce Suite</p><h1 className="mt-2 text-4xl font-extrabold tracking-[-.07em]">More commerce, fewer disconnected apps.</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-[#697687]">One control surface for automated fulfillment, promotions, loyalty, affiliates, digital products and growth operations.</p></div><Badge tone="success">Production commerce controls</Badge></div>
       {message&&<div className="mt-6"><Notice tone={message.includes('could not')||message.includes('unavailable')?'danger':'success'} title="Commerce Suite">{message}</Notice></div>}
+
+      <section className="mt-8 grid gap-5 md:grid-cols-2">
+        <div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Stored value" title="Gift cards" description="Issue real merchant-owned gift cards with hashed codes and tracked balances. The full code is shown only once at creation." /><div className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"><input value={giftAmount} onChange={e=>setGiftAmount(e.target.value)} type="number" min="1" placeholder="Amount in minor units" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><input value={giftEmail} onChange={e=>setGiftEmail(e.target.value)} placeholder="Recipient email (optional)" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><Button onClick={createGiftCard}>Issue</Button></div><div className="mt-5 space-y-2">{giftCards.length?giftCards.slice(0,12).map(card=><div key={card.id} className="flex items-center justify-between rounded-xl border border-[#d9d2c4] p-3"><div><p className="text-sm font-extrabold">•••• {card.codeLast4}</p><p className="text-xs text-[#697687]">{card.balanceMinor.toLocaleString()} / {card.initialAmountMinor.toLocaleString()} {card.currency} {card.recipientEmail?'· '+card.recipientEmail:''}</p></div><Badge tone={card.status==='active'?'success':'neutral'}>{card.status}</Badge></div>):<p className="text-sm text-[#697687]">No gift cards issued yet.</p>}</div></div>
+        <div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Customer growth" title="Wishlists, saved carts & loyalty" description="Merchant-scoped customer intent signals are persisted for future retention and merchandising workflows." /><div className="mt-5 grid grid-cols-3 gap-3"><div className="rounded-xl bg-[#f7f4ed] p-4"><p className="text-2xl font-extrabold">{customerTools?.wishlists.length??0}</p><p className="mt-1 text-xs text-[#697687]">Wishlist items</p></div><div className="rounded-xl bg-[#f7f4ed] p-4"><p className="text-2xl font-extrabold">{customerTools?.savedCarts.length??0}</p><p className="mt-1 text-xs text-[#697687]">Saved carts</p></div><div className="rounded-xl bg-[#f7f4ed] p-4"><p className="text-2xl font-extrabold">{customerTools?.loyalty.length??0}</p><p className="mt-1 text-xs text-[#697687]">Loyalty accounts</p></div></div><div className="mt-4 rounded-xl border border-[#d9d2c4] bg-white p-4 text-xs leading-5 text-[#697687]">Highest loyalty balances: {(customerTools?.loyalty??[]).slice(0,5).map(a=>`#${a.customerId} · ${a.pointsBalance.toLocaleString()} pts · ${a.tier}`).join(' · ') || 'No loyalty activity yet.'}</div></div>
+      </section>
 
       <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d6aa46]">Auto-DS</p><h2 className="mt-2 text-2xl font-extrabold">Automatically route paid supplier orders.</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#b8c2cc]">When a supplier-backed order is genuinely paid and verified, TS Commerce can create a fulfillment job automatically. This removes repetitive internal work while keeping external supplier checkout honest.</p></div><PackageCheck className="h-7 w-7 text-[#d6aa46]" /></div>
