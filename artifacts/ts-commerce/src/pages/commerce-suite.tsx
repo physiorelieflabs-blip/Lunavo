@@ -61,7 +61,7 @@ export default function CommerceSuite() {
     finally{setSaving(false);}
   };
 
-  const createGiftCard=async()=>{try{const amount=Number(giftAmount);if(!Number.isSafeInteger(amount)||amount<=0){setMessage('Enter a valid gift-card amount in minor currency units.');return;}const result=await customFetch<{card:GiftCard;code:string}>('/api/commerce/gift-cards',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({amountMinor:amount,currency:data?.settings?.defaultCurrency??undefined,recipientEmail:giftEmail||undefined})});setGiftEmail('');setMessage('Gift card created. Store the one-time code securely: '+result.code);await load();}catch(e){setMessage(e instanceof Error?e.message:'Gift card could not be created.');}};
+  const createGiftCard=async()=>{try{const amount=Number(giftAmount);if(!Number.isSafeInteger(amount)||amount<=0){setMessage('Enter a valid gift-card amount in minor currency units.');return;}const result=await customFetch<{card:GiftCard;code:string}>('/api/commerce/gift-cards',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({amountMinor:amount,recipientEmail:giftEmail||undefined})});setGiftEmail('');setMessage('Gift card created. Store the one-time code securely: '+result.code);await load();}catch(e){setMessage(e instanceof Error?e.message:'Gift card could not be created.');}};
 
   const createDiscount=async()=>{
     try{
