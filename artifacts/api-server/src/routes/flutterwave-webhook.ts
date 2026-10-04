@@ -7,6 +7,7 @@ import { settleVerifiedProductAuctionPayment } from "../lib/product-auction-sett
 import { settleVerifiedStoreAuctionPayment } from "../lib/store-auction-settlement";
 import { processVerifiedFlutterwaveTransaction } from "./flutterwave-payment-processor";
 import { buildTsPayWithdrawalLedgerEntry } from "../lib/ts-pay-ledger";
+import { toMinorUnits } from "../lib/money";
 
 const router = Router();
 type Payload = Record<string, unknown>;
@@ -101,7 +102,11 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
           await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
             merchantId: current.merchantId,
             withdrawalId: current.id,
-            amountMinor: Math.round(Number(current.amount) * 100),
+            amountMinor: (() => {
+              const amountMinor = toMinorUnits(current.amount);
+              if (amountMinor === null || amountMinor <= 0) throw new Error("Withdrawal amount is invalid");
+              return amountMinor;
+            })(),
             currency: current.currency,
             event: "release",
           })).onConflictDoNothing();
@@ -121,7 +126,11 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
           await tx.insert(ledgerEntriesTable).values(buildTsPayWithdrawalLedgerEntry({
             merchantId: current.merchantId,
             withdrawalId: current.id,
-            amountMinor: Math.round(Number(current.amount) * 100),
+            amountMinor: (() => {
+              const amountMinor = toMinorUnits(current.amount);
+              if (amountMinor === null || amountMinor <= 0) throw new Error("Withdrawal amount is invalid");
+              return amountMinor;
+            })(),
             currency: current.currency,
             event: "paid",
           })).onConflictDoNothing();
