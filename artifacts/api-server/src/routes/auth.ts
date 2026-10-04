@@ -368,7 +368,7 @@ router.post("/auth/sessions/revoke-others", async (req, res) => {
   return res.json({ success: true });
 });
 
-router.get("/auth/export", async (req, res) => {
+router.get("/auth/export", async (req, res): Promise<void> => {
   const user = currentUser(req);
   if (!user) return res.status(401).json({ error: "Authentication required" });
   const merchantResult = await db.execute(sql`
@@ -392,7 +392,7 @@ router.get("/auth/export", async (req, res) => {
   ]);
 
   res.setHeader("Cache-Control", "no-store");
-  res.json({
+  return res.json({
     exportedAt: new Date().toISOString(),
     user: { id:user.id,email:user.email,username:user.username,firstName:user.firstName,lastName:user.lastName,role:user.role },
     merchant,
