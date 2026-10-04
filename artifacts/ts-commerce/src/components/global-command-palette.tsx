@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { LucideIcon } from "lucide-react";
 import { ArrowRight, BarChart3, BrainCircuit, Command, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, Landmark, LayoutDashboard, Megaphone, PackageCheck, Route, Search, Settings2, ShoppingCart, Store, UsersRound, WalletCards, Warehouse, X } from "lucide-react";
 import { useLocation } from "wouter";
 
-type Item={href:string;label:string;description:string;keywords:string;icon:typeof LayoutDashboard};
+type Item={href:string;label:string;description:string;keywords:string;icon:LucideIcon};
 
 const MERCHANT_ITEMS:Item[]=[
  {href:"/dashboard",label:"Dashboard",description:"Overview, revenue, orders and workspace health",keywords:"home overview sales revenue",icon:LayoutDashboard},
