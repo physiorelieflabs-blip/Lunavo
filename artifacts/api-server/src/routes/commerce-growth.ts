@@ -21,7 +21,7 @@ const USD_CENTS = 500;
 async function merchantIdFor(req: Request): Promise<number> {
   const userId = getAuth(req).userId;
   if (!userId) throw Object.assign(new Error("Authentication required"), { statusCode: 401 });
-  const merchant = (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0];
+  const merchant = (await db.select().from(merchantsTable).where(and(eq(merchantsTable.status, "active"), or(eq(merchantsTable.clerkUserId, userId), eq(merchantsTable.localAuthUserId, userId)))).limit(1))[0];
   if (!merchant) throw Object.assign(new Error("Merchant workspace not found"), { statusCode: 404 });
   await requirePermission(userId, merchant.id, "team.manage");
   return merchant.id;
