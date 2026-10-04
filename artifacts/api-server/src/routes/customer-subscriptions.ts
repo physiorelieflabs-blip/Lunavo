@@ -44,7 +44,11 @@ router.post("/commerce/customer-subscription-plans",async(req,res)=>{
 
 router.get("/public/customer-subscription-plans/:id",async(req,res)=>{const id=txt(req.params.id,80);const q=await executeQuery(db,{sql:"SELECT p.id,p.merchant_id,p.name,p.description,p.amount_minor,p.currency,p.interval_unit,p.interval_count,p.grace_period_days,sp.title AS product_title,sp.image_url AS product_image_url,m.store_name FROM customer_subscription_plans p JOIN merchants m ON m.id=p.merchant_id JOIN supplier_products sp ON sp.id=p.product_id WHERE p.id=$1 AND p.status='active' AND m.status='active' AND sp.status='active' AND sp.visibility='active' LIMIT 1",values:[id]});if(!q.rows.length)return fail(res,404,"Subscription plan not found");res.json({plan:q.rows[0]});});
 
-async function preparePayment(subscriptionId:string,manageToken:string,req:Request){
+type PreparedPayment =
+  | { existing: true; paymentUrl: string | null; attemptNumber: number }
+  | { existing: false; orderId: number; paymentIntentId: number; paymentRecordId: number; attemptId: string; attemptNumber: number; reference: string };
+
+async function preparePayment(subscriptionId:string,manageToken:string,req:Request): Promise<{ paymentUrl: string | null; attemptNumber: number }> {
   const authHash=hash(manageToken);
   const locked=(await executeQuery(db,{sql:"SELECT s.*,c.name AS customer_name,c.email AS customer_email,p.name AS plan_name,p.grace_period_days,p.interval_unit,p.interval_count,m.store_name,sp.title AS product_title,sp.id AS product_id,l.id AS location_id FROM customer_subscriptions s JOIN customers c ON c.id=s.customer_id JOIN customer_subscription_plans p ON p.id=s.plan_id JOIN merchants m ON m.id=s.merchant_id JOIN supplier_products sp ON sp.id=p.product_id LEFT JOIN merchant_locations l ON l.merchant_id=s.merchant_id AND l.is_active=true AND l.is_default=true WHERE s.id=$1 AND s.manage_token_hash=$2 LIMIT 1",values:[subscriptionId,authHash]})).rows[0] as any;
   if(!locked)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
@@ -54,7 +58,7 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
   }
   if(!locked.location_id)throw new Error("Merchant has no active default location");
 
-  const created=await db.transaction(async(tx)=>{
+  const created: PreparedPayment = await db.transaction(async(tx): Promise<PreparedPayment> => {
     const s=(await executeQuery(tx,{sql:"SELECT * FROM customer_subscriptions WHERE id=$1 AND manage_token_hash=$2 FOR UPDATE",values:[subscriptionId,authHash]})).rows[0] as any;
     if(!s)throw Object.assign(new Error("Subscription portal authorization failed"),{statusCode:403});
     if(!["pending_payment","active","past_due"].includes(String(s.status)))throw Object.assign(new Error("This subscription is not payable"),{statusCode:409});
@@ -82,6 +86,7 @@ async function preparePayment(subscriptionId:string,manageToken:string,req:Reque
     return {existing:false,orderId:Number(order.id),paymentIntentId:Number(intent.id),paymentRecordId:Number(paymentRecord.id),attemptId:String(attempt.id),attemptNumber:n,reference:ref};
   });
   if(created.existing)return {paymentUrl:created.paymentUrl,attemptNumber:created.attemptNumber};
+  if(!created.reference || !created.orderId || !created.paymentIntentId || !created.attemptId) throw new Error("Subscription payment state is incomplete");
 
   const configured=txt(process.env.LUNAVO_PUBLIC_BASE_URL,300);
   const base=process.env.NODE_ENV==="production" ? configured : (configured || requestOrigin(req));
