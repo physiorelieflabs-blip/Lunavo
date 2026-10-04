@@ -4871,16 +4871,25 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
 
     let optimizedPrompt = prompt;
     try {
-      optimizedPrompt = await enhanceImagePrompt(prompt, {
-        storeName: merchant.storeName,
-        storeDescription: merchant.storeDescription,
-        currency: merchant.currency,
-        products: catalog,
-      });
+      const enhancement = await completePrimaryReasoning([
+        {
+          role: "system",
+          content: "You are Lunavo's local image-prompt director. Improve the merchant's prompt for a commercial storefront visual using only the supplied store and catalog facts. Never invent products, brands, claims, prices or locations. Return only the final image prompt.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            prompt,
+            storeName: merchant.storeName,
+            storeDescription: merchant.storeDescription,
+            currency: merchant.currency,
+            products: catalog.slice(0, 24),
+          }),
+        },
+      ], { maxTokens: 900, reasoningEffort: "high", role: "primary" });
+      if (enhancement.content.trim()) optimizedPrompt = enhancement.content.trim().slice(0, 12000);
     } catch (error) {
-      // Image generation must remain available even when the text-model
-      // enhancement provider is unavailable. Never block a valid image request.
-      req.log.warn({ err: error }, "Image prompt enhancement unavailable; using merchant prompt");
+      req.log.warn({ err: error }, "Local image prompt enhancement unavailable; using merchant prompt");
     }
 
     const generated = await generateImage(optimizedPrompt);
