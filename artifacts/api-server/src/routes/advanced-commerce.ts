@@ -360,7 +360,7 @@ router.post("/merchant/experiments", async (req, res, next) => {
       const weight = Number(row.weight);
       return variantKey && Number.isFinite(weight) && weight > 0 ? [{ key: variantKey, weight }] : [];
     });
-    if (!normalized.length || normalized.reduce((sum, v) => sum + v.weight, 0) <= 0) return fail(res, 400, "Experiment must define positive variant weights");
+    if (!normalized.length || normalized.reduce((sum: number, v: { key: string; weight: number }) => sum + v.weight, 0) <= 0) return fail(res, 400, "Experiment must define positive variant weights");
     const result = await db.execute(sql`
       INSERT INTO merchant_experiments(merchant_id,key,name,status,variants,hypothesis,metrics,created_by)
       VALUES(${merchant.id},${key},${name},'draft',${JSON.stringify(normalized)}::jsonb,${typeof req.body?.hypothesis === "string" ? req.body.hypothesis.slice(0,1000) : null},${JSON.stringify(Array.isArray(req.body?.metrics) ? req.body.metrics.slice(0,20) : [])}::jsonb,${merchant.userId})
