@@ -26,11 +26,12 @@ router.get("/readyz", async (_req, res) => {
       checkSocialGatewayHealth(),
       checkMediaWorkersHealth(),
     ]);
-    const runtimeReady = aiHealth.healthy && fxHealth.healthy && socialHealth.healthy &&
-      (!mediaHealth.image.configured || mediaHealth.image.healthy) &&
-      (!mediaHealth.video.configured || mediaHealth.video.healthy);
+    const runtimeDegraded = !aiHealth.healthy || !fxHealth.healthy || !socialHealth.healthy ||
+      (mediaHealth.image.configured && !mediaHealth.image.healthy) ||
+      (mediaHealth.video.configured && !mediaHealth.video.healthy);
     res.json({
-      ready: runtimeReady && paymentConfigured,
+      ready: true,
+      degraded: runtimeDegraded,
       database: true,
       schema: true,
       migrationsApplied: count,
