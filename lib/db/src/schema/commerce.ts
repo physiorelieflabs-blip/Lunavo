@@ -27,7 +27,7 @@ export const commerceMigrationsTable = pgTable("_ts_commerce_migrations", {
 export const merchantsTable = pgTable("merchants", {
   id: serial("id").primaryKey(),
   clerkUserId: text("clerk_user_id").unique(),
-  localAuthUserId: uuid("local_auth_user_id").references(() => localAuthUsersTable.id),
+  localAuthUserId: uuid("local_auth_user_id"),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   storeName: text("store_name").notNull(),
