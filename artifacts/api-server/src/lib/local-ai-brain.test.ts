@@ -70,12 +70,13 @@ describe("local AI brain", () => {
 
     const result = await completeLocalBrain(
       [{ role: "user", content: "Compare models." }],
-      { ensemble: false },
+      { ensemble: true },
     );
 
-    expect(result.successfulCandidates).toBe(1);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.model).toBe("model-a");
+    expect(result.successfulCandidates).toBe(2);
+    expect(result.candidatesTried).toBe(2);
+    expect(calls).toHaveLength(2);
+    expect(calls.map((entry) => entry.model)).toEqual(["model-a", "model-b"]);
   });
 
   it("disables fanout when ensemble mode is explicitly disabled", async () => {
