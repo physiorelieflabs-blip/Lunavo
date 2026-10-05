@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, gt, isNull, isNotNull, lt, lte, sql } from "drizzle-orm";
+import { toMinorUnits } from "./money";
 import {
   merchantsTable,
   paymentsTable,
@@ -13,6 +14,7 @@ import {
 
 type Transaction = any;
 export const REFERRAL_DISCOUNT_RATE = 0.30;
+export const REFERRAL_DISCOUNT_BPS = 3000;
 
 export function normalizeReferralCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, "");
@@ -60,13 +62,24 @@ export function referralPeriodForDate(timeZone: string | null | undefined, now =
 }
 
 function subscriptionGrossMinor(subscription: Subscription): number {
-  const gross = Number(subscription.grossAmount || subscription.amountDue);
-  return Math.max(0, Math.round(gross * 100));
+  const gross = toMinorUnits(subscription.grossAmount || subscription.amountDue);
+  if (gross === null || gross < 0) throw new Error("Subscription gross amount is invalid");
+  return gross;
 }
 
-export function calculateReferralDiscountMinor(grossAmountMinor: number): number {
-  const gross = Math.max(0, Math.round(grossAmountMinor));
-  return Math.min(gross, Math.round(gross * REFERRAL_DISCOUNT_RATE));
+export function calculateReferralDiscountMinor(grossAmountMinor: number, discountRateBps = REFERRAL_DISCOUNT_BPS): number {
+  if (!Number.isSafeInteger(grossAmountMinor) || grossAmountMinor < 0) throw new Error("Referral gross amount is invalid");
+  if (!Number.isSafeInteger(discountRateBps) || discountRateBps < 0 || discountRateBps > 10_000) throw new Error("Referral discount rate is invalid");
+  const product = BigInt(grossAmountMinor) * BigInt(discountRateBps);
+  const discount = Number(product / 10_000n);
+  if (!Number.isSafeInteger(discount)) throw new Error("Referral discount exceeds safe integer range");
+  return Math.min(grossAmountMinor, discount);
+}
+
+function subscriptionIsSettled(subscription: Subscription): boolean {
+  const paid = toMinorUnits(subscription.amountPaid);
+  const due = toMinorUnits(subscription.amountDue);
+  return paid !== null && due !== null && paid >= due;
 }
 
 export async function ensureReferralPeriodForPaidSubscription(
@@ -75,7 +88,7 @@ export async function ensureReferralPeriodForPaidSubscription(
   subscription: Subscription,
   now = new Date(),
 ): Promise<ReferralPeriod | null> {
-  if (Number(subscription.amountPaid) + 0.005 < Number(subscription.amountDue)) return null;
+  if (!subscriptionIsSettled(subscription)) return null;
   const period = referralPeriodForDate(subscription.billingTimezone, now);
   await tx
     .update(referralPeriodsTable)
@@ -256,7 +269,7 @@ export async function qualifyReferralForPayment(
   },
 ) {
   const now = input.now ?? new Date();
-  if (Number(input.subscription.amountPaid) + 0.005 < Number(input.subscription.amountDue)) {
+  if (!subscriptionIsSettled(input.subscription)) {
     return null;
   }
   const [attribution] = await tx
@@ -314,7 +327,7 @@ export async function qualifyReferralForPayment(
       attributionId: attribution.id,
       qualifyingPaymentId: payment.id,
       grossAmountMinor,
-      discountRateBps: Math.round(REFERRAL_DISCOUNT_RATE * 10000),
+      discountRateBps: REFERRAL_DISCOUNT_BPS,
       discountAmountMinor,
       payableAmountMinor,
       currency: rewardCurrency,
@@ -352,7 +365,7 @@ export async function rollSubscriptionPeriod(
   }
   if (
     subscription.billingPeriodKey === currentPeriod.periodKey ||
-    Number(subscription.amountPaid) + 0.005 < Number(subscription.amountDue)
+    !subscriptionIsSettled(subscription)
   ) {
     return subscription;
   }
@@ -369,11 +382,8 @@ export async function rollSubscriptionPeriod(
     ))
     .orderBy(desc(referralRewardsTable.createdAt))
     .limit(1);
-  const discountRateBps = reward?.discountRateBps ?? Math.round(REFERRAL_DISCOUNT_RATE * 10000);
-  const discountMinor = Math.min(
-    grossAmountMinor,
-    Math.round(grossAmountMinor * (discountRateBps / 10000)),
-  );
+  const discountRateBps = reward?.discountRateBps ?? REFERRAL_DISCOUNT_BPS;
+  const discountMinor = calculateReferralDiscountMinor(grossAmountMinor, discountRateBps);
   const payableMinor = Math.max(0, grossAmountMinor - discountMinor);
   const [nextSubscription] = await tx
     .update(subscriptionsTable)
