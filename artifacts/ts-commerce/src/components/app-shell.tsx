@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalAuth, useUser } from '@/components/local-auth';
 import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getListMerchantsQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces, useListMerchants } from '@workspace/api-client-react';
-import { ArrowLeft, BarChart3, Bell, BookOpen, BrainCircuit, Building2, ChevronDown, ChevronRight, CircleHelp, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, KeyRound, Landmark, LayoutDashboard, LineChart, LogOut, Menu, Megaphone, PackageCheck, PanelLeftClose, PanelLeftOpen, Route, Search, Settings2, ShoppingCart, Store, Users, UsersRound, Warehouse, WalletCards, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Bell, BookOpen, BrainCircuit, Building2, ChevronDown, ChevronRight, CircleHelp, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, KeyRound, Landmark, LayoutDashboard, LineChart, LogOut, Menu, Megaphone, PackageCheck, PanelLeftClose, PanelLeftOpen, Route, Search, Settings2, ShoppingCart, Store, Users, UsersRound, Warehouse, WalletCards, ShieldCheck, X } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { ErrorState, LoadingState, Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
@@ -17,7 +17,15 @@ const merchantGroups = [
   { label: 'Operations', items: [{ href: '/inventory', label: 'Inventory', icon: Warehouse }, { href: '/suppliers', label: 'Suppliers', icon: Store }, { href: '/dropshipping', label: 'Fulfillment', icon: Route }, { href: '/finance', label: 'Finance', icon: WalletCards }, { href: '/withdrawals', label: 'Withdrawals', icon: WalletCards }, { href: '/ts-pay', label: 'TS Pay', icon: Landmark }, { href: '/operations', label: 'Operations & Advanced', icon: Route }, { href: '/automations', label: 'Automation Studio', icon: Route }] },
   { label: 'Account', items: [{ href: '/team', label: 'Team & Locations', icon: Users }, { href: '/media', label: 'Media Library', icon: ImagePlus }, { href: '/activity', label: 'Activity', icon: Bell }, { href: '/billing', label: 'Billing', icon: CreditCard }, { href: '/settings', label: 'Settings', icon: Settings2 }] },
 ];
-const adminGroups = [{ label: 'Administration', items: [{ href: '/admin', label: 'Overview', icon: BarChart3 }, { href: '/admin/merchants', label: 'Merchants', icon: Users }, { href: '/admin/withdrawals', label: 'Withdrawals', icon: WalletCards }, { href: '/admin/integrations', label: 'Integrations', icon: KeyRound }] }];
+const adminGroups = [{ label: 'Administration', items: [
+  { href: '/admin', label: 'Overview', icon: BarChart3 },
+  { href: '/admin/merchants', label: 'Merchants', icon: Users },
+  { href: '/admin/kyc', label: 'KYC Review', icon: ShieldCheck },
+  { href: '/admin/withdrawals', label: 'Withdrawals', icon: WalletCards },
+  { href: '/admin/ai-stores', label: 'AI Store Jobs', icon: BrainCircuit },
+  { href: '/admin/integrations', label: 'Integrations & Runtime', icon: KeyRound },
+  { href: '/admin/mfa-setup', label: 'Admin Security', icon: ShieldCheck },
+] }];
 
 export function AppShell({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const [location, setLocation] = useLocation(); const [mobileOpen, setMobileOpen] = useState(false); const [collapsed, setCollapsed] = useState(false);
