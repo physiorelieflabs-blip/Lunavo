@@ -74,7 +74,7 @@ function evidencePayload(product: ImportedSupplierProduct): string {
   });
 }
 
-function merge(product: ImportedSupplierProduct, ai: Structured, model: string, mode: "text" | "vision"): ImportedSupplierProduct {
+function merge(product: ImportedSupplierProduct, ai: Structured, model: string, mode: "text" | "vision", profile?: string): ImportedSupplierProduct {
   const title = cleanString(ai.title, 300);
   const description = cleanString(ai.description, 2000);
   const category = cleanString(ai.category, 160);
@@ -85,6 +85,17 @@ function merge(product: ImportedSupplierProduct, ai: Structured, model: string, 
   const shippingInformation = ai.shippingInformation && typeof ai.shippingInformation === "object" && !Array.isArray(ai.shippingInformation)
     ? ai.shippingInformation as Record<string, unknown>
     : null;
+  const fieldCandidates: Array<[string, boolean]> = [
+    ["title", !product.title && Boolean(title)],
+    ["description", !product.description && Boolean(description)],
+    ["category", !product.category && Boolean(category)],
+    ["brand", !product.brand && Boolean(brand)],
+    ["specifications", Object.keys(product.specifications).length === 0 && Object.keys(specifications).length > 0],
+    ["attributes", Object.keys(product.attributes).length === 0 && Object.keys(attributes).length > 0],
+    ["variants", product.variants.length === 0 && variants.length > 0],
+    ["shippingInformation", !product.shippingInformation && Boolean(shippingInformation)],
+  ];
+  const generatedFields = fieldCandidates.filter(([, generated]) => generated).map(([field]) => field);
   return {
     ...product,
     title: product.title || title || product.title,
@@ -101,7 +112,21 @@ function merge(product: ImportedSupplierProduct, ai: Structured, model: string, 
         enabled: true,
         provider: "self-hosted-local",
         model,
+        profile: profile ?? null,
         mode,
+        generatedAt: new Date().toISOString(),
+        sourceContext: {
+          sourceUrl: product.sourceUrl,
+          sourceDomain: product.sourceDomain,
+          sourceFieldsRemainAuthoritative: ["price", "salePrice", "currency", "availability", "availabilityQuantity"],
+        },
+        provenance: {
+          source: "supplier_public_page",
+          extracted: "structured/public supplier content",
+          generated: generatedFields,
+          inferred: [],
+          recommended: [],
+        },
         fieldsOnlyWhenSourceMissing: true,
         evidence: cleanRecord(ai.evidence, 20),
       },
@@ -128,7 +153,7 @@ export async function enrichSupplierProduct(product: ImportedSupplierProduct): P
       { role: "system", content: "Return strict JSON only. Do not fabricate missing supplier facts." },
       { role: "user", content: prompt },
     ], { json: true, maxTokens: 3500, reasoningEffort: "high" });
-    return merge(product, parseJson(response.content), response.model, "text");
+    return merge(product, parseJson(response.content), response.model, "text", response.profile);
   } catch {
     // Image enrichment is best-effort. A supplier import remains truthful when the provider is unavailable.
     if (!product.imageUrl) return product;
@@ -140,7 +165,7 @@ export async function enrichSupplierProduct(product: ImportedSupplierProduct): P
         evidencePayload(product),
       ].join("\n");
       const response = await completeLocalVisionJson(visualPrompt, product.imageUrl, { maxTokens: 2500 });
-      return merge(product, parseJson(response.content), response.model, "vision");
+      return merge(product, parseJson(response.content), response.model, "vision", response.profile);
     } catch {
       return product;
     }
