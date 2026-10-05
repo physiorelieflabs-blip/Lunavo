@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { flutterwaveAmount, flutterwaveStatus } from "./flutterwave-client";
+import { toMinorUnits } from "./money";
+import { calculateTsCommerceFeeMinor } from "./critical-payment-rules";
 
 type ProviderTransaction = Record<string, unknown>;
 function hashEvidence(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
@@ -34,7 +36,9 @@ export async function settleVerifiedProductAuctionPayment(transaction: ProviderT
       await tx.execute(sql`UPDATE auction_listings SET status='ended',settlement_status='failed',updated_at=now() WHERE id=${auctionId} AND status='payment_pending'`);
       return { auctionId, bidId, status: "failed" as const };
     }
-    if (status !== "paid" || !Number.isFinite(amount) || Math.abs(amount - Number(settlement.amount)) > 0.005 || currency !== String(settlement.currency).toUpperCase()) throw new Error("Provider payment amount or currency does not match the auction settlement");
+    const grossMinor = toMinorUnits(amount);
+    const settlementAmountMinor = toMinorUnits(settlement.amount);
+    if (status !== "paid" || grossMinor === null || settlementAmountMinor === null || grossMinor <= 0 || grossMinor !== settlementAmountMinor || currency !== String(settlement.currency).toUpperCase()) throw new Error("Provider payment amount or currency does not match the auction settlement");
 
     const winningRows = await tx.execute(sql`SELECT id,risk_status FROM auction_bids WHERE id=${bidId} AND auction_id=${auctionId} FOR UPDATE`);
     const winningBid = winningRows.rows[0] as Record<string, unknown> | undefined;
@@ -47,12 +51,10 @@ export async function settleVerifiedProductAuctionPayment(transaction: ProviderT
     const updated = await tx.execute(sql`UPDATE product_auction_settlements SET status='paid',provider_transaction_id=${transactionId},paid_at=now(),updated_at=now() WHERE id=${Number(settlement.id)} AND status='pending'`);
     if (updated.rowCount === 0) return { auctionId, bidId, status: "duplicate" as const };
 
-    const grossMinor = Math.round(amount * 100);
-    const lunavoFeeMinor = Math.floor(grossMinor * 0.01);
+    const lunavoFeeMinor = calculateTsCommerceFeeMinor(grossMinor);
     const rawProviderFee = transaction.app_fee;
-    const providerFee = rawProviderFee == null || rawProviderFee === "" ? 0 : Number(rawProviderFee);
-    if (!Number.isFinite(providerFee) || providerFee < 0) throw new Error("Invalid provider fee returned by Flutterwave");
-    const providerFeeMinor = Math.round(providerFee * 100);
+    const providerFeeMinor = rawProviderFee == null || rawProviderFee === "" ? 0 : toMinorUnits(rawProviderFee);
+    if (providerFeeMinor === null || providerFeeMinor < 0) throw new Error("Invalid provider fee returned by Flutterwave");
     const sellerNetMinor = grossMinor - lunavoFeeMinor - providerFeeMinor;
     if (sellerNetMinor < 0) throw new Error("Provider/platform fees exceed auction proceeds");
 
