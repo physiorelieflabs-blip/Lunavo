@@ -22,7 +22,7 @@ Important workflows use server-side state transitions and idempotency. Inventory
 
 Financial values use exact minor units at trusted calculation boundaries. Lunavo's 1% fee is calculated without floating-point arithmetic. Provider fees remain distinct from the Lunavo platform fee. Webhook callbacks are treated as signals; Flutterwave is re-queried before trusted settlement.
 
-Withdrawal webhook reconciliation now compares provider and internal amounts using exact minor units rather than floating-point tolerance.
+Withdrawal webhook reconciliation now compares provider and internal amounts using exact minor units rather than floating-point tolerance. Subscription settlement/refund, referral discounts, product/store auction settlement, and auction bid increments were also hardened to exact minor-unit arithmetic.
 
 ## Self-hosted AI boundary
 
@@ -46,6 +46,6 @@ Repository secret auditing distinguishes CI-only fixtures and archived prompt as
 
 The GitHub Actions verification workflow covers migrations, self-hosted policy, repository secret audit, financial-boundary audit, implementation invariants, production configuration shape, payment/subscription security simulation, unit tests, typecheck, and build.
 
-The newest verification run for the latest implementation batch is queued behind the GitHub Actions runner. Earlier verification failures were isolated to repository security scanning of non-production fixtures; the scanner has been hardened and later commits superseded the earlier failed/cancelled runs.
+The newest verification run for the latest implementation batch is queued behind the GitHub Actions runner. Each newer commit intentionally superseded/cancelled the prior queued verification run through the workflow concurrency policy. Earlier verification failures were isolated to repository security scanning of non-production fixtures; the scanner has been hardened and later commits superseded the earlier failed/cancelled runs.
 
 Do not mark Lunavo release-complete from feature registry counts alone. Release completion requires a green CI run for the current commit plus environment-specific provider/model configuration checks required by deployment.
