@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 
 export type LocalAiMessage = {
   role: "system" | "user" | "assistant";
@@ -35,13 +36,36 @@ const PROFILE_DEFAULTS: Record<LocalAiProfile, { model: string; timeoutMs: numbe
   review: { model: "qwen3:14b", timeoutMs: 120_000 },
 };
 
+function assertSelfHostedEndpoint(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Self-hosted AI endpoint must be a valid URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Self-hosted AI endpoint must use HTTP(S)");
+  const hostname = url.hostname.toLowerCase();
+  const ipVersion = isIP(hostname);
+  const privateIpv4 =
+    ipVersion === 4 &&
+    (() => {
+      const [a, b] = hostname.split(".").map(Number);
+      return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+    })();
+  const privateIpv6 = ipVersion === 6 && (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:"));
+  const localHostname = hostname === "localhost" || hostname === "host.docker.internal" || hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".lan") || !hostname.includes(".");
+  if (ipVersion && !privateIpv4 && !privateIpv6) throw new Error("Self-hosted AI endpoints must use a private/local network address");
+  if (!ipVersion && !localHostname) throw new Error("Self-hosted AI endpoints must use a private/local hostname");
+  return value.replace(/\/$/, "");
+}
+
 function globalEndpoint(): string {
   const direct = process.env.LUNAVO_LOCAL_LLM_URL?.trim();
-  if (direct) return direct.replace(/\/$/, "");
+  if (direct) return assertSelfHostedEndpoint(direct);
 
   const base = process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim();
   if (base) {
-    const normalized = base.replace(/\/$/, "");
+    const normalized = assertSelfHostedEndpoint(base);
     return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
   }
 
@@ -66,7 +90,7 @@ export function resolveLocalAiProfile(profile: LocalAiProfile = "general", overr
   const configured = configuredProfileEnv(profile);
   return {
     profile,
-    url: configured.url?.replace(/\/$/, "") || globalEndpoint(),
+    url: configured.url ? assertSelfHostedEndpoint(configured.url) : globalEndpoint(),
     model: overrideModel?.trim() || configured.model || defaults.model,
   };
 }
