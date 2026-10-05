@@ -80,7 +80,12 @@ router.post("/webhooks/flutterwave", async (req, res): Promise<void> => {
           .limit(1);
         if (!current) return "reconciliation_required";
 
-        const amountMatches = Math.abs(Number(current.amount) - Number(transfer.amount ?? NaN)) < 0.005;
+        const currentAmountMinor = toMinorUnits(current.amount);
+        const providerAmountMinor = toMinorUnits(transfer.amount);
+        if (currentAmountMinor === null || providerAmountMinor === null || currentAmountMinor <= 0 || providerAmountMinor <= 0) {
+          return "reconciliation_required";
+        }
+        const amountMatches = currentAmountMinor === providerAmountMinor;
         const currencyMatches = String(transfer.currency ?? "").toUpperCase() === current.currency.toUpperCase();
         const referenceMatches = !transfer.reference || transfer.reference === current.settlementReference;
         if (!amountMatches || !currencyMatches || !referenceMatches) {
