@@ -136,9 +136,9 @@ async function postChat(
 export async function completeLocalChat(
   messages: LocalAiMessage[],
   options: LocalChatOptions = {},
-): Promise<{ model: string; content: string }> {
+): Promise<{ model: string; profile: LocalAiProfile; content: string }> {
   const response = await postChat(messages, options);
-  return { model: response.model, content: response.content };
+  return { model: response.model, profile: response.profile, content: response.content };
 }
 
 export async function completeLocalEnsemble(
@@ -218,7 +218,7 @@ export async function completeLocalVisionJson(
   prompt: string,
   imageUrl: string,
   options: { maxTokens?: number; timeoutMs?: number } = {},
-): Promise<{ model: string; content: string }> {
+): Promise<{ model: string; profile: LocalAiProfile; content: string }> {
   if (!/^https?:\/\//i.test(imageUrl) || imageUrl.length > 8192) {
     throw new Error("Image analysis requires a supported public HTTP(S) URL");
   }
