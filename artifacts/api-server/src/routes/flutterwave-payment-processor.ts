@@ -711,10 +711,17 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
       const current = (await tx.select().from(paymentsTable).where(eq(paymentsTable.id, payment.id)).limit(1))[0];
       const locked = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.id, subscription.id)).limit(1))[0];
       if (!current || !locked || current.status !== "confirmed") return;
-      const nextPaid = Math.max(0, Number(locked.amountPaid) - Number(current.amount));
-      await tx.update(subscriptionsTable).set({ amountPaid: nextPaid.toFixed(2), status: nextPaid + 0.005 >= Number(locked.amountDue) ? "active" : "past_due" }).where(eq(subscriptionsTable.id, locked.id));
+      const lockedPaidMinor = toMinorUnits(locked.amountPaid);
+      const currentPaymentMinor = toMinorUnits(current.amount);
+      const lockedDueMinor = toMinorUnits(locked.amountDue);
+      if (lockedPaidMinor === null || currentPaymentMinor === null || lockedDueMinor === null || currentPaymentMinor <= 0 || lockedDueMinor < 0) throw new Error("Subscription refund amount state is invalid");
+      const nextPaidMinor = Math.max(0, lockedPaidMinor - currentPaymentMinor);
+      await tx.update(subscriptionsTable).set({
+        amountPaid: (nextPaidMinor / 100).toFixed(2),
+        status: nextPaidMinor >= lockedDueMinor ? "active" : "past_due",
+      }).where(eq(subscriptionsTable.id, locked.id));
       await tx.update(paymentsTable).set({ status: "refunded", evidenceReference: providerId ?? reference, reviewedBy: "flutterwave_webhook", reviewedAt: new Date(), reviewNote: reason }).where(eq(paymentsTable.id, current.id));
-      const refundedAmountMinor = Math.round(Number(current.amount) * 100);
+      const refundedAmountMinor = currentPaymentMinor;
       await recordExternalDashboardTransaction({
         merchantId: merchant.id,
         transactionType: "subscription_refund",
@@ -758,19 +765,27 @@ async function processSubscriptionPayment(transaction: ProviderTransaction, even
     if (currentPayment.status === "confirmed") return "duplicate" as const;
     const duplicateProvider = providerId ? await tx.execute(sql`SELECT id FROM payments WHERE provider_transaction_id=${providerId} AND id <> ${currentPayment.id} LIMIT 1`) : null;
     if (duplicateProvider?.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Commerce payment");
-    const remaining = Math.max(0, Number(currentSubscription.amountDue) - Number(currentSubscription.amountPaid));
-    if (remaining <= 0 || Number(currentPayment.amount) > remaining) throw new Error("Flutterwave subscription payment exceeds the outstanding obligation");
+    const dueMinor = toMinorUnits(currentSubscription.amountDue);
+    const paidMinor = toMinorUnits(currentSubscription.amountPaid);
+    const paymentMinor = toMinorUnits(currentPayment.amount);
+    if (dueMinor === null || paidMinor === null || paymentMinor === null || dueMinor < 0 || paidMinor < 0 || paymentMinor <= 0) throw new Error("Flutterwave subscription payment amount state is invalid");
+    const remainingMinor = Math.max(0, dueMinor - paidMinor);
+    if (remainingMinor <= 0 || paymentMinor > remainingMinor) throw new Error("Flutterwave subscription payment exceeds the outstanding obligation");
 
-    const nextPaid = Number(currentSubscription.amountPaid) + Number(currentPayment.amount);
-    const settled = nextPaid + 0.005 >= Number(currentSubscription.amountDue);
+    const nextPaidMinor = paidMinor + paymentMinor;
+    const settled = nextPaidMinor >= dueMinor;
     await tx.update(paymentsTable).set({ status: "confirmed", evidenceReference: providerId ?? reference, reviewedBy: "flutterwave_webhook", reviewedAt: new Date(), reviewNote: "Verified by Flutterwave webhook and transaction re-query" }).where(eq(paymentsTable.id, currentPayment.id));
-    const [updatedSubscription] = await tx.update(subscriptionsTable).set({ amountPaid: nextPaid.toFixed(2), paymentMethod: "flutterwave", status: settled ? "active" : "past_due" }).where(and(eq(subscriptionsTable.id, currentSubscription.id), eq(subscriptionsTable.amountPaid, currentSubscription.amountPaid))).returning();
+    const [updatedSubscription] = await tx.update(subscriptionsTable).set({
+      amountPaid: (nextPaidMinor / 100).toFixed(2),
+      paymentMethod: "flutterwave",
+      status: settled ? "active" : "past_due",
+    }).where(and(eq(subscriptionsTable.id, currentSubscription.id), eq(subscriptionsTable.amountPaid, currentSubscription.amountPaid))).returning();
     if (!updatedSubscription) throw new Error("Subscription changed while payment was processing");
     const providerFee = providerFeeMinor(transaction);
     await tx.execute(sql`UPDATE payments SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(expectedMinor)}, merchant_net_minor=${calculateMerchantNetMinor(expectedMinor, providerFee)} WHERE id=${currentPayment.id}`);
     await qualifyReferralForPayment(tx, { referredMerchantId: merchant.id, paymentId: currentPayment.id, subscription: updatedSubscription, amountMinor: amountMinor!, currency: currentPayment.currency });
     if (settled) await ensureReferralPeriodForPaidSubscription(tx, merchant.id, updatedSubscription);
-    const subscriptionAmountMinor = Math.round(Number(currentPayment.amount) * 100);
+    const subscriptionAmountMinor = paymentMinor;
     await recordExternalDashboardTransaction({
       merchantId: merchant.id,
       transactionType: "subscription_payment",
@@ -809,7 +824,7 @@ export async function processVerifiedFlutterwaveTransaction(
       eventId,
       providerTransactionId: flutterwaveTransactionId(transaction as any),
       paymentReference: reference || null,
-      observedAmountMinor: Number.isFinite(flutterwaveAmount(transaction as any)) ? Math.round(flutterwaveAmount(transaction as any) * 100) : null,
+      observedAmountMinor: toMinorUnits(flutterwaveAmount(transaction as any)),
       observedCurrency: text(transaction.currency).toUpperCase() || null,
       reason: "Flutterwave transaction has no matching TS Pay payment session or subscription payment",
       payload: rawPayload,
