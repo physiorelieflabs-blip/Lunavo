@@ -3,9 +3,10 @@ import { Router } from "express";
 import { sql } from "drizzle-orm";
 import { PlaceAuctionBidParams, PlaceAuctionBidBody, PlaceAuctionBidResponse } from "@workspace/api-zod";
 import { db } from "@workspace/db";
+import { toMinorUnits } from "../lib/money";
 
 const router = Router();
-const BID_INCREMENT = 0.01;
+const BID_INCREMENT_MINOR = 1;
 const EMAIL_WINDOW_MS = 5 * 60_000;
 const MAX_BIDS_PER_EMAIL = 12;
 const MAX_BIDS_PER_IP = 30;
@@ -29,11 +30,11 @@ router.post("/auctions/:id/bids", async (req, res): Promise<void> => {
   const auctionId = Number(params.data.id);
   const bidderName = parsed.data.bidderName.trim();
   const bidderEmail = parsed.data.bidderEmail.trim().toLowerCase();
-  const amount = Number(parsed.data.amount);
+  const amountMinor = toMinorUnits(parsed.data.amount);
   const ip = String(req.ip || req.socket.remoteAddress || "unknown");
   const userAgent = String(req.get("user-agent") || "unknown");
 
-  if (!Number.isInteger(auctionId) || auctionId <= 0 || !Number.isFinite(amount) || amount <= 0) {
+  if (!Number.isInteger(auctionId) || auctionId <= 0 || amountMinor === null || amountMinor <= 0) {
     res.status(400).json({ error: "Enter a valid bid" });
     return;
   }
@@ -102,10 +103,10 @@ router.post("/auctions/:id/bids", async (req, res): Promise<void> => {
         ORDER BY amount DESC, id DESC LIMIT 1
       `);
       const latest = latestRows.rows[0] as { amount?: string } | undefined;
-      const current = latest ? Number(latest.amount) : Number(auction.starting_price);
-      const minimum = Math.round((current + BID_INCREMENT) * 100) / 100;
-      if (amount < minimum) {
-        throw Object.assign(new Error(`Bid must be at least ${minimum.toFixed(2)} ${auction.currency}`), { status: 409 });
+      const currentMinor = latest ? toMinorUnits(latest.amount) : toMinorUnits(auction.starting_price);
+      if (currentMinor === null || amountMinor < currentMinor + BID_INCREMENT_MINOR) {
+        const minimumMinor = currentMinor === null ? amountMinor : currentMinor + BID_INCREMENT_MINOR;
+        throw Object.assign(new Error(`Bid must be at least ${(minimumMinor / 100).toFixed(2)} ${auction.currency}`), { status: 409 });
       }
 
       const [inserted] = (await tx.execute(sql`
@@ -113,7 +114,7 @@ router.post("/auctions/:id/bids", async (req, res): Promise<void> => {
           (auction_id, bidder_name, bidder_email, normalized_bidder_email, amount,
            risk_status, risk_reason, ip_hash, user_agent_hash)
         VALUES
-          (${auctionId}, ${bidderName}, ${bidderEmail}, ${bidderEmail}, ${amount.toFixed(2)},
+          (${auctionId}, ${bidderName}, ${bidderEmail}, ${bidderEmail}, ${(amountMinor / 100).toFixed(2)},
            'accepted', NULL, ${ipHash}, ${hash(userAgent)})
         RETURNING id, auction_id, bidder_name, amount, created_at
       `)).rows as Array<{ id: number; auction_id: number; bidder_name: string; amount: string; created_at: string }>;
