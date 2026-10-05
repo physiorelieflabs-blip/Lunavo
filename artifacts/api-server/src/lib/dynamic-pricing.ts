@@ -12,7 +12,21 @@ export type PricingInputs = {
   minPriceMinor?: number;
   maxPriceMinor?: number;
 };
-export type PricingResult={recommendedPriceMinor:number|null;maximumCommercialPriceMinor:number|null;floorPriceMinor:number;marketReferenceMinor:number|null;pricingStatus:"evidence_backed"|"insufficient_market_evidence"};
+export type PricingResult={
+  recommendedPriceMinor:number|null;
+  maximumCommercialPriceMinor:number|null;
+  floorPriceMinor:number;
+  marketReferenceMinor:number|null;
+  pricingStatus:"evidence_backed"|"insufficient_market_evidence";
+  provenance:{
+    generatedAt:string;
+    source:"merchant_inputs"|"merchant_and_market_inputs";
+    extracted:string[];
+    inferred:string[];
+    recommended:string[];
+    sourceContext:Record<string,unknown>;
+  };
+};
 const finite=(v:number|undefined,fallback=0)=>Number.isFinite(v)?Number(v):fallback;
 const nonNegative=(v:number|undefined)=>Math.max(0,finite(v));
 
@@ -26,7 +40,29 @@ export function recommendDynamicPrice(input:PricingInputs):PricingResult{
  const floor=Math.max(Math.ceil(baseCost/denominator),nonNegative(input.minPriceMinor));
  const low=Number.isSafeInteger(input.marketLowMinor)&&input.marketLowMinor!>0?input.marketLowMinor!:null;
  const high=Number.isSafeInteger(input.marketHighMinor)&&input.marketHighMinor!>0?input.marketHighMinor!:null;
- if(low===null||high===null||high<low)return {recommendedPriceMinor:null,maximumCommercialPriceMinor:null,floorPriceMinor:floor,marketReferenceMinor:low??high,pricingStatus:"insufficient_market_evidence"};
+ if(low===null||high===null||high<low)return {
+  recommendedPriceMinor:null,
+  maximumCommercialPriceMinor:null,
+  floorPriceMinor:floor,
+  marketReferenceMinor:low??high,
+  pricingStatus:"insufficient_market_evidence",
+  provenance:{
+    generatedAt:new Date().toISOString(),
+    source:"merchant_inputs",
+    extracted:[],
+    inferred:["floorPriceMinor"],
+    recommended:[],
+    sourceContext:{
+      supplierCostMinor:input.supplierCostMinor,
+      shippingMinor:input.shippingMinor??0,
+      taxMinor:input.taxMinor??0,
+      fixedFeesMinor:input.fixedFeesMinor??0,
+      percentageFeeBps:input.percentageFeeBps??0,
+      targetMarginPercent:input.targetMarginPercent,
+      marketEvidencePresent:false,
+    },
+  },
+};
  const reference=Math.round((low+high)/2);
  const demand=Math.max(0,Math.min(100,finite(input.demandScore,50)));
  const competition=Math.max(0,Math.min(100,finite(input.competitionScore,50)));
@@ -34,5 +70,30 @@ export function recommendDynamicPrice(input:PricingInputs):PricingResult{
  const configuredMax=Number.isSafeInteger(input.maxPriceMinor)&&input.maxPriceMinor!>0?input.maxPriceMinor!:evidenceMax;
  const maximum=Math.min(evidenceMax,configuredMax);
  const recommended=Math.min(maximum,Math.max(floor,Math.round(reference*(1+(demand-competition)/1000))));
- return {recommendedPriceMinor:recommended,maximumCommercialPriceMinor:maximum,floorPriceMinor:floor,marketReferenceMinor:reference,pricingStatus:"evidence_backed"};
+ return {
+  recommendedPriceMinor:recommended,
+  maximumCommercialPriceMinor:maximum,
+  floorPriceMinor:floor,
+  marketReferenceMinor:reference,
+  pricingStatus:"evidence_backed",
+  provenance:{
+    generatedAt:new Date().toISOString(),
+    source:"merchant_and_market_inputs",
+    extracted:[],
+    inferred:["recommendedPriceMinor","maximumCommercialPriceMinor","marketReferenceMinor"],
+    recommended:["recommendedPriceMinor","maximumCommercialPriceMinor"],
+    sourceContext:{
+      supplierCostMinor:input.supplierCostMinor,
+      shippingMinor:input.shippingMinor??0,
+      taxMinor:input.taxMinor??0,
+      fixedFeesMinor:input.fixedFeesMinor??0,
+      percentageFeeBps:input.percentageFeeBps??0,
+      targetMarginPercent:input.targetMarginPercent,
+      marketLowMinor:low,
+      marketHighMinor:high,
+      demandScore:demand,
+      competitionScore:competition,
+    },
+  },
+};
 }
