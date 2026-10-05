@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { flutterwaveAmount, flutterwaveStatus, flutterwaveTransactionId, type FlutterwaveTransaction } from "./flutterwave-client";
+import { toMinorUnits } from "./money";
+import { calculateTsCommerceFeeMinor } from "./critical-payment-rules";
 
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 
@@ -31,14 +33,14 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
 
     const amount = flutterwaveAmount(transaction);
     const currency = String(transaction.currency ?? "").toUpperCase();
-    if (!Number.isFinite(amount) || amount <= 0 || currency !== String(bid.currency).toUpperCase() || Math.abs(amount - Number(bid.amount)) > 0.005) return "reconciliation_required" as const;
+    const grossMinor = toMinorUnits(amount);
+    const bidAmountMinor = toMinorUnits(bid.amount);
+    if (grossMinor === null || bidAmountMinor === null || grossMinor <= 0 || grossMinor !== bidAmountMinor || currency !== String(bid.currency).toUpperCase()) return "reconciliation_required" as const;
 
-    const grossMinor = Math.round(amount * 100);
-    const lunavoFeeMinor = Math.floor(grossMinor * 0.01);
+    const lunavoFeeMinor = calculateTsCommerceFeeMinor(grossMinor);
     const rawProviderFee = (transaction as Record<string, unknown>).app_fee;
-    const parsedProviderFee = rawProviderFee == null || rawProviderFee === "" ? 0 : Number(rawProviderFee);
-    if (!Number.isFinite(parsedProviderFee) || parsedProviderFee < 0) return "reconciliation_required" as const;
-    const providerFeeMinor = Math.round(parsedProviderFee * 100);
+    const providerFeeMinor = rawProviderFee == null || rawProviderFee === "" ? 0 : toMinorUnits(rawProviderFee);
+    if (providerFeeMinor === null || providerFeeMinor < 0) return "reconciliation_required" as const;
     const sellerNetMinor = grossMinor - lunavoFeeMinor - providerFeeMinor;
     if (sellerNetMinor < 0) return "reconciliation_required" as const;
 
@@ -56,9 +58,9 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
     }
 
     if (!existingRow) {
-      await tx.execute(sql`INSERT INTO store_auction_payment_verifications (auction_id,bid_id,provider,provider_reference,amount,currency,status,verified_at,evidence_hash) VALUES (${auctionId},${bidId},'flutterwave',${providerTransactionId},${amount},${currency},'verified',now(),${hash(JSON.stringify({auctionId,bidId,txRef,providerTransactionId,amount,currency}))})`);
+      await tx.execute(sql`INSERT INTO store_auction_payment_verifications (auction_id,bid_id,provider,provider_reference,amount,currency,status,verified_at,evidence_hash) VALUES (${auctionId},${bidId},'flutterwave',${providerTransactionId},${grossMinor / 100},${currency},'verified',now(),${hash(JSON.stringify({auctionId,bidId,txRef,providerTransactionId,grossMinor,currency}))})`);
     } else if (existingRow.status !== "verified") {
-      await tx.execute(sql`UPDATE store_auction_payment_verifications SET status='verified',amount=${amount},currency=${currency},verified_at=now(),evidence_hash=${hash(JSON.stringify({auctionId,bidId,txRef,providerTransactionId,amount,currency}))} WHERE id=${existingRow.id}`);
+      await tx.execute(sql`UPDATE store_auction_payment_verifications SET status='verified',amount=${grossMinor / 100},currency=${currency},verified_at=now(),evidence_hash=${hash(JSON.stringify({auctionId,bidId,txRef,providerTransactionId,amount,currency}))} WHERE id=${existingRow.id}`);
     }
 
     const storeResult = await tx.execute(sql`SELECT id,merchant_id FROM merchant_storefronts WHERE id=${auction.storefront_id} FOR UPDATE`);
