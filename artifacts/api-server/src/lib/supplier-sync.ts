@@ -317,6 +317,10 @@ export async function synchronizeSupplierProduct(input: {
     }
 
     const afterState = sourceState(imported);
+    const derivedSellingPriceText =
+      merchantFields.includes("selling_price") && derivedSellingMinor !== null
+        ? minorToDecimalString(derivedSellingMinor)
+        : product.selling_price;
     const runStatus: "completed" | "review_required" =
       reviewReasons.length ? "review_required" : "completed";
 
@@ -352,7 +356,7 @@ export async function synchronizeSupplierProduct(input: {
             ELSE status
           END,
           selling_price=CASE
-            WHEN ${merchantFields.includes("selling_price")} AND ${derivedSellingMinor !== null} THEN ${minorToDecimalString(derivedSellingMinor)}
+            WHEN ${merchantFields.includes("selling_price")} AND ${derivedSellingMinor !== null} THEN ${derivedSellingPriceText}
             ELSE selling_price
           END,
           last_attempted_sync=now(),
