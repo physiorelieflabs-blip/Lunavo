@@ -35,6 +35,7 @@ import type { DuplicateCandidate, SupplierProductInput, SupplierProductPreview, 
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, Notice, SectionHeading, SubmitButton } from '@/components/primitives';
 import { money, timeAgo } from '@/lib/format';
+import { SupplierRoutingPanel } from '@/components/supplier-routing-panel';
 
 type PricingMode = 'same_price' | 'fixed_markup' | 'percentage_markup' | 'fixed_margin' | 'custom';
 type Visibility = 'draft' | 'active' | 'hidden';
@@ -478,6 +479,7 @@ export default function Suppliers() {
                 <Button className="min-h-8 px-3 text-xs" onClick={() => void saveSyncPolicy(product.id)} disabled={syncBusyId === product.id}>Save sync policy</Button>
               </div>
               <p className="mt-2 text-[11px] text-[#8fa1b2]">Last sync: {policy?.last_run_at ? new Date(policy.last_run_at).toLocaleString() : 'not yet run'} · currency changes never trigger automatic repricing.</p>
+              <SupplierRoutingPanel current={product} products={products.data.map((item) => ({ id: item.id, title: item.title, currency: item.currency, price: item.price, salePrice: item.salePrice, availability: item.availability }))} />
             </div>;
           })}
         </div>
