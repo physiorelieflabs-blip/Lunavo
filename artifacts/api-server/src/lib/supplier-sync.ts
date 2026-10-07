@@ -378,18 +378,18 @@ export async function synchronizeSupplierProduct(input: {
         const explanation = reviewReasons.length
           ? reviewReasons.join(" ")
           : "Supplier source data changed and may affect pricing, availability, merchandising, or fulfillment.";
-        await tx.execute(sql\`
+        await tx.execute(sql`
           INSERT INTO commerce_growth_opportunities (
             merchant_id, type, priority, score, title, explanation, evidence, suggested_action, status
           )
           SELECT
-            \${input.merchantId},
-            \${opportunityType},
-            \${priority},
-            \${reviewReasons.length > 0 ? 90 : imported.availability === "out_of_stock" ? 95 : 65},
-            \${reviewReasons.length > 0 ? "Supplier sync requires review for " + product.title : "Supplier source changed for " + product.title},
-            \${explanation},
-            \${JSON.stringify({
+            ${input.merchantId},
+            ${opportunityType},
+            ${priority},
+            ${reviewReasons.length > 0 ? 90 : imported.availability === "out_of_stock" ? 95 : 65},
+            ${reviewReasons.length > 0 ? "Supplier sync requires review for " + product.title : "Supplier source changed for " + product.title},
+            ${explanation},
+            ${JSON.stringify({
               supplierProductId: product.id,
               syncRunId: runId,
               changedFields: [...new Set(changedFields)],
@@ -398,7 +398,7 @@ export async function synchronizeSupplierProduct(input: {
               sourcePrice: imported.price,
               sourceAvailability: imported.availability,
             })}::jsonb,
-            \${JSON.stringify({
+            ${JSON.stringify({
               kind: reviewReasons.length > 0 ? "review_supplier_sync" : "inspect_supplier_change",
               supplierProductId: product.id,
               route: "/sourcing",
@@ -407,12 +407,12 @@ export async function synchronizeSupplierProduct(input: {
           WHERE NOT EXISTS (
             SELECT 1
             FROM commerce_growth_opportunities existing
-            WHERE existing.merchant_id = \${input.merchantId}
+            WHERE existing.merchant_id = ${input.merchantId}
               AND existing.status = 'open'
-              AND existing.type = \${opportunityType}
-              AND existing.evidence->>'supplierProductId' = \${String(product.id)}
+              AND existing.type = ${opportunityType}
+              AND existing.evidence->>'supplierProductId' = ${String(product.id)}
           )
-        \`);
+        `);
       }
 
       await tx.execute(sql`
