@@ -104,18 +104,16 @@ function deriveSellingMinor(
   if (!Number.isSafeInteger(sourceMinor) || sourceMinor < 0) return null;
   if (pricingMode === "custom") return null;
   const profitMinor = toMinorUnits(profitValue);
-
   if (pricingMode === "same_price") return sourceMinor;
   if (pricingMode === "fixed_markup") {
-    if (profitType === "percentage") return sourceMinor + percentageOfMinor(sourceMinor, Math.round(Number(profitValue) * 100));
+    if (profitType === "percentage") return sourceMinor + percentageOfMinor(sourceMinor, profitMinor ?? 0);
     return sourceMinor + Math.max(0, profitMinor ?? 0);
   }
   if (pricingMode === "percentage_markup") {
-    const markupBps = Number.isFinite(Number(profitValue)) ? Math.max(0, Math.round(Number(profitValue) * 100)) : 0;
-    return sourceMinor + percentageOfMinor(sourceMinor, markupBps);
+    return sourceMinor + percentageOfMinor(sourceMinor, Math.max(0, profitMinor ?? 0));
   }
   if (pricingMode === "fixed_margin") {
-    const marginBps = Number.isFinite(Number(profitValue)) ? Math.max(0, Math.min(9_999, Math.round(Number(profitValue) * 100))) : 0;
+    const marginBps = Math.max(0, Math.min(9_999, profitMinor ?? 0));
     if (marginBps >= 10_000) return null;
     const numerator = BigInt(sourceMinor) * 10_000n;
     const denominator = BigInt(10_000 - marginBps);
@@ -125,7 +123,6 @@ function deriveSellingMinor(
   }
   return null;
 }
-
 function hasMerchantOverride(overrides: unknown, field: string): boolean {
   return Boolean(
     overrides &&
