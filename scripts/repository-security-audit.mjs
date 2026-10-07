@@ -66,7 +66,8 @@ for (const file of files) {
     failures.push(`Possible ${name} in ${relative} near line ${line}`);
   }
 
-  // Match only the value on the same line. Using \s* here can accidentally consume the next env key when an example value is intentionally blank.\n  const sensitiveAssignment = source.match(/^\s*\b(?:FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|SESSION_SECRET)\s*=\s*([^\\r\\n#]*?)\s*(?:#.*)?$/m);
+  // Match only the value on the same line. Using \s* here can accidentally consume the next env key when an example value is intentionally blank.
+  const sensitiveAssignment = source.match(/^\s*\b(?:FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|SESSION_SECRET)\s*=\s*([^\\r\\n#]*?)\s*(?:#.*)?$/m);
   if (sensitiveAssignment) {
     const value = sensitiveAssignment[1];
     // Docker/Compose guards such as ${SESSION_SECRET:?set SESSION_SECRET}
