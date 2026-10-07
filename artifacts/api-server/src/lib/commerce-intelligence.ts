@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { completeLunavoBrain, type LunavoBrainRole } from "./ai-provider";
+import { getSupplierScorecards } from "./supplier-performance";
 
 export type MerchantBrainFocus =
   | "all"
@@ -111,6 +112,9 @@ export async function buildMerchantIntelligenceSnapshot(merchantId: number) {
     LIMIT 1
   `, "store health", gaps);
 
+  let supplierScorecards: Awaited<ReturnType<typeof getSupplierScorecards>> = [];
+  try { supplierScorecards = await getSupplierScorecards(merchantId); } catch { gaps.push("supplier scorecards"); }
+
   const orderStatusCounts = orders.reduce<Record<string, number>>((acc, row) => {
     const key = clampText(row.status, 60) ?? "unknown";
     acc[key] = (acc[key] ?? 0) + 1;
@@ -152,6 +156,7 @@ export async function buildMerchantIntelligenceSnapshot(merchantId: number) {
     },
     marketing: { recentCampaigns: campaigns, totals: campaignTotals },
     sourcing: sourcing,
+    supplierScorecards,
     fulfillment,
     opportunities,
     health: health[0] ?? null,
