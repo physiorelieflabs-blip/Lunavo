@@ -88,18 +88,24 @@ export async function completeLunavoBrain(
           ? "Return strict JSON. Preserve uncertainty instead of filling missing fields."
           : "Return a concise, decision-ready analysis with evidence and safe next moves.",
       ].join("\n\n");
-      const response = await completeLocalChat(
-        [
-          { role: "system", content: prompt },
-          { role: "user", content: safeTask },
-        ],
-        {
-          profile: primary,
+      const messages = [
+        { role: "system" as const, content: prompt },
+        { role: "user" as const, content: safeTask },
+      ];
+      if (options.reasoningEffort === "max") {
+        const ensemble = await completeLocalEnsemble(messages, {
+          profiles,
           json: options.json,
           maxTokens: Math.min(6_000, options.maxTokens ?? 3_200),
-          reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
-        },
-      );
+        });
+        return { role, response: { ...ensemble, profile: "ensemble" as LocalAiProfile } };
+      }
+      const response = await completeLocalChat(messages, {
+        profile: primary,
+        json: options.json,
+        maxTokens: Math.min(6_000, options.maxTokens ?? 3_200),
+        reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
+      });
       return { role, response };
     }),
   );
