@@ -653,6 +653,28 @@ export const supplierProductsTable = pgTable(
   },
 );
 
+export const supplierProductAlternativesTable = pgTable(
+  "supplier_product_alternatives",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
+    primaryProductId: integer("primary_product_id").notNull().references(() => supplierProductsTable.id, { onDelete: "cascade" }),
+    alternativeProductId: integer("alternative_product_id").notNull().references(() => supplierProductsTable.id, { onDelete: "cascade" }),
+    priority: integer("priority").notNull().default(100),
+    enabled: boolean("enabled").notNull().default(true),
+    autoFallback: boolean("auto_fallback").notNull().default(false),
+    sameCurrencyRequired: boolean("same_currency_required").notNull().default(true),
+    minMarginBps: integer("min_margin_bps").notNull().default(1500),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("supplier_product_alternatives_unique").on(table.merchantId, table.primaryProductId, table.alternativeProductId),
+    index("supplier_product_alternatives_primary_idx").on(table.merchantId, table.primaryProductId, table.enabled, table.priority),
+  ],
+);
+
 export const supplierSyncPoliciesTable = pgTable(
   "supplier_sync_policies",
   {
