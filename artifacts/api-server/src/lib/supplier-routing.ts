@@ -127,7 +127,7 @@ export async function resolveAutoFallbackSupplierProduct(
 ) {
   if (input.sellingPriceMinor === null || input.sellingPriceMinor <= 0) return null;
   const result = await executor.execute(sql`
-    SELECT a.id AS mapping_id,
+    SELECT a.id AS mapping_id, a.same_currency_required, a.min_margin_bps,
            sp.id, sp.title, sp.supplier_url, sp.source_url, sp.currency,
            sp.price, sp.sale_price, sp.selling_price, sp.availability,
            sp.availability_quantity, sp.status, sp.visibility, sp.supplier_id
@@ -148,26 +148,11 @@ export async function resolveAutoFallbackSupplierProduct(
 
   for (const row of result.rows as Array<Record<string, unknown>>) {
     const currency = String(row.currency ?? "").toUpperCase();
-    if (String(row.supplier_id ?? "") === "") continue;
-    if (input.sellingCurrency && currency && input.sellingCurrency.toUpperCase() !== currency) {
-      const mappingRows = await executor.execute(sql`
-        SELECT same_currency_required
-        FROM supplier_product_alternatives
-        WHERE id=${String(row.mapping_id)}::uuid AND merchant_id=${input.merchantId}
-        LIMIT 1
-      `);
-      if (Boolean(mappingRows.rows[0]?.same_currency_required)) continue;
-    }
+    if (input.sellingCurrency && currency && input.sellingCurrency.toUpperCase() !== currency && Boolean(row.same_currency_required)) continue;
     const costMinor = toMinorUnits(row.sale_price ?? row.price);
     if (costMinor === null) continue;
     const margin = marginBps(input.sellingPriceMinor, costMinor);
-    const mappingRows = await executor.execute(sql`
-      SELECT min_margin_bps
-      FROM supplier_product_alternatives
-      WHERE id=${String(row.mapping_id)}::uuid AND merchant_id=${input.merchantId}
-      LIMIT 1
-    `);
-    const minimum = Number(mappingRows.rows[0]?.min_margin_bps ?? 1500);
+    const minimum = Number(row.min_margin_bps ?? 1500);
     if (margin < minimum) continue;
     return {
       mappingId: String(row.mapping_id),
