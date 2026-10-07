@@ -28,14 +28,14 @@ describe("self-hosted AI endpoint boundary", () => {
   });
 
   it("rejects public cloud endpoints for the local AI slot", () => {
-    process.env.LUNAVO_LOCAL_LLM_URL = "https://api.openai.com/v1/chat/completions";
+    process.env.LUNAVO_LOCAL_LLM_URL = "https://example.com/v1/chat/completions";
     expect(() => resolveLocalAiProfile("general")).toThrow(/private\/local/i);
   });
 
   it("applies the same policy to profile-specific endpoints", () => {
     delete process.env.LUNAVO_LOCAL_LLM_URL;
     delete process.env.LUNAVO_LOCAL_AI_BASE_URL;
-    process.env.LUNAVO_LOCAL_AI_FAST_URL = "https://api.deepseek.com/v1/chat/completions";
+    process.env.LUNAVO_LOCAL_AI_FAST_URL = "https://example.com/v1/chat/completions";
     expect(() => resolveLocalAiProfile("fast")).toThrow(/private\/local/i);
   });
 });
