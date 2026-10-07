@@ -150,10 +150,10 @@ export async function resolveAutoFallbackSupplierProduct(
 ) {
   if (input.sellingPriceMinor === null || input.sellingPriceMinor <= 0) return null;
   const result = await executor.execute(sql`
-    SELECT a.id AS mapping_id, a.same_currency_required, a.min_margin_bps,
+    SELECT a.id AS mapping_id, a.same_currency_required, a.min_margin_bps, a.min_supplier_quantity, a.max_shipping_days,
            sp.id, sp.title, sp.supplier_url, sp.source_url, sp.currency,
            sp.price, sp.sale_price, sp.selling_price, sp.availability,
-           sp.availability_quantity, sp.status, sp.visibility, sp.supplier_id
+           sp.availability_quantity, sp.status, sp.visibility, sp.supplier_id, sp.shipping_information
     FROM supplier_product_alternatives a
     JOIN supplier_products sp
       ON sp.id=a.alternative_product_id AND sp.merchant_id=a.merchant_id
@@ -172,6 +172,12 @@ export async function resolveAutoFallbackSupplierProduct(
   for (const row of result.rows as Array<Record<string, unknown>>) {
     const currency = String(row.currency ?? "").toUpperCase();
     if (input.sellingCurrency && currency && input.sellingCurrency.toUpperCase() !== currency) continue;
+    const availableQuantity = row.availability_quantity == null ? null : Number(row.availability_quantity);
+    const minimumQuantity = Math.max(0, Number(row.min_supplier_quantity ?? 0));
+    if (availableQuantity !== null && availableQuantity < minimumQuantity) continue;
+    const shippingDays = extractMaximumShippingDays(row.shipping_information);
+    const maximumShippingDays = Math.max(1, Number(row.max_shipping_days ?? 30));
+    if (shippingDays !== null && shippingDays > maximumShippingDays) continue;
     const costMinor = toMinorUnits(row.sale_price ?? row.price);
     if (costMinor === null) continue;
     const margin = marginBps(input.sellingPriceMinor, costMinor);
@@ -187,6 +193,8 @@ export async function resolveAutoFallbackSupplierProduct(
       costMinor,
       marginBps: margin,
       supplierId: row.supplier_id == null ? null : Number(row.supplier_id),
+      availableQuantity,
+      shippingDays,
     };
   }
   return null;
