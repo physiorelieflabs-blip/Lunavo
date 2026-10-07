@@ -5,7 +5,7 @@ import { Link } from "wouter";
 
 type Product = { id:number; title:string; stock:number|null; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
 type Customer = { id:number; name:string; orderCount:number; grossMinor:number; recencyDays:number|null; churnRiskBps:number; segment:string; nextBestAction:string; marketingEligible:boolean };
-type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;topProducts:Product[];reorderCandidates:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[] };
+type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;topProducts:Product[];reorderCandidates:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
 type Plan = { brain:{model:string;contributors:string[];roles:string[];consensus:string;content:string}; persisted:boolean };
 
 const money=(minor:number|null,currency:string)=>minor==null?"—":new Intl.NumberFormat(undefined,{style:"currency",currency,maximumFractionDigits:2}).format(minor/100);
@@ -136,6 +136,29 @@ export default function DropshipIntelligence(){
         <p className="mt-2 text-sm font-extrabold">{item.split(" -> ")[0]}</p>
         <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.replaceAll(" -> "," → ")}</p>
       </div>)}
+    </section>
+
+    <section className="grid gap-4 xl:grid-cols-[1.1fr_1.9fr]">
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <p className="text-[10px] font-black uppercase tracking-[.14em] text-muted-foreground">Modern dropship parity</p>
+        <h2 className="mt-1 text-xl font-black">The platform pieces are connected</h2>
+        <div className="mt-4 space-y-2">
+          {(graph.modernPlatformParity ?? []).map(item => <div key={item.feature} className="rounded-xl border border-border p-3">
+            <div className="flex items-start justify-between gap-3"><p className="text-xs font-extrabold">{item.feature}</p><span className="rounded-full bg-muted px-2 py-1 text-[9px] font-black uppercase">{item.status.replaceAll("_"," ")}</span></div>
+            <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{item.connectedTo.join(" → ")}</p>
+          </div>)}
+        </div>
+      </div>
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <p className="text-[10px] font-black uppercase tracking-[.14em] text-muted-foreground">Decision loop</p>
+        <h2 className="mt-1 text-xl font-black">One operating brain, many capabilities</h2>
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {(graph.decisionLoop ?? []).map((step,i) => <div key={step} className="rounded-xl bg-muted/60 p-3"><span className="font-mono text-[9px] font-black text-accent">0{i+1}</span><p className="mt-1 text-xs leading-5 font-semibold">{step.replaceAll(" -> "," → ")}</p></div>)}
+        </div>
+        <div className="mt-4 grid gap-2">
+          {(graph.intelligenceCapabilities ?? []).slice(0,6).map(item => <p key={item} className="rounded-xl border border-border px-3 py-2 text-[10px] leading-4 text-muted-foreground">{item}</p>)}
+        </div>
+      </div>
     </section>
 
     <section className="rounded-2xl border border-border bg-card p-5">
