@@ -66,6 +66,8 @@ router.put("/merchant/dropshipping/routing/:productId", async (req: Request, res
       autoFallback: req.body?.autoFallback === true,
       sameCurrencyRequired: req.body?.sameCurrencyRequired !== false,
       minMarginBps: boundedInteger(req.body?.minMarginBps, 1500, 0, 100000),
+      minSupplierQuantity: boundedInteger(req.body?.minSupplierQuantity, 0, 0, 100000000),
+      maxShippingDays: boundedInteger(req.body?.maxShippingDays, 30, 1, 365),
       notes: typeof req.body?.notes === "string" ? req.body.notes : null,
     });
     res.json({ mapping });
