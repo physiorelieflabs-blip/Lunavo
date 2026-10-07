@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  customFetch,
   getListSupplierProductsQueryKey,
   getListSupplierImportHistoryQueryKey,
   getListSuppliersQueryKey,
@@ -146,9 +147,71 @@ export default function Suppliers() {
   const [productEdit, setProductEdit] = useState({ title: '', description: '', imageUrl: '', sellingPrice: '', visibility: 'draft' as Visibility, inventoryStrategy: 'source_based' as InventoryStrategy, inventoryStatus: '', inventoryQuantity: '' });
   const history = useListSupplierImportHistory();
   const updateProduct = useUpdateSupplierProduct();
+  type SyncPolicy = {
+    id: string; supplier_product_id: number; enabled: boolean; sync_price: boolean; sync_stock: boolean;
+    sync_variants: boolean; sync_media: boolean; sync_description: boolean; max_price_change_bps: number;
+    min_margin_bps: number; out_of_stock_action: 'pause' | 'keep_last' | 'draft';
+    require_price_review: boolean; auto_apply: boolean; last_run_at: string | null;
+    product_title?: string; source_url?: string; availability?: string | null; availability_quantity?: number | null;
+    source_price?: string | null; source_sale_price?: string | null; source_currency?: string; selling_price?: string | null;
+    visibility?: string; status?: string;
+  };
+  const [syncPolicies, setSyncPolicies] = useState<SyncPolicy[]>([]);
+  const [syncBusyId, setSyncBusyId] = useState<number | null>(null);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [policyDrafts, setPolicyDrafts] = useState<Record<number, Partial<SyncPolicy>>>({});
 
   const priced = useMemo(() => (draft ? calculatedPrice(draft) : null), [draft]);
   const setDraftValue = <K extends keyof ReturnType<typeof previewDraft>>(key: K, value: ReturnType<typeof previewDraft>[K]) => setDraft((current) => current ? { ...current, [key]: value } : current);
+
+  useEffect(() => {
+    void customFetch<{ policies: SyncPolicy[] }>('/api/merchant/dropshipping/sync-policies', { responseType: 'json' })
+      .then((result) => setSyncPolicies(result.policies ?? []))
+      .catch(() => setSyncPolicies([]));
+  }, [products.data?.length]);
+
+  const policyFor = (productId: number) => syncPolicies.find((policy) => policy.supplier_product_id === productId);
+  const policyValue = <K extends keyof SyncPolicy>(productId: number, key: K, fallback: SyncPolicy[K]) =>
+    (policyDrafts[productId]?.[key] as SyncPolicy[K] | undefined) ?? policyFor(productId)?.[key] ?? fallback;
+
+  const setPolicyValue = <K extends keyof SyncPolicy>(productId: number, key: K, value: SyncPolicy[K]) =>
+    setPolicyDrafts((current) => ({ ...current, [productId]: { ...(current[productId] ?? {}), [key]: value } }));
+
+  const saveSyncPolicy = async (productId: number) => {
+    setSyncBusyId(productId); setSyncMessage('');
+    try {
+      const result = await customFetch<{ policy: SyncPolicy }>(`/api/merchant/dropshipping/sync-policies/${productId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(policyDrafts[productId] ?? {}),
+      });
+      setSyncPolicies((current) => [...current.filter((item) => item.supplier_product_id !== productId), result.policy]);
+      setPolicyDrafts((current) => { const next = { ...current }; delete next[productId]; return next; });
+      setSyncMessage('Supplier sync policy saved. Automatic application remains constrained by the rules shown here.');
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Supplier sync policy could not be saved.');
+    } finally { setSyncBusyId(null); }
+  };
+
+  const runControlledSync = async (productId: number) => {
+    setSyncBusyId(productId); setSyncMessage('');
+    try {
+      const result = await customFetch<{ status: 'completed' | 'review_required'; changedFields: string[]; reviewReasons: string[] }>(
+        `/api/merchant/dropshipping/sync/${productId}`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) },
+      );
+      setSyncMessage(
+        result.status === 'review_required'
+          ? `Sync completed with review required: ${result.reviewReasons.join(' ')}`
+          : `Source synchronized. Changed fields: ${result.changedFields.length ? result.changedFields.join(', ') : 'none'}.`,
+      );
+      const policies = await customFetch<{ policies: SyncPolicy[] }>('/api/merchant/dropshipping/sync-policies', { responseType: 'json' });
+      setSyncPolicies(policies.policies ?? []);
+      invalidateProducts();
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Supplier sync could not be completed.');
+    } finally { setSyncBusyId(null); }
+  };
 
   const invalidateProducts = () => void Promise.all([
     queryClient.invalidateQueries({ queryKey: getListSupplierProductsQueryKey() }),
@@ -387,6 +450,38 @@ export default function Suppliers() {
        {batchOpen && <section className="mt-4 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Fallback workflow" title="Batch import, one URL per line" description="Up to 20 public URLs. The API returns per-item results; unsuccessful links do not become guessed products." /><form onSubmit={runBatch} className="grid gap-4 lg:grid-cols-[1fr_.75fr]"><label className="text-sm font-bold">Public product URLs<textarea data-testid="input-batch-urls" value={batchUrls} onChange={(event) => setBatchUrls(event.target.value)} required rows={7} placeholder={'https://supplier.example/item-a\nhttps://supplier.example/item-b'} className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 font-mono text-xs outline-none focus:border-[#bca26a]" /></label><div className="space-y-4"><label className="block text-sm font-bold">Batch pricing<select data-testid="select-batch-profit-type" value={batchProfitType} onChange={(event) => setBatchProfitType(event.target.value as 'fixed' | 'percentage')} className={inputClass}><option value="fixed">Fixed markup</option><option value="percentage">Percentage markup</option></select></label><label className="block text-sm font-bold">Markup value<input data-testid="input-batch-profit-value" type="number" min="0" step="0.01" value={batchProfitValue} onChange={(event) => setBatchProfitValue(event.target.value)} className={inputClass} /></label><label className="block text-sm font-bold">Inventory strategy<select data-testid="select-batch-inventory" value={batchInventory} onChange={(event) => setBatchInventory(event.target.value as InventoryStrategy)} className={inputClass}><option value="manual">Manual</option><option value="source_based">Based on source</option><option value="synchronized">Synchronized</option></select></label><label className="block text-sm font-bold">Duplicate handling<select data-testid="select-batch-duplicate-action" value={batchDuplicateAction} onChange={(event) => setBatchDuplicateAction(event.target.value as DuplicateAction)} className={inputClass}><option value="review">Flag for review</option><option value="update_existing">Update existing</option><option value="create_new">Create new</option><option value="skip">Skip duplicate</option></select></label><SubmitButton loading={batchImport.isPending}><Upload className="h-4 w-4" />Run batch import</SubmitButton></div></form>{batchResults.length > 0 && <div className="mt-6 space-y-2"><p className="text-xs font-extrabold uppercase tracking-[.12em] text-[#a2772e]">Per-item results</p>{batchResults.map((item, index) => <div data-testid={`batch-result-${index}`} key={`${String(item.sourceUrl ?? item.url ?? index)}-${index}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#ded8cd] bg-[#f3efe5] p-3 text-xs"><span className="min-w-0 flex-1 truncate font-mono">{String(item.sourceUrl ?? item.url ?? item.title ?? `Item ${index + 1}`)}</span><Badge tone={String(item.status ?? '').toLowerCase().includes('fail') || String(item.status ?? '').toLowerCase().includes('duplicate') ? 'danger' : 'success'}>{String(item.status ?? item.message ?? 'processed')}</Badge><span className="w-full text-[#697687] sm:w-auto">{String(item.message ?? item.error ?? '')}</span></div>)}</div>}</section>}
 
       {manualOpen && <section className="mt-4 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Manual fallback" title="Copy the facts you can verify" description="Use this when a supplier page cannot be analyzed. Keep the supplier link for your own fulfillment reference." /><form onSubmit={saveManual} className="mt-5 grid gap-4 md:grid-cols-2"><label className="text-sm font-bold">Product title<input data-testid="input-manual-title" value={manual.title} onChange={(event) => setManual({ ...manual, title: event.target.value })} required className={inputClass} /></label><label className="text-sm font-bold">Supplier name<input data-testid="input-manual-supplier-name" value={manual.supplierName} onChange={(event) => setManual({ ...manual, supplierName: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold">Supplier URL<input data-testid="input-manual-supplier-url" type="url" value={manual.supplierUrl} onChange={(event) => setManual({ ...manual, supplierUrl: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold">Image URL<input data-testid="input-manual-image" type="url" value={manual.imageUrl} onChange={(event) => setManual({ ...manual, imageUrl: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold md:col-span-2">Description<textarea data-testid="input-manual-description" value={manual.description} onChange={(event) => setManual({ ...manual, description: event.target.value })} rows={3} className="mt-2 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] p-3 text-sm outline-none focus:border-[#bca26a]" /></label><div className="grid gap-4 sm:grid-cols-3 md:col-span-2"><label className="text-sm font-bold">Cost<input data-testid="input-manual-cost" type="number" min="0" step="0.01" value={manual.price} onChange={(event) => setManual({ ...manual, price: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold">Selling price<input data-testid="input-manual-selling-price" type="number" min="0.01" step="0.01" value={manual.sellingPrice} onChange={(event) => setManual({ ...manual, sellingPrice: event.target.value })} required className={inputClass} /></label><label className="text-sm font-bold">Currency<input data-testid="input-manual-currency" maxLength={3} value={manual.currency} onChange={(event) => setManual({ ...manual, currency: event.target.value.toUpperCase() })} required className={inputClass} /></label></div><div className="grid gap-4 sm:grid-cols-3 md:col-span-2"><label className="text-sm font-bold">SKU<input data-testid="input-manual-sku" value={manual.sku} onChange={(event) => setManual({ ...manual, sku: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold">Category<input data-testid="input-manual-category" value={manual.category} onChange={(event) => setManual({ ...manual, category: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold">Sale price<input data-testid="input-manual-sale-price" type="number" min="0" step="0.01" value={manual.salePrice} onChange={(event) => setManual({ ...manual, salePrice: event.target.value })} className={inputClass} /></label></div><div className="grid gap-4 sm:grid-cols-3 md:col-span-2"><label className="text-sm font-bold">Inventory strategy<select data-testid="select-manual-inventory-strategy" value={manual.inventoryStrategy} onChange={(event) => setManual({ ...manual, inventoryStrategy: event.target.value as InventoryStrategy })} className={inputClass}><option value="manual">Manual</option><option value="source_based">Based on source</option><option value="synchronized">Synchronized</option></select></label><label className="text-sm font-bold">Inventory status<input data-testid="input-manual-inventory-status" value={manual.inventoryStatus} onChange={(event) => setManual({ ...manual, inventoryStatus: event.target.value })} className={inputClass} /></label><label className="text-sm font-bold">Quantity<input data-testid="input-manual-inventory-quantity" type="number" min="0" step="1" value={manual.inventoryQuantity} onChange={(event) => setManual({ ...manual, inventoryQuantity: event.target.value })} className={inputClass} /></label></div><div className="md:col-span-2">{rightsNotice()}</div><div className="md:col-span-2"><SubmitButton loading={manualImport.isPending}><Check className="h-4 w-4" />Save manual product</SubmitButton></div></form></section>}
+
+            {products.data.length > 0 && <section className="mt-10 rounded-xl border border-[#526b8a] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
+        <SectionHeading eyebrow="Connected dropshipping control" title="Supplier Sync Brain" description="Keep source facts fresh while protecting merchant pricing, content, margins, and storefront state." />
+        {syncMessage && <div className="mt-4 rounded-lg border border-[#526b8a] bg-[#26364a] p-3 text-xs text-[#dbe5ee]">{syncMessage}</div>}
+        <div className="mt-5 space-y-3">
+          {products.data.map((product) => {
+            const policy = policyFor(product.id);
+            return <div key={product.id} className="rounded-xl border border-[#46566a] bg-[#1e2b3c] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0"><p className="font-extrabold">{product.title}</p><p className="mt-1 text-xs text-[#aab6c2]">{product.sourceDomain} · {product.inventoryStatus} · source {product.price === null ? 'unavailable' : money(product.price, product.currency)}</p></div>
+                <Button variant="secondary" className="min-h-8 px-3 text-xs" onClick={() => void runControlledSync(product.id)} disabled={syncBusyId === product.id} data-testid={`button-sync-brain-${product.id}`}><RefreshCw className="h-3.5 w-3.5" />{syncBusyId === product.id ? 'Syncing…' : 'Sync now'}</Button>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={Boolean(policyValue(product.id, 'enabled', true))} onChange={(e) => setPolicyValue(product.id, 'enabled', e.target.checked)} />Enable sync</label>
+                <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={Boolean(policyValue(product.id, 'sync_price', true))} onChange={(e) => setPolicyValue(product.id, 'sync_price', e.target.checked)} />Sync price source</label>
+                <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={Boolean(policyValue(product.id, 'sync_stock', true))} onChange={(e) => setPolicyValue(product.id, 'sync_stock', e.target.checked)} />Sync source stock</label>
+                <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={Boolean(policyValue(product.id, 'auto_apply', false))} onChange={(e) => setPolicyValue(product.id, 'auto_apply', e.target.checked)} />Allow safe auto-apply</label>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <label className="text-xs font-bold">Max price change (bps)<input type="number" min="0" max="100000" value={Number(policyValue(product.id, 'max_price_change_bps', 1500))} onChange={(e) => setPolicyValue(product.id, 'max_price_change_bps', Number(e.target.value))} className={darkInputClass} /></label>
+                <label className="text-xs font-bold">Minimum margin (bps)<input type="number" min="0" max="100000" value={Number(policyValue(product.id, 'min_margin_bps', 1500))} onChange={(e) => setPolicyValue(product.id, 'min_margin_bps', Number(e.target.value))} className={darkInputClass} /></label>
+                <label className="text-xs font-bold">Out-of-stock action<select value={String(policyValue(product.id, 'out_of_stock_action', 'pause'))} onChange={(e) => setPolicyValue(product.id, 'out_of_stock_action', e.target.value as SyncPolicy['out_of_stock_action'])} className={darkInputClass}><option value="pause">Pause / hide</option><option value="draft">Move to draft</option><option value="keep_last">Keep last listing state</option></select></label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-xs text-[#c5d0db]"><input type="checkbox" checked={Boolean(policyValue(product.id, 'require_price_review', true))} onChange={(e) => setPolicyValue(product.id, 'require_price_review', e.target.checked)} />Require review before automatic price changes</label>
+                <Button className="min-h-8 px-3 text-xs" onClick={() => void saveSyncPolicy(product.id)} disabled={syncBusyId === product.id}>Save sync policy</Button>
+              </div>
+              <p className="mt-2 text-[11px] text-[#8fa1b2]">Last sync: {policy?.last_run_at ? new Date(policy.last_run_at).toLocaleString() : 'not yet run'} · currency changes never trigger automatic repricing.</p>
+            </div>;
+          })}
+        </div>
+      </section>}
 
       <section className="mt-10"><SectionHeading eyebrow="Catalog records" title="Imported products" description="Refresh source facts selectively. Your price, visibility, and inventory settings stay under your control." action={<Button variant="ghost" onClick={() => void products.refetch()} data-testid="button-refresh-products"><RefreshCw className="h-4 w-4" />Refresh</Button>} />{products.data.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{products.data.map((product) => { const productRefresh = refreshResult?.product.id === product.id ? refreshResult : null; return <article data-testid={`card-product-${product.id}`} key={product.id} className="overflow-hidden rounded-xl border border-[#d9d2c4] bg-[#fbfaf6]"><div className="h-40 bg-[#eee9df]">{product.imageUrl ? <img data-testid={`img-product-${product.id}`} src={product.imageUrl} alt="" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-[#a2772e]"><Store className="h-8 w-8" /></div>}</div><div className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#a2772e]">{product.sourceDomain}</p><h3 data-testid={`text-product-title-${product.id}`} className="mt-2 line-clamp-2 font-extrabold">{product.title}</h3></div><Badge tone={product.visibility === 'active' ? 'success' : product.visibility === 'hidden' ? 'neutral' : 'warning'}>{product.visibility}</Badge></div>{product.description && <p className="mt-3 line-clamp-3 text-xs leading-5 text-[#697687]">{product.description}</p>}<div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-[#f3efe5] p-3 text-xs"><div><p className="text-[#697687]">Supplier cost</p><p className="mt-1 font-mono font-bold">{product.price === null ? 'Unavailable' : money(product.price, product.currency)}</p></div><div><p className="text-[#697687]">Your price</p><p data-testid={`text-product-price-${product.id}`} className="mt-1 font-mono font-bold text-[#2f6958]">{product.sellingPrice === null ? 'Needs price' : money(product.sellingPrice, product.currency)}</p></div></div><div className="mt-3 flex flex-wrap gap-2"><Badge tone="info">{product.inventoryStrategy}</Badge><Badge tone={product.status === 'ready' ? 'success' : 'warning'}>{product.status}</Badge></div><div className="mt-5 flex flex-wrap gap-3"><a data-testid={`link-product-source-${product.id}`} href={product.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-extrabold text-[#8a6826] underline">Product page <ExternalLink className="h-3 w-3" /></a><Button variant="secondary" className="min-h-8 px-3 text-xs" onClick={() => runRefresh(product.id)} disabled={refresh.isPending} data-testid={`button-refresh-product-${product.id}`}><RefreshCw className="h-3.5 w-3.5" />Check source</Button></div>{productRefresh && <div className="mt-5 rounded-lg border border-[#bfd6dc] bg-[#eef7f8] p-3"><p className="text-xs font-extrabold text-[#315e6c]">Source changes found</p>{productRefresh.changes.length ? <div className="mt-2 space-y-2">{productRefresh.changes.map((change, index) => { const record = change as Record<string, unknown>; const field = refreshField(record); const selected = acceptedFields.includes(field); return <label key={`${field}-${index}`} className="flex items-start gap-2 text-xs text-[#315e6c]"><input data-testid={`checkbox-refresh-${product.id}-${index}`} type="checkbox" checked={selected} disabled={!field} onChange={(event) => setAcceptedFields((current) => event.target.checked ? [...new Set([...current, field])] : current.filter((item) => item !== field))} className="mt-0.5 accent-[#316071]" /><span><strong>{field || 'Unrecognized source field'}</strong><span className="mt-0.5 block">{formatValue(record.oldValue ?? record.before)} <span className="px-1">→</span> {formatValue(record.newValue ?? record.after)}</span></span></label>; })}</div> : <p className="mt-2 text-xs text-[#315e6c]">{productRefresh.message}</p>}<div className="mt-3 flex flex-wrap gap-2"><Button className="min-h-8 px-3 text-xs" onClick={() => acceptSelectedRefresh(product.id)} disabled={acceptRefresh.isPending || !acceptedFields.length} data-testid={`button-accept-refresh-${product.id}`}><Check className="h-3.5 w-3.5" />Accept selected</Button><Button variant="ghost" className="min-h-8 px-3 text-xs" onClick={() => setRefreshResult(null)} data-testid={`button-dismiss-refresh-${product.id}`}>Keep current</Button></div></div>}</div></article>; })}</div> : <EmptyState title="No supplier products yet" description="Analyze a public supplier product URL above, then save the reviewed record." />}</section>
 
