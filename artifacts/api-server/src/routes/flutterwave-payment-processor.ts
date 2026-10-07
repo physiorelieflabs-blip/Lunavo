@@ -465,6 +465,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
             primaryProductId: supplierProduct.id,
             sellingPriceMinor: sellingMinorPerUnit,
             sellingCurrency: order.currency,
+            destinationCountry: order.customerCountry,
           });
           if (fallback) {
             routedProductId = fallback.supplierProductId;
