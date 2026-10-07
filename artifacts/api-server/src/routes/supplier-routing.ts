@@ -68,6 +68,10 @@ router.put("/merchant/dropshipping/routing/:productId", async (req: Request, res
       minMarginBps: boundedInteger(req.body?.minMarginBps, 1500, 0, 100000),
       minSupplierQuantity: boundedInteger(req.body?.minSupplierQuantity, 0, 0, 100000000),
       maxShippingDays: boundedInteger(req.body?.maxShippingDays, 30, 1, 365),
+      destinationMode: ["global","include","exclude"].includes(req.body?.destinationMode) ? req.body.destinationMode : "global",
+      destinationCountries: Array.isArray(req.body?.destinationCountries)
+        ? req.body.destinationCountries.filter((value: unknown): value is string => typeof value === "string")
+        : [],
       notes: typeof req.body?.notes === "string" ? req.body.notes : null,
     });
     res.json({ mapping });
