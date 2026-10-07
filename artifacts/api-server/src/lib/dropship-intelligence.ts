@@ -269,6 +269,9 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       reorderCandidates,
       winners,
       atRiskCustomers,
+      automationCandidates,
+      researchCount: research.length,
+      researchSignals: research.slice(0, 30),
     },
     graph: [
       "product -> demand -> inventory -> reorder -> supplier routing -> fulfillment",
