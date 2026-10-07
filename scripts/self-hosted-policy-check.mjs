@@ -19,7 +19,7 @@ const apiPackage=JSON.parse(await readFile("artifacts/api-server/package.json","
 const webPackage=JSON.parse(await readFile("artifacts/ts-commerce/package.json","utf8"));
 const bannedPackages=["@clerk/express","@clerk/shared","@clerk/react","@clerk/themes","http-proxy-middleware","nodemailer"];
 for(const name of bannedPackages){if(apiPackage.dependencies?.[name]||apiPackage.devDependencies?.[name]||webPackage.dependencies?.[name]||webPackage.devDependencies?.[name])failures.push("Hosted-service dependency remains installed: "+name);}
-const rootPackage=await readFile("package.json","utf8");if(rootPackage.includes("@replit/"))failures.push("Replit runtime dependency remains in root package");
+const rootPackage=await readFile("package.json","utf8");if(rootPackage.includes("@replit/"))failures.push("Hosted runtime dependency remains in root package");
 if(failures.length){console.error("Lunavo total self-hosted policy: FAIL");for(const failure of failures)console.error("- "+failure);process.exit(1);}
 console.log("Lunavo total self-hosted policy: PASS");
 console.log("Core network boundary: self-hosted/local infrastructure only; Flutterwave is the sole external payment rail.");
