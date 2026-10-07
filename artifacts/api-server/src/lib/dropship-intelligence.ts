@@ -35,11 +35,11 @@ function shippingLeadTime(value: unknown): number {
   return nums.length ? Math.max(...nums) : 7;
 }
 
-function confidenceFor(orderCount: number): number {
+export function confidenceFor(orderCount: number): number {
   return Math.min(9200, 2500 + Math.min(1, orderCount / 20) * 5500);
 }
 
-function churnRisk(orderCount: number, recency: number | null): number {
+export function churnRisk(orderCount: number, recency: number | null): number {
   if (recency === null) return 0;
   if (orderCount <= 1) return Math.min(9500, 2500 + recency * 70);
   if (recency <= 14) return 700;
@@ -49,7 +49,7 @@ function churnRisk(orderCount: number, recency: number | null): number {
   return Math.min(9800, 7600 + Math.min(2200, (recency - 90) * 40));
 }
 
-function segment(orderCount: number, ltvMinor: number, recency: number | null): string {
+export function segment(orderCount: number, ltvMinor: number, recency: number | null): string {
   if (recency !== null && recency > 120) return "lapsed";
   if (orderCount >= 5 || ltvMinor >= 250_000) return "vip";
   if (orderCount >= 2 && recency !== null && recency <= 60) return "loyal";
@@ -58,7 +58,7 @@ function segment(orderCount: number, ltvMinor: number, recency: number | null): 
   return "new";
 }
 
-function nextBestAction(seg: string, consent: boolean, churnRiskBps: number): string {
+export function nextBestAction(seg: string, consent: boolean, churnRiskBps: number): string {
   if (!consent) return "observe";
   if (seg === "lapsed" || churnRiskBps >= 7000) return "winback";
   if (seg === "at_risk") return "retention_offer";
