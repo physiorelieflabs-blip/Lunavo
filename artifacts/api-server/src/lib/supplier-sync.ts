@@ -1,8 +1,8 @@
-import { and, eq, or } from "drizzle-orm";
-import { db, merchantsTable } from "@workspace/db";
+import { db } from "@workspace/db";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { emitDomainEvent } from "./domain-events";
 import { toMinorUnits } from "./money";
+import { sql } from "drizzle-orm";
 
 type SyncPolicy = {
   id: string;
@@ -104,7 +104,6 @@ function deriveSellingMinor(
   if (!Number.isSafeInteger(sourceMinor) || sourceMinor < 0) return null;
   if (pricingMode === "custom") return null;
   const profitMinor = toMinorUnits(profitValue);
-  const profitPercentBps = profitMinor ?? 0;
 
   if (pricingMode === "same_price") return sourceMinor;
   if (pricingMode === "fixed_markup") {
@@ -218,31 +217,7 @@ export async function synchronizeSupplierProduct(input: {
 
   try {
     const imported = await importPublicSupplierProduct(product.source_url);
-    const before = sourceState({
-      sourceUrl: product.source_url,
-      sourceDomain: product.source_url,
-      title: product.title,
-      description: product.description,
-      imageUrl: product.image_url,
-      imageUrls: Array.isArray(product.image_urls) ? product.image_urls : [],
-      videoUrls: Array.isArray(product.video_urls) ? product.video_urls : [],
-      price: product.price,
-      salePrice: product.sale_price,
-      currency: product.currency,
-      sku: product.sku,
-      sourceProductId: null,
-      variants: Array.isArray(product.variants) ? product.variants : [],
-      attributes: typeof product.attributes === "object" && product.attributes !== null ? product.attributes : {},
-      availability: product.availability,
-      availabilityQuantity: product.availability_quantity,
-      category: product.category,
-      specifications: typeof product.specifications === "object" && product.specifications !== null ? product.specifications : {},
-      brand: product.brand,
-      shippingInformation: typeof product.shipping_information === "object" && product.shipping_information !== null ? product.shipping_information : null,
-      sourceMetadata: {},
-    } as Awaited<ReturnType<typeof importPublicSupplierProduct>>);
-
-    const changedFields: string[] = [];
+    const before = {\n      sourceUrl: product.source_url,\n      sourceDomain: new URL(product.source_url).hostname,\n      price: product.price,\n      salePrice: product.sale_price,\n      currency: product.currency,\n      sku: product.sku,\n      availability: product.availability,\n      availabilityQuantity: product.availability_quantity,\n      variants: Array.isArray(product.variants) ? product.variants : [],\n      attributes: product.attributes ?? {},\n      imageUrl: product.image_url,\n      imageUrls: Array.isArray(product.image_urls) ? product.image_urls : [],\n      videoUrls: Array.isArray(product.video_urls) ? product.video_urls : [],\n      description: product.description,\n      shippingInformation: product.shipping_information ?? null,\n    };\n    const changedFields: string[] = [];
     const reviewReasons: string[] = [];
     const sourceFields: string[] = [];
     const merchantFields: string[] = [];
