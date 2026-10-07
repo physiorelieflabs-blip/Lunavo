@@ -270,25 +270,36 @@ export async function synchronizeSupplierProduct(input: {
 
     if (policy.sync_price && derivedSellingMinor !== null && !hasMerchantOverride(merchantOverrides, "sellingPrice")) {
       const currentSellingMinor = toMinorUnits(product.selling_price);
-      if (currentSellingMinor !== null && currentSellingMinor !== derivedSellingMinor) {
-        const deltaBps = bpsChange(currentSellingMinor, derivedSellingMinor);
-        if (deltaBps > policy.max_price_change_bps || policy.require_price_review) {
-          reviewReasons.push(
-            "Selling-price change requires review: " +
-            (deltaBps > policy.max_price_change_bps ? "change exceeds configured threshold" : "price review is enabled"),
-          );
+      const targetSellingMinor = derivedSellingMinor;
+      const marginBps = targetSellingMinor > 0
+        ? Math.floor(((targetSellingMinor - (incomingSourceMinor ?? 0)) * 10_000) / targetSellingMinor)
+        : 0;
+      if (marginBps < policy.min_margin_bps) {
+        reviewReasons.push("Proposed selling price would fall below the configured minimum margin.");
+        changedFields.push("selling_price_margin_review");
+      } else if (currentSellingMinor !== null && currentSellingMinor !== targetSellingMinor) {
+        const deltaBps = bpsChange(currentSellingMinor, targetSellingMinor);
+        if (deltaBps > policy.max_price_change_bps || policy.require_price_review || !policy.auto_apply) {
+          const reasons: string[] = [];
+          if (deltaBps > policy.max_price_change_bps) reasons.push("change exceeds configured threshold");
+          if (policy.require_price_review) reasons.push("price review is enabled");
+          if (!policy.auto_apply) reasons.push("automatic price application is disabled");
+          reviewReasons.push("Selling-price change requires review: " + reasons.join("; "));
           changedFields.push("selling_price_review");
-        } else if (policy.auto_apply) {
+        } else {
           merchantFields.push("selling_price");
         }
+      } else if (currentSellingMinor === null) {
+        if (policy.auto_apply && !policy.require_price_review) merchantFields.push("selling_price");
+        else {
+          reviewReasons.push("A calculated selling price is available but requires merchant approval.");
+          changedFields.push("selling_price_review");
+        }
       }
-    } else if (policy.sync_price && derivedSellingMinor !== null && !hasMerchantOverride(merchantOverrides, "sellingPrice") && product.selling_price === null && policy.auto_apply) {
-      merchantFields.push("selling_price");
     } else if (policy.sync_price && incomingSourceMinor !== null && imported.currency !== product.currency) {
       reviewReasons.push("Supplier currency changed or differs from merchant selling currency; automatic repricing was blocked.");
       changedFields.push("currency_review");
     }
-
     if (policy.sync_stock && imported.availability === "out_of_stock") {
       if (policy.out_of_stock_action === "pause") {
         if (product.visibility !== "hidden") merchantFields.push("visibility");
