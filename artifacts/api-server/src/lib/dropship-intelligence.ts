@@ -115,7 +115,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       const current = customerOrders.get(customerId) ?? { count: 0, grossMinor: 0, lastDate: null, currencies: new Set<string>() };
       const total = money(row.total);
       current.count += 1;
-      if (total !== null) current.grossMinor += total;
+      if (total !== null && String(row.currency ?? currency).toUpperCase() === currency) current.grossMinor += total;
       current.lastDate = current.lastDate ? (new Date(current.lastDate) > when ? current.lastDate : when.toISOString()) : when.toISOString();
       current.currencies.add(String(row.currency ?? currency).toUpperCase());
       customerOrders.set(customerId, current);
@@ -149,11 +149,9 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const sourceCostMinor = money(product.sale_price ?? product.price);
     const sellingPriceMinor = money(product.selling_price);
     const comparableCurrency = sourceCurrency === currency;
-    const landedCostMinor = comparableCurrency && sourceCostMinor !== null
-      ? sourceCostMinor + Math.round(sourceCostMinor * 0.01)
-      : null;
-    const grossMarginBps = comparableCurrency && landedCostMinor !== null && sellingPriceMinor !== null && sellingPriceMinor > 0
-      ? Math.trunc(((sellingPriceMinor - landedCostMinor) * 10_000) / sellingPriceMinor)
+    const landedCostMinor = comparableCurrency && sourceCostMinor !== null ? sourceCostMinor : null;
+    const contributionMarginBps = comparableCurrency && landedCostMinor !== null && sellingPriceMinor !== null && sellingPriceMinor > 0
+      ? Math.trunc(((sellingPriceMinor - landedCostMinor - Math.floor(sellingPriceMinor / 100)) * 10_000) / sellingPriceMinor)
       : null;
 
     const campaign = campaigns.get(id);
@@ -163,7 +161,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
 
     const priorities: string[] = [];
     if (stock !== null && reorderUnits > 0) priorities.push("reorder");
-    if (grossMarginBps !== null && grossMarginBps < 1500) priorities.push("margin_review");
+    if (contributionMarginBps !== null && contributionMarginBps < 1500) priorities.push("margin_review");
     if (trend >= 1.25) priorities.push("scale_winner");
     if (trend <= 0.75 && sold30 > 0) priorities.push("declining_demand");
     if (conversionBps !== null && conversionBps < 100_000 && int(campaign?.clicks) > 20) priorities.push("conversion_review");
@@ -180,7 +178,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       sourceCostMinor,
       sellingPriceMinor,
       landedCostMinor,
-      grossMarginBps,
+      grossMarginBps: contributionMarginBps,
       sold30,
       sold14,
       priorDailyUnits: Number(priorDaily.toFixed(4)),
@@ -252,7 +250,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     },
     graph: [
       "product -> demand -> inventory -> reorder -> supplier routing -> fulfillment",
-      "supplier cost -> landed cost -> margin -> price guardrail -> conversion -> campaign",
+      "supplier cost -> landed cost -> contribution margin -> price guardrail -> conversion -> campaign",
       "order -> customer LTV -> segment -> next-best-action -> marketing eligibility",
       "ad signal -> product conversion -> winner/decline signal -> sourcing/pricing decision",
       "fulfillment exception -> customer context -> notification/support -> retention signal",
