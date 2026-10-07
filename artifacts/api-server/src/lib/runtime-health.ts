@@ -83,8 +83,10 @@ export async function checkLocalFxHealth(): Promise<Probe & { configuredPairs: n
       const parsed = JSON.parse(await readFile(ratebook, "utf8")) as any;
       const rates = parsed?.rates;
       if (rates && typeof rates === "object" && !Array.isArray(rates)) {
-        configuredPairs = Object.values(rates).reduce((count: number, row: any) => count + Object.keys(row || {}).length, 0);
-        fileHealthy = configuredPairs > 0;
+        const rateRows = Object.values(rates as Record<string, Record<string, unknown>>);
+        const pairCount = rateRows.reduce((count, row) => count + Object.keys(row).length, 0);
+        configuredPairs = pairCount;
+        fileHealthy = pairCount > 0;
       }
     } catch {}
   }
