@@ -6,6 +6,7 @@ import { recallMerchantMemory, rememberMerchantMemory } from "./merchant-ai-memo
 import { toMinorUnits } from "./money";
 
 type Row = Record<string, unknown>;
+type SupplierFallback = Awaited<ReturnType<typeof resolveAutoFallbackSupplierProduct>>;
 
 const VALID_STATUSES = new Set(["paid","processing","completed","shipped","delivered"]);
 
@@ -195,7 +196,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       adPurchases: campaign ? int(campaign.purchases) : 0,
       adRevenueMinor: campaign ? int(campaign.revenue_minor) : 0,
       priorities,
-      supplierFallback: null,
+      supplierFallback: null as SupplierFallback,
     };
   });
 
@@ -238,6 +239,11 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   const atRiskCustomers = [...customerIntelligence].filter((x) => x.churnRiskBps >= 6000).sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20);
   const reorderCandidates = productIntelligence.filter((x) => x.reorderUnits > 0).sort((a, b) => b.reorderUnits - a.reorderUnits).slice(0, 30);
   const winners = productIntelligence.filter((x) => x.priorities.includes("scale_winner")).slice(0, 20);
+  const automationCandidates = [
+    ...reorderCandidates.slice(0, 10).map((product) => ({ kind: "inventory.reorder.review", productId: product.id, recommendedUnits: product.reorderUnits, requiresApproval: true })),
+    ...atRiskCustomers.slice(0, 10).map((customer) => ({ kind: "customer.retention.review", customerId: customer.id, nextBestAction: customer.nextBestAction, requiresApproval: true })),
+    ...winners.slice(0, 10).map((product) => ({ kind: "growth.scale-review", productId: product.id, requiresApproval: true })),
+  ];
 
   return {
     generatedAt: new Date().toISOString(),
