@@ -653,6 +653,57 @@ export const supplierProductsTable = pgTable(
   },
 );
 
+export const supplierSyncPoliciesTable = pgTable(
+  "supplier_sync_policies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
+    supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    syncPrice: boolean("sync_price").notNull().default(true),
+    syncStock: boolean("sync_stock").notNull().default(true),
+    syncVariants: boolean("sync_variants").notNull().default(false),
+    syncMedia: boolean("sync_media").notNull().default(false),
+    syncDescription: boolean("sync_description").notNull().default(false),
+    maxPriceChangeBps: integer("max_price_change_bps").notNull().default(1500),
+    minMarginBps: integer("min_margin_bps").notNull().default(1500),
+    outOfStockAction: text("out_of_stock_action").notNull().default("pause"),
+    requirePriceReview: boolean("require_price_review").notNull().default(true),
+    autoApply: boolean("auto_apply").notNull().default(false),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("supplier_sync_policies_merchant_product_unique").on(table.merchantId, table.supplierProductId),
+    index("supplier_sync_policies_enabled_idx").on(table.merchantId, table.enabled),
+  ],
+);
+
+export const supplierSyncRunsTable = pgTable(
+  "supplier_sync_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
+    supplierProductId: integer("supplier_product_id").notNull().references(() => supplierProductsTable.id, { onDelete: "cascade" }),
+    policyId: uuid("policy_id").references(() => supplierSyncPoliciesTable.id, { onDelete: "set null" }),
+    sourceUrl: text("source_url").notNull(),
+    status: text("status").notNull().default("running"),
+    changedFields: jsonb("changed_fields").notNull().default([]),
+    beforeState: jsonb("before_state").notNull().default({}),
+    afterState: jsonb("after_state").notNull().default({}),
+    providerSnapshot: jsonb("provider_snapshot").notNull().default({}),
+    errorMessage: text("error_message"),
+    triggeredBy: text("triggered_by").notNull().default("system"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("supplier_sync_runs_merchant_time_idx").on(table.merchantId, table.createdAt),
+    index("supplier_sync_runs_product_time_idx").on(table.supplierProductId, table.createdAt),
+  ],
+);
+
 export const inventoryReservationsTable = pgTable(
   "inventory_reservations",
   {
