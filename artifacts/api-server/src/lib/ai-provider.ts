@@ -94,7 +94,7 @@ export async function completeLunavoBrain(
       ];
       if (options.reasoningEffort === "max") {
         const ensemble = await completeLocalEnsemble(messages, {
-          profiles,
+          profiles: ROLE_PROFILES[role],
           json: options.json,
           maxTokens: Math.min(6_000, options.maxTokens ?? 3_200),
         });
