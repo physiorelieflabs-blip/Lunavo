@@ -124,14 +124,17 @@ export async function buildMerchantIntelligenceSnapshot(merchantId: number) {
     return acc;
   }, {});
 
-  const campaignTotals = campaigns.reduce((acc, row) => ({
-    impressions: acc.impressions + (Number(row.impressions) || 0),
-    clicks: acc.clicks + (Number(row.clicks) || 0),
-    views: acc.views + (Number(row.product_views) || 0),
-    carts: acc.carts + (Number(row.add_to_carts) || 0),
-    purchases: acc.purchases + (Number(row.purchases) || 0),
-    revenueMinor: acc.revenueMinor + (Number(row.attributed_revenue_minor) || 0),
-  }), { impressions: 0, clicks: 0, views: 0, carts: 0, purchases: 0, revenueMinor: 0 });
+  const campaignTotals = campaigns.reduce(
+    (acc: { impressions: number; clicks: number; views: number; carts: number; purchases: number; revenueMinor: number }, row) => ({
+      impressions: acc.impressions + (Number(row.impressions) || 0),
+      clicks: acc.clicks + (Number(row.clicks) || 0),
+      views: acc.views + (Number(row.product_views) || 0),
+      carts: acc.carts + (Number(row.add_to_carts) || 0),
+      purchases: acc.purchases + (Number(row.purchases) || 0),
+      revenueMinor: acc.revenueMinor + (Number(row.attributed_revenue_minor) || 0),
+    }),
+    { impressions: 0, clicks: 0, views: 0, carts: 0, purchases: 0, revenueMinor: 0 },
+  );
 
   return {
     generatedAt: new Date().toISOString(),
