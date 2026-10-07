@@ -665,6 +665,8 @@ export const supplierProductAlternativesTable = pgTable(
     autoFallback: boolean("auto_fallback").notNull().default(false),
     sameCurrencyRequired: boolean("same_currency_required").notNull().default(true),
     minMarginBps: integer("min_margin_bps").notNull().default(1500),
+    minSupplierQuantity: integer("min_supplier_quantity").notNull().default(0),
+    maxShippingDays: integer("max_shipping_days").notNull().default(30),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
