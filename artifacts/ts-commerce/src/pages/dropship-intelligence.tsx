@@ -104,7 +104,7 @@ export default function DropshipIntelligence(){
           {top.map(p=><div key={p.id} className={"rounded-xl border p-4 "+tone(p.priorities)}>
             <div className="flex items-start justify-between gap-4">
               <div><p className="font-extrabold">{p.title||("Product #"+p.id)}</p><p className="mt-1 text-xs text-muted-foreground">{p.sold30} units / 30d · {p.projected30.toFixed(1)} projected · trend {p.trendFactor.toFixed(2)}×</p></div>
-              <span className="rounded-full border border-border bg-white/70 px-2 py-1 text-[10px] font-black">{pct(p.grossMarginBps)} margin</span>
+              <span className="rounded-full border border-border bg-white/70 px-2 py-1 text-[10px] font-black">{pct(p.grossMarginBps)} contribution</span>
             </div>
             <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-4">
               <div><span className="text-muted-foreground">Selling</span><p className="font-black">{money(p.sellingPriceMinor,graph.merchant.currency)}</p></div>
