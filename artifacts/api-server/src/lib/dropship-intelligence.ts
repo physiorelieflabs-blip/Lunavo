@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { completeLunavoBrain } from "./ai-provider";
+import { resolveAutoFallbackSupplierProduct } from "./supplier-routing";
 import { toMinorUnits } from "./money";
 
 type Row = Record<string, unknown>;
@@ -70,13 +71,14 @@ export function nextBestAction(seg: string, consent: boolean, churnRiskBps: numb
 export async function buildDropshipOperatingGraph(merchantId: number) {
   if (!Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid merchant id");
 
-  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult] = await Promise.all([
+  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult] = await Promise.all([
     db.execute(sql`SELECT id,name,store_name,currency,tax_rate,shipping_fee,free_shipping_threshold FROM merchants WHERE id=${merchantId} AND status='active' LIMIT 1`),
     db.execute(sql`SELECT id,title,category,brand,currency,price,sale_price,selling_price,availability,availability_quantity,status,visibility,shipping_information,source_domain,updated_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 500`),
     db.execute(sql`SELECT id,customer_id,supplier_product_id,quantity,total,currency,status,created_at,fulfillment_status FROM orders WHERE merchant_id=${merchantId} AND created_at >= ${isoDaysAgo(180)} ORDER BY created_at DESC LIMIT 5000`),
     db.execute(sql`SELECT id,name,email,marketing_consent,created_at,updated_at FROM customers WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 2000`),
     db.execute(sql`SELECT status,COUNT(*)::int AS count FROM fulfillment_jobs WHERE merchant_id=${merchantId} GROUP BY status ORDER BY count DESC`),
     db.execute(sql`SELECT product_id,COALESCE(SUM(impressions),0)::bigint impressions,COALESCE(SUM(clicks),0)::bigint clicks,COALESCE(SUM(add_to_carts),0)::bigint add_to_carts,COALESCE(SUM(purchases),0)::bigint purchases,COALESCE(SUM(attributed_revenue_minor),0)::bigint revenue_minor FROM product_advertising_campaigns WHERE merchant_id=${merchantId} GROUP BY product_id`),
+    db.execute(sql`SELECT id,supplier_product_id,source_kind,source_url,observed_at,currency,observed_price_minor,demand_score,competition_score,trend_score,notes,evidence,model FROM dropship_market_research WHERE merchant_id=${merchantId} ORDER BY observed_at DESC LIMIT 500`),
   ]);
 
   const merchant = (merchantResult.rows[0] ?? null) as Row | null;
@@ -218,6 +220,18 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     };
   });
 
+  const research = researchResult.rows as Row[];
+  const fallbackRows = await Promise.all(productIntelligence.filter((product) => product.reorderUnits > 0 && product.stock !== null && product.sellingPriceMinor !== null).slice(0, 40).map(async (product) => ({
+    productId: product.id,
+    fallback: await resolveAutoFallbackSupplierProduct(db, {
+      merchantId,
+      primaryProductId: product.id,
+      sellingPriceMinor: product.sellingPriceMinor,
+      sellingCurrency: currency,
+    }),
+  })));
+  const fallbacks = new Map(fallbackRows.map((row) => [row.productId, row.fallback]));
+  for (const product of productIntelligence) product.supplierFallback = fallbacks.get(product.id) ?? null;
   const topProducts = [...productIntelligence].sort((a, b) => b.projected30 - a.projected30).slice(0, 20);
   const atRiskCustomers = [...customerIntelligence].filter((x) => x.churnRiskBps >= 6000).sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20);
   const reorderCandidates = productIntelligence.filter((x) => x.reorderUnits > 0).sort((a, b) => b.reorderUnits - a.reorderUnits).slice(0, 30);
