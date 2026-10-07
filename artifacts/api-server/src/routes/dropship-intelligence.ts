@@ -86,7 +86,14 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
     });
     res.setHeader("Cache-Control", "no-store");
     const commandQuestion = question ?? "Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation.";
-    const commandIdempotency = `dropship-command:${ctx.merchantId}:${new Date().toISOString().slice(0,10)}:${result.graph.generatedAt}:${String(result.brain.consensus)}`;
+    const suppliedIdempotency = text(req.body?.idempotencyKey, 220);
+    if (suppliedIdempotency && !/^[A-Za-z0-9._:-]{1,220}$/.test(suppliedIdempotency)) {
+      res.status(400).json({ error: "Invalid idempotencyKey" });
+      return;
+    }
+    const commandIdempotency = suppliedIdempotency
+      ? `dropship-command:${ctx.merchantId}:${suppliedIdempotency}`
+      : `dropship-command:${ctx.merchantId}:${new Date().toISOString()}:${result.graph.generatedAt}:${String(result.brain.consensus)}`;
     const commandRun = await db.execute(sql`
       INSERT INTO dropship_command_runs
         (merchant_id,question,context,plan,brain_model,contributors,roles,consensus,status,idempotency_key,completed_at)
