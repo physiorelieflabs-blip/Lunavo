@@ -66,6 +66,8 @@ export async function upsertSupplierAlternative(input: {
   sameCurrencyRequired?: boolean;
   minMarginBps?: number;
   minSupplierQuantity?: number;
+  destinationMode?: 'global' | 'include' | 'exclude';
+  destinationCountries?: string[];
   maxShippingDays?: number;
   notes?: string | null;
 }) {
@@ -84,18 +86,20 @@ export async function upsertSupplierAlternative(input: {
   const priority = Math.max(1, Math.min(100_000, Math.trunc(input.priority ?? 100)));
   const minMarginBps = Math.max(0, Math.min(100_000, Math.trunc(input.minMarginBps ?? 1500)));
   const minSupplierQuantity = Math.max(0, Math.min(100_000_000, Math.trunc(input.minSupplierQuantity ?? 0)));
+  const destinationMode = input.destinationMode ?? 'global';
+  const destinationCountries = [...new Set((input.destinationCountries ?? []).filter((value) => /^[A-Za-z]{2}$/.test(value)).map((value) => value.toUpperCase()))].slice(0, 250);
   const maxShippingDays = Math.max(1, Math.min(365, Math.trunc(input.maxShippingDays ?? 30)));
   const notes = typeof input.notes === "string" ? input.notes.trim().slice(0, 1_000) || null : null;
 
   const result = await db.execute(sql`
     INSERT INTO supplier_product_alternatives (
       merchant_id, primary_product_id, alternative_product_id, priority,
-      enabled, auto_fallback, same_currency_required, min_margin_bps, min_supplier_quantity, max_shipping_days, notes
+      enabled, auto_fallback, same_currency_required, min_margin_bps, min_supplier_quantity, max_shipping_days, destination_mode, destination_countries, notes
     )
     VALUES (
       ${merchantId}, ${primaryProductId}, ${alternativeProductId}, ${priority},
       ${input.enabled !== false}, ${input.autoFallback === true},
-      ${input.sameCurrencyRequired !== false}, ${minMarginBps}, ${minSupplierQuantity}, ${maxShippingDays}, ${notes}
+      ${input.sameCurrencyRequired !== false}, ${minMarginBps}, ${minSupplierQuantity}, ${maxShippingDays}, ${destinationMode}, ${JSON.stringify(destinationCountries)}::jsonb, ${notes}
     )
     ON CONFLICT (merchant_id, primary_product_id, alternative_product_id)
     DO UPDATE SET
@@ -106,6 +110,8 @@ export async function upsertSupplierAlternative(input: {
       min_margin_bps=EXCLUDED.min_margin_bps,
       min_supplier_quantity=EXCLUDED.min_supplier_quantity,
       max_shipping_days=EXCLUDED.max_shipping_days,
+      destination_mode=EXCLUDED.destination_mode,
+      destination_countries=EXCLUDED.destination_countries,
       notes=EXCLUDED.notes,
       updated_at=now()
     RETURNING *
