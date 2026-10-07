@@ -65,6 +65,8 @@ export async function upsertSupplierAlternative(input: {
   autoFallback?: boolean;
   sameCurrencyRequired?: boolean;
   minMarginBps?: number;
+  minSupplierQuantity?: number;
+  maxShippingDays?: number;
   notes?: string | null;
 }) {
   const { merchantId, primaryProductId, alternativeProductId } = input;
@@ -81,17 +83,19 @@ export async function upsertSupplierAlternative(input: {
 
   const priority = Math.max(1, Math.min(100_000, Math.trunc(input.priority ?? 100)));
   const minMarginBps = Math.max(0, Math.min(100_000, Math.trunc(input.minMarginBps ?? 1500)));
+  const minSupplierQuantity = Math.max(0, Math.min(100_000_000, Math.trunc(input.minSupplierQuantity ?? 0)));
+  const maxShippingDays = Math.max(1, Math.min(365, Math.trunc(input.maxShippingDays ?? 30)));
   const notes = typeof input.notes === "string" ? input.notes.trim().slice(0, 1_000) || null : null;
 
   const result = await db.execute(sql`
     INSERT INTO supplier_product_alternatives (
       merchant_id, primary_product_id, alternative_product_id, priority,
-      enabled, auto_fallback, same_currency_required, min_margin_bps, notes
+      enabled, auto_fallback, same_currency_required, min_margin_bps, min_supplier_quantity, max_shipping_days, notes
     )
     VALUES (
       ${merchantId}, ${primaryProductId}, ${alternativeProductId}, ${priority},
       ${input.enabled !== false}, ${input.autoFallback === true},
-      ${input.sameCurrencyRequired !== false}, ${minMarginBps}, ${notes}
+      ${input.sameCurrencyRequired !== false}, ${minMarginBps}, ${minSupplierQuantity}, ${maxShippingDays}, ${notes}
     )
     ON CONFLICT (merchant_id, primary_product_id, alternative_product_id)
     DO UPDATE SET
@@ -100,6 +104,8 @@ export async function upsertSupplierAlternative(input: {
       auto_fallback=EXCLUDED.auto_fallback,
       same_currency_required=EXCLUDED.same_currency_required,
       min_margin_bps=EXCLUDED.min_margin_bps,
+      min_supplier_quantity=EXCLUDED.min_supplier_quantity,
+      max_shipping_days=EXCLUDED.max_shipping_days,
       notes=EXCLUDED.notes,
       updated_at=now()
     RETURNING *
