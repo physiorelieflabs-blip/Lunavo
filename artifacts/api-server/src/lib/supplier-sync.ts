@@ -4,7 +4,7 @@ import { emitDomainEvent } from "./domain-events";
 import { toMinorUnits } from "./money";
 import { sql } from "drizzle-orm";
 
-type SyncPolicy = {
+export type SyncPolicy = {
   id: string;
   merchant_id: number;
   supplier_product_id: number;
@@ -147,7 +147,7 @@ export async function loadSupplierSyncPolicy(merchantId: number, productId: numb
   return (result.rows[0] as SyncPolicy | undefined) ?? null;
 }
 
-async function ensurePolicy(merchantId: number, productId: number): Promise<SyncPolicy> {
+export async function ensurePolicy(merchantId: number, productId: number): Promise<SyncPolicy> {
   const existing = await loadSupplierSyncPolicy(merchantId, productId);
   if (existing) return existing;
   const result = await db.execute(sql`
