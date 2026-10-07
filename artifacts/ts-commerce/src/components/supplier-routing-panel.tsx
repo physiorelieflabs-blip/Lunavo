@@ -7,8 +7,8 @@ type ProductChoice = {
   id: number;
   title: string;
   currency?: string;
-  price?: string | null;
-  salePrice?: string | null;
+  price?: number | null;
+  salePrice?: number | null;
   availability?: string | null;
 };
 
