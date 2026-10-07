@@ -1,4 +1,5 @@
 import dropshipIntelligenceRouter from "./dropship-intelligence";
+import channelHubRouter from "./channel-hub";
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import adminHealthRouter from "./admin-health";
@@ -88,6 +89,7 @@ router.use(dailyAiAdvertisingRouter);
 router.use(socialHubRouter);
 router.use(subscriptionOptionsRouter);
 router.use(dropshipIntelligenceRouter);
+router.use(channelHubRouter);
 router.use(storefrontDomainsRouter);
 router.use(storefrontPublishingRouter);
 router.use(tsPayTransfersRouter);
