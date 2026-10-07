@@ -36,6 +36,8 @@ export function SupplierRoutingPanel({ current, products }: { current: ProductCh
   const [candidateId, setCandidateId] = useState<string>("");
   const [priority, setPriority] = useState("100");
   const [minMargin, setMinMargin] = useState("15");
+  const [minQuantity, setMinQuantity] = useState("0");
+  const [maxDays, setMaxDays] = useState("30");
   const [autoFallback, setAutoFallback] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -60,9 +62,13 @@ export function SupplierRoutingPanel({ current, products }: { current: ProductCh
     const altId = Number(candidateId);
     const priorityValue = Number(priority);
     const marginPercent = Number(minMargin);
+    const minimumQuantity = Number(minQuantity);
+    const maximumDays = Number(maxDays);
     if (!Number.isInteger(altId) || altId <= 0) { setMessage("Choose an alternate supplier product."); return; }
     if (!Number.isInteger(priorityValue) || priorityValue < 1) { setMessage("Priority must be a positive whole number."); return; }
     if (!Number.isFinite(marginPercent) || marginPercent < 0 || marginPercent > 100) { setMessage("Minimum fallback margin must be between 0% and 100%."); return; }
+    if (!Number.isInteger(minimumQuantity) || minimumQuantity < 0) { setMessage("Minimum supplier quantity must be a whole number of 0 or more."); return; }
+    if (!Number.isInteger(maximumDays) || maximumDays < 1 || maximumDays > 365) { setMessage("Maximum shipping time must be between 1 and 365 days."); return; }
     setBusy(true); setMessage("");
     try {
       await customFetch("/api/merchant/dropshipping/routing/" + current.id, {
@@ -75,6 +81,8 @@ export function SupplierRoutingPanel({ current, products }: { current: ProductCh
           autoFallback,
           sameCurrencyRequired: true,
           minMarginBps: Math.round(marginPercent * 100),
+          minSupplierQuantity: minimumQuantity,
+          maxShippingDays: maximumDays,
         }),
       });
       setCandidateId("");
@@ -102,13 +110,15 @@ export function SupplierRoutingPanel({ current, products }: { current: ProductCh
       <p className="mt-1 text-xs leading-5 text-[#b8c2cc]">Keep an alternate source ready when the primary supplier goes out of stock or falls below the configured margin. Automatic fallback is still currency-safe and approval-gated at checkout.</p></div>
       <Badge tone={alternatives.some((item) => item.enabled && item.auto_fallback) ? "success" : "neutral"}>{alternatives.filter((item) => item.enabled).length} mapped</Badge>
     </div>
-    <div className="mt-4 grid gap-3 md:grid-cols-[1fr_120px_120px_auto]">
+    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[1fr_110px_110px_110px_110px_auto]">
       <select value={candidateId} onChange={(event) => setCandidateId(event.target.value)} className="h-10 rounded-lg border border-[#536174] bg-[#263644] px-3 text-xs font-bold text-[#f8f3e8]">
         <option value="">Add alternate product…</option>
         {candidates.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select>
       <input value={priority} onChange={(event) => setPriority(event.target.value)} type="number" min="1" max="100000" aria-label="Fallback priority" className="h-10 rounded-lg border border-[#536174] bg-[#263644] px-3 text-xs font-bold text-[#f8f3e8]" placeholder="Priority" />
       <input value={minMargin} onChange={(event) => setMinMargin(event.target.value)} type="number" min="0" max="100" step="0.01" aria-label="Minimum fallback margin" className="h-10 rounded-lg border border-[#536174] bg-[#263644] px-3 text-xs font-bold text-[#f8f3e8]" placeholder="Margin %" />
+      <input value={minQuantity} onChange={(event) => setMinQuantity(event.target.value)} type="number" min="0" step="1" aria-label="Minimum supplier quantity" className="h-10 rounded-lg border border-[#536174] bg-[#263644] px-3 text-xs font-bold text-[#f8f3e8]" placeholder="Min qty" />
+      <input value={maxDays} onChange={(event) => setMaxDays(event.target.value)} type="number" min="1" max="365" step="1" aria-label="Maximum shipping days" className="h-10 rounded-lg border border-[#536174] bg-[#263644] px-3 text-xs font-bold text-[#f8f3e8]" placeholder="Max days" />
       <Button className="min-h-10 px-3 text-xs" onClick={() => void add()} disabled={busy || !candidateId}><Plus className="h-3.5 w-3.5" />Map source</Button>
     </div>
     <label className="mt-3 flex items-center gap-2 text-xs font-bold text-[#d8e1e3]"><input type="checkbox" checked={autoFallback} onChange={(event) => setAutoFallback(event.target.checked)} />Allow this new mapping to be considered for automatic fallback</label>
