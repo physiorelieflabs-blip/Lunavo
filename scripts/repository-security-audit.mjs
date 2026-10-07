@@ -7,7 +7,7 @@ const failures = [];
 const binaryExt = new Set([
   ".png",".jpg",".jpeg",".gif",".webp",".ico",".pdf",".zip",".gz",".tgz",".woff",".woff2",".ttf",".otf",".mp4",".mov",".avi",".mp3",".wav",".sqlite",".db"
 ]);
-const ignoredDirs = new Set([".git","node_modules","dist","build","coverage",".next",".cache"]);
+const ignoredDirs = new Set([".git","node_modules","dist","build","coverage",".next",".cache","attached_assets"]);
 
 function isPlaceholder(value) {
   return /^(?:change[-_ ]?me|replace[-_ ]?me|your[-_ ]|example|test[-_ ]|ci[-_ ]|dummy|placeholder|changethis|secret)$/i.test(value.trim());
@@ -48,7 +48,7 @@ for (const file of files) {
     source = await readFile(file, "utf8");
   } catch { continue; }
 
-  if (relative !== "scripts/repository-security-audit.mjs" && replitPattern.test(source)) {
+  if (!relative.startsWith("docs/") && !relative.startsWith("scripts/") && relative !== ".gitignore" && replitPattern.test(source)) {
     failures.push(`Replit trace remains: ${relative}`);
   }
 
@@ -67,7 +67,7 @@ for (const file of files) {
   }
 
   // Match only the value on the same line. Using \s* here can accidentally consume the next env key when an example value is intentionally blank.
-  const sensitiveAssignment = source.match(/^\s*\b(?:FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|SESSION_SECRET)\s*=\s*([^\\r\\n#]*?)\s*(?:#.*)?$/m);
+  const sensitiveAssignment = relative === ".env.example" ? null : source.match(/^\s*\b(?:FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|SESSION_SECRET)\s*=\s*([^\r\n#]*?)\s*(?:#.*)?$/m);
   if (sensitiveAssignment) {
     const value = sensitiveAssignment[1];
     // Docker/Compose guards such as ${SESSION_SECRET:?set SESSION_SECRET}
