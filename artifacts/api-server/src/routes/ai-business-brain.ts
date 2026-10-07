@@ -87,8 +87,24 @@ router.post("/merchant/ai/brain/run", async (req, res, next) => {
       productId,
     });
 
+    const merchantData = result.snapshot.merchant as Record<string, unknown>;
+    const health = result.snapshot.health as Record<string, unknown> | null;
     res.setHeader("Cache-Control", "no-store");
-    res.json(result);
+    res.json({
+      ...result,
+      reply: result.brain.content,
+      model: result.brain.model,
+      groundedAt: result.snapshot.generatedAt,
+      evidence: {
+        storeName: String(merchantData.store_name ?? merchantData.name ?? "Merchant workspace"),
+        currency: String(merchantData.currency ?? "—"),
+        healthScore: typeof health?.score === "number"
+          ? health.score
+          : Number.isFinite(Number(health?.score))
+            ? Number(health?.score)
+            : null,
+      },
+    });
   } catch (error) {
     next(error);
   }
