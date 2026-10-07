@@ -158,6 +158,7 @@ export async function resolveAutoFallbackSupplierProduct(
     primaryProductId: number;
     sellingPriceMinor: number | null;
     sellingCurrency: string;
+    destinationCountry?: string | null;
   },
 ) {
   if (input.sellingPriceMinor === null || input.sellingPriceMinor <= 0) return null;
@@ -173,6 +174,25 @@ export async function resolveAutoFallbackSupplierProduct(
       AND a.primary_product_id=${input.primaryProductId}
       AND a.enabled=true
       AND a.auto_fallback=true
+      AND (
+        a.destination_mode='global'
+        OR (
+          ${input.destinationCountry} IS NOT NULL
+          AND a.destination_mode='include'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(a.destination_countries) country(code)
+            WHERE upper(code)=upper(${input.destinationCountry})
+          )
+        )
+        OR (
+          ${input.destinationCountry} IS NOT NULL
+          AND a.destination_mode='exclude'
+          AND NOT EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(a.destination_countries) country(code)
+            WHERE upper(code)=upper(${input.destinationCountry})
+          )
+        )
+      )
       AND sp.status NOT IN ('paused','draft','archived')
       AND sp.visibility NOT IN ('hidden','draft')
       AND sp.availability='in_stock'
