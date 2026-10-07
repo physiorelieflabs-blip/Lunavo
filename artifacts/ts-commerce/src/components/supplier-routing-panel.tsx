@@ -21,6 +21,8 @@ type SupplierAlternative = {
   auto_fallback: boolean;
   same_currency_required: boolean;
   min_margin_bps: number;
+  min_supplier_quantity: number;
+  max_shipping_days: number;
   notes: string | null;
   alternative_title?: string;
   alternative_currency?: string;
@@ -125,7 +127,7 @@ export function SupplierRoutingPanel({ current, products }: { current: ProductCh
     {message && <p className="mt-3 text-xs text-[#d8e1e3]" aria-live="polite">{message}</p>}
     {loading ? <p className="mt-4 text-xs text-[#8fa1b2]">Loading fallback mappings…</p> : alternatives.length ? <div className="mt-4 space-y-2">
       {alternatives.map((item) => <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-[#46566a] bg-[#263644] p-3">
-        <div className="min-w-0 flex-1"><p className="truncate text-xs font-extrabold text-[#f8f3e8]">{item.alternative_title ?? "Alternate supplier product"}</p><p className="mt-1 text-[11px] text-[#8fa1b2]">Priority {item.priority} · minimum margin {(item.min_margin_bps / 100).toFixed(2)}% · {item.alternative_availability ?? "availability unknown"}</p></div>
+        <div className="min-w-0 flex-1"><p className="truncate text-xs font-extrabold text-[#f8f3e8]">{item.alternative_title ?? "Alternate supplier product"}</p><p className="mt-1 text-[11px] text-[#8fa1b2]">Priority {item.priority} · margin ≥ {(item.min_margin_bps / 100).toFixed(2)}% · min qty {item.min_supplier_quantity} · ≤ {item.max_shipping_days} shipping days · {item.alternative_availability ?? "availability unknown"}</p></div>
         <Badge tone={item.auto_fallback && item.enabled ? "success" : "neutral"}>{item.auto_fallback && item.enabled ? "Auto fallback" : "Manual backup"}</Badge>
         <button type="button" onClick={() => void remove(item.id)} disabled={busy} aria-label="Remove supplier mapping" className="grid h-8 w-8 place-items-center rounded-lg border border-[#536174] text-[#c7d0d8] hover:border-[#d6aa46] hover:text-[#d6aa46]"><Trash2 className="h-3.5 w-3.5" /></button>
       </div>)}
