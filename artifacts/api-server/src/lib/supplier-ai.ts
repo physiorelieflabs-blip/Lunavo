@@ -1,5 +1,6 @@
 import type { ImportedSupplierProduct } from "./public-supplier";
-import { completeLocalChat, completeLocalVisionJson, selfHostedAiConfigured } from "./self-hosted-ai";
+import { completeLocalVisionJson, selfHostedAiConfigured } from "./self-hosted-ai";
+import { completeLunavoBrain } from "./ai-provider";
 
 type Structured = {
   title?: unknown;
@@ -149,11 +150,18 @@ export async function enrichSupplierProduct(product: ImportedSupplierProduct): P
   ].join("\n");
 
   try {
-    const response = await completeLocalChat([
-      { role: "system", content: "Return strict JSON only. Do not fabricate missing supplier facts." },
-      { role: "user", content: prompt },
-    ], { json: true, maxTokens: 3500, reasoningEffort: "high" });
-    return merge(product, parseJson(response.content), response.model, "text", response.profile);
+    const response = await completeLunavoBrain(
+      "Enrich this supplier product from public evidence. Preserve authoritative source fields and only fill missing descriptive fields.",
+      prompt,
+      {
+        json: true,
+        maxTokens: 3500,
+        roles: ["researcher", "merchandiser", "reviewer"],
+        reasoningEffort: "high",
+        contextLabel: "supplier product evidence",
+      },
+    );
+    return merge(product, parseJson(response.content), response.model, "text", "brain");
   } catch {
     // Image enrichment is best-effort. A supplier import remains truthful when the provider is unavailable.
     if (!product.imageUrl) return product;
