@@ -667,6 +667,8 @@ export const supplierProductAlternativesTable = pgTable(
     minMarginBps: integer("min_margin_bps").notNull().default(1500),
     minSupplierQuantity: integer("min_supplier_quantity").notNull().default(0),
     maxShippingDays: integer("max_shipping_days").notNull().default(30),
+    destinationMode: text("destination_mode").notNull().default("global"),
+    destinationCountries: jsonb("destination_countries").notNull().default([]),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -674,6 +676,7 @@ export const supplierProductAlternativesTable = pgTable(
   (table) => [
     uniqueIndex("supplier_product_alternatives_unique").on(table.merchantId, table.primaryProductId, table.alternativeProductId),
     index("supplier_product_alternatives_primary_idx").on(table.merchantId, table.primaryProductId, table.enabled, table.priority),
+    index("supplier_product_alternatives_destination_idx").on(table.merchantId, table.primaryProductId, table.destinationMode),
   ],
 );
 
@@ -814,6 +817,7 @@ export const ordersTable = pgTable(
       () => supplierProductsTable.id,
     ),
     shippingAddress: text("shipping_address"),
+    customerCountry: text("customer_country"),
     fulfillmentStatus: text("fulfillment_status")
       .notNull()
       .default("not_applicable"),
