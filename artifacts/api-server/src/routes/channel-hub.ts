@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, merchantsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { encryptSecret } from "../lib/withdrawal-security";
@@ -37,7 +37,7 @@ async function merchantFor(req: Request, res: Response) {
   }
   const userSql = "SELECT id FROM merchants WHERE status='active' AND (clerk_user_id=" +
     quote(userId) + " OR local_auth_user_id=" + quote(userId) + ") LIMIT 1";
-  const row = (await db.execute(userSql as any)).rows[0] as { id: number } | undefined;
+  const row = (await db.execute(sql.raw(userSql))).rows[0] as { id: number } | undefined;
   if (!row) {
     res.status(404).json({ error: "Merchant workspace not found" });
     return null;
@@ -92,7 +92,7 @@ router.get("/merchant/channels", async (req, res, next) => {
       "WHERE c.merchant_id = " + String(ctx.merchantId),
       "ORDER BY c.created_at DESC",
     ].join(" ");
-    const rows = await db.execute(query as any);
+    const rows = await db.execute(sql.raw(query));
     res.setHeader("Cache-Control", "no-store");
     res.json({
       providers: PROVIDERS.map(provider => ({ provider, adapterState: provider === "custom" ? "configured-by-merchant" : "adapter-slot" })),
@@ -148,7 +148,7 @@ router.post("/merchant/channels", async (req, res, next) => {
       quote(ctx.userId) + "," + quote(metadata) + "::jsonb",
       ") RETURNING *",
     ].join(" ");
-    const result = await db.execute(query as any);
+    const result = await db.execute(sql.raw(query));
     const row = result.rows[0] as Record<string, unknown> | undefined;
     if (!row) {
       res.status(500).json({ error: "Channel connection could not be created" });
@@ -163,7 +163,7 @@ router.post("/merchant/channels", async (req, res, next) => {
         quote("channel-bootstrap-inventory:" + String(row.id)) + "," + quote(ctx.userId) + ",'{}'::jsonb)",
       "ON CONFLICT (connection_id,idempotency_key) DO NOTHING",
     ].join(" ");
-    await db.execute(bootstrap as any);
+    await db.execute(sql.raw(bootstrap));
 
     res.status(201).json({
       connection: serialize({ ...row, credential_configured: Boolean(accessToken), webhook_configured: Boolean(webhookSecret) }),
@@ -190,7 +190,7 @@ router.post("/merchant/channels/:id/sync", async (req, res, next) => {
     }
     const lookup = "SELECT id,status FROM merchant_channel_connections WHERE id=" + quote(connectionId) +
       " AND merchant_id=" + String(ctx.merchantId) + " LIMIT 1";
-    const connection = (await db.execute(lookup as any)).rows[0] as Record<string, unknown> | undefined;
+    const connection = (await db.execute(sql.raw(lookup))).rows[0] as Record<string, unknown> | undefined;
     if (!connection) {
       res.status(404).json({ error: "Channel connection not found" });
       return;
@@ -211,7 +211,7 @@ router.post("/merchant/channels/:id/sync", async (req, res, next) => {
         quote(idempotencyKey) + "," + quote(ctx.userId) + "," + quote(correlationId) + ",'{}'::jsonb)",
       "ON CONFLICT (connection_id,idempotency_key) DO UPDATE SET updated_at=now() RETURNING *",
     ].join(" ");
-    const result = await db.execute(jobQuery as any);
+    const result = await db.execute(sql.raw(jobQuery));
     res.status(202).json({
       job: result.rows[0] ?? null,
       execution: "queued",
