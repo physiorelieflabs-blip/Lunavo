@@ -368,6 +368,49 @@ export async function synchronizeSupplierProduct(input: {
         WHERE id=${policy.id} AND merchant_id=${input.merchantId}
       `);
 
+      if (changedFields.length > 0 || reviewReasons.length > 0) {
+        const priority = reviewReasons.length > 0 || imported.availability === "out_of_stock" ? "high" : "medium";
+        const opportunityType = reviewReasons.length > 0 ? "supplier_sync_review" : "supplier_change";
+        const explanation = reviewReasons.length
+          ? reviewReasons.join(" ")
+          : "Supplier source data changed and may affect pricing, availability, merchandising, or fulfillment.";
+        await tx.execute(sql\`
+          INSERT INTO commerce_growth_opportunities (
+            merchant_id, type, priority, score, title, explanation, evidence, suggested_action, status
+          )
+          SELECT
+            \${input.merchantId},
+            \${opportunityType},
+            \${priority},
+            \${reviewReasons.length > 0 ? 90 : imported.availability === "out_of_stock" ? 95 : 65},
+            \${reviewReasons.length > 0 ? "Supplier sync requires review for " + product.title : "Supplier source changed for " + product.title},
+            \${explanation},
+            \${JSON.stringify({
+              supplierProductId: product.id,
+              syncRunId: runId,
+              changedFields: [...new Set(changedFields)],
+              sourceUrl: imported.sourceUrl,
+              sourceCurrency: imported.currency,
+              sourcePrice: imported.price,
+              sourceAvailability: imported.availability,
+            })}::jsonb,
+            \${JSON.stringify({
+              kind: reviewReasons.length > 0 ? "review_supplier_sync" : "inspect_supplier_change",
+              supplierProductId: product.id,
+              route: "/sourcing",
+            })}::jsonb,
+            'open'
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM commerce_growth_opportunities existing
+            WHERE existing.merchant_id = \${input.merchantId}
+              AND existing.status = 'open'
+              AND existing.type = \${opportunityType}
+              AND existing.evidence->>'supplierProductId' = \${String(product.id)}
+          )
+        \`);
+      }
+
       await tx.execute(sql`
         UPDATE supplier_sync_runs
         SET status=${runStatus},
