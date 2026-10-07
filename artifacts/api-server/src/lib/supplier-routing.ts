@@ -116,6 +116,29 @@ export async function removeSupplierAlternative(merchantId: number, alternativeI
   return result.rows.length > 0;
 }
 
+function extractMaximumShippingDays(value: unknown): number | null {
+  if (value == null) return null;
+  const values: number[] = [];
+  const visit = (candidate: unknown): void => {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0 && candidate <= 365) values.push(candidate);
+    else if (typeof candidate === "string") {
+      const matches = candidate.match(/\b(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?\s*(?:business\s*)?(?:day|days)\b/gi) ?? [];
+      for (const match of matches) {
+        const nums = [...match.matchAll(/\d{1,3}/g)].map((m) => Number(m[0])).filter((n) => Number.isFinite(n));
+        if (nums.length) values.push(Math.max(...nums));
+      }
+    } else if (Array.isArray(candidate)) {
+      for (const item of candidate.slice(0, 20)) visit(item);
+    } else if (candidate && typeof candidate === "object") {
+      for (const [key, child] of Object.entries(candidate as Record<string, unknown>)) {
+        if (/day|delivery|shipping|transit|handling/i.test(key)) visit(child);
+      }
+    }
+  };
+  visit(value);
+  return values.length ? Math.max(...values) : null;
+}
+
 export async function resolveAutoFallbackSupplierProduct(
   executor: { execute: (query: unknown) => Promise<any> },
   input: {
