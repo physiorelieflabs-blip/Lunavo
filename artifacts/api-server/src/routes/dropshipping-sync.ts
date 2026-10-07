@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from "express";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { db, merchantsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
-import { ensurePolicy, loadSupplierSyncPolicy, synchronizeSupplierProduct, type SyncPolicy } from "../lib/supplier-sync";
+import { ensurePolicy, loadSupplierSyncPolicy, synchronizeSupplierProduct } from "../lib/supplier-sync";
 
 const router = Router();
 
