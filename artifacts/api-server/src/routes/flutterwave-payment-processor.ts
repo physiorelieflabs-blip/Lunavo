@@ -33,6 +33,7 @@ import {
   reverseReferralReward,
 } from "../lib/referrals";
 import { multiplyMinorUnits, toMinorUnits } from "../lib/money";
+import { resolveAutoFallbackSupplierProduct } from "../lib/supplier-routing";
 
 type ProviderTransaction = Record<string, unknown>;
 function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
@@ -442,34 +443,62 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     if (order.supplierProductId && supplierProduct) {
       const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
       if (autoDs?.enabled) {
+        const sellingMinorPerUnit = supplierProduct.sellingPrice === null ? null : toMinorUnits(supplierProduct.sellingPrice);
+        const minimumMarginBps = toMinorUnits(autoDs.minimumMarginPercent) ?? 0;
         const sourceCost = supplierProduct.salePrice ?? supplierProduct.price;
-        const selling = supplierProduct.sellingPrice;
         const costMinorPerUnit = sourceCost === null ? null : toMinorUnits(sourceCost);
-        const sellingMinorPerUnit = selling === null ? null : toMinorUnits(selling);
-        const marginPercent = costMinorPerUnit !== null && sellingMinorPerUnit !== null && sellingMinorPerUnit > 0
-          ? ((sellingMinorPerUnit - costMinorPerUnit) / sellingMinorPerUnit) * 100
+        const primaryInStock = supplierProduct.availability === "in_stock" &&
+          (supplierProduct.availabilityQuantity === null || supplierProduct.availabilityQuantity > 0);
+        const primaryMarginBps = sellingMinorPerUnit !== null && costMinorPerUnit !== null && sellingMinorPerUnit > 0
+          ? Number((BigInt(sellingMinorPerUnit - costMinorPerUnit) * 10_000n) / BigInt(sellingMinorPerUnit))
           : null;
-        const totalCostMinor = costMinorPerUnit === null ? null : multiplyMinorUnits(costMinorPerUnit, order.quantity);
-        if (marginPercent === null || marginPercent >= Number(autoDs.minimumMarginPercent)) {
-          await tx.insert(fulfillmentJobsTable).values({
+        const primaryEconomicallyEligible = primaryMarginBps === null || primaryMarginBps >= minimumMarginBps;
+
+        let routedProductId = supplierProduct.id;
+        let routedSupplierUrl = supplierProduct.supplierUrl || supplierProduct.sourceUrl;
+        let routedCostMinorPerUnit = costMinorPerUnit;
+        let fallbackMappingId: string | null = null;
+
+        if ((!primaryInStock || !primaryEconomicallyEligible) && sellingMinorPerUnit !== null) {
+          const fallback = await resolveAutoFallbackSupplierProduct(tx, {
             merchantId: merchant.id,
-            orderId: order.id,
-            supplierProductId: order.supplierProductId,
-            mode: autoDs.mode,
-            status: "ready",
-            supplierCheckoutUrl: supplierProduct.supplierUrl || supplierProduct.sourceUrl,
-            customerSnapshot: {
-              name: customer.name,
-              email: customer.email,
-              phone: customer.phone,
-              shippingAddress: order.shippingAddress,
-            },
-            costMinor: totalCostMinor,
-            currency: order.currency,
-            attempts: 0,
-            idempotencyKey: `autods:order:${order.id}`,
-          }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+            primaryProductId: supplierProduct.id,
+            sellingPriceMinor: sellingMinorPerUnit,
+            sellingCurrency: order.currency,
+          });
+          if (fallback) {
+            routedProductId = fallback.supplierProductId;
+            routedSupplierUrl = fallback.supplierUrl || fallback.sourceUrl || routedSupplierUrl;
+            routedCostMinorPerUnit = fallback.costMinor;
+            fallbackMappingId = fallback.mappingId;
+          }
         }
+
+        const totalCostMinor = routedCostMinorPerUnit === null ? null : multiplyMinorUnits(routedCostMinorPerUnit, order.quantity);
+        const blockedBySupplierState = fallbackMappingId === null && (!primaryInStock || !primaryEconomicallyEligible);
+        await tx.insert(fulfillmentJobsTable).values({
+          merchantId: merchant.id,
+          orderId: order.id,
+          supplierProductId: routedProductId,
+          mode: autoDs.mode,
+          status: blockedBySupplierState ? "failed" : "ready",
+          supplierCheckoutUrl: routedSupplierUrl,
+          customerSnapshot: {
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone,
+            shippingAddress: order.shippingAddress,
+          },
+          costMinor: totalCostMinor,
+          currency: order.currency,
+          lastError: blockedBySupplierState
+            ? "Supplier routing could not safely identify an in-stock source meeting the configured margin threshold. Select or configure a fallback supplier before retrying."
+            : fallbackMappingId
+              ? "Automatic fallback supplier selected because the primary source was unavailable or below the configured margin. External supplier checkout remains approval-gated."
+              : null,
+          attempts: 0,
+          idempotencyKey: "autods:order:" + order.id,
+        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
       }
     }
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: order.id, paymentIntentId: currentIntent.id, entityType: "payment_intent", fromStatus: currentIntent.status, toStatus: "successful", actorId: "flutterwave_webhook", note: "Provider-verified Flutterwave payment" });
