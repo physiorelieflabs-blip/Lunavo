@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { completeLunavoBrain } from "./ai-provider";
 import { resolveAutoFallbackSupplierProduct } from "./supplier-routing";
+import { recallMerchantMemory, rememberMerchantMemory } from "./merchant-ai-memory";
 import { toMinorUnits } from "./money";
 
 type Row = Record<string, unknown>;
@@ -350,6 +351,7 @@ export async function persistDropshipIntelligence(merchantId: number, graph: Awa
 
 export async function buildMaxConsensusDropshipPlan(merchantId: number, question?: string | null) {
   const graph = await buildDropshipOperatingGraph(merchantId);
+  const memory = await recallMerchantMemory(merchantId, 24);
   const context = JSON.stringify({
     merchant: graph.merchant,
     summary: graph.summary,
@@ -371,7 +373,21 @@ export async function buildMaxConsensusDropshipPlan(merchantId: number, question
     },
   );
 
-  return { graph, brain };
+  await rememberMerchantMemory(merchantId, {
+    memoryType: "strategy",
+    memoryKey: "latest_dropship_operating_plan",
+    content: brain.content,
+    confidenceBps: 6500,
+    source: "max_consensus_dropship_brain",
+    model: brain.model,
+    evidence: {
+      generatedAt: graph.generatedAt,
+      reorderCandidateCount: graph.summary.reorderCandidateCount,
+      atRiskCustomerCount: graph.summary.atRiskCustomerCount,
+      scaleWinnerCount: graph.summary.scaleWinnerCount,
+    },
+  });
+  return { graph, brain, memoryCount: memory.length };
 }
 
 export async function recordMarketResearch(input: {
