@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
+import { emitDomainEvent } from "../lib/domain-events";
 import { requirePermission } from "../lib/tenant-access";
 import {
   buildDropshipOperatingGraph,
@@ -66,6 +67,23 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
     const question = text(req.body?.question, 2_000);
     const result = await buildMaxConsensusDropshipPlan(ctx.merchantId, question);
     await persistDropshipIntelligence(ctx.merchantId, result.graph, result.brain.model);
+    await emitDomainEvent(db, {
+      merchantId: ctx.merchantId,
+      eventType: "dropship.intelligence.refreshed",
+      aggregateType: "dropship_intelligence",
+      aggregateId: String(ctx.merchantId),
+      actorType: "merchant",
+      actorId: ctx.userId,
+      source: "merchant_api",
+      idempotencyKey: `dropship-intelligence:${ctx.merchantId}:${new Date().toISOString().slice(0, 10)}:${result.graph.summary.reorderCandidateCount}:${result.graph.summary.atRiskCustomerCount}`,
+      payload: {
+        generatedAt: result.graph.generatedAt,
+        productCount: result.graph.summary.productCount,
+        reorderCandidateCount: result.graph.summary.reorderCandidateCount,
+        atRiskCustomerCount: result.graph.summary.atRiskCustomerCount,
+        automationCandidates: result.graph.summary.automationCandidates,
+      },
+    });
     res.setHeader("Cache-Control", "no-store");
     res.status(201).json({
       ...result,
