@@ -13,7 +13,7 @@ export const domainEventTypes = [
   "ai.action_proposed", "ai.action_approved", "ai.action_executed", "ai.action_rejected", "ai.action_rolled_back",
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
-  "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","cart.abandoned","cart.recovered","review.created","review.moderated","customer.address.updated","customer.preferences.updated","customer.price_watch.created","customer.saved_search.created","account.exported","account.deleted",
+  "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","cart.abandoned","cart.recovered","review.created","review.moderated","customer.address.updated","customer.preferences.updated","customer.price_watch.created","customer.saved_search.created","supplier.sync_completed","supplier.sync_review_required","account.exported","account.deleted",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -75,6 +75,8 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "customer.preferences.updated": ["Customer preferences updated", "Customer notification preferences changed.", "info"],
     "customer.price_watch.created": ["Price watch created", "A customer is watching a product price.", "info"],
     "customer.saved_search.created": ["Saved search created", "A customer saved a product search.", "info"],
+    "supplier.sync_completed": ["Supplier data synchronized", "A supplier-backed product was refreshed from its public source.", "info"],
+    "supplier.sync_review_required": ["Supplier sync needs review", "A supplier change exceeded the configured commerce guardrails.", "warning"],
     "account.exported": ["Account export created", "A privacy data export was generated.", "info"],
     "account.deleted": ["Account disabled", "Merchant account access was disabled.", "warning"],
   };
