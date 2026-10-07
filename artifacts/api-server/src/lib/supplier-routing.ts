@@ -148,7 +148,7 @@ export async function resolveAutoFallbackSupplierProduct(
 
   for (const row of result.rows as Array<Record<string, unknown>>) {
     const currency = String(row.currency ?? "").toUpperCase();
-    if (input.sellingCurrency && currency && input.sellingCurrency.toUpperCase() !== currency && Boolean(row.same_currency_required)) continue;
+    if (input.sellingCurrency && currency && input.sellingCurrency.toUpperCase() !== currency) continue;
     const costMinor = toMinorUnits(row.sale_price ?? row.price);
     if (costMinor === null) continue;
     const margin = marginBps(input.sellingPriceMinor, costMinor);
@@ -163,7 +163,7 @@ export async function resolveAutoFallbackSupplierProduct(
       currency,
       costMinor,
       marginBps: margin,
-      supplierId: Number(row.supplier_id),
+      supplierId: row.supplier_id == null ? null : Number(row.supplier_id),
     };
   }
   return null;
