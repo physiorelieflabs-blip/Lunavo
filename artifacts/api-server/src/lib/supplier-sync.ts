@@ -217,7 +217,24 @@ export async function synchronizeSupplierProduct(input: {
 
   try {
     const imported = await importPublicSupplierProduct(product.source_url);
-    const before = {\n      sourceUrl: product.source_url,\n      sourceDomain: new URL(product.source_url).hostname,\n      price: product.price,\n      salePrice: product.sale_price,\n      currency: product.currency,\n      sku: product.sku,\n      availability: product.availability,\n      availabilityQuantity: product.availability_quantity,\n      variants: Array.isArray(product.variants) ? product.variants : [],\n      attributes: product.attributes ?? {},\n      imageUrl: product.image_url,\n      imageUrls: Array.isArray(product.image_urls) ? product.image_urls : [],\n      videoUrls: Array.isArray(product.video_urls) ? product.video_urls : [],\n      description: product.description,\n      shippingInformation: product.shipping_information ?? null,\n    };\n    const changedFields: string[] = [];
+    const before = {
+      sourceUrl: product.source_url,
+      sourceDomain: new URL(product.source_url).hostname,
+      price: product.price,
+      salePrice: product.sale_price,
+      currency: product.currency,
+      sku: product.sku,
+      availability: product.availability,
+      availabilityQuantity: product.availability_quantity,
+      variants: Array.isArray(product.variants) ? product.variants : [],
+      attributes: product.attributes ?? {},
+      imageUrl: product.image_url,
+      imageUrls: Array.isArray(product.image_urls) ? product.image_urls : [],
+      videoUrls: Array.isArray(product.video_urls) ? product.video_urls : [],
+      description: product.description,
+      shippingInformation: product.shipping_information ?? null,
+    };
+    const changedFields: string[] = [];
     const reviewReasons: string[] = [];
     const sourceFields: string[] = [];
     const merchantFields: string[] = [];
