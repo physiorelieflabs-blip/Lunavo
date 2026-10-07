@@ -347,10 +347,10 @@ export default function AiControlRoom() {
     setCopilotReply(null);
     setMessage('');
     try {
-      const result = await customFetch<NonNullable<typeof copilotReply>>('/api/ai/copilot', {
+      const result = await customFetch<NonNullable<typeof copilotReply>>('/api/merchant/ai/brain/run', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({ question, focus: 'all' }),
       });
       setCopilotReply(result);
     } catch {
@@ -461,7 +461,7 @@ export default function AiControlRoom() {
            <BrainCircuit className="h-6 w-6 text-[#315e6c]" />
          </div>
          <div className="mt-6 flex flex-col gap-3 md:flex-row"><textarea value={copilotMessage} onChange={(event) => setCopilotMessage(event.target.value)} maxLength={2000} rows={3} placeholder="e.g. What is the safest way to improve sales this month without risking cash flow?" className="min-w-0 flex-1 rounded-lg border border-[#bfd6dc] bg-white px-4 py-3 text-sm font-bold outline-none placeholder:text-[#8997a8] focus:border-[#315e6c]" data-testid="input-ai-copilot" /><Button onClick={() => void askCopilot()} disabled={copilotPending || copilotMessage.trim().length < 3} className="h-12 shrink-0 self-start bg-[#315e6c] text-white hover:bg-[#274d59]"><Sparkles className="h-4 w-4" />{copilotPending ? 'Thinking…' : 'Ask copilot'}</Button></div>
-         {copilotReply && <div className="mt-5 rounded-xl border border-[#bfd6dc] bg-white p-5"><div className="whitespace-pre-wrap text-sm leading-7 text-[#263644]">{copilotReply.reply}</div><p className="mt-4 border-t border-[#e1e8eb] pt-3 text-[11px] text-[#697687]">Grounded in {copilotReply.evidence.storeName} · {copilotReply.evidence.currency} · health {copilotReply.evidence.healthScore}/100 · {new Date(copilotReply.groundedAt).toLocaleString()}</p></div>}
+         {copilotReply && <div className="mt-5 rounded-xl border border-[#bfd6dc] bg-white p-5"><div className="whitespace-pre-wrap text-sm leading-7 text-[#263644]">{copilotReply.reply}</div><p className="mt-4 border-t border-[#e1e8eb] pt-3 text-[11px] text-[#697687]">Grounded in {copilotReply.evidence.storeName} · {copilotReply.evidence.currency} · health {copilotReply.evidence.healthScore === null ? 'unavailable' : `${copilotReply.evidence.healthScore}/100`} · {new Date(copilotReply.groundedAt).toLocaleString()}</p></div>}
        </section>
 
         <section className="mt-8 overflow-hidden rounded-xl border border-[#526b8a] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
