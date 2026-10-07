@@ -194,6 +194,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       adPurchases: campaign ? int(campaign.purchases) : 0,
       adRevenueMinor: campaign ? int(campaign.revenue_minor) : 0,
       priorities,
+      supplierFallback: null,
     };
   });
 
