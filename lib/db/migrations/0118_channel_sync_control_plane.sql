@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS merchant_channel_connections (
   encrypted_access_token text,
   encrypted_refresh_token text,
   webhook_secret_hash text,
+  encrypted_webhook_secret text,
   store_url text,
   external_account_ref text,
   sync_products boolean NOT NULL DEFAULT true,
