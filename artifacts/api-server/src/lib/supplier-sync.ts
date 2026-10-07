@@ -95,6 +95,15 @@ function percentageOfMinor(minor: number, bps: number): number {
   return Number(result / 10_000n);
 }
 
+function minorToDecimalString(minor: number): string {
+  if (!Number.isSafeInteger(minor)) throw new Error("Money value is outside the safe integer range");
+  const negative = minor < 0;
+  const absolute = Math.abs(minor);
+  const whole = Math.floor(absolute / 100);
+  const fraction = absolute % 100;
+  return `${negative ? "-" : ""}${whole}.${String(fraction).padStart(2, "0")}`;
+}
+
 function deriveSellingMinor(
   sourceMinor: number,
   pricingMode: string,
@@ -269,7 +278,7 @@ export async function synchronizeSupplierProduct(input: {
       const currentSellingMinor = toMinorUnits(product.selling_price);
       const targetSellingMinor = derivedSellingMinor;
       const marginBps = targetSellingMinor > 0
-        ? Math.floor(((targetSellingMinor - (incomingSourceMinor ?? 0)) * 10_000) / targetSellingMinor)
+        ? Number((BigInt(targetSellingMinor - (incomingSourceMinor ?? 0)) * 10_000n) / BigInt(targetSellingMinor))
         : 0;
       if (marginBps < policy.min_margin_bps) {
         reviewReasons.push("Proposed selling price would fall below the configured minimum margin.");
@@ -343,7 +352,7 @@ export async function synchronizeSupplierProduct(input: {
             ELSE status
           END,
           selling_price=CASE
-            WHEN ${merchantFields.includes("selling_price")} AND ${derivedSellingMinor !== null} THEN ${(derivedSellingMinor / 100).toFixed(2)}
+            WHEN ${merchantFields.includes("selling_price")} AND ${derivedSellingMinor !== null} THEN ${minorToDecimalString(derivedSellingMinor)}
             ELSE selling_price
           END,
           last_attempted_sync=now(),
