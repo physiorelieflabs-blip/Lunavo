@@ -280,6 +280,36 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       "ad signal -> product conversion -> winner/decline signal -> sourcing/pricing decision",
       "fulfillment exception -> customer context -> notification/support -> retention signal",
     ],
+
+    modernPlatformParity: [
+      { feature: "Supplier/product discovery and URL import", status: "implemented", connectedTo: ["research", "catalog", "pricing", "inventory"] },
+      { feature: "Multi-supplier mapping and supplier optimizer", status: "implemented", connectedTo: ["supplier", "landed_cost", "fulfillment", "fallback"] },
+      { feature: "Price and stock monitoring", status: "implemented", connectedTo: ["supplier_sync", "margin", "inventory", "catalog"] },
+      { feature: "Alternative-product / supplier fallback", status: "implemented", connectedTo: ["stock", "destination", "shipping", "margin"] },
+      { feature: "Auto-fulfillment and batch operations", status: "implemented", connectedTo: ["verified_order", "supplier", "tracking", "exceptions"] },
+      { feature: "Tracking and customer delivery lifecycle", status: "implemented", connectedTo: ["fulfillment", "customer", "support", "retention"] },
+      { feature: "Product research / trend / competitor evidence", status: "implemented", connectedTo: ["opportunity", "pricing", "creative", "growth"] },
+      { feature: "Landed-cost and margin guardrails", status: "implemented", connectedTo: ["supplier", "tax", "shipping", "fees", "pricing"] },
+      { feature: "Multi-store and multi-channel synchronization", status: "implemented", connectedTo: ["catalog", "inventory", "orders", "fulfillment"] },
+      { feature: "Branding, creative and lifecycle marketing", status: "implemented", connectedTo: ["catalog", "customers", "ads", "social"] },
+      { feature: "Wholesale / purchase-order style procurement", status: "implemented", connectedTo: ["inventory", "supplier", "operations", "finance"] },
+      { feature: "POD / external supplier-specific capabilities", status: "adapter_boundary", connectedTo: ["supplier", "catalog", "fulfillment"] },
+    ],
+    intelligenceCapabilities: [
+      "Local specialist ensemble: orchestrator + researcher + merchandiser + growth + operations + customer + reviewer",
+      "Role-specific model routing chooses the strongest configured local profile for each job",
+      "Consensus arbitration merges useful strengths while preserving disagreements and evidence gaps",
+      "Deterministic commerce calculations run before model reasoning and remain authoritative",
+      "Recommendations feed existing approval, automation, sourcing, inventory, fulfillment and marketing boundaries",
+      "Merchant memory stores strategy outputs so future runs can reason from prior decisions without making them authoritative",
+    ],
+    decisionLoop: [
+      "discover -> verify source evidence -> score opportunity -> calculate landed cost -> price with guardrails",
+      "publish -> observe demand -> reserve stock -> fulfill -> track -> detect exceptions",
+      "measure conversion/margin/returns -> classify winner/decline -> improve listing or supplier route",
+      "segment customers -> check consent -> prepare lifecycle action -> measure retention",
+      "reconcile finance -> constrain automation -> review risk -> repeat",
+    ],
     authorityRules: [
       "Provider-verified payments and the internal ledger remain financial truth.",
       "Server-side inventory remains stock truth; supplier stock is advisory until synchronized.",
@@ -371,7 +401,7 @@ export async function buildMaxConsensusDropshipPlan(merchantId: number, question
   });
 
   const brain = await completeLunavoBrain(
-    "Build one connected dropshipping operating plan. Combine specialist strengths across research, merchandising, growth, operations and customer lifecycle. Identify dependencies and sequence. Never invent supplier, payment, stock, customer-consent, market or ad facts. For every action return evidence, expected benefit, uncertainty and approval requirement. Treat forecast values as estimates, not facts.",
+    "Build one connected dropshipping operating plan that treats modern dropshipping capabilities as one operating system: sourcing/discovery, supplier comparison and mapping, price/stock monitoring, landed cost, inventory forecasts, alternative supplier fallback, order routing, fulfillment, tracking, returns/exceptions, customer lifecycle, creative/ads, multi-store/channel synchronization and finance constraints. Combine specialist strengths across research, merchandising, growth, operations and customer lifecycle. Identify dependencies and sequence. Never invent supplier, payment, stock, customer-consent, market or ad facts. For every action return evidence, expected benefit, uncertainty and approval requirement. Treat forecast values as estimates, not facts.",
     context,
     {
       roles: ["researcher","merchandiser","growth","operations","customer","reviewer"],
