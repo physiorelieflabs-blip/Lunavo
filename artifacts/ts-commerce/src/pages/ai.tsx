@@ -163,7 +163,10 @@ export default function AiControlRoom() {
     reply: string;
     model: string;
     groundedAt: string;
-    evidence: { storeName: string; currency: string; healthScore: number };
+    contributors?: string[];
+    roles?: string[];
+    consensus?: 'strong' | 'mixed' | 'single';
+    evidence: { storeName: string; currency: string; healthScore: number | null };
   } | null>(null);
   const [copilotPending, setCopilotPending] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
@@ -457,17 +460,17 @@ export default function AiControlRoom() {
 
        <section className="mt-8 rounded-xl border border-[#526b8a] bg-[#eef3f8] p-6 md:p-7">
          <div className="flex flex-wrap items-start justify-between gap-5">
-          <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#315e6c]">Gemini-backed copilot</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Ask about the whole business.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[#536174]">Gemini reads a fresh, tenant-scoped snapshot of your commerce evidence for each question. It can explain what is happening and prepare next steps, but it cannot publish, message customers, change permissions, move money, approve payouts, or change stock.</p></div>
+          <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#315e6c]">Local multi-model business brain</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Ask about the whole business.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[#536174]">Lunavo's self-hosted specialist models read a fresh, tenant-scoped snapshot of your commerce evidence for each question. It can explain what is happening and prepare next steps, but it cannot publish, message customers, change permissions, move money, approve payouts, or change stock.</p></div>
            <BrainCircuit className="h-6 w-6 text-[#315e6c]" />
          </div>
          <div className="mt-6 flex flex-col gap-3 md:flex-row"><textarea value={copilotMessage} onChange={(event) => setCopilotMessage(event.target.value)} maxLength={2000} rows={3} placeholder="e.g. What is the safest way to improve sales this month without risking cash flow?" className="min-w-0 flex-1 rounded-lg border border-[#bfd6dc] bg-white px-4 py-3 text-sm font-bold outline-none placeholder:text-[#8997a8] focus:border-[#315e6c]" data-testid="input-ai-copilot" /><Button onClick={() => void askCopilot()} disabled={copilotPending || copilotMessage.trim().length < 3} className="h-12 shrink-0 self-start bg-[#315e6c] text-white hover:bg-[#274d59]"><Sparkles className="h-4 w-4" />{copilotPending ? 'Thinking…' : 'Ask copilot'}</Button></div>
-         {copilotReply && <div className="mt-5 rounded-xl border border-[#bfd6dc] bg-white p-5"><div className="whitespace-pre-wrap text-sm leading-7 text-[#263644]">{copilotReply.reply}</div><p className="mt-4 border-t border-[#e1e8eb] pt-3 text-[11px] text-[#697687]">Grounded in {copilotReply.evidence.storeName} · {copilotReply.evidence.currency} · health {copilotReply.evidence.healthScore === null ? 'unavailable' : `${copilotReply.evidence.healthScore}/100`} · {new Date(copilotReply.groundedAt).toLocaleString()}</p></div>}
+         {copilotReply && <div className="mt-5 rounded-xl border border-[#bfd6dc] bg-white p-5"><div className="whitespace-pre-wrap text-sm leading-7 text-[#263644]">{copilotReply.reply}</div><div className="mt-4 border-t border-[#e1e8eb] pt-3 text-[11px] text-[#697687]"><p>Grounded in {copilotReply.evidence.storeName} · {copilotReply.evidence.currency} · health {copilotReply.evidence.healthScore === null ? 'unavailable' : `${copilotReply.evidence.healthScore}/100`} · {new Date(copilotReply.groundedAt).toLocaleString()}</p>{(copilotReply.roles?.length || copilotReply.contributors?.length) && <p className="mt-1">Brain: {copilotReply.roles?.join(' + ') || 'specialists'}{copilotReply.consensus ? ` · ${copilotReply.consensus} consensus` : ''}</p>}</div></div>}
        </section>
 
         <section className="mt-8 overflow-hidden rounded-xl border border-[#526b8a] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="max-w-2xl">
-              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">Gemini image studio</p>
+              <p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#d6aa46]">Self-hosted image studio</p>
               <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em]">Create a storefront image.</h2>
               <p className="mt-3 text-sm leading-6 text-[#b8c2cc]">Describe a product shot, hero scene, or campaign visual. The generated PNG is saved as a public asset in your tenant-owned media library and can be reused in your storefront.</p>
             </div>
@@ -587,7 +590,7 @@ export default function AiControlRoom() {
              <div className="mt-4 space-y-3 text-sm leading-6">
                <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">01</span><span>Understands the commercial purpose of the image.</span></div>
                <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">02</span><span>Uses relevant store and catalog context.</span></div>
-               <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">03</span><span>Generates at higher quality with the current Gemini image model when configured.</span></div>
+               <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">03</span><span>Generates through your configured self-hosted image model when available.</span></div>
                <div className="flex gap-3"><span className="font-mono text-xs font-bold text-[#a2772e]">04</span><span>Saves the finished asset directly into your media library.</span></div>
              </div>
            </div>
