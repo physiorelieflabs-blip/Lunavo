@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
@@ -84,7 +84,7 @@ router.get("/merchant/dropship/forecasts", async (req, res, next) => {
     const ctx = await merchantFor(req, res);
     if (!ctx) return;
     const rows = await db.execute(
-      require("@workspace/db").sql`
+      sql`
         SELECT f.*, p.title, p.currency, p.selling_price, p.availability, p.availability_quantity
         FROM dropship_demand_forecasts f
         JOIN supplier_products p ON p.id=f.supplier_product_id AND p.merchant_id=f.merchant_id
