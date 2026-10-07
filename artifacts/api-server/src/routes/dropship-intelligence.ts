@@ -85,13 +85,57 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
       },
     });
     res.setHeader("Cache-Control", "no-store");
+    const commandQuestion = question ?? "Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation.";
+    const commandIdempotency = `dropship-command:${ctx.merchantId}:${new Date().toISOString().slice(0,10)}:${result.graph.generatedAt}:${String(result.brain.consensus)}`;
+    const commandRun = await db.execute(sql`
+      INSERT INTO dropship_command_runs
+        (merchant_id,question,context,plan,brain_model,contributors,roles,consensus,status,idempotency_key,completed_at)
+      VALUES
+        (${ctx.merchantId},${commandQuestion.slice(0,2000)},
+         ${JSON.stringify({
+           summary: result.graph.summary,
+           generatedAt: result.graph.generatedAt,
+           authorityRules: result.graph.authorityRules,
+           modernPlatformParity: result.graph.modernPlatformParity,
+           decisionLoop: result.graph.decisionLoop,
+           signals: result.graph.summary.automationCandidates,
+         })}::jsonb,
+         ${JSON.stringify({content:result.brain.content,graph:result.graph.summary})}::jsonb,
+         ${result.brain.model},${JSON.stringify(result.brain.contributors)}::jsonb,${JSON.stringify(result.brain.roles)}::jsonb,
+         ${result.brain.consensus},'completed',${commandIdempotency},now())
+      ON CONFLICT (idempotency_key) DO UPDATE SET
+        plan=EXCLUDED.plan,context=EXCLUDED.context,brain_model=EXCLUDED.brain_model,
+        contributors=EXCLUDED.contributors,roles=EXCLUDED.roles,consensus=EXCLUDED.consensus,
+        status='completed',completed_at=now()
+      RETURNING id,created_at
+    `);
     res.status(201).json({
       ...result,
+      commandRun: commandRun.rows[0] ?? null,
       persisted: true,
       executionBoundary: "recommendation_only",
       financialAuthority: "provider_verified_ledger",
       inventoryAuthority: "server_inventory_state",
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/merchant/dropship/commands/recent", async (req, res, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+    const limit = Math.max(1, Math.min(50, Math.trunc(Number(req.query.limit ?? 12))));
+    const rows = await db.execute(sql`
+      SELECT id,question,plan,brain_model,contributors,roles,consensus,status,created_at,completed_at
+      FROM dropship_command_runs
+      WHERE merchant_id=${ctx.merchantId}
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ runs: rows.rows });
   } catch (error) {
     next(error);
   }
