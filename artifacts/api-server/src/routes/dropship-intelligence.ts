@@ -142,7 +142,7 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
             content: typeof savedPlan.content === "string" ? savedPlan.content : "",
             contributors: list(existing.contributors),
             roles: list(existing.roles),
-            consensus: existing.consensus === "strong" || existing.consensus === "mixed" ? existing.consensus : "single",
+            consensus: existing.consensus === "full_ensemble" || existing.consensus === "partial_ensemble" ? existing.consensus : existing.consensus === "strong" ? "full_ensemble" : existing.consensus === "mixed" ? "partial_ensemble" : "single",
           },
           commandRun: existing,
           persisted: true,
