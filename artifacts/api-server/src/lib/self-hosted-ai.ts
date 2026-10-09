@@ -121,12 +121,52 @@ function temperatureFor(options: LocalChatOptions): number {
   return options.temperature ?? 0.2;
 }
 
+let activeInferenceRequests = 0;
+const inferenceWaiters: Array<() => void> = [];
+
+function inferenceParallelLimit(): number {
+  const configured = Number(process.env.LUNAVO_LOCAL_AI_MAX_PARALLEL);
+  return Number.isInteger(configured) && configured > 0 ? Math.min(8, configured) : 2;
+}
+
+function releaseInferenceRequestSlot(): void {
+  const next = inferenceWaiters.shift();
+  if (next) {
+    // Transfer the active slot directly to the next waiter so a newly arriving
+    // request cannot jump the queue and exceed the concurrency limit.
+    next();
+    return;
+  }
+  activeInferenceRequests = Math.max(0, activeInferenceRequests - 1);
+}
+
+async function acquireInferenceRequestSlot(): Promise<() => void> {
+  if (activeInferenceRequests < inferenceParallelLimit()) {
+    activeInferenceRequests += 1;
+    return releaseInferenceRequestSlot;
+  }
+  if (inferenceWaiters.length >= 64) {
+    throw new Error("Self-hosted AI queue is full; retry after active inference requests finish");
+  }
+  await new Promise<void>((resolve) => inferenceWaiters.push(resolve));
+  return releaseInferenceRequestSlot;
+}
+
+export function selfHostedAiQueueState(): { maxParallel: number; inFlight: number; queued: number } {
+  return {
+    maxParallel: inferenceParallelLimit(),
+    inFlight: activeInferenceRequests,
+    queued: inferenceWaiters.length,
+  };
+}
+
 async function postChat(
   messages: LocalAiMessage[],
   options: LocalChatOptions,
 ): Promise<{ model: string; content: string; profile: LocalAiProfile }> {
   const profile = options.profile || "general";
   const selected = resolveLocalAiProfile(profile, options.model);
+  const releaseSlot = await acquireInferenceRequestSlot();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutFor(profile, options));
   try {
@@ -154,6 +194,7 @@ async function postChat(
     return { model: String(body?.model || selected.model), content: extractChatContent(body), profile };
   } finally {
     clearTimeout(timeout);
+    releaseSlot();
   }
 }
 
@@ -267,7 +308,9 @@ export async function completeLocalVisionJson(
 }
 
 export function selfHostedAiConfigured(): boolean {
-  return Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim() || process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim());
+  if (process.env.LUNAVO_LOCAL_LLM_URL?.trim() || process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim()) return true;
+  return (["fast", "general", "reasoning", "coding", "vision", "review"] as LocalAiProfile[])
+    .some((profile) => Boolean(configuredProfileEnv(profile).url));
 }
 
 export function configuredSelfHostedProfiles(): Array<{ profile: LocalAiProfile; model: string; urlConfigured: boolean }> {
