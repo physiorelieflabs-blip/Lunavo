@@ -127,7 +127,7 @@ export default function Checkout() {
         setReceipt(order);
         if (order.paymentUrl) window.location.assign(order.paymentUrl);
       },
-      onError: () => setMessage('We could not submit this order. Check your details and try again.'),
+      onError: (error) => setMessage(error instanceof Error && error.message ? error.message : 'We could not submit this order. Check your details and try again.'),
     });
   };
 
