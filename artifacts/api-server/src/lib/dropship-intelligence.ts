@@ -19,18 +19,6 @@ function money(value: unknown): number | null {
   return toMinorUnits(value);
 }
 
-function nullableSafeInteger(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const number = typeof value === "bigint" ? Number(value) : Number(value);
-  return Number.isSafeInteger(number) ? number : null;
-}
-
-function isoTimestamp(value: unknown): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  const date = new Date(String(value));
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
-}
-
 function isoDaysAgo(days: number): Date {
   return new Date(Date.now() - days * 86_400_000);
 }
@@ -321,61 +309,15 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const sourceCostMinor = money(product.sale_price ?? product.price);
     const sellingPriceMinor = money(product.selling_price);
     const comparableCurrency = sourceCurrency === currency;
-    // Use a stored landed-cost scenario only when it is unambiguous for this product,
-    // calculation currency, and current selling price. A scenario for another country,
-    // currency, or stale selling price must never masquerade as today's margin.
-    const landedCostOptions = (landedScenariosByProduct.get(id) ?? []).flatMap((row) => {
-      const optionCurrency = String(row.currency ?? "").toUpperCase();
-      const destinationCountry = String(row.destination_country ?? "").toUpperCase();
-      const landed = nullableSafeInteger(row.landed_cost_minor);
-      const price = nullableSafeInteger(row.selling_price_minor);
-      const margin = nullableSafeInteger(row.contribution_margin_minor);
-      const marginBps = nullableSafeInteger(row.contribution_margin_bps);
-      if (!/^[A-Z]{3}$/.test(optionCurrency) || !/^[A-Z]{2}$/.test(destinationCountry) || landed === null || landed < 0) return [];
-      return [{
-        id: String(row.id ?? ""),
-        scenarioName: String(row.scenario_name ?? "Landed-cost scenario").slice(0, 160),
-        destinationCountry,
-        currency: optionCurrency,
-        quantity: Math.max(1, int(row.quantity, 1)),
-        landedCostMinor: landed,
-        sellingPriceMinor: price,
-        contributionMarginMinor: margin,
-        contributionMarginBps: marginBps,
-        calculationVersion: String(row.calculation_version ?? "unknown").slice(0, 80),
-        createdAt: isoTimestamp(row.created_at),
-      }];
-    });
-    const comparableLandedScenarios = landedCostOptions.filter((scenario) =>
+    // A saved scenario is usable as today's product landed cost only when it is the
+    // sole scenario that matches the current selling price and store currency. If
+    // destination or scenario selection is ambiguous, keep landedCostMinor null.
+    const comparableLandedScenarios = landedCostScenarios.filter((scenario) =>
       scenario.currency === currency && sellingPriceMinor !== null &&
-      scenario.sellingPriceMinor === sellingPriceMinor && scenario.contributionMarginBps !== null
+      scenario.sellingPriceMinor === sellingPriceMinor && Number.isSafeInteger(scenario.contributionMarginBps)
     );
     const selectedLandedScenario = comparableLandedScenarios.length === 1 ? comparableLandedScenarios[0]! : null;
     const landedCostMinor: number | null = selectedLandedScenario?.landedCostMinor ?? null;
-    const supplierQuoteOptions = (supplierQuotesByProduct.get(id) ?? []).flatMap((row) => {
-      const quoteCurrency = String(row.currency ?? "").toUpperCase();
-      const destinationCountry = String(row.destination_country ?? "").toUpperCase();
-      const status = String(row.status ?? "unknown");
-      if (!/^[A-Z]{3}$/.test(quoteCurrency) || !/^[A-Z]{2}$/.test(destinationCountry)) return [];
-      const expiresAt = isoTimestamp(row.quote_expires_at);
-      return [{
-        id: String(row.id ?? ""),
-        supplierName: String(row.supplier_name ?? "Unspecified supplier").slice(0, 160),
-        destinationCountry,
-        currency: quoteCurrency,
-        quantity: Math.max(1, int(row.quantity, 1)),
-        status,
-        quotedUnitPriceMinor: nullableSafeInteger(row.quoted_unit_price_minor),
-        quotedShippingMinor: nullableSafeInteger(row.quoted_shipping_minor),
-        quotedTotalMinor: nullableSafeInteger(row.quoted_total_minor),
-        quotedDeliveryDays: nullableSafeInteger(row.quoted_delivery_days),
-        quoteExpiresAt: expiresAt,
-        expired: expiresAt !== null && new Date(expiresAt).getTime() <= Date.now(),
-        targetUnitPriceMinor: nullableSafeInteger(row.target_unit_price_minor),
-        desiredDeliveryDays: nullableSafeInteger(row.desired_delivery_days),
-        updatedAt: isoTimestamp(row.updated_at),
-      }];
-    });
     const partialMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
     const contributionMarginBps = selectedLandedScenario?.contributionMarginBps ?? partialMarginBps;
     const marginBasis = selectedLandedScenario
@@ -430,10 +372,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       sourceCostMinor,
       sellingPriceMinor,
       landedCostMinor,
-      landedCostOptions: landedCostOptions.slice(0, 4),
       selectedLandedScenarioId: selectedLandedScenario?.id ?? null,
       landedContributionMarginMinor: selectedLandedScenario?.contributionMarginMinor ?? null,
-      supplierQuoteOptions: supplierQuoteOptions.slice(0, 4),
       grossMarginBps: contributionMarginBps,
       marginBasis,
       sold30,
