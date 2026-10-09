@@ -51,6 +51,30 @@ export function conversionRateBps(purchases: number, clicks: number): number | n
   return rate <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(rate) : null;
 }
 
+export type ComparableLandedScenario = {
+  currency: string;
+  sellingPriceMinor: number;
+  contributionMarginBps: number;
+};
+
+export function selectUniqueComparableLandedScenario<T extends ComparableLandedScenario>(
+  scenarios: readonly T[],
+  storeCurrency: string,
+  currentSellingPriceMinor: number | null,
+): T | null {
+  const currency = storeCurrency.toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency) || currentSellingPriceMinor === null ||
+      !Number.isSafeInteger(currentSellingPriceMinor) || currentSellingPriceMinor <= 0) return null;
+  const matches = scenarios.filter((scenario) =>
+    scenario.currency.toUpperCase() === currency &&
+    scenario.sellingPriceMinor === currentSellingPriceMinor &&
+    Number.isSafeInteger(scenario.contributionMarginBps) &&
+    scenario.contributionMarginBps >= -2_147_483_648 &&
+    scenario.contributionMarginBps <= 10_000
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 export function confidenceFor(orderCount: number): number {
   return Math.min(9200, 2500 + Math.min(1, orderCount / 20) * 5500);
 }
@@ -312,11 +336,11 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     // A saved scenario is usable as today's product landed cost only when it is the
     // sole scenario that matches the current selling price and store currency. If
     // destination or scenario selection is ambiguous, keep landedCostMinor null.
-    const comparableLandedScenarios = landedCostScenarios.filter((scenario) =>
-      scenario.currency === currency && sellingPriceMinor !== null &&
-      scenario.sellingPriceMinor === sellingPriceMinor && Number.isSafeInteger(scenario.contributionMarginBps)
+    const selectedLandedScenario = selectUniqueComparableLandedScenario(
+      landedCostScenarios,
+      currency,
+      sellingPriceMinor,
     );
-    const selectedLandedScenario = comparableLandedScenarios.length === 1 ? comparableLandedScenarios[0]! : null;
     const landedCostMinor: number | null = selectedLandedScenario?.landedCostMinor ?? null;
     const partialMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
     const contributionMarginBps = selectedLandedScenario?.contributionMarginBps ?? partialMarginBps;
