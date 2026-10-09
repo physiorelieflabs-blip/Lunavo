@@ -87,7 +87,7 @@ function canTryAlternateProfile(reason: unknown): boolean {
   const message = reason instanceof Error ? reason.message : String(reason ?? "");
   // Only retry failures that plausibly belong to one model/profile. Do not fan out
   // on queue saturation, bad endpoint configuration, or a shared server outage.
-  return /HTTP\\s*404|model.{0,120}(not found|unknown|does not exist)|unknown model|no usable text/i.test(message);
+  return /HTTP\s*404|model.{0,120}(not found|unknown|does not exist)|unknown model|no usable text/i.test(message);
 }
 
 export async function runWithLocalProfileFallback<T>(
