@@ -23,11 +23,13 @@ import {
 import { getAuth } from "../lib/auth-compat";
 import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
+import { currencyMinorDigits, multiplyMinorUnits, toMinorUnits } from "../lib/money";
 import {
   activityTable,
   aiActionsTable,
   aiSettingsTable,
   customersTable,
+  discountCodesTable,
   db,
   merchantBankAccountsTable,
   merchantsTable,
@@ -1931,6 +1933,8 @@ function serializePublicCheckoutOrder(
     orderNumber: order.orderNumber,
     title: product.title,
     subtotal: toNumber(order.subtotal),
+    discountAmount: toNumber(order.discountAmount),
+    discountCode: order.discountCodeSnapshot,
     tax: toNumber(order.taxAmount),
     shipping: toNumber(order.shippingAmount),
     total: toNumber(order.total),
@@ -9374,6 +9378,7 @@ router.post(
     }
     try {
       const location = await resolveOrderLocation(merchant.id, null, null, true);
+      const requestedDiscountCode = parsed.data.discountCode?.trim().toUpperCase() || null;
       const result = await db.transaction(async (tx) => {
         const existing = (
           await tx
@@ -9408,6 +9413,7 @@ router.post(
            if (
              existing.order.supplierProductId !== parsed.data.supplierProductId
              || existing.order.quantity !== parsed.data.quantity
+             || existing.order.discountCodeSnapshot !== requestedDiscountCode
              || existing.order.shippingAddress !== parsed.data.shippingAddress.trim()
              || existingCustomer?.email !== requestedEmail
            ) {
@@ -9493,18 +9499,81 @@ router.post(
             throw new Error("Insufficient inventory");
           }
         }
-         const unitPrice = toNumber(product.sellingPrice);
-        const subtotal = Number((unitPrice * quantity).toFixed(2));
-        const shippingAmount = merchant.freeShippingThreshold !== null
-          && subtotal >= toNumber(merchant.freeShippingThreshold)
+        const currencyDigits = currencyMinorDigits(product.currency);
+        const unitPriceMinor = toMinorUnits(product.sellingPrice, currencyDigits);
+        const subtotalMinor = unitPriceMinor === null ? null : multiplyMinorUnits(unitPriceMinor, quantity);
+        if (subtotalMinor === null || subtotalMinor < 0) throw new Error("Product price could not be calculated safely");
+
+        let appliedDiscountCode: typeof discountCodesTable.$inferSelect | null = null;
+        let discountMinor = 0;
+        if (requestedDiscountCode) {
+          const candidate = (await tx.select().from(discountCodesTable).where(and(
+            eq(discountCodesTable.merchantId, merchant.id),
+            eq(discountCodesTable.code, requestedDiscountCode),
+          )).limit(1))[0];
+          if (!candidate) throw new Error("The discount code is invalid or unavailable");
+          await tx.execute(sql`SELECT id FROM discount_codes WHERE id=${candidate.id} AND merchant_id=${merchant.id} FOR UPDATE`);
+          const lockedCode = (await tx.select().from(discountCodesTable).where(and(
+            eq(discountCodesTable.id, candidate.id),
+            eq(discountCodesTable.merchantId, merchant.id),
+          )).limit(1))[0];
+          const now = new Date();
+          if (!lockedCode || !lockedCode.active || (lockedCode.startsAt !== null && lockedCode.startsAt > now) || (lockedCode.endsAt !== null && lockedCode.endsAt <= now)) {
+            throw new Error("The discount code is inactive or outside its valid period");
+          }
+          if (lockedCode.currency && lockedCode.currency.toUpperCase() !== product.currency.toUpperCase()) {
+            throw new Error("This discount code is not valid for the store's currency");
+          }
+          const minimumSubtotalMinor = toMinorUnits(lockedCode.minimumSubtotal, currencyDigits);
+          if (minimumSubtotalMinor === null || subtotalMinor < minimumSubtotalMinor) {
+            throw new Error("This order does not meet the discount code's minimum subtotal");
+          }
+          const reservedRows = await tx.execute(sql`SELECT COUNT(*)::integer AS count FROM discount_code_redemptions WHERE discount_code_id=${lockedCode.id} AND merchant_id=${merchant.id} AND status='reserved' AND reserved_until > now()`);
+          const inFlightRedemptions = Number((reservedRows.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
+          if (lockedCode.usageLimit !== null && lockedCode.usageCount + inFlightRedemptions >= lockedCode.usageLimit) {
+            throw new Error("This discount code has reached its usage limit");
+          }
+          if (lockedCode.kind === "percentage") {
+            // The discount value is a percentage with two decimal places: 10.00 means 10%.
+            const percentBasisPoints = toMinorUnits(lockedCode.value, 2);
+            if (percentBasisPoints === null || percentBasisPoints <= 0 || percentBasisPoints > 10_000) {
+              throw new Error("This discount code has an invalid percentage");
+            }
+            discountMinor = Number((BigInt(subtotalMinor) * BigInt(percentBasisPoints)) / 10_000n);
+          } else if (lockedCode.kind === "fixed") {
+            const fixedDiscountMinor = toMinorUnits(lockedCode.value, currencyDigits);
+            if (fixedDiscountMinor === null || fixedDiscountMinor <= 0) throw new Error("This discount code has an invalid amount");
+            discountMinor = Math.min(subtotalMinor, fixedDiscountMinor);
+          } else {
+            throw new Error("This discount code uses an unsupported discount type");
+          }
+          if (discountMinor <= 0) throw new Error("This discount code does not reduce the order total");
+          appliedDiscountCode = lockedCode;
+        }
+
+        const discountedSubtotalMinor = subtotalMinor - discountMinor;
+        const freeShippingThresholdMinor = merchant.freeShippingThreshold === null
+          ? null
+          : toMinorUnits(merchant.freeShippingThreshold, currencyDigits);
+        const configuredShippingMinor = toMinorUnits(merchant.shippingFee, currencyDigits);
+        const taxRateBasisPoints = toMinorUnits(merchant.taxRate, 2);
+        if (configuredShippingMinor === null || configuredShippingMinor < 0 || taxRateBasisPoints === null || taxRateBasisPoints < 0) {
+          throw new Error("Store checkout charges are configured with invalid monetary values");
+        }
+        const shippingMinor = freeShippingThresholdMinor !== null && discountedSubtotalMinor >= freeShippingThresholdMinor
           ? 0
-          : toNumber(merchant.shippingFee);
-        const taxAmount = Number(
-          (subtotal * toNumber(merchant.taxRate) / 100).toFixed(2),
-        );
-        const total = Number(
-          (subtotal + shippingAmount + taxAmount).toFixed(2),
-        );
+          : configuredShippingMinor;
+        const taxAmountMinor = Number((BigInt(discountedSubtotalMinor) * BigInt(taxRateBasisPoints) + 5_000n) / 10_000n);
+        const totalMinor = discountedSubtotalMinor + shippingMinor + taxAmountMinor;
+        if (![subtotalMinor, discountMinor, shippingMinor, taxAmountMinor, totalMinor].every(Number.isSafeInteger)) {
+          throw new Error("Checkout total exceeds safe monetary limits");
+        }
+        const major = (minor: number) => Number((minor / (10 ** currencyDigits)).toFixed(2));
+        const subtotal = major(subtotalMinor);
+        const discountAmount = major(discountMinor);
+        const shippingAmount = major(shippingMinor);
+        const taxAmount = major(taxAmountMinor);
+        const total = major(totalMinor);
          const email = parsed.data.customerEmail.trim().toLowerCase();
          const marketingConsent = parsed.data.marketingConsent;
         let customer = (
@@ -9554,6 +9623,8 @@ router.post(
             customerId: customer.id,
             orderNumber: `WEB-${randomUUID().slice(0, 8).toUpperCase()}`,
             subtotal: subtotal.toFixed(2),
+            discountAmount: discountAmount.toFixed(2),
+            discountCodeSnapshot: appliedDiscountCode?.code ?? null,
             taxAmount: taxAmount.toFixed(2),
             shippingAmount: shippingAmount.toFixed(2),
             total: total.toFixed(2),
@@ -9588,7 +9659,21 @@ router.post(
               )
               .limit(1)
           )[0];
-          if (replay) return replay;
+          if (replay) {
+            const replayEmail = parsed.data.customerEmail.trim().toLowerCase();
+            const replayCustomer = (await tx.select({ email: customersTable.email }).from(customersTable).where(and(
+              eq(customersTable.id, replay.order.customerId),
+              eq(customersTable.merchantId, merchant.id),
+            )).limit(1))[0];
+            if (replay.order.supplierProductId !== parsed.data.supplierProductId
+              || replay.order.quantity !== parsed.data.quantity
+              || replay.order.shippingAddress !== parsed.data.shippingAddress.trim()
+              || replay.order.discountCodeSnapshot !== requestedDiscountCode
+              || replayCustomer?.email !== replayEmail) {
+              throw new Error("This checkout idempotency key was already used for a different order");
+            }
+            return replay;
+          }
           throw new Error("Checkout order could not be created");
         }
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
@@ -9602,6 +9687,11 @@ router.post(
           expiresAt,
         }).returning();
         if (!reservation) throw new Error("Inventory reservation could not be created");
+        if (appliedDiscountCode) {
+          await tx.execute(sql`INSERT INTO discount_code_redemptions (merchant_id, discount_code_id, order_id, code_snapshot, discount_amount_minor, currency, status, reserved_until)
+            VALUES (${merchant.id}, ${appliedDiscountCode.id}, ${order.id}, ${appliedDiscountCode.code}, ${discountMinor}, ${product.currency}, 'reserved', ${expiresAt})
+            ON CONFLICT (order_id) DO NOTHING`);
+        }
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
           type: "checkout_submitted",
