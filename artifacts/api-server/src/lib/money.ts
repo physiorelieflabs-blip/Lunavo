@@ -13,7 +13,7 @@ export function currencyMinorDigits(currency: string): number {
     const digits = new Intl.NumberFormat("en", {
       style: "currency",
       currency: normalized,
-    }).resolvedOptions().maximumFractionDigits;
+    }).resolvedOptions().maximumFractionDigits ?? 2;
     return Number.isInteger(digits) && digits >= 0 && digits <= 6 ? digits : 2;
   } catch {
     return 2;
