@@ -21,7 +21,7 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Local specialist ensemble + reviewer/arbiter | Implemented |
 | Cross-domain merchant intelligence graph | Implemented |
 | Demand forecast + reorder recommendation | Implemented |
-| Landed-cost/contribution-margin analysis | Implemented |
+| Landed-cost scenarios and contribution-margin calculation | Implemented (merchant-entered, evidence-qualified estimate; not statutory or final-profit authority) |
 | Customer LTV/recency/segment scoring | Implemented |
 | Consent-gated next-best-action recommendations | Implemented |
 | Abandoned cart recovery | Implemented |
@@ -29,8 +29,8 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Advertising planning/rendering/measurement | Implemented |
 | Social publishing architecture | Implemented |
 | Marketplace, auctions and advanced operations | Implemented |
-| Returns/exchanges/chargeback/dispute operation records | Implemented |
-| B2B/company/price-list operation primitives | Implemented |
+| Returns/exchanges/chargeback/dispute operation records | Implemented; branded customer-facing portal remains a closure target |
+| B2B/company/price-list operation primitives | Implemented; full catalog and order UX remains a closure target |
 | Invoices/payment links/subscriptions | Implemented |
 | Internal automation engine | Implemented |
 | Durable domain-event outbox | Implemented |
@@ -46,6 +46,8 @@ Current commercial platforms increasingly combine supplier discovery/import, aut
 - Order -> customer spend/LTV -> lifecycle segment -> consent eligibility -> retention/cross-sell recommendation.
 - Ad performance -> winner/decline signal -> sourcing/pricing/growth recommendation.
 - Intelligence refresh -> durable domain event -> Automation Studio.
+- Supplier quote draft -> manually recorded offer -> accepted/rejected/expired negotiation record -> quote-to-cost prefill -> landed-cost scenario -> contribution margin -> the same cross-domain intelligence graph and local reviewer.
+- Cost scenarios and quote records are tenant-scoped, idempotency-protected and auditable; they do not create a purchase order, payment, ledger entry or inventory movement.
 - External research -> evidence ledger -> local model synthesis; research is never treated as authoritative payment, stock or customer-consent truth.
 
 ### Adapter-ready / credential-dependent
@@ -65,11 +67,16 @@ These should be implemented only through the same connected operating graph and 
 - Channel-level catalog/inventory/order sync state machine with retry-safe jobs.
 - 3PL split-shipment routing and SLA-aware fulfillment selection.
 - POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
-- Supplier quote requests, negotiation workflow and private supplier portal.
-- Duty/import/tariff landed-cost components when authoritative source data exists.
+- Private supplier portal and authenticated quote-dispatch/inbound-response adapters. The current quote workbench records drafts and manually entered offers; it does not contact suppliers.
+- Evidence-backed duty/import/tariff rates from authoritative, jurisdiction-specific sources. Current landed-cost scenarios clearly label operator-entered rates and require explicit currency normalization evidence when source and calculation currencies differ.
 - Automated email/SMS lifecycle campaigns with consent, suppression, delivery status and provider verification.
 - Competitor/ad-spy ingestion connectors with source URL, observation time and evidence provenance.
-- Wholesale quantity breaks, customer-specific catalogs, payment terms and B2B ordering UI on top of the existing B2B operation primitives.
+- A consuming worker plus real provider adapters for channel catalog/inventory/order sync; the existing control plane can queue and track jobs but must never claim external sync succeeded without an adapter result.
+- Multi-line virtual bundles, mix-and-match bundles and BOGO promotions with cart-level pricing snapshots.
+- Branded tracking/returns portal backed by authoritative merchant fulfillment state.
+- 3PL split-shipment routing and SLA-aware fulfillment selection.
+- POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
+- Wholesale quantity breaks, customer-specific catalogs, payment terms and B2B ordering UI on top of existing B2B operation primitives.
 
 ## Non-negotiable architecture rules
 
@@ -92,4 +99,4 @@ These should be implemented only through the same connected operating graph and 
 - Syncee: product import, automated order/tracking sync, pricing controls, supplier marketplace, cross-selling/upselling and wholesale/dropshipping workflows.
 - Shopify B2B/Enterprise: companies and locations, catalogs, quantity/payment terms, supplier/marketplace/channel connectivity and enterprise workflows.
 
-Last audited: 2026-10-07.
+Last audited: 2026-10-09.
