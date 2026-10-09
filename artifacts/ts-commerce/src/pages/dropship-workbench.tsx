@@ -58,7 +58,7 @@ const initialQuote: QuoteForm = {
   currency: "USD", quantity: "1", targetPrice: "", desiredDays: "", requestNotes: "",
 };
 const currencyDigits = (currency: string): number => {
-  try { return new Intl.NumberFormat("en", { style: "currency", currency: currency.toUpperCase() }).resolvedOptions().maximumFractionDigits; }
+  try { return new Intl.NumberFormat("en", { style: "currency", currency: currency.toUpperCase() }).resolvedOptions().maximumFractionDigits ?? 2; }
   catch { return 2; }
 };
 const amountToMinor = (raw: string, currency = "USD"): number | null => {
