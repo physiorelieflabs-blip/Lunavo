@@ -1092,6 +1092,8 @@ export const ListOrdersResponseItem = zod.object({
   "orderNumber": zod.string(),
   "customerName": zod.string(),
   "customerEmail": zod.email(),
+  "discountAmount": zod.number(),
+  "discountCode": zod.string().nullable(),
   "total": zod.number(),
   "quantity": zod.int().min(1),
   "currency": zod.string(),
