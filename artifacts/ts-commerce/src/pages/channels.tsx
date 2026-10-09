@@ -12,6 +12,7 @@ type SyncJob = {
   lastError?: string | null;
   metrics?: Record<string, unknown>;
   createdAt?: string;
+  completedAt?: string | null;
 };
 
 type Connection = {
