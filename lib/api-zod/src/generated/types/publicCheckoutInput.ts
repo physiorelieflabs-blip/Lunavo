@@ -38,6 +38,8 @@ export interface PublicCheckoutInput {
      */
   paymentCurrency?: string;
   marketingConsent?: boolean;
+  /** @minLength 3 @maxLength 40 */
+  discountCode?: string;
   /**
      * @minLength 8
      * @maxLength 120
