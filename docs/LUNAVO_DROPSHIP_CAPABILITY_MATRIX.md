@@ -17,8 +17,8 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Dynamic pricing and pricing recommendations | Implemented |
 | Product research/evidence provenance | Implemented |
 | Self-hosted multimodal product understanding | Implemented |
-| Self-hosted multi-role reasoning brain | Implemented |
-| Local specialist ensemble + reviewer/arbiter | Implemented |
+| Self-hosted multi-role reasoning brain | Implemented; dedicated finance specialist added to max-consensus dropshipping plans |
+| Local specialist ensemble + reviewer/arbiter | Implemented; arbiter retries only across local profiles and labels a conservative partial result if synthesis is unavailable |
 | Cross-domain merchant intelligence graph | Implemented |
 | Demand forecast + reorder recommendation | Implemented |
 | Landed-cost scenarios and contribution-margin calculation | Implemented (merchant-entered, evidence-qualified estimate; not statutory or final-profit authority) |
