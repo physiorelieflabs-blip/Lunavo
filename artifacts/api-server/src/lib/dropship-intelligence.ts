@@ -157,6 +157,22 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const productId = int(row.supplier_product_id, 0);
     if (productId > 0) supplierSyncPolicies.set(productId, row);
   }
+  const landedScenariosByProduct = new Map<number, Row[]>();
+  for (const row of landedScenarioResult.rows as Row[]) {
+    const productId = int(row.supplier_product_id, 0);
+    if (productId <= 0) continue;
+    const rows = landedScenariosByProduct.get(productId) ?? [];
+    if (rows.length < 4) rows.push(row);
+    landedScenariosByProduct.set(productId, rows);
+  }
+  const supplierQuotesByProduct = new Map<number, Row[]>();
+  for (const row of supplierQuoteResult.rows as Row[]) {
+    const productId = int(row.supplier_product_id, 0);
+    if (productId <= 0) continue;
+    const rows = supplierQuotesByProduct.get(productId) ?? [];
+    if (rows.length < 4) rows.push(row);
+    supplierQuotesByProduct.set(productId, rows);
+  }
   const fulfillmentStats = (fulfillmentResult.rows as Row[]).reduce((acc, row) => ({
     jobCount: acc.jobCount + Math.max(0, int(row.count)),
     exceptionCount: acc.exceptionCount + Math.max(0, int(row.exception_count)),
