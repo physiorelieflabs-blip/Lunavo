@@ -73,14 +73,16 @@ export function nextBestAction(seg: string, consent: boolean, churnRiskBps: numb
 export async function buildDropshipOperatingGraph(merchantId: number) {
   if (!Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid merchant id");
 
-  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult] = await Promise.all([
+  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult, inventoryMovementResult, reservationResult] = await Promise.all([
     db.execute(sql`SELECT id,name,store_name,currency,tax_rate,shipping_fee,free_shipping_threshold FROM merchants WHERE id=${merchantId} AND status='active' LIMIT 1`),
-    db.execute(sql`SELECT id,title,category,brand,currency,price,sale_price,selling_price,availability,availability_quantity,status,visibility,shipping_information,source_domain,updated_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 500`),
+    db.execute(sql`SELECT id,title,category,brand,currency,price,sale_price,selling_price,availability,availability_quantity,inventory_strategy,status,visibility,shipping_information,shipping_configuration,source_domain,updated_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 500`),
     db.execute(sql`SELECT id,customer_id,supplier_product_id,quantity,total,currency,status,created_at,fulfillment_status FROM orders WHERE merchant_id=${merchantId} AND created_at >= ${isoDaysAgo(180)} ORDER BY created_at DESC LIMIT 5000`),
     db.execute(sql`SELECT id,name,email,marketing_consent,created_at,updated_at FROM customers WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 2000`),
     db.execute(sql`SELECT status,COUNT(*)::int AS count FROM fulfillment_jobs WHERE merchant_id=${merchantId} GROUP BY status ORDER BY count DESC`),
     db.execute(sql`SELECT product_id,COALESCE(SUM(impressions),0)::bigint impressions,COALESCE(SUM(clicks),0)::bigint clicks,COALESCE(SUM(add_to_carts),0)::bigint add_to_carts,COALESCE(SUM(purchases),0)::bigint purchases,COALESCE(SUM(attributed_revenue_minor),0)::bigint revenue_minor FROM product_advertising_campaigns WHERE merchant_id=${merchantId} GROUP BY product_id`),
     db.execute(sql`SELECT id,supplier_product_id,source_kind,source_url,observed_at,currency,observed_price_minor,demand_score,competition_score,trend_score,notes,evidence,model FROM dropship_market_research WHERE merchant_id=${merchantId} ORDER BY observed_at DESC LIMIT 500`),
+    db.execute(sql`SELECT supplier_product_id,COALESCE(SUM(quantity_delta),0)::bigint AS on_hand FROM inventory_movements WHERE merchant_id=${merchantId} GROUP BY supplier_product_id`),
+    db.execute(sql`SELECT supplier_product_id,COALESCE(SUM(quantity),0)::bigint AS reserved FROM inventory_reservations WHERE merchant_id=${merchantId} AND status='reserved' AND expires_at > now() GROUP BY supplier_product_id`),
   ]);
 
   const merchant = (merchantResult.rows[0] ?? null) as Row | null;
@@ -94,8 +96,17 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   const units14 = new Map<number, number>();
   const unitsPrev16 = new Map<number, number>();
   const revenueMinor30 = new Map<number, number>();
-  const customerOrders = new Map<number, { count: number; grossMinor: number; lastDate: string | null; currencies: Set<string> }>();
   const currency = String(merchant.currency ?? "USD").toUpperCase();
+  const inventoryOnHand = new Map<number, number>();
+  for (const row of inventoryMovementResult.rows as Row[]) {
+    const productId = int(row.supplier_product_id, 0);
+    if (productId > 0) inventoryOnHand.set(productId, int(row.on_hand, 0));
+  }
+  const inventoryReserved = new Map<number, number>();
+  for (const row of reservationResult.rows as Row[]) {
+    const productId = int(row.supplier_product_id, 0);
+    if (productId > 0) inventoryReserved.set(productId, int(row.reserved, 0));
+  }
 
   const cutoff14 = isoDaysAgo(14);
   const cutoff30 = isoDaysAgo(30);
@@ -143,19 +154,30 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const trend = priorDaily > 0 ? Math.max(0.55, Math.min(1.75, recentDaily / priorDaily)) : (sold14 > 0 ? 1.15 : 0.85);
     const projected30 = Math.max(0, daily * 30 * trend);
     const confidenceBps = confidenceFor(sold30);
-    const stock = product.availability_quantity == null ? null : Math.max(0, int(product.availability_quantity));
+    const strategy = String(product.inventory_strategy ?? "source_based").toLowerCase();
+    const supplierStock = product.availability_quantity == null ? null : Math.max(0, int(product.availability_quantity));
+    const ledgerOnHand = inventoryOnHand.has(id) ? Math.max(0, inventoryOnHand.get(id) ?? 0) : null;
+    const reserved = ledgerOnHand === null ? 0 : Math.max(0, inventoryReserved.get(id) ?? 0);
+    const stock = ledgerOnHand === null ? null : Math.max(0, ledgerOnHand - reserved);
     const leadTimeDays = shippingLeadTime(product.shipping_information);
     const leadUnits = Math.ceil(daily * leadTimeDays * trend);
     const safetyUnits = Math.ceil(Math.max(1, daily * 3));
-    const reorderUnits = stock === null ? 0 : Math.max(0, Math.ceil(projected30 + leadUnits + safetyUnits - stock));
+    // Source-reported stock is never treated as merchant-owned inventory.
+    const reorderUnits = stock === null || strategy === "source_based"
+      ? 0
+      : Math.max(0, Math.ceil(projected30 + leadUnits + safetyUnits - stock));
+    const availabilityText = String(product.availability ?? "").toLowerCase();
+    const supplierUnavailable = /out[ -]?of[ -]?stock|unavailable|sold[ -]?out|discontinued|not[ -]?available/.test(availabilityText) || supplierStock === 0;
+    const supplierStockRisk = supplierUnavailable || (supplierStock !== null && supplierStock <= Math.max(1, leadUnits + safetyUnits));
 
     const sourceCurrency = String(product.currency ?? currency).toUpperCase();
     const sourceCostMinor = money(product.sale_price ?? product.price);
     const sellingPriceMinor = money(product.selling_price);
     const comparableCurrency = sourceCurrency === currency;
-    const landedCostMinor = comparableCurrency && sourceCostMinor !== null ? sourceCostMinor : null;
-    const contributionMarginBps = comparableCurrency && landedCostMinor !== null && sellingPriceMinor !== null && sellingPriceMinor > 0
-      ? Math.trunc(((sellingPriceMinor - landedCostMinor - Math.floor(sellingPriceMinor / 100)) * 10_000) / sellingPriceMinor)
+    // Supplier product price is not a fully landed cost unless logistics evidence is present.
+    const landedCostMinor: number | null = null;
+    const contributionMarginBps = comparableCurrency && sourceCostMinor !== null && sellingPriceMinor !== null && sellingPriceMinor > 0
+      ? Math.trunc(((sellingPriceMinor - sourceCostMinor - Math.floor(sellingPriceMinor / 100)) * 10_000) / sellingPriceMinor)
       : null;
 
     const campaign = campaigns.get(id);
@@ -165,6 +187,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
 
     const priorities: string[] = [];
     if (stock !== null && reorderUnits > 0) priorities.push("reorder");
+    if (strategy !== "source_based" && stock === null) priorities.push("inventory_baseline_missing");
+    if (supplierStockRisk) priorities.push("supplier_stock_risk");
     if (contributionMarginBps !== null && contributionMarginBps < 1500) priorities.push("margin_review");
     if (trend >= 1.25) priorities.push("scale_winner");
     if (trend <= 0.75 && sold30 > 0) priorities.push("declining_demand");
@@ -178,11 +202,17 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       sourceDomain: product.source_domain,
       availability: product.availability,
       stock,
+      inventoryKnown: stock !== null,
+      inventoryStrategy: strategy,
+      reservedUnits: reserved,
+      supplierStock,
+      supplierStockRisk,
       sourceCurrency,
       sourceCostMinor,
       sellingPriceMinor,
       landedCostMinor,
       grossMarginBps: contributionMarginBps,
+      marginBasis: "source_cost_plus_lunavo_1pct_fee; excludes unverified shipping, duties, taxes, provider fees, discounts, and returns",
       sold30,
       sold14,
       priorDailyUnits: Number(priorDaily.toFixed(4)),
@@ -224,7 +254,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   });
 
   const research = researchResult.rows as Row[];
-  const fallbackRows = await Promise.all(productIntelligence.filter((product) => product.reorderUnits > 0 && product.stock !== null && product.sellingPriceMinor !== null).slice(0, 40).map(async (product) => ({
+  const fallbackRows = await Promise.all(productIntelligence.filter((product) => (product.reorderUnits > 0 || product.supplierStockRisk) && product.sellingPriceMinor !== null).slice(0, 40).map(async (product) => ({
     productId: product.id,
     fallback: await resolveAutoFallbackSupplierProduct(db, {
       merchantId,
@@ -234,13 +264,19 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     }),
   })));
   const fallbacks = new Map(fallbackRows.map((row) => [row.productId, row.fallback]));
-  for (const product of productIntelligence) product.supplierFallback = fallbacks.get(product.id) ?? null;
+  for (const product of productIntelligence) {
+    product.supplierFallback = fallbacks.get(product.id) ?? null;
+    if (product.supplierStockRisk && product.supplierFallback) product.priorities.push("fallback_available");
+    if (product.priorities.includes("monitor") && product.priorities.length > 1) product.priorities = product.priorities.filter((item) => item !== "monitor");
+  }
   const topProducts = [...productIntelligence].sort((a, b) => b.projected30 - a.projected30).slice(0, 20);
   const atRiskCustomers = [...customerIntelligence].filter((x) => x.churnRiskBps >= 6000).sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20);
   const reorderCandidates = productIntelligence.filter((x) => x.reorderUnits > 0).sort((a, b) => b.reorderUnits - a.reorderUnits).slice(0, 30);
+  const supplierRiskProducts = productIntelligence.filter((x) => x.supplierStockRisk).sort((a, b) => Number(Boolean(b.supplierFallback)) - Number(Boolean(a.supplierFallback))).slice(0, 30);
   const winners = productIntelligence.filter((x) => x.priorities.includes("scale_winner")).slice(0, 20);
   const automationCandidates = [
     ...reorderCandidates.slice(0, 10).map((product) => ({ kind: "inventory.reorder.review", productId: product.id, recommendedUnits: product.reorderUnits, requiresApproval: true })),
+    ...supplierRiskProducts.slice(0, 10).map((product) => ({ kind: "supplier.stock-risk.review", productId: product.id, supplierStock: product.supplierStock, fallbackAvailable: Boolean(product.supplierFallback), requiresApproval: true })),
     ...atRiskCustomers.slice(0, 10).map((customer) => ({ kind: "customer.retention.review", customerId: customer.id, nextBestAction: customer.nextBestAction, requiresApproval: true })),
     ...winners.slice(0, 10).map((product) => ({ kind: "growth.scale-review", productId: product.id, requiresApproval: true })),
   ];
@@ -267,6 +303,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       atRiskCustomerCount: atRiskCustomers.length,
       topProducts,
       reorderCandidates,
+      supplierRiskProducts,
+      supplierStockRiskCount: supplierRiskProducts.length,
       winners,
       atRiskCustomers,
       automationCandidates,
@@ -275,7 +313,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     },
     graph: [
       "product -> demand -> inventory -> reorder -> supplier routing -> fulfillment",
-      "supplier cost -> landed cost -> contribution margin -> price guardrail -> conversion -> campaign",
+      "source cost + explicit logistics evidence -> evidence-qualified landed cost -> margin guardrail -> conversion -> campaign",
       "order -> customer LTV -> segment -> next-best-action -> marketing eligibility",
       "ad signal -> product conversion -> winner/decline signal -> sourcing/pricing decision",
       "fulfillment exception -> customer context -> notification/support -> retention signal",
@@ -321,7 +359,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     ],
     authorityRules: [
       "Provider-verified payments and the internal ledger remain financial truth.",
-      "Server-side inventory remains stock truth; supplier stock is advisory until synchronized.",
+      "Server-side inventory movements minus active reservations are the merchant-stock estimate; supplier-reported quantities remain a separate advisory signal.",
+      "Margin is a partial estimate after the Lunavo 1% fee; it is not net profit or landed cost while logistics, tax, provider fees, discounts, and returns are missing.",
       "Forecasts are estimates, never guarantees and never direct inventory mutations.",
       "Customer scores guide recommendations only; consent gates marketing actions.",
       "External competitor/ad-spy data is evidence only when recorded with a source and observation time.",
