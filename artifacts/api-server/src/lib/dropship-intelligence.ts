@@ -203,7 +203,11 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     if (rows.length < 4) rows.push(row);
     supplierQuotesByProduct.set(productId, rows);
   }
-  const fulfillmentStats = (fulfillmentResult.rows as Row[]).reduce((acc, row) => ({
+  const fulfillmentStats = (fulfillmentResult.rows as Row[]).reduce<{
+    jobCount: number;
+    exceptionCount: number;
+    staleCount: number;
+  }>((acc, row) => ({
     jobCount: acc.jobCount + Math.max(0, int(row.count)),
     exceptionCount: acc.exceptionCount + Math.max(0, int(row.exception_count)),
     staleCount: acc.staleCount + Math.max(0, int(row.stale_count)),
