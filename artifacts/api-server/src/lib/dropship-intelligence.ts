@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { completeLunavoBrain } from "./ai-provider";
 import { resolveAutoFallbackSupplierProduct } from "./supplier-routing";
 import { recallMerchantMemory, rememberMerchantMemory } from "./merchant-ai-memory";
-import { toMinorUnits } from "./money";
+import { currencyMinorDigits, toMinorUnits } from "./money";
 
 type Row = Record<string, unknown>;
 type SupplierFallback = Awaited<ReturnType<typeof resolveAutoFallbackSupplierProduct>>;
@@ -15,8 +15,8 @@ function int(value: unknown, fallback = 0): number {
   return Number.isSafeInteger(n) ? n : fallback;
 }
 
-function money(value: unknown): number | null {
-  return toMinorUnits(value);
+function money(value: unknown, currency: string): number | null {
+  return toMinorUnits(value, currencyMinorDigits(currency));
 }
 
 function isoDaysAgo(days: number): Date {
@@ -208,7 +208,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     SELECT customer_id,
       COUNT(*)::int AS order_count,
       COUNT(*) FILTER (WHERE upper(currency)=${currency})::int AS comparable_order_count,
-      COALESCE(SUM(total) FILTER (WHERE upper(currency)=${currency}),0)::numeric(20,2) AS gross,
+      COALESCE(SUM(total) FILTER (WHERE upper(currency)=${currency}),0)::text AS gross,
       MAX(created_at) AS last_date,
       ARRAY_AGG(DISTINCT upper(currency)) AS currencies
     FROM orders
@@ -222,7 +222,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     customerMetrics.set(id, {
       count: Math.max(0, int(row.order_count)),
       comparableOrderCount: Math.max(0, int(row.comparable_order_count)),
-      grossMinor: Math.max(0, money(row.gross) ?? 0),
+      grossMinor: Math.max(0, money(row.gross, currency) ?? 0),
       lastDate: row.last_date ? new Date(String(row.last_date)).toISOString() : null,
       currencies: rawCurrencies.map((value) => String(value).toUpperCase()).filter((value) => /^[A-Z]{3}$/.test(value)).slice(0, 10),
     });
@@ -239,7 +239,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const qty = Math.max(0, int(row.quantity, 0));
     if (productId > 0 && when >= cutoff30) {
       units30.set(productId, (units30.get(productId) ?? 0) + qty);
-      const total = money(row.total);
+      const total = money(row.total, String(row.currency ?? currency).toUpperCase());
       if (total !== null && String(row.currency ?? currency).toUpperCase() === currency) revenueMinor30.set(productId, (revenueMinor30.get(productId) ?? 0) + total);
       if (when >= cutoff14) units14.set(productId, (units14.get(productId) ?? 0) + qty);
       else unitsPrev16.set(productId, (unitsPrev16.get(productId) ?? 0) + qty);
@@ -332,8 +332,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     });
 
     const sourceCurrency = String(product.currency ?? currency).toUpperCase();
-    const sourceCostMinor = money(product.sale_price ?? product.price);
-    const sellingPriceMinor = money(product.selling_price);
+    const sourceCostMinor = money(product.sale_price ?? product.price, sourceCurrency);
+    const sellingPriceMinor = money(product.selling_price, currency);
     const comparableCurrency = sourceCurrency === currency;
     // A saved scenario is usable as today's product landed cost only when it is the
     // sole scenario that matches the current selling price and store currency. If
