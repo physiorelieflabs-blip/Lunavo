@@ -154,7 +154,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   ]);
 
   const supplierScorecards = supplierScorecardResult.items;
-  const supplierScorecardsById = new Map<number, SupplierScorecard>(supplierScorecards.filter((item) => item.supplierId !== null).map((item) => [item.supplierId as number, item]));
+  const supplierScorecardsById = new Map<number, SupplierScorecard>(supplierScorecards.filter((item) => item.supplierId !== null).map((item) => [item.supplierId as number, item] as const));
   const merchant = (merchantResult.rows[0] ?? null) as Row | null;
   if (!merchant) throw new Error("Merchant workspace not found");
 
