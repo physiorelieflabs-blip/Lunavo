@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
@@ -61,12 +62,92 @@ router.get("/merchant/dropship/intelligence", async (req, res, next) => {
 });
 
 router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
+  let claimedRunId: string | null = null;
   try {
     const ctx = await merchantFor(req, res);
     if (!ctx) return;
+
     const question = text(req.body?.question, 2_000);
+    const commandQuestion = question ?? "Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation.";
+    const suppliedIdempotency = text(req.body?.idempotencyKey, 220);
+    if (suppliedIdempotency && !/^[A-Za-z0-9._:-]{1,220}$/.test(suppliedIdempotency)) {
+      res.status(400).json({ error: "Invalid idempotencyKey" });
+      return;
+    }
+    // Generate a fresh key only when the caller does not provide one. Client retries
+    // should send the same key so a request is never executed twice accidentally.
+    const commandIdempotency = suppliedIdempotency
+      ? `dropship-command:${ctx.merchantId}:${suppliedIdempotency}`
+      : `dropship-command:${ctx.merchantId}:${randomUUID()}`;
+
+    const insertClaim = await db.execute(sql`
+      INSERT INTO dropship_command_runs (merchant_id,question,status,idempotency_key)
+      VALUES (${ctx.merchantId},${commandQuestion},'running',${commandIdempotency})
+      ON CONFLICT (idempotency_key) DO NOTHING
+      RETURNING id,status,created_at
+    `);
+    let commandRun = (insertClaim.rows[0] ?? null) as { id: string; status: string; created_at: unknown } | null;
+    let isReplay = false;
+
+    if (!commandRun) {
+      const existingResult = await db.execute(sql`
+        SELECT id,merchant_id,question,context,plan,brain_model,contributors,roles,consensus,status,idempotency_key,created_at,completed_at
+        FROM dropship_command_runs
+        WHERE merchant_id=${ctx.merchantId} AND idempotency_key=${commandIdempotency}
+        LIMIT 1
+      `);
+      const existing = (existingResult.rows[0] ?? null) as Record<string, unknown> | null;
+      if (!existing) {
+        res.status(409).json({ error: "The command key is being claimed; retry with the same idempotency key." });
+        return;
+      }
+      if (existing.status === "completed") {
+        const graph = await buildDropshipOperatingGraph(ctx.merchantId);
+        const savedPlan = existing.plan && typeof existing.plan === "object" && !Array.isArray(existing.plan)
+          ? existing.plan as Record<string, unknown>
+          : {};
+        const list = (value: unknown) => Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : [];
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).json({
+          graph,
+          brain: {
+            model: typeof existing.brain_model === "string" ? existing.brain_model : "unknown",
+            content: typeof savedPlan.content === "string" ? savedPlan.content : "",
+            contributors: list(existing.contributors),
+            roles: list(existing.roles),
+            consensus: existing.consensus === "strong" || existing.consensus === "mixed" ? existing.consensus : "single",
+          },
+          commandRun: existing,
+          persisted: true,
+          replayed: true,
+          executionBoundary: "recommendation_only",
+          financialAuthority: "provider_verified_ledger",
+          inventoryAuthority: "server_inventory_state",
+        });
+        return;
+      }
+      if (existing.status === "running") {
+        res.status(409).json({ error: "This command is already running. Reuse the same key to retrieve its result.", commandRun: existing });
+        return;
+      }
+      const reclaimed = await db.execute(sql`
+        UPDATE dropship_command_runs
+        SET status='running',question=${commandQuestion},completed_at=NULL
+        WHERE merchant_id=${ctx.merchantId} AND idempotency_key=${commandIdempotency} AND status='failed'
+        RETURNING id,status,created_at
+      `);
+      commandRun = (reclaimed.rows[0] ?? null) as { id: string; status: string; created_at: unknown } | null;
+      if (!commandRun) {
+        res.status(409).json({ error: "This command cannot be claimed. Retry with a new command key." });
+        return;
+      }
+      isReplay = true;
+    }
+
+    claimedRunId = commandRun.id;
     const result = await buildMaxConsensusDropshipPlan(ctx.merchantId, question);
     await persistDropshipIntelligence(ctx.merchantId, result.graph, result.brain.model);
+
     await emitDomainEvent(db, {
       merchantId: ctx.merchantId,
       eventType: "dropship.intelligence.refreshed",
@@ -75,56 +156,59 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
       actorType: "merchant",
       actorId: ctx.userId,
       source: "merchant_api",
-      idempotencyKey: `dropship-intelligence:${ctx.merchantId}:${new Date().toISOString().slice(0, 10)}:${result.graph.summary.reorderCandidateCount}:${result.graph.summary.atRiskCustomerCount}`,
+      idempotencyKey: `dropship-intelligence-command:${commandRun.id}`,
       payload: {
+        commandRunId: commandRun.id,
         generatedAt: result.graph.generatedAt,
         productCount: result.graph.summary.productCount,
         reorderCandidateCount: result.graph.summary.reorderCandidateCount,
+        supplierStockRiskCount: result.graph.summary.supplierStockRiskCount,
         atRiskCustomerCount: result.graph.summary.atRiskCustomerCount,
         automationCandidates: result.graph.summary.automationCandidates,
       },
     });
-    res.setHeader("Cache-Control", "no-store");
-    const commandQuestion = question ?? "Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation.";
-    const suppliedIdempotency = text(req.body?.idempotencyKey, 220);
-    if (suppliedIdempotency && !/^[A-Za-z0-9._:-]{1,220}$/.test(suppliedIdempotency)) {
-      res.status(400).json({ error: "Invalid idempotencyKey" });
-      return;
-    }
-    const commandIdempotency = suppliedIdempotency
-      ? `dropship-command:${ctx.merchantId}:${suppliedIdempotency}`
-      : `dropship-command:${ctx.merchantId}:${new Date().toISOString()}:${result.graph.generatedAt}:${String(result.brain.consensus)}`;
-    const commandRun = await db.execute(sql`
-      INSERT INTO dropship_command_runs
-        (merchant_id,question,context,plan,brain_model,contributors,roles,consensus,status,idempotency_key,completed_at)
-      VALUES
-        (${ctx.merchantId},${commandQuestion.slice(0,2000)},
-         ${JSON.stringify({
-           summary: result.graph.summary,
-           generatedAt: result.graph.generatedAt,
-           authorityRules: result.graph.authorityRules,
-           modernPlatformParity: result.graph.modernPlatformParity,
-           decisionLoop: result.graph.decisionLoop,
-           signals: result.graph.summary.automationCandidates,
-         })}::jsonb,
-         ${JSON.stringify({content:result.brain.content,graph:result.graph.summary})}::jsonb,
-         ${result.brain.model},${JSON.stringify(result.brain.contributors)}::jsonb,${JSON.stringify(result.brain.roles)}::jsonb,
-         ${result.brain.consensus},'completed',${commandIdempotency},now())
-      ON CONFLICT (idempotency_key) DO UPDATE SET
-        plan=EXCLUDED.plan,context=EXCLUDED.context,brain_model=EXCLUDED.brain_model,
-        contributors=EXCLUDED.contributors,roles=EXCLUDED.roles,consensus=EXCLUDED.consensus,
-        status='completed',completed_at=now()
-      RETURNING id,created_at
+
+    const commandContext = {
+      summary: result.graph.summary,
+      generatedAt: result.graph.generatedAt,
+      authorityRules: result.graph.authorityRules,
+      modernPlatformParity: result.graph.modernPlatformParity,
+      decisionLoop: result.graph.decisionLoop,
+      signals: result.graph.summary.automationCandidates,
+    };
+    const storedPlan = { content: result.brain.content, graph: result.graph.summary };
+    const saved = await db.execute(sql`
+      UPDATE dropship_command_runs
+      SET context=${JSON.stringify(commandContext)}::jsonb,
+          plan=${JSON.stringify(storedPlan)}::jsonb,
+          brain_model=${result.brain.model},
+          contributors=${JSON.stringify(result.brain.contributors)}::jsonb,
+          roles=${JSON.stringify(result.brain.roles)}::jsonb,
+          consensus=${result.brain.consensus},
+          status='completed',
+          completed_at=now()
+      WHERE id=${commandRun.id} AND merchant_id=${ctx.merchantId} AND status='running'
+      RETURNING id,question,brain_model,contributors,roles,consensus,status,idempotency_key,created_at,completed_at
     `);
-    res.status(201).json({
+    const finalRun = saved.rows[0] ?? commandRun;
+    res.setHeader("Cache-Control", "no-store");
+    res.status(isReplay ? 200 : 201).json({
       ...result,
-      commandRun: commandRun.rows[0] ?? null,
+      commandRun: finalRun,
       persisted: true,
+      replayed: false,
       executionBoundary: "recommendation_only",
       financialAuthority: "provider_verified_ledger",
       inventoryAuthority: "server_inventory_state",
     });
   } catch (error) {
+    if (claimedRunId) {
+      await db.execute(sql`
+        UPDATE dropship_command_runs
+        SET status='failed',completed_at=NULL
+        WHERE id=${claimedRunId} AND status='running'
+      `).catch(() => undefined);
+    }
     next(error);
   }
 });
