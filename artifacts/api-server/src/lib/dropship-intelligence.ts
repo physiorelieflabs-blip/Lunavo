@@ -214,7 +214,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
 
     const campaign = campaigns.get(id);
     const conversionBps = campaign
-      ? (int(campaign.impressions) > 0 ? Math.trunc((int(campaign.purchases) * 10_000_000) / int(campaign.impressions)) : 0)
+      ? (int(campaign.impressions) > 0 ? Math.trunc((int(campaign.purchases) * 10_000) / int(campaign.impressions)) : 0)
       : null;
 
     const priorities: string[] = [];
@@ -224,7 +224,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     if (contributionMarginBps !== null && contributionMarginBps < 1500) priorities.push("margin_review");
     if (trend >= 1.25) priorities.push("scale_winner");
     if (trend <= 0.75 && sold30 > 0) priorities.push("declining_demand");
-    if (conversionBps !== null && conversionBps < 100_000 && int(campaign?.clicks) > 20) priorities.push("conversion_review");
+    if (conversionBps !== null && conversionBps < 500 && int(campaign?.clicks) > 20) priorities.push("conversion_review");
     if (!priorities.length) priorities.push("monitor");
 
     return {
