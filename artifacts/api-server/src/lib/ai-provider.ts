@@ -243,7 +243,7 @@ export async function completeLunavoBrain(
       model: "brain:[" + successes.map((item) => item.response.model).join(",") + "]->" + arbiter.model,
       content: arbiter.content,
       contributors: unique([...successes.map((item) => item.response.model), arbiter.model]),
-      roles: unique([...successes.map((item) => item.role), "orchestrator"]),
+      roles: successes.map((item) => item.role),
       consensus: successes.length === roles.length ? "full_ensemble" : "partial_ensemble",
       arbiterStatus: "completed",
     };
@@ -253,7 +253,7 @@ export async function completeLunavoBrain(
     const fallback = selectSafeBrainFallback(successes)!;
     return {
       model: "partial-brain:" + successes.map((item) => item.response.model).join("+"),
-      content: "[PARTIAL ENSEMBLE: local final synthesis could not complete. This is one conservative specialist analysis, not cross-model consensus.]\\n\\n" + fallback.response.content,
+      content: "[PARTIAL ENSEMBLE: local final synthesis could not complete. This is one conservative specialist analysis, not cross-model consensus.]\n\n" + fallback.response.content,
       contributors: successes.map((item) => item.response.model),
       roles: successes.map((item) => item.role),
       consensus: "partial_ensemble",
