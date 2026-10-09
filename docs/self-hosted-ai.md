@@ -11,7 +11,7 @@ The default role map is:
 - Deep reasoning: `deepseek-r1:14b`
 - Coding/developer work: `qwen3-coder:30b`
 - Vision/image understanding: `gemma3:12b`
-- Local review/critique: `qwen3:14b`
+- Local review/critique: `gemma3:12b`
 - Embeddings: `nomic-embed-text`
 
 These are real open-weight model families available through local runtimes. The repository does not commit model weights and therefore does not pretend that a deployment has downloaded them.
@@ -31,7 +31,7 @@ Normal work is routed to the smallest suitable specialist. High-effort reasoning
 3. A local review model arbitrates disagreements.
 4. The final response is returned with contributor model identifiers.
 
-The ensemble is deliberately tolerant of a failed specialist. It never fabricates a missing provider result.
+The ensemble is deliberately tolerant of a failed specialist. It never fabricates a missing provider result. If the final arbiter cannot run, the system returns an explicitly labelled partial result and prefers the hostile reviewer, then finance/operations, rather than silently presenting the first specialist draft as consensus.
 
 ## Security boundary
 
