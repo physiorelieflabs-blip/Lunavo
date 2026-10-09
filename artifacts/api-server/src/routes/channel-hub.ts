@@ -359,8 +359,8 @@ router.post("/merchant/channels/:id/sync", async (req, res, next) => {
       res.status(404).json({ error: "Channel connection not found" });
       return;
     }
-    if (connection.status === "revoked") {
-      res.status(409).json({ error: "Revoked channel connections cannot be synchronized" });
+    if (connection.status === "revoked" || connection.status === "paused") {
+      res.status(409).json({ error: "Paused or revoked channel connections cannot be synchronized" });
       return;
     }
     const idempotencyKey = txt(req.body?.idempotencyKey, 160) ||
@@ -376,10 +376,29 @@ router.post("/merchant/channels/:id/sync", async (req, res, next) => {
       "ON CONFLICT (connection_id,idempotency_key) DO UPDATE SET updated_at=now() RETURNING *",
     ].join(" ");
     const result = await db.execute(sql.raw(jobQuery));
-    res.status(202).json({
-      job: result.rows[0] ?? null,
-      execution: "queued",
-      note: "External I/O belongs to a provider adapter. Financial and authoritative inventory state remain inside Lunavo.",
+    const job = result.rows[0] as Record<string, unknown> | undefined;
+    if (!job) {
+      res.status(500).json({ error: "Channel sync job could not be saved" });
+      return;
+    }
+    const sameRequest = String(job.connection_id).toLowerCase() === String(connection.id).toLowerCase()
+      && Number(job.merchant_id) === ctx.merchantId
+      && String(job.direction) === direction
+      && String(job.resource) === resource
+      && (job.scope ?? null) === scope;
+    if (!sameRequest) {
+      res.status(409).json({ error: "This idempotency key was already used for a different channel sync request" });
+      return;
+    }
+    const execution = String(job.status);
+    const running = execution === "queued" || execution === "running";
+    res.status(running ? 202 : 200).json({
+      job,
+      execution,
+      reusedIdempotencyResult: execution !== "queued",
+      note: running
+        ? "The durable worker will report provider evidence and local commit state. No sync success is inferred from queue acceptance."
+        : "This idempotency key resolves to an existing result. Use a fresh key to request a new sync attempt.",
     });
   } catch (error) {
     next(error);
