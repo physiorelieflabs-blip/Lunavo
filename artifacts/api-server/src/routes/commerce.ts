@@ -1920,6 +1920,13 @@ function serializeDropshipQueueItem(
   };
 }
 
+class PublicCheckoutBlockedError extends Error {
+  constructor(readonly signals: string[]) {
+    super("AI Commerce Guard blocked this checkout because the product contains bank-destination details");
+    this.name = "PublicCheckoutBlockedError";
+  }
+}
+
 function serializePublicCheckoutOrder(
   order: Order,
   product: typeof supplierProductsTable.$inferSelect,
@@ -9469,6 +9476,8 @@ router.post(
          if (product.currency !== merchant.currency) {
            throw new Error("This product is not available in the store's settlement currency");
          }
+         const guardSignals = paymentBypassSignals([product.title, product.description, product.brand]);
+         if (guardSignals.length) throw new PublicCheckoutBlockedError(guardSignals);
         await tx
           .update(inventoryReservationsTable)
           .set({ status: "expired", updatedAt: new Date() })
@@ -9555,7 +9564,9 @@ router.post(
           : toMinorUnits(merchant.freeShippingThreshold, currencyDigits);
         const configuredShippingMinor = toMinorUnits(merchant.shippingFee, currencyDigits);
         const taxRateBasisPoints = toMinorUnits(merchant.taxRate, 2);
-        if (configuredShippingMinor === null || configuredShippingMinor < 0 || taxRateBasisPoints === null || taxRateBasisPoints < 0) {
+        if ((merchant.freeShippingThreshold !== null && freeShippingThresholdMinor === null)
+          || configuredShippingMinor === null || configuredShippingMinor < 0
+          || taxRateBasisPoints === null || taxRateBasisPoints < 0) {
           throw new Error("Store checkout charges are configured with invalid monetary values");
         }
         const shippingMinor = freeShippingThresholdMinor !== null && discountedSubtotalMinor >= freeShippingThresholdMinor
@@ -9711,18 +9722,6 @@ router.post(
         });
         return { order, product };
       });
-      const guardSignals = paymentBypassSignals([
-        result.product.title,
-        result.product.description,
-        result.product.brand,
-      ]);
-      if (guardSignals.length) {
-        res.status(423).json({
-          error: "AI Commerce Guard blocked this checkout because the product contains bank-destination details",
-          signals: guardSignals,
-        });
-        return;
-      }
       let paymentDetails: Parameters<typeof serializePublicCheckoutOrder>[2];
       try {
         const payment = await ensurePublicFlutterwaveCheckout(
@@ -9757,6 +9756,13 @@ router.post(
         ),
       );
     } catch (error) {
+      if (error instanceof PublicCheckoutBlockedError) {
+        res.status(423).json({
+          error: error.message,
+          signals: error.signals,
+        });
+        return;
+      }
       req.log.error({ err: error }, "public checkout failed");
       res.status(409).json({
         error:
