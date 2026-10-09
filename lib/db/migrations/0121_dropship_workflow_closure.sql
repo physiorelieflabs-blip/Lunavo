@@ -30,11 +30,13 @@ CREATE TABLE IF NOT EXISTS dropship_landed_cost_scenarios (
   provider_fee_minor bigint NOT NULL CHECK (provider_fee_minor >= 0),
   returns_reserve_minor bigint NOT NULL CHECK (returns_reserve_minor >= 0),
   contribution_margin_minor bigint NOT NULL,
-  contribution_margin_bps integer NOT NULL CHECK (contribution_margin_bps BETWEEN -100000 AND 10000),
+  contribution_margin_bps integer NOT NULL CHECK (contribution_margin_bps BETWEEN -2147483648 AND 10000),
   evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
   calculation_version text NOT NULL DEFAULT 'landed-cost-v1',
   created_by text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  idempotency_key text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(merchant_id, idempotency_key)
 );
 
 CREATE INDEX IF NOT EXISTS dropship_landed_cost_scenarios_merchant_created_idx
