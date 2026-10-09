@@ -46,6 +46,7 @@ type QuoteForm = {
   currency: string; quantity: string; targetPrice: string; desiredDays: string; requestNotes: string;
 };
 type QuoteEntryForm = { unitPrice: string; shipping: string; deliveryDays: string; expiresAt: string; notes: string; evidenceUrl: string };
+type ProductOption = { id: number; title: string; sourceCurrency: string; sourceCostMinor: number | null; sellingPriceMinor: number | null };
 
 const initialCost: CostForm = {
   scenarioName: "", supplierProductId: "", destinationCountry: "US", currency: "USD", sourceCurrency: "USD", quantity: "1",
@@ -113,6 +114,8 @@ export default function DropshipWorkbench() {
   const [quoteForm, setQuoteForm] = useState<QuoteForm>(initialQuote);
   const [costs, setCosts] = useState<CostResult[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [merchantCurrency, setMerchantCurrency] = useState("USD");
   const [lastCalculation, setLastCalculation] = useState<Record<string, unknown> | null>(null);
   const [activeQuote, setActiveQuote] = useState<string | null>(null);
   const [quoteEntry, setQuoteEntry] = useState<QuoteEntryForm>({ unitPrice: "", shipping: "0", deliveryDays: "", expiresAt: "", notes: "", evidenceUrl: "" });
@@ -132,6 +135,7 @@ export default function DropshipWorkbench() {
     const results = await Promise.allSettled([
       api("/api/merchant/dropship/workbench/landed-cost?limit=30"),
       api("/api/merchant/dropship/workbench/quotes"),
+      api("/api/merchant/dropship/intelligence"),
     ]);
     if (results[0]?.status === "fulfilled") {
       setCosts(Array.isArray(results[0].value.scenarios) ? results[0].value.scenarios : []);
@@ -145,6 +149,21 @@ export default function DropshipWorkbench() {
     } else {
       setQuoteError(results[1]?.reason instanceof Error ? results[1].reason.message : "Supplier quote requests could not load. Fulfillment permission may be required.");
     }
+    if (results[2]?.status === "fulfilled") {
+      const graph = results[2].value as { merchant?: { currency?: string }; products?: Array<Record<string, unknown>> };
+      const currency = typeof graph.merchant?.currency === "string" ? graph.merchant.currency.toUpperCase() : "USD";
+      setMerchantCurrency(currency);
+      setProducts((graph.products ?? []).map(row => ({
+        id: Number(row.id),
+        title: typeof row.title === "string" ? row.title : "",
+        sourceCurrency: typeof row.sourceCurrency === "string" ? row.sourceCurrency.toUpperCase() : currency,
+        sourceCostMinor: typeof row.sourceCostMinor === "number" && Number.isSafeInteger(row.sourceCostMinor) ? row.sourceCostMinor : null,
+        sellingPriceMinor: typeof row.sellingPriceMinor === "number" && Number.isSafeInteger(row.sellingPriceMinor) ? row.sellingPriceMinor : null,
+      })).filter(product => Number.isSafeInteger(product.id) && product.id > 0));
+      setCostForm(current => current.scenarioName === "" && current.currency === "USD" && current.sourceCurrency === "USD"
+        ? { ...current, currency, sourceCurrency: currency } : current);
+      setQuoteForm(current => current.currency === "USD" ? { ...current, currency } : current);
+    }
     setLoading(false);
   }, []);
 
@@ -157,13 +176,13 @@ export default function DropshipWorkbench() {
     event.preventDefault();
     setCostError(""); setNotice("");
     const amounts = {
-      sourceCostMinor: amountToMinor(costForm.sourceCost),
-      outboundShippingMinor: amountToMinor(costForm.shipping || "0"),
-      freightMinor: amountToMinor(costForm.freight || "0"),
-      insuranceMinor: amountToMinor(costForm.insurance || "0"),
-      handlingMinor: amountToMinor(costForm.handling || "0"),
-      packagingMinor: amountToMinor(costForm.packaging || "0"),
-      sellingPriceMinor: amountToMinor(costForm.sellingPrice),
+      sourceCostMinor: amountToMinor(costForm.sourceCost, costForm.currency),
+      outboundShippingMinor: amountToMinor(costForm.shipping || "0", costForm.currency),
+      freightMinor: amountToMinor(costForm.freight || "0", costForm.currency),
+      insuranceMinor: amountToMinor(costForm.insurance || "0", costForm.currency),
+      handlingMinor: amountToMinor(costForm.handling || "0", costForm.currency),
+      packagingMinor: amountToMinor(costForm.packaging || "0", costForm.currency),
+      sellingPriceMinor: amountToMinor(costForm.sellingPrice, costForm.currency),
     };
     const bps = {
       customsDutyBps: percentToBps(costForm.dutyRate || "0"),
@@ -172,7 +191,7 @@ export default function DropshipWorkbench() {
       returnsReserveBps: percentToBps(costForm.reserveRate || "0"),
     };
     if (Object.values(amounts).some(value => value === null) || Object.values(bps).some(value => value === null)) {
-      setCostError("Enter non-negative money values with at most 2 decimal places and percentage rates from 0% to 100%.");
+      setCostError("Enter non-negative amounts using " + currencyDigits(costForm.currency) + " decimal place(s), and percentage rates from 0% to 100%.");
       return;
     }
     const quantity = Number(costForm.quantity);
@@ -209,7 +228,7 @@ export default function DropshipWorkbench() {
     setQuoteError(""); setNotice("");
     const quantity = Number(quoteForm.quantity);
     const productId = quoteForm.supplierProductId.trim() ? Number(quoteForm.supplierProductId) : null;
-    const targetPrice = quoteForm.targetPrice.trim() ? amountToMinor(quoteForm.targetPrice) : null;
+    const targetPrice = quoteForm.targetPrice.trim() ? amountToMinor(quoteForm.targetPrice, quoteForm.currency) : null;
     const desiredDays = quoteForm.desiredDays.trim() ? Number(quoteForm.desiredDays) : null;
     if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1_000_000 ||
         (productId !== null && (!Number.isSafeInteger(productId) || productId <= 0)) ||
@@ -243,8 +262,9 @@ export default function DropshipWorkbench() {
     event.preventDefault();
     if (!activeQuote) return;
     setQuoteError(""); setNotice("");
-    const unitPrice = amountToMinor(quoteEntry.unitPrice);
-    const shipping = amountToMinor(quoteEntry.shipping || "0");
+    const quoteCurrency = quotes.find(item => item.id === activeQuote)?.currency ?? "USD";
+    const unitPrice = amountToMinor(quoteEntry.unitPrice, quoteCurrency);
+    const shipping = amountToMinor(quoteEntry.shipping || "0", quoteCurrency);
     const deliveryDays = Number(quoteEntry.deliveryDays);
     if (unitPrice === null || shipping === null || !Number.isSafeInteger(deliveryDays) || deliveryDays < 1 || deliveryDays > 365) {
       setQuoteError("Enter a valid unit price, shipping amount and delivery estimate.");
@@ -332,7 +352,7 @@ export default function DropshipWorkbench() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Scenario name" value={costForm.scenarioName} onChange={v=>setCost("scenarioName",v)} placeholder="e.g. US market, air freight" required/>
-          <Field label="Linked supplier product ID (optional)" value={costForm.supplierProductId} onChange={v=>setCost("supplierProductId",v)} placeholder="Product ID"/>
+          <label className={labelClass}>Linked product (optional)<select className={inputClass} value={costForm.supplierProductId} onChange={event => { const id=event.target.value; const p=products.find(item=>String(item.id)===id); setCostForm(current=>({...current,supplierProductId:id,...(p?{scenarioName:p.title.slice(0,120)+" - "+current.destinationCountry+" estimate",sourceCurrency:p.sourceCurrency,...(p.sourceCurrency===current.currency.toUpperCase()?{sourceCost:minorToMajor(p.sourceCostMinor,current.currency),sellingPrice:minorToMajor(p.sellingPriceMinor,current.currency)}:{})}:{})})); if(p&&p.sourceCurrency!==costForm.currency.toUpperCase())setNotice("Source price currency differs. Normalize the entered amounts and add the FX basis; no rate is inferred."); }}><option value="">Unlinked / custom quote</option>{products.map(p=><option key={p.id} value={p.id}>{p.title||("Product #"+p.id)} · {p.sourceCurrency}</option>)}</select></label>
           <Field label="Destination country (2 letters)" value={costForm.destinationCountry} onChange={v=>setCost("destinationCountry",v.toUpperCase())} placeholder="US" required/>
           <Field label="Calculation currency (3 letters)" value={costForm.currency} onChange={v=>setCost("currency",v.toUpperCase())} placeholder="USD" required/>
           <Field label="Source price currency" value={costForm.sourceCurrency} onChange={v=>setCost("sourceCurrency",v.toUpperCase())} placeholder="USD" required/>
@@ -392,15 +412,15 @@ export default function DropshipWorkbench() {
       <form onSubmit={submitQuote} className="space-y-4 rounded-2xl border border-border bg-card p-5 sm:p-6">
         <div className="flex items-start gap-3"><div className="rounded-xl bg-accent/10 p-2 text-accent"><ClipboardList className="h-5 w-5"/></div><div><p className="text-[10px] font-black uppercase tracking-[.14em] text-muted-foreground">Supplier negotiation</p><h2 className="mt-1 text-xl font-black">Prepare a supplier quote</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Create a trackable draft, then enter the actual supplier response. This does not message the supplier.</p></div></div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Linked product ID (optional)" value={quoteForm.supplierProductId} onChange={v=>setQuote("supplierProductId",v)} placeholder="Product ID"/>
+          <label className={labelClass}>Linked product (optional)<select className={inputClass} value={quoteForm.supplierProductId} onChange={event=>{const id=event.target.value;const p=products.find(item=>String(item.id)===id);setQuoteForm(current=>({...current,supplierProductId:id,...(p?{productTitle:p.title}:{})}));}}><option value="">Unlinked / custom product</option>{products.map(p=><option key={p.id} value={p.id}>{p.title||("Product #"+p.id)}</option>)}</select></label>
           <Field label="Supplier name" value={quoteForm.supplierName} onChange={v=>setQuote("supplierName",v)} placeholder="Supplier / factory"/>
-          <Field label="Product title (required if unlinked)" value={quoteForm.productTitle} onChange={v=>setQuote("productTitle",v)} placeholder="Product name"/>
+          {!quoteForm.supplierProductId && <Field label="Product title (required if unlinked)" value={quoteForm.productTitle} onChange={v=>setQuote("productTitle",v)} placeholder="Product name" required/>}
           <Field label="SKU / variant reference" value={quoteForm.sku} onChange={v=>setQuote("sku",v)} placeholder="Optional"/>
           <Field label="Source URL" value={quoteForm.sourceUrl} onChange={v=>setQuote("sourceUrl",v)} placeholder="https://..."/>
           <Field label="Destination country" value={quoteForm.destinationCountry} onChange={v=>setQuote("destinationCountry",v.toUpperCase())} placeholder="US" required/>
           <Field label="Currency" value={quoteForm.currency} onChange={v=>setQuote("currency",v.toUpperCase())} placeholder="USD" required/>
           <Field label="Quantity" value={quoteForm.quantity} onChange={v=>setQuote("quantity",v)} type="number" required/>
-          <Field label="Target unit price (optional)" value={quoteForm.targetPrice} onChange={v=>setQuote("targetPrice",v)} placeholder="12.50"/>
+          <Field label={"Target unit price (optional, "+quoteForm.currency+")"} value={quoteForm.targetPrice} onChange={v=>setQuote("targetPrice",v)} placeholder="12.50" type="number"/>
           <Field label="Desired delivery days" value={quoteForm.desiredDays} onChange={v=>setQuote("desiredDays",v)} placeholder="14" type="number"/>
         </div>
         <label className={labelClass}>Notes / questions for supplier<textarea className="mt-1 min-h-24 w-full rounded-xl border border-border bg-background p-3 text-sm text-foreground outline-none focus:border-accent" value={quoteForm.requestNotes} onChange={e=>setQuote("requestNotes",e.target.value)} maxLength={3000} placeholder="Variant, packaging, MOQ, sample requirements, warranty, delivery lanes…"/></label>
