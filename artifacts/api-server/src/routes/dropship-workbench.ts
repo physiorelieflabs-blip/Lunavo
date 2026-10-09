@@ -125,7 +125,7 @@ router.get("/merchant/dropship/workbench/landed-cost", async (req, res, next) =>
     if (!ctx) return;
     const limit = Math.max(1, Math.min(100, Math.trunc(Number(req.query.limit ?? 30)) || 30));
     const rows = await db.execute((await import("drizzle-orm")).sql.raw(
-      "SELECT s.*, p.title AS product_title " +
+      "SELECT s.*, p.title AS product_title, CASE WHEN s.contribution_margin_minor > 0 THEN 'profitable' WHEN s.contribution_margin_minor = 0 THEN 'break_even' ELSE 'loss' END AS profitability " +
       "FROM dropship_landed_cost_scenarios s " +
       "LEFT JOIN supplier_products p ON p.id=s.supplier_product_id AND p.merchant_id=s.merchant_id " +
       "WHERE s.merchant_id=" + dbq(ctx.merchantId) +
@@ -154,7 +154,7 @@ router.post("/merchant/dropship/workbench/landed-cost", async (req, res, next) =
       return;
     }
     const productId = body.supplierProductId == null || body.supplierProductId === ""
-      ? null : numberIn(body.supplierProductId, 1, Number.MAX_SAFE_INTEGER);
+      ? null : numberIn(body.supplierProductId, 1, 2_147_483_647);
     if (body.supplierProductId != null && body.supplierProductId !== "" && productId === null) {
       res.status(400).json({ error: "Invalid supplier product id." });
       return;
@@ -338,7 +338,7 @@ router.post("/merchant/dropship/workbench/quotes", async (req, res, next) => {
     if (!ctx) return;
     const body = isRecord(req.body) ? req.body : {};
     const productId = body.supplierProductId == null || body.supplierProductId === ""
-      ? null : numberIn(body.supplierProductId, 1, Number.MAX_SAFE_INTEGER);
+      ? null : numberIn(body.supplierProductId, 1, 2_147_483_647);
     if (body.supplierProductId != null && body.supplierProductId !== "" && productId === null) {
       res.status(400).json({ error: "Invalid supplier product id." });
       return;
