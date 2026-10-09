@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, merchantsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { decryptSecret, encryptSecret } from "../lib/withdrawal-security";
-import { channelGatewayConfigured, channelGatewayRequest } from "../lib/channel-gateway-client";
+import { ChannelGatewayError, channelGatewayConfigured, channelGatewayRequest } from "../lib/channel-gateway-client";
 import { requirePermission } from "../lib/tenant-access";
 
 const router = Router();
@@ -230,8 +230,7 @@ router.post("/merchant/channels/:id/connect", async (req, res, next) => {
     }
     const tested = test as Record<string, unknown>;
     if (tested.ok !== true || tested.verified !== true) {
-      const message = typeof tested.error === "string" ? tested.error.slice(0, 400) : "The provider adapter did not verify this connection";
-      res.status(502).json({ error: message, connected: false });
+      res.status(502).json({ error: "The provider connection was not verified. Check the credentials and the private adapter's diagnostic logs.", connected: false });
       return;
     }
     const accountRef = typeof tested.providerAccountRef === "string" ? tested.providerAccountRef.trim().slice(0, 250) : null;
@@ -291,8 +290,10 @@ router.post("/merchant/channels/:id/connect", async (req, res, next) => {
       ),
     });
   } catch (error) {
-    if (error instanceof Error && /gateway|adapter/.test(error.message)) {
-      res.status(503).json({ error: error.message.slice(0, 500) });
+    if (error instanceof ChannelGatewayError) {
+      res.status(error.code === "invalid_gateway_response" ? 502 : 503).json({
+        error: "The private channel adapter could not verify this connection. Check adapter availability and credentials; provider secrets were not returned.",
+      });
       return;
     }
     next(error);
