@@ -820,7 +820,7 @@ export async function buildMaxConsensusDropshipPlan(
     "Build one connected dropshipping operating plan that treats modern dropshipping capabilities as one operating system: sourcing/discovery, supplier comparison and mapping, price/stock monitoring, landed cost, inventory forecasts, alternative supplier fallback, order routing, fulfillment, tracking, returns/exceptions, customer lifecycle, creative/ads, multi-store/channel synchronization and finance constraints. Combine specialist strengths across research, merchandising, growth, operations and customer lifecycle. Identify dependencies and sequence. Never invent supplier, payment, stock, customer-consent, market or ad facts. For every action return evidence, expected benefit, uncertainty and approval requirement. Treat forecast values as estimates, not facts.",
     context,
     {
-      roles: ["researcher","merchandiser","growth","operations","customer","reviewer"],
+      roles: ["researcher","merchandiser","growth","operations","customer","finance","reviewer"],
       reasoningEffort: "max",
       json: true,
       maxTokens: 6500,
