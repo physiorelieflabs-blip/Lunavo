@@ -33,7 +33,8 @@ const PROFILE_DEFAULTS: Record<LocalAiProfile, { model: string; timeoutMs: numbe
   reasoning: { model: "deepseek-r1:14b", timeoutMs: 180_000 },
   coding: { model: "qwen3-coder:30b", timeoutMs: 180_000 },
   vision: { model: "gemma3:12b", timeoutMs: 120_000 },
-  review: { model: "qwen3:14b", timeoutMs: 120_000 },
+  // Keep the critic distinct from the Qwen general model so local consensus has a genuinely independent viewpoint.
+  review: { model: "gemma3:12b", timeoutMs: 120_000 },
 };
 
 function assertSelfHostedEndpoint(value: string): string {
