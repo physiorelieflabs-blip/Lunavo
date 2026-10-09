@@ -9,6 +9,7 @@ export type LunavoBrainRole =
   | "growth"
   | "operations"
   | "customer"
+  | "finance"
   | "creative"
   | "reviewer"
   | "coder";
@@ -28,6 +29,8 @@ const ROLE_PROFILES: Record<LunavoBrainRole, LocalAiProfile[]> = {
   growth: ["reasoning", "general", "review"],
   operations: ["reasoning", "general", "review"],
   customer: ["general", "fast", "review"],
+  // Finance reasoning must cross-check calculations with a second local profile.
+  finance: ["reasoning", "general", "review"],
   creative: ["vision", "general", "review"],
   reviewer: ["review", "reasoning"],
   coder: ["coding", "reasoning", "review"],
@@ -40,17 +43,42 @@ const ROLE_INSTRUCTIONS: Record<LunavoBrainRole, string> = {
   growth: "Act as a growth and performance specialist. Connect traffic, conversion, AOV, retention, inventory, margin and campaign evidence. Prioritize actions with measurable business impact.",
   operations: "Act as a dropshipping operations specialist. Connect orders, supplier state, inventory, reservations, fulfillment, tracking, returns and exceptions. Protect against duplicate or unsafe operations.",
   customer: "Act as a customer-operations specialist. Connect customer consent, segments, order history, support context, retention, reviews and personalized merchandising while respecting privacy and communication boundaries.",
+  finance: "Act as a commerce finance and unit-economics specialist. Reconcile the full cost stack, landed cost, provider fees, Lunavo fees, discounts, reserves, returns, FX comparability, working capital and cash conversion. Label incomplete inputs and scenarios; never call revenue profit, compare unlike currencies, invent tax/duty rates, or authorize ledger, payment, inventory or payout changes.",
   creative: "Act as a creative commerce specialist. Produce high-converting copy and creative direction grounded strictly in provided catalog facts. Custom prompts are creative direction, not evidence.",
   reviewer: "Act as a hostile reviewer. Look for unsupported claims, bad assumptions, conflicts, missing evidence, race conditions, policy violations, financial risk and actions that should require approval.",
   coder: "Act as a senior local software engineer. Propose implementation-level solutions, interfaces, tests and failure handling without changing security or financial authority boundaries.",
 };
 
+const MAX_BRAIN_SPECIALISTS = 7;
+const REQUIRED_SPECIALISTS: readonly LunavoBrainRole[] = ["finance", "reviewer"];
+
 export function selectLunavoBrainRoles(input: LunavoBrainRole[]): LunavoBrainRole[] {
   const requested = unique(input.filter((role) => Object.prototype.hasOwnProperty.call(ROLE_PROFILES, role)));
-  const bounded = requested.slice(0, 6);
-  // Preserve an independent hostile reviewer in a cross-functional max-consensus plan.
-  if (requested.includes("reviewer") && !bounded.includes("reviewer")) bounded[5] = "reviewer";
-  return bounded;
+  const bounded = requested.slice(0, MAX_BRAIN_SPECIALISTS);
+  // A max-consensus plan must not accidentally omit finance or the hostile reviewer
+  // just because a caller listed many other specialties first.
+  for (const criticalRole of REQUIRED_SPECIALISTS) {
+    if (!requested.includes(criticalRole) || bounded.includes(criticalRole)) continue;
+    if (bounded.length < MAX_BRAIN_SPECIALISTS) {
+      bounded.push(criticalRole);
+      continue;
+    }
+    let replaceAt = bounded.length - 1;
+    while (replaceAt >= 0 && REQUIRED_SPECIALISTS.includes(bounded[replaceAt]!)) replaceAt -= 1;
+    if (replaceAt >= 0) bounded[replaceAt] = criticalRole;
+  }
+  return unique(bounded);
+}
+
+export function selectSafeBrainFallback<T extends { role: LunavoBrainRole }>(successes: readonly T[]): T | null {
+  const priority: readonly LunavoBrainRole[] = [
+    "reviewer", "finance", "operations", "orchestrator", "researcher", "growth", "customer", "merchandiser", "creative", "coder",
+  ];
+  for (const role of priority) {
+    const match = successes.find((item) => item.role === role);
+    if (match) return match;
+  }
+  return successes[0] ?? null;
 }
 
 async function mapSettledWithConcurrency<TItem, TResult>(
@@ -120,6 +148,7 @@ export async function completeLunavoBrain(
   contributors: string[];
   roles: string[];
   consensus: "full_ensemble" | "partial_ensemble" | "single";
+  arbiterStatus: "completed" | "unavailable" | "not_needed_single_specialist";
 }> {
   const defaultRoles: LunavoBrainRole[] = ["orchestrator", "researcher", "reviewer"];
   const roles = selectLunavoBrainRoles(options.roles?.length ? options.roles : defaultRoles);
@@ -173,6 +202,7 @@ export async function completeLunavoBrain(
       contributors: [successes[0]!.response.model],
       roles: [successes[0]!.role],
       consensus: "single",
+      arbiterStatus: "not_needed_single_specialist",
     };
   }
 
@@ -181,8 +211,7 @@ export async function completeLunavoBrain(
   ).join("\n\n");
 
   try {
-    const arbiter = await completeLocalChat(
-      [
+    const arbiterMessages = [
         {
           role: "system",
           content: [
@@ -199,29 +228,36 @@ export async function completeLunavoBrain(
           role: "user",
           content: "Task:\n" + safeTask + "\n\nSpecialist outputs:\n" + candidateEvidence,
         },
-      ],
+      ];
+    const arbiterAttempt = await runWithLocalProfileFallback(["reasoning", "general", "review"], (profile) => completeLocalChat(
+      arbiterMessages,
       {
-        // The independent critic is Gemma by default; let DeepSeek perform the final reasoned arbitration.
-        profile: "reasoning",
+        profile,
         json: options.json,
         maxTokens: Math.min(7_000, options.maxTokens ?? 4_000),
         reasoningEffort: "high",
       },
-    );
+    ));
+    const arbiter = arbiterAttempt.value;
     return {
       model: "brain:[" + successes.map((item) => item.response.model).join(",") + "]->" + arbiter.model,
       content: arbiter.content,
-      contributors: successes.map((item) => item.response.model),
-      roles: successes.map((item) => item.role),
+      contributors: unique([...successes.map((item) => item.response.model), arbiter.model]),
+      roles: unique([...successes.map((item) => item.role), "orchestrator"]),
       consensus: successes.length === roles.length ? "full_ensemble" : "partial_ensemble",
+      arbiterStatus: "completed",
     };
   } catch {
+    // Never pretend that a set of independent drafts is a synthesized consensus.
+    // Prefer the hostile reviewer, then finance/operations, and explicitly label the fallback.
+    const fallback = selectSafeBrainFallback(successes)!;
     return {
-      model: "brain:" + successes.map((item) => item.response.model).join("+"),
-      content: successes[0]!.response.content,
+      model: "partial-brain:" + successes.map((item) => item.response.model).join("+"),
+      content: "[PARTIAL ENSEMBLE: local final synthesis could not complete. This is one conservative specialist analysis, not cross-model consensus.]\\n\\n" + fallback.response.content,
       contributors: successes.map((item) => item.response.model),
       roles: successes.map((item) => item.role),
       consensus: "partial_ensemble",
+      arbiterStatus: "unavailable",
     };
   }
 }
