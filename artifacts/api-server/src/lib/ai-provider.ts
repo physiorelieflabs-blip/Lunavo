@@ -99,7 +99,7 @@ export async function completeLunavoBrain(
       const response = await completeLocalChat(messages, {
         profile: primary,
         json: options.json,
-        maxTokens: Math.min(6_000, options.maxTokens ?? 3_200),
+        maxTokens: Math.min(options.reasoningEffort === "max" ? 2_200 : 6_000, options.maxTokens ?? 3_200),
         reasoningEffort: options.reasoningEffort === "max" ? "max" : role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
       });
       return { role, response };
@@ -119,7 +119,7 @@ export async function completeLunavoBrain(
   }
 
   const candidateEvidence = successes.map((item, index) =>
-    "SPECIALIST_" + (index + 1) + " role=" + item.role + " profile=" + item.response.profile + " model=" + item.response.model + "\n" + item.response.content.slice(0, 9_000),
+    "SPECIALIST_" + (index + 1) + " role=" + item.role + " profile=" + item.response.profile + " model=" + item.response.model + "\n" + item.response.content.slice(0, 4_500),
   ).join("\n\n");
 
   try {
