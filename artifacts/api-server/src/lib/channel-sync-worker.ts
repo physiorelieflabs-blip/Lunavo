@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { logger } from "./logger";
+import { emitDomainEvent } from "./domain-events";
 import { decryptSecret } from "./withdrawal-security";
 import { ChannelGatewayError, channelGatewayConfigured, channelGatewayRequest } from "./channel-gateway-client";
 
@@ -198,12 +199,25 @@ async function priorCursor(job: SyncJob): Promise<string | null> {
 }
 
 async function finishWithoutRetry(job: SyncJob, status: "failed" | "cancelled", reason: string): Promise<void> {
-  await db.execute(sql`
+  const updated = await db.execute(sql`
     UPDATE merchant_channel_sync_jobs
     SET status = ${status}, locked_at = NULL, completed_at = now(),
         last_error = ${reason.slice(0, 1_000)}, updated_at = now()
-    WHERE id = ${job.id}::uuid AND merchant_id = ${job.merchant_id} AND status = 'running'
+    WHERE id = ${job.id}::uuid AND merchant_id = ${job.merchant_id}
+      AND status = 'running' AND attempts = ${job.attempts}
+    RETURNING id
   `);
+  if (!updated.rows.length) return; // The lease was reclaimed; a stale worker may not emit events.
+  await emitDomainEvent(db, {
+    merchantId: job.merchant_id,
+    eventType: status === "failed" ? "channel.sync.failed" : "channel.sync.cancelled",
+    aggregateType: "channel_sync_job",
+    aggregateId: job.id,
+    actorType: "system",
+    source: "system",
+    idempotencyKey: `channel-sync:${job.id}:${status}:${job.attempts}`,
+    payload: { jobId: job.id, direction: job.direction, resource: job.resource, status, reason: reason.slice(0, 500), attempt: job.attempts },
+  });
 }
 
 async function retryOrFail(job: SyncJob, error: unknown): Promise<void> {
@@ -219,8 +233,22 @@ async function retryOrFail(job: SyncJob, error: unknown): Promise<void> {
         next_attempt_at = CASE WHEN ${terminal} THEN NULL ELSE now() + (${delay} * interval '1 second') END,
         last_error = ${message},
         updated_at = now()
-    WHERE id = ${job.id}::uuid AND merchant_id = ${job.merchant_id} AND status = 'running'
+    WHERE id = ${job.id}::uuid AND merchant_id = ${job.merchant_id}
+      AND status = 'running' AND attempts = ${job.attempts}
+    RETURNING id
   `);
+  if (terminal) {
+    await emitDomainEvent(db, {
+      merchantId: job.merchant_id,
+      eventType: "channel.sync.failed",
+      aggregateType: "channel_sync_job",
+      aggregateId: job.id,
+      actorType: "system",
+      source: "system",
+      idempotencyKey: `channel-sync:${job.id}:failed:${job.attempts}`,
+      payload: { jobId: job.id, direction: job.direction, resource: job.resource, status: "failed", reason: message.slice(0, 500), attempt: job.attempts },
+    });
+  }
 }
 
 async function processJob(job: SyncJob): Promise<void> {
@@ -289,7 +317,7 @@ async function processJob(job: SyncJob): Promise<void> {
     localCommitConfirmed: result.localCommitConfirmed,
   };
   const lastError = status === "partial" ? (result.message ?? "Adapter reported a partial sync") : null;
-  await db.execute(sql`
+  const persisted = await db.execute(sql`
     UPDATE merchant_channel_sync_jobs
     SET status = ${status},
         metrics = ${JSON.stringify(safeMetrics)}::jsonb,
@@ -298,8 +326,11 @@ async function processJob(job: SyncJob): Promise<void> {
         next_attempt_at = NULL,
         last_error = ${lastError},
         updated_at = now()
-    WHERE id = ${job.id}::uuid AND merchant_id = ${job.merchant_id} AND status = 'running'
+    WHERE id = ${job.id}::uuid AND merchant_id = ${job.merchant_id}
+      AND status = 'running' AND attempts = ${job.attempts}
+    RETURNING id
   `);
+  if (!persisted.rows.length) return; // A stale worker must not overwrite newer sync state.
   await db.execute(sql`
     UPDATE merchant_channel_connections
     SET status = ${status === "partial" ? "degraded" : "connected"},
@@ -311,6 +342,16 @@ async function processJob(job: SyncJob): Promise<void> {
         updated_at = now()
     WHERE id = ${connection.id}::uuid AND merchant_id = ${job.merchant_id}
   `);
+  await emitDomainEvent(db, {
+    merchantId: job.merchant_id,
+    eventType: status === "succeeded" ? "channel.sync.completed" : "channel.sync.partial",
+    aggregateType: "channel_sync_job",
+    aggregateId: job.id,
+    actorType: "system",
+    source: "system",
+    idempotencyKey: `channel-sync:${job.id}:${status}:${job.attempts}`,
+    payload: { jobId: job.id, direction: job.direction, resource: job.resource, status, provider: connection.provider, metrics: result.metrics, requestId: result.requestId },
+  });
   logger.info({ jobId: job.id, merchantId: job.merchant_id, provider: connection.provider, resource: job.resource, direction: job.direction, status, metrics: result.metrics }, "Channel sync job completed");
 }
 
