@@ -45,6 +45,12 @@ function shippingLeadTime(value: unknown): number {
   return nums.length ? Math.max(...nums) : 7;
 }
 
+export function conversionRateBps(purchases: number, clicks: number): number | null {
+  if (!Number.isSafeInteger(purchases) || purchases < 0 || !Number.isSafeInteger(clicks) || clicks <= 0) return null;
+  const rate = (BigInt(purchases) * 10_000n) / BigInt(clicks);
+  return rate <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(rate) : null;
+}
+
 export function confidenceFor(orderCount: number): number {
   return Math.min(9200, 2500 + Math.min(1, orderCount / 20) * 5500);
 }
@@ -245,7 +251,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
 
     const campaign = campaigns.get(id);
     const conversionBps = campaign
-      ? (int(campaign.impressions) > 0 ? Math.trunc((int(campaign.purchases) * 10_000) / int(campaign.impressions)) : 0)
+      ? conversionRateBps(int(campaign.purchases), int(campaign.clicks))
       : null;
 
     const priorities: string[] = [];
