@@ -70,6 +70,29 @@ export function nextBestAction(seg: string, consent: boolean, churnRiskBps: numb
   return "first_repeat_purchase";
 }
 
+export function availableMerchantStock(onHand: number | null, reserved: number): number | null {
+  if (onHand === null || !Number.isSafeInteger(onHand) || onHand < 0) return null;
+  const held = Number.isSafeInteger(reserved) ? Math.max(0, reserved) : 0;
+  return Math.max(0, onHand - held);
+}
+
+export function supplierStockIsAtRisk(availability: unknown, quantity: number | null, requiredUnits: number): boolean {
+  const text = String(availability ?? "").toLowerCase();
+  const unavailable = /out[ -]?of[ -]?stock|unavailable|sold[ -]?out|discontinued|not[ -]?available/.test(text);
+  if (unavailable || quantity === 0) return true;
+  return quantity !== null && Number.isSafeInteger(quantity) && quantity >= 0
+    ? quantity <= Math.max(1, Number.isSafeInteger(requiredUnits) ? Math.max(0, requiredUnits) : 0)
+    : false;
+}
+
+export function partialSourceMarginBps(sellingPriceMinor: number | null, sourceCostMinor: number | null, comparableCurrency: boolean): number | null {
+  if (!comparableCurrency || sellingPriceMinor === null || sourceCostMinor === null ||
+      !Number.isSafeInteger(sellingPriceMinor) || !Number.isSafeInteger(sourceCostMinor) ||
+      sellingPriceMinor <= 0 || sourceCostMinor < 0) return null;
+  const platformFeeMinor = Math.floor(sellingPriceMinor / 100 + 0.5);
+  return Math.trunc(((sellingPriceMinor - sourceCostMinor - platformFeeMinor) * 10_000) / sellingPriceMinor);
+}
+
 export async function buildDropshipOperatingGraph(merchantId: number) {
   if (!Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid merchant id");
 
@@ -171,7 +194,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const supplierStock = product.availability_quantity == null ? null : Math.max(0, int(product.availability_quantity));
     const ledgerOnHand = inventoryOnHand.has(id) ? Math.max(0, inventoryOnHand.get(id) ?? 0) : null;
     const reserved = ledgerOnHand === null ? 0 : Math.max(0, inventoryReserved.get(id) ?? 0);
-    const stock = ledgerOnHand === null ? null : Math.max(0, ledgerOnHand - reserved);
+    const stock = availableMerchantStock(ledgerOnHand, reserved);
     const leadTimeDays = shippingLeadTime(product.shipping_information);
     const leadUnits = Math.ceil(daily * leadTimeDays * trend);
     const safetyUnits = Math.ceil(Math.max(1, daily * 3));
@@ -179,9 +202,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const reorderUnits = stock === null || strategy === "source_based"
       ? 0
       : Math.max(0, Math.ceil(projected30 + leadUnits + safetyUnits - stock));
-    const availabilityText = String(product.availability ?? "").toLowerCase();
-    const supplierUnavailable = /out[ -]?of[ -]?stock|unavailable|sold[ -]?out|discontinued|not[ -]?available/.test(availabilityText) || supplierStock === 0;
-    const supplierStockRisk = supplierUnavailable || (supplierStock !== null && supplierStock <= Math.max(1, leadUnits + safetyUnits));
+    const supplierStockRisk = supplierStockIsAtRisk(product.availability, supplierStock, leadUnits + safetyUnits);
 
     const sourceCurrency = String(product.currency ?? currency).toUpperCase();
     const sourceCostMinor = money(product.sale_price ?? product.price);
@@ -189,9 +210,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const comparableCurrency = sourceCurrency === currency;
     // Supplier product price is not a fully landed cost unless logistics evidence is present.
     const landedCostMinor: number | null = null;
-    const contributionMarginBps = comparableCurrency && sourceCostMinor !== null && sellingPriceMinor !== null && sellingPriceMinor > 0
-      ? Math.trunc(((sellingPriceMinor - sourceCostMinor - Math.floor(sellingPriceMinor / 100)) * 10_000) / sellingPriceMinor)
-      : null;
+    const contributionMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
 
     const campaign = campaigns.get(id);
     const conversionBps = campaign
@@ -376,7 +395,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     authorityRules: [
       "Provider-verified payments and the internal ledger remain financial truth.",
       "Server-side inventory movements minus active reservations are the merchant-stock estimate; supplier-reported quantities remain a separate advisory signal.",
-      "Margin is a partial estimate after the Lunavo 1% fee; it is not net profit or landed cost while logistics, tax, provider fees, discounts, and returns are missing.",
+      "Margin is a partial estimate after the rounded Lunavo 1% fee; it is not net profit or landed cost while logistics, tax, provider fees, discounts, and returns are missing.",
       "Forecasts are estimates, never guarantees and never direct inventory mutations.",
       "Customer scores guide recommendations only; consent gates marketing actions.",
       "External competitor/ad-spy data is evidence only when recorded with a source and observation time.",
