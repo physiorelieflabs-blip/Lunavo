@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
@@ -53,7 +53,13 @@ router.get("/merchant/dropship/intelligence", async (req, res, next) => {
   try {
     const ctx = await merchantFor(req, res);
     if (!ctx) return;
-    const graph = await buildDropshipOperatingGraph(ctx.merchantId);
+    const destinationCountry = text(req.query.destinationCountry, 2)?.toUpperCase() ?? null;
+    if (req.query.destinationCountry != null &&
+        (typeof req.query.destinationCountry !== "string" || !/^[A-Z]{2}$/i.test(req.query.destinationCountry.trim()))) {
+      res.status(400).json({ error: "destinationCountry must be a two-letter ISO country code." });
+      return;
+    }
+    const graph = await buildDropshipOperatingGraph(ctx.merchantId, { destinationCountry });
     res.setHeader("Cache-Control", "no-store");
     res.json(graph);
   } catch (error) {
@@ -69,6 +75,20 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
 
     const question = text(req.body?.question, 2_000);
     const commandQuestion = question ?? "Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation.";
+    const destinationInput = req.body?.destinationCountry;
+    const destinationCountry = destinationInput == null || destinationInput === ""
+      ? null
+      : typeof destinationInput === "string" && /^[A-Z]{2}$/i.test(destinationInput.trim())
+        ? destinationInput.trim().toUpperCase()
+        : undefined;
+    if (destinationCountry === undefined) {
+      res.status(400).json({ error: "destinationCountry must be a two-letter ISO country code." });
+      return;
+    }
+    const requestFingerprint = createHash("sha256").update(JSON.stringify({
+      question: commandQuestion,
+      destinationCountry,
+    })).digest("hex");
     const suppliedIdempotency = text(req.body?.idempotencyKey, 220);
     if (suppliedIdempotency && !/^[A-Za-z0-9._:-]{1,220}$/.test(suppliedIdempotency)) {
       res.status(400).json({ error: "Invalid idempotencyKey" });
@@ -81,8 +101,8 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
       : `dropship-command:${ctx.merchantId}:${randomUUID()}`;
 
     const insertClaim = await db.execute(sql`
-      INSERT INTO dropship_command_runs (merchant_id,question,status,idempotency_key)
-      VALUES (${ctx.merchantId},${commandQuestion},'running',${commandIdempotency})
+      INSERT INTO dropship_command_runs (merchant_id,question,context,status,idempotency_key)
+      VALUES (${ctx.merchantId},${commandQuestion},${JSON.stringify({ requestFingerprint, destinationCountry })}::jsonb,'running',${commandIdempotency})
       ON CONFLICT (idempotency_key) DO NOTHING
       RETURNING id,status,created_at
     `);
@@ -101,8 +121,15 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
         res.status(409).json({ error: "The command key is being claimed; retry with the same idempotency key." });
         return;
       }
+      const existingContext = existing.context && typeof existing.context === "object" && !Array.isArray(existing.context)
+        ? existing.context as Record<string, unknown>
+        : {};
+      if (existingContext.requestFingerprint !== requestFingerprint) {
+        res.status(409).json({ error: "This idempotency key was already used for different command inputs. Use a new key for a different question or destination." });
+        return;
+      }
       if (existing.status === "completed") {
-        const graph = await buildDropshipOperatingGraph(ctx.merchantId);
+        const graph = await buildDropshipOperatingGraph(ctx.merchantId, { destinationCountry });
         const savedPlan = existing.plan && typeof existing.plan === "object" && !Array.isArray(existing.plan)
           ? existing.plan as Record<string, unknown>
           : {};
@@ -145,7 +172,7 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
     }
 
     claimedRunId = commandRun.id;
-    const result = await buildMaxConsensusDropshipPlan(ctx.merchantId, question);
+    const result = await buildMaxConsensusDropshipPlan(ctx.merchantId, question, { destinationCountry });
     await persistDropshipIntelligence(ctx.merchantId, result.graph, result.brain.model);
 
     await emitDomainEvent(db, {
@@ -169,6 +196,9 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
     });
 
     const commandContext = {
+      requestFingerprint,
+      destinationCountry,
+      landedCostScope: result.graph.landedCostScope,
       summary: result.graph.summary,
       generatedAt: result.graph.generatedAt,
       authorityRules: result.graph.authorityRules,
