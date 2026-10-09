@@ -45,6 +45,36 @@ const ROLE_INSTRUCTIONS: Record<LunavoBrainRole, string> = {
   coder: "Act as a senior local software engineer. Propose implementation-level solutions, interfaces, tests and failure handling without changing security or financial authority boundaries.",
 };
 
+export function selectLunavoBrainRoles(input: LunavoBrainRole[]): LunavoBrainRole[] {
+  const requested = unique(input.filter((role) => Object.prototype.hasOwnProperty.call(ROLE_PROFILES, role)));
+  const bounded = requested.slice(0, 6);
+  // Preserve an independent hostile reviewer in a cross-functional max-consensus plan.
+  if (requested.includes("reviewer") && !bounded.includes("reviewer")) bounded[5] = "reviewer";
+  return bounded;
+}
+
+async function mapSettledWithConcurrency<TItem, TResult>(
+  items: TItem[],
+  concurrency: number,
+  map: (item: TItem) => Promise<TResult>,
+): Promise<Array<PromiseSettledResult<TResult>>> {
+  const results = new Array<PromiseSettledResult<TResult>>(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(items.length, Math.trunc(concurrency) || 1));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      try {
+        results[index] = { status: "fulfilled", value: await map(items[index]!) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }));
+  return results;
+}
+
 function bounded(value: unknown, max: number): string {
   return typeof value === "string" ? value.slice(0, max) : "";
 }
@@ -65,7 +95,7 @@ export async function completeLunavoBrain(
   consensus: "strong" | "mixed" | "single";
 }> {
   const defaultRoles: LunavoBrainRole[] = ["orchestrator", "researcher", "reviewer"];
-  const roles = unique(options.roles?.length ? options.roles : defaultRoles).slice(0, 5);
+  const roles = selectLunavoBrainRoles(options.roles?.length ? options.roles : defaultRoles);
   const safeTask = bounded(task, 8_000);
   const safeContext = bounded(context, 30_000);
   const baseSystem = [
@@ -76,8 +106,13 @@ export async function completeLunavoBrain(
     options.contextLabel ? "Context label: " + bounded(options.contextLabel, 120) : "",
   ].filter(Boolean).join("\n");
 
-  const results = await Promise.allSettled(
-    roles.map(async (role) => {
+  // Max mode sends one selected local model to each specialist, then one independent
+  // arbiter. Nesting a multi-model ensemble inside every role multiplies model load
+  // and can overwhelm a self-hosted GPU. Concurrency stays bounded at three.
+  const results = await mapSettledWithConcurrency(
+    roles,
+    3,
+    async (role) => {
       const primary = ROLE_PROFILES[role][0]!;
       const prompt = [
         baseSystem,
@@ -92,18 +127,14 @@ export async function completeLunavoBrain(
         { role: "system" as const, content: prompt },
         { role: "user" as const, content: safeTask },
       ];
-      // One bounded call per specialist; the shared local inference queue controls
-      // concurrency. The final arbiter synthesizes all specialists once. Running a
-      // full three-model ensemble inside every role multiplies inference cost and
-      // can exhaust RAM/VRAM on self-hosted deployments without improving coverage.
       const response = await completeLocalChat(messages, {
         profile: primary,
         json: options.json,
-        maxTokens: Math.min(options.reasoningEffort === "max" ? 2_200 : 6_000, options.maxTokens ?? 3_200),
-        reasoningEffort: options.reasoningEffort === "max" ? "max" : role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
+        maxTokens: Math.min(options.reasoningEffort === "max" ? 3000 : 6000, options.maxTokens ?? 3200),
+        reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
       });
       return { role, response };
-    }),
+    },
   );
 
   const successes = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
