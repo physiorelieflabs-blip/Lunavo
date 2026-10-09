@@ -89,9 +89,11 @@ export function churnRisk(orderCount: number, recency: number | null): number {
   return Math.min(9800, 7600 + Math.min(2200, (recency - 90) * 40));
 }
 
-export function segment(orderCount: number, ltvMinor: number, recency: number | null): string {
+export function segment(orderCount: number, ltvMinor: number, recency: number | null, highValue = false): string {
   if (recency !== null && recency > 120) return "lapsed";
-  if (orderCount >= 5 || ltvMinor >= 250_000) return "vip";
+  // Absolute minor-unit thresholds are not comparable across NGN, USD, GBP, etc.
+  // High-value status is supplied by a same-merchant, same-currency cohort rule below.
+  if (orderCount >= 5 || (highValue && ltvMinor > 0)) return "vip";
   if (orderCount >= 2 && recency !== null && recency <= 60) return "loyal";
   if (orderCount === 1 && recency !== null && recency <= 45) return "new";
   if (recency !== null && recency > 60) return "at_risk";
@@ -418,12 +420,25 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     };
   });
 
+  // Detect unusually valuable customers relative to this merchant's own current
+  // currency cohort. Do not compare raw NGN kobo to USD cents, or use a fixed nominal
+  // threshold that makes every low-value customer in some currencies a VIP.
+  const comparableLtvValues = [...customerMetrics.values()]
+    .filter((value) => value.comparableOrderCount > 0 && value.grossMinor > 0)
+    .map((value) => value.grossMinor)
+    .sort((a, b) => b - a);
+  const highValueThresholdMinor = comparableLtvValues.length >= 5
+    ? comparableLtvValues[Math.ceil(comparableLtvValues.length * 0.2) - 1] ?? null
+    : null;
+
   const customerIntelligence = customers.map((customer) => {
     const id = int(customer.id);
     const data = customerMetrics.get(id) ?? { count: 0, comparableOrderCount: 0, grossMinor: 0, lastDate: null, currencies: [] };
     const recency = recencyDays(data.lastDate);
     const risk = churnRisk(data.count, recency);
-    const seg = segment(data.count, data.grossMinor, recency);
+    const highValue = highValueThresholdMinor !== null && data.grossMinor >= highValueThresholdMinor && data.grossMinor > 0;
+    const seg = segment(data.count, data.grossMinor, recency, highValue);
+    const segmentBasis = data.count >= 5 ? "repeat_order_threshold" : highValue ? "top_20_percent_ltv_in_merchant_currency" : "recency_and_order_behavior";
     const marketingEligible = customer.marketing_consent === true;
     return {
       id,
@@ -437,6 +452,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       recencyDays: recency,
       churnRiskBps: risk,
       segment: seg,
+      segmentBasis,
+      highValueByMerchantCohort: highValue,
       nextBestAction: nextBestAction(seg, marketingEligible, risk),
       marketingEligible,
       currencies: data.currencies,
