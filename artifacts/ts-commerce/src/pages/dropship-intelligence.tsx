@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { ArrowRight, BrainCircuit, Boxes, ChartNoAxesCombined, CheckCircle2, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, UsersRound, Warehouse } from "lucide-react";
+import { ArrowRight, BrainCircuit, Boxes, ChartNoAxesCombined, CheckCircle2, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, UsersRound, Warehouse, type LucideIcon } from "lucide-react";
 import { Link } from "wouter";
 
 type Product = { id:number; title:string; stock:number|null; supplierStock?:number|null; inventoryKnown?:boolean; inventoryStrategy?:string; reservedUnits?:number; supplierStockRisk?:boolean; supplierFallbackScorecard?:{supplierName:string;score:number;recommendation:"preferred"|"watch"|"avoid";fulfillmentJobs:number;failureRate:number|null;onTimeRate:number|null}; supplierDataAgeHours?:number|null; supplierDataStale?:boolean; supplierSyncStatus?:string; supplierSyncEnabled?:boolean; marginBasis?:string; landedCostScenarios?:Array<{id:string;name:string;destinationCountry:string;currency:string;quantity:number;landedCostMinor:number;contributionMarginMinor:number;contributionMarginBps:number;createdAt:string|null;evidenceStatus:string}>; latestSupplierQuotes?:Array<{id:string;supplierName:string|null;destinationCountry:string;currency:string;quantity:number;status:string;quotedUnitPriceMinor:number|null;quotedShippingMinor:number|null;quotedTotalMinor:number|null;deliveryDays:number|null;expiresAt:string|null;expired:boolean;evidenceStatus:string}>; revenue30Minor?:number; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
@@ -9,7 +9,7 @@ type Graph = { generatedAt:string; destinationCountry?:string|null; landedCostSc
 type Plan = { brain:{model:string;contributors:string[];roles:string[];consensus:string;content:string}; persisted:boolean; commandRun?:{id:string;created_at?:string}; replayed?:boolean };
 type CommandHistory = { id:string; question:string; brain_model:string|null; contributors:unknown; roles:unknown; consensus:string; status:string; created_at:string; plan:unknown };
 
-const currencyDigits=(currency:string)=>{try{return new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits;}catch{return 2;}};
+const currencyDigits=(currency:string)=>{try{return new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits??2;}catch{return 2;}};
 const money=(minor:number|null,currency:string)=>{
   if(minor==null||!Number.isSafeInteger(minor))return "—";
   const digits=currencyDigits(currency);
@@ -79,6 +79,22 @@ export default function DropshipIntelligence(){
   };
 
   const top=useMemo(()=>graph?.summary.topProducts?.slice(0,6)??[],[graph]);
+  const metricCards: Array<[string, number, LucideIcon]> = [
+    ["Products",graph?.summary.productCount??0,Boxes],
+    ["Customers",graph?.summary.customerCount??0,UsersRound],
+    ["Reorder",graph?.summary.reorderCandidateCount??0,Warehouse],
+    ["Winners",graph?.summary.scaleWinnerCount??0,ChartNoAxesCombined],
+    ["Declining",graph?.summary.decliningProductCount??0,ShoppingCart],
+    ["At risk",graph?.summary.atRiskCustomerCount??0,UsersRound],
+    ["Supplier stock risks",graph?.summary.supplierStockRiskCount??graph?.summary.supplierRiskProducts?.length??0,Warehouse],
+    ["Fulfillment exceptions",graph?.summary.fulfillmentExceptionCount??0,RefreshCw],
+    ["Stuck fulfillment",graph?.summary.staleFulfillmentJobCount??0,Boxes],
+    ["Landed-cost scenarios",graph?.summary.landedCostScenarioCount??0,ShieldCheck],
+    ["Supplier quote records",graph?.summary.supplierQuoteRequestCount??0,ShoppingCart],
+    ["Active supplier quotes",graph?.summary.activeSupplierQuoteCount??0,ShieldCheck],
+    ["Preferred suppliers",graph?.summary.suppliersPreferredCount??0,CheckCircle2],
+    ["Low-scoring suppliers",graph?.summary.suppliersAvoidCount??0,ShieldCheck],
+  ];
 
   if(!graph){
     return <AppShell><section className="py-20 text-center">{error?<><p className="text-sm font-bold text-destructive">{error}</p><button onClick={()=>void load()} className="mt-4 rounded-xl border border-border px-4 py-2 text-sm font-bold">Retry</button></>:<p className="text-sm font-bold text-muted-foreground">Loading operating graph…</p>}</section></AppShell>;
@@ -125,22 +141,7 @@ export default function DropshipIntelligence(){
     {error&&<div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{error}</div>}
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-      {[
-        ["Products",graph.summary.productCount,Boxes],
-        ["Customers",graph.summary.customerCount,UsersRound],
-        ["Reorder",graph.summary.reorderCandidateCount,Warehouse],
-        ["Winners",graph.summary.scaleWinnerCount,ChartNoAxesCombined],
-        ["Declining",graph.summary.decliningProductCount,ShoppingCart],
-        ["At risk",graph.summary.atRiskCustomerCount,UsersRound],
-        ["Supplier stock risks",graph.summary.supplierStockRiskCount??graph.summary.supplierRiskProducts?.length??0,Warehouse],
-        ["Fulfillment exceptions",graph.summary.fulfillmentExceptionCount??0,RefreshCw],
-        ["Stuck fulfillment",graph.summary.staleFulfillmentJobCount??0,Boxes],
-        ["Landed-cost scenarios",graph.summary.landedCostScenarioCount??0,ShieldCheck],
-        ["Supplier quote records",graph.summary.supplierQuoteRequestCount??0,ShoppingCart],
-        ["Active supplier quotes",graph.summary.activeSupplierQuoteCount??0,ShieldCheck],
-        ["Preferred suppliers",graph.summary.suppliersPreferredCount??0,CheckCircle2],
-        ["Low-scoring suppliers",graph.summary.suppliersAvoidCount??0,ShieldCheck]
-      ].map(([label,value,Icon])=><div key={String(label)} className="rounded-2xl border border-border bg-card p-4">
+      {metricCards.map(([label,value,Icon])=><div key={label} className="rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-[.12em] text-muted-foreground">{String(label)}</p><Icon className="h-4 w-4 text-accent"/></div>
         <p className="mt-3 text-2xl font-black">{String(value)}</p>
       </div>)}
