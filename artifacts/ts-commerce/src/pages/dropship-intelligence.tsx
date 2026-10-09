@@ -5,11 +5,17 @@ import { Link } from "wouter";
 
 type Product = { id:number; title:string; stock:number|null; supplierStock?:number|null; inventoryKnown?:boolean; inventoryStrategy?:string; reservedUnits?:number; supplierStockRisk?:boolean; supplierFallbackScorecard?:{supplierName:string;score:number;recommendation:"preferred"|"watch"|"avoid";fulfillmentJobs:number;failureRate:number|null;onTimeRate:number|null}; supplierDataAgeHours?:number|null; supplierDataStale?:boolean; supplierSyncStatus?:string; supplierSyncEnabled?:boolean; marginBasis?:string; landedCostScenarios?:Array<{id:string;name:string;destinationCountry:string;currency:string;quantity:number;landedCostMinor:number;contributionMarginMinor:number;contributionMarginBps:number;createdAt:string|null;evidenceStatus:string}>; latestSupplierQuotes?:Array<{id:string;supplierName:string|null;destinationCountry:string;currency:string;quantity:number;status:string;quotedUnitPriceMinor:number|null;quotedShippingMinor:number|null;quotedTotalMinor:number|null;deliveryDays:number|null;expiresAt:string|null;expired:boolean;evidenceStatus:string}>; revenue30Minor?:number; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
 type Customer = { id:number; name:string; orderCount:number; comparableOrderCount?:number; grossMinor:number; currencyCoverage?:string; currencies?:string[]; recencyDays:number|null; churnRiskBps:number; segment:string; nextBestAction:string; marketingEligible:boolean };
-type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;supplierStockRiskCount?:number;landedCostScenarioCount?:number;supplierQuoteRequestCount?:number;activeSupplierQuoteCount?:number;supplierScorecardCount?:number;suppliersPreferredCount?:number;suppliersAvoidCount?:number;fulfillmentExceptionCount?:number;staleFulfillmentJobCount?:number;fulfillmentJobCount?:number;topProducts:Product[];reorderCandidates:Product[];supplierRiskProducts?:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
+type Graph = { generatedAt:string; destinationCountry?:string|null; landedCostScope?:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;supplierStockRiskCount?:number;landedCostScenarioCount?:number;supplierQuoteRequestCount?:number;activeSupplierQuoteCount?:number;supplierScorecardCount?:number;suppliersPreferredCount?:number;suppliersAvoidCount?:number;fulfillmentExceptionCount?:number;staleFulfillmentJobCount?:number;fulfillmentJobCount?:number;topProducts:Product[];reorderCandidates:Product[];supplierRiskProducts?:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
 type Plan = { brain:{model:string;contributors:string[];roles:string[];consensus:string;content:string}; persisted:boolean; commandRun?:{id:string;created_at?:string}; replayed?:boolean };
 type CommandHistory = { id:string; question:string; brain_model:string|null; contributors:unknown; roles:unknown; consensus:string; status:string; created_at:string; plan:unknown };
 
-const money=(minor:number|null,currency:string)=>minor==null?"—":new Intl.NumberFormat(undefined,{style:"currency",currency,maximumFractionDigits:2}).format(minor/100);
+const currencyDigits=(currency:string)=>{try{return new Intl.NumberFormat("en",{style:"currency",currency}).resolvedOptions().maximumFractionDigits;}catch{return 2;}};
+const money=(minor:number|null,currency:string)=>{
+  if(minor==null||!Number.isSafeInteger(minor))return "—";
+  const digits=currencyDigits(currency);
+  try{return new Intl.NumberFormat(undefined,{style:"currency",currency,minimumFractionDigits:digits,maximumFractionDigits:digits}).format(minor/(10**digits));}
+  catch{return currency+" "+(minor/(10**digits)).toFixed(digits);}
+};
 const pct=(bps:number|null)=>bps==null?"—":(bps/100).toFixed(1)+"%";
 const tone=(items:string[])=>items.includes("reorder")?"border-amber-200 bg-amber-50":items.includes("scale_winner")?"border-emerald-200 bg-emerald-50":"border-border bg-card";
 
@@ -20,11 +26,14 @@ export default function DropshipIntelligence(){
   const [error,setError]=useState("");
   const [recentRuns,setRecentRuns]=useState<CommandHistory[]>([]);
   const [selectedHistory,setSelectedHistory]=useState("");
+  const [destinationCountry,setDestinationCountry]=useState("");
   const idempotencyRef=useRef<string|null>(null);
 
   const load=async()=>{
     setError("");
-    const r=await fetch("/api/merchant/dropship/intelligence",{credentials:"same-origin",headers:{Accept:"application/json"}});
+    const destination=destinationCountry.trim().toUpperCase();
+    const query=/^[A-Z]{2}$/.test(destination)?"?destinationCountry="+encodeURIComponent(destination):"";
+    const r=await fetch("/api/merchant/dropship/intelligence"+query,{credentials:"same-origin",headers:{Accept:"application/json"}});
     const data=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(data.error||"Could not load dropship intelligence");
     setGraph(data);
@@ -38,7 +47,13 @@ export default function DropshipIntelligence(){
     }catch{/* history is supplementary; the operating graph must remain usable */}
   };
 
-  useEffect(()=>{void load().catch(e=>setError(e instanceof Error?e.message:"Could not load intelligence"));void loadRuns();},[]);
+  useEffect(()=>{
+    const normalized=destinationCountry.trim().toUpperCase();
+    if(normalized.length===1||normalized.length>2)return;
+    if(normalized && !/^[A-Z]{2}$/.test(normalized))return;
+    void load().catch(e=>setError(e instanceof Error?e.message:"Could not load intelligence"));
+  },[destinationCountry]);
+  useEffect(()=>{void loadRuns();},[]);
 
   const run=async()=>{
     setBusy(true);
@@ -48,7 +63,7 @@ export default function DropshipIntelligence(){
         method:"POST",
         credentials:"same-origin",
         headers:{"Content-Type":"application/json",Accept:"application/json"},
-        body:JSON.stringify({question:"Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation. Keep all money, stock and publishing changes approval-gated.",idempotencyKey:(idempotencyRef.current??(idempotencyRef.current=crypto.randomUUID()))})
+        body:JSON.stringify({question:"Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation. Keep all money, stock and publishing changes approval-gated.",destinationCountry:(/^[A-Z]{2}$/.test(destinationCountry.trim().toUpperCase())?destinationCountry.trim().toUpperCase():null),idempotencyKey:(idempotencyRef.current??(idempotencyRef.current=crypto.randomUUID()))})
       });
       const data=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(data.error||"Could not run local intelligence");
@@ -77,13 +92,25 @@ export default function DropshipIntelligence(){
           <h1 className="mt-2 max-w-4xl text-3xl font-black tracking-[-.055em] sm:text-4xl">One brain for sourcing, pricing, inventory, fulfillment and growth.</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">Deterministic commerce signals are calculated first. Multiple self-hosted specialists then critique and synthesize the connected plan. Nothing here becomes money, stock or external-publishing authority by itself.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid gap-1 text-[10px] font-black uppercase tracking-[.1em] text-white/70">
+            Destination country (ISO code)
+            <input
+              value={destinationCountry}
+              onChange={event=>{idempotencyRef.current=null;setDestinationCountry(event.target.value.replace(/[^a-z]/gi,"").slice(0,2).toUpperCase());}}
+              maxLength={2}
+              placeholder="NG"
+              aria-label="Destination country ISO code"
+              className="h-11 w-24 rounded-xl border border-white/20 bg-white/10 px-3 text-sm font-bold text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/40"
+            />
+          </label>
           <button onClick={()=>void run()} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-[#12345a] disabled:opacity-60">
             <Sparkles className="h-4 w-4"/>{busy?"Thinking across the graph…":"Run max-consensus brain"}
           </button>
           <Link href="/dropship-workbench" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-bold text-white hover:bg-white/10">Cost & supplier quotes →</Link>
         </div>
       </div>
+      <p className="mt-3 text-xs leading-5 text-white/65">{graph.landedCostScope==="explicit_destination_and_store_currency" ? "Margin view is scoped to "+graph.destinationCountry+" using a unique matching saved scenario when available." : "Global view: destination-specific scenarios stay visible, but no single landed cost is selected until you choose a destination."}</p>
       {plan&&<div className="mt-6 rounded-2xl border border-white/10 bg-white/[.07] p-4">
         <div className="flex flex-wrap items-center gap-2">
           <BrainCircuit className="h-4 w-4"/>
