@@ -54,6 +54,7 @@ export function conversionRateBps(purchases: number, clicks: number): number | n
 
 export type ComparableLandedScenario = {
   currency: string;
+  destinationCountry: string;
   sellingPriceMinor: number;
   contributionMarginBps: number;
 };
@@ -62,12 +63,16 @@ export function selectUniqueComparableLandedScenario<T extends ComparableLandedS
   scenarios: readonly T[],
   storeCurrency: string,
   currentSellingPriceMinor: number | null,
+  destinationCountry: string | null | undefined,
 ): T | null {
   const currency = storeCurrency.toUpperCase();
-  if (!/^[A-Z]{3}$/.test(currency) || currentSellingPriceMinor === null ||
-      !Number.isSafeInteger(currentSellingPriceMinor) || currentSellingPriceMinor <= 0) return null;
+  const destination = destinationCountry?.toUpperCase() ?? "";
+  if (!/^[A-Z]{3}$/.test(currency) || !/^[A-Z]{2}$/.test(destination) ||
+      currentSellingPriceMinor === null || !Number.isSafeInteger(currentSellingPriceMinor) ||
+      currentSellingPriceMinor <= 0) return null;
   const matches = scenarios.filter((scenario) =>
     scenario.currency.toUpperCase() === currency &&
+    scenario.destinationCountry.toUpperCase() === destination &&
     scenario.sellingPriceMinor === currentSellingPriceMinor &&
     Number.isSafeInteger(scenario.contributionMarginBps) &&
     scenario.contributionMarginBps >= -2_147_483_648 &&
@@ -133,8 +138,14 @@ export function partialSourceMarginBps(sellingPriceMinor: number | null, sourceC
   return Math.trunc(((sellingPriceMinor - sourceCostMinor - platformFeeMinor) * 10_000) / sellingPriceMinor);
 }
 
-export async function buildDropshipOperatingGraph(merchantId: number) {
+export async function buildDropshipOperatingGraph(
+  merchantId: number,
+  options: { destinationCountry?: string | null } = {},
+) {
   if (!Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid merchant id");
+  const destinationRaw = options.destinationCountry?.trim().toUpperCase() ?? "";
+  if (destinationRaw && !/^[A-Z]{2}$/.test(destinationRaw)) throw new Error("Destination country must be a two-letter ISO country code");
+  const destinationCountry = destinationRaw || null;
 
   const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult, inventoryMovementResult, reservationResult, supplierSyncResult, supplierSyncPolicyResult, landedScenarioResult, supplierQuoteResult, supplierScorecardResult] = await Promise.all([
     db.execute(sql`SELECT id,name,store_name,currency,tax_rate,shipping_fee,free_shipping_threshold FROM merchants WHERE id=${merchantId} AND status='active' LIMIT 1`),
@@ -350,6 +361,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       landedCostScenarios,
       currency,
       sellingPriceMinor,
+      destinationCountry,
     );
     const landedCostMinor: number | null = selectedLandedScenario?.landedCostMinor ?? null;
     const partialMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
@@ -512,6 +524,10 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
 
   return {
     generatedAt: new Date().toISOString(),
+    destinationCountry,
+    landedCostScope: destinationCountry
+      ? "explicit_destination_and_store_currency"
+      : "global_view_no_single_destination_selected",
     merchant: {
       id: merchantId,
       name: merchant.name,
@@ -680,8 +696,12 @@ export async function persistDropshipIntelligence(merchantId: number, graph: Awa
   });
 }
 
-export async function buildMaxConsensusDropshipPlan(merchantId: number, question?: string | null) {
-  const graph = await buildDropshipOperatingGraph(merchantId);
+export async function buildMaxConsensusDropshipPlan(
+  merchantId: number,
+  question?: string | null,
+  options: { destinationCountry?: string | null } = {},
+) {
+  const graph = await buildDropshipOperatingGraph(merchantId, options);
   const memory = await recallMerchantMemory(merchantId, 24);
   const priorMerchantMemory = memory.slice(0, 12).flatMap((item) => {
     const content = typeof item.content === "string" ? item.content.trim().slice(0, 900) : "";
@@ -699,6 +719,8 @@ export async function buildMaxConsensusDropshipPlan(merchantId: number, question
   // the bounded model context. Use curated evidence rather than serializing the
   // entire product/customer graph and silently truncating the most important tail.
   const context = JSON.stringify({
+    requestedDestinationCountry: graph.destinationCountry,
+    landedCostScope: graph.landedCostScope,
     question: question?.slice(0, 2000) ?? "How should the store improve profitable dropshipping operations next?",
     memoryGuidance: "Prior memory contains old preferences, lessons, decisions and AI recommendations; it is not current operational truth. Re-check operational claims against the live graph and treat prior recommendations as unapproved unless an explicit approval record is supplied.",
     priorMerchantMemory,
