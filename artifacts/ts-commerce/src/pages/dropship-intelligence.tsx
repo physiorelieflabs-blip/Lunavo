@@ -114,7 +114,7 @@ export default function DropshipIntelligence(){
       {plan&&<div className="mt-6 rounded-2xl border border-white/10 bg-white/[.07] p-4">
         <div className="flex flex-wrap items-center gap-2">
           <BrainCircuit className="h-4 w-4"/>
-          <span className="text-xs font-black">Consensus: {plan.brain.consensus}</span>
+          <span className="text-xs font-black">Ensemble coverage: {plan.brain.consensus.replaceAll("_"," ")}</span>
           <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold">{plan.brain.roles.length} specialist roles</span>
           <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold">{plan.brain.contributors.length} local model contributions</span>
         </div>
