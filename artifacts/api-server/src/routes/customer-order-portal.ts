@@ -81,6 +81,7 @@ async function findOrder(token: string) {
       o.tracking_number AS order_tracking_number,
       o.fulfillment_note,
       o.fulfillment_updated_at,
+      COALESCE((SELECT SUM(rr.quantity) FROM customer_return_requests rr WHERE rr.merchant_id=o.merchant_id AND rr.order_id=o.id AND rr.status IN ('pending','approved','received','completed')),0)::int AS reserved_return_quantity,
       o.created_at AS order_created_at,
       m.store_name,
       m.storefront_theme,
@@ -117,11 +118,11 @@ function serializePortal(order: Row, requests: Row[]) {
   const ageDays = delivered ? daysSince(delivered) : null;
   const windowOpen = Boolean(returnsEnabled && delivered && ageDays !== null && ageDays <= windowDays);
   const purchased = Math.max(0, Number(order.quantity) || 0);
-  const reservedQuantity = requests.reduce((sum, request) =>
-    ["pending", "approved", "received", "completed"].includes(String(request.status))
-      ? sum + Math.max(0, Number(request.quantity) || 0) : sum, 0);
+  const reservedQuantity = Math.max(0, Number(order.reserved_return_quantity) || 0);
   const remainingReturnableQuantity = Math.max(0, purchased - reservedQuantity);
-  const fulfillmentStatus = String(order.fulfillment_status ?? "not_applicable");
+  const orderFulfillmentStatus = String(order.fulfillment_status ?? "not_applicable");
+  const fulfillmentStatus = String(order.fulfillment_job_status ?? "") === "delivered" || orderFulfillmentStatus === "delivered"
+    ? "delivered" : orderFulfillmentStatus;
   const displayStatus = fulfillmentStatus === "delivered"
     ? "delivered"
     : fulfillmentStatus === "in_transit"
@@ -227,7 +228,7 @@ router.post("/public/order-portal/:token/returns", async (req: Request, res: Res
       const lockedResult = await tx.execute(sql`
         SELECT o.id AS order_id,o.merchant_id,o.customer_id,o.order_number,o.quantity,
           o.status AS order_status,o.fulfillment_status,o.fulfillment_updated_at,
-          fj.delivered_at AS fulfillment_delivered_at,
+          fj.delivered_at AS fulfillment_delivered_at,fj.status AS fulfillment_job_status,
           m.returns_enabled,m.return_window_days
         FROM orders o
         JOIN merchants m ON m.id=o.merchant_id AND m.status='active'
@@ -258,7 +259,7 @@ router.post("/public/order-portal/:token/returns", async (req: Request, res: Res
       if (order.returns_enabled !== true || Number(order.return_window_days) <= 0) {
         return { status: 409, body: { error: "This store is not currently accepting return/exchange requests." } };
       }
-      if (!deliveryDate || String(order.fulfillment_status) !== "delivered") {
+      if (!deliveryDate || (String(order.fulfillment_status) !== "delivered" && String(order.fulfillment_job_status) !== "delivered")) {
         return { status: 409, body: { error: "Return/exchange requests are available after delivery is recorded." } };
       }
       const windowDays = Math.max(0, Math.min(180, Number(order.return_window_days) || 0));
