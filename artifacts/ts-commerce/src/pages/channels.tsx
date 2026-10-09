@@ -38,6 +38,7 @@ export default function Channels() {
   const [storeUrl, setStoreUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [syncingKey, setSyncingKey] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
@@ -88,15 +89,27 @@ export default function Channels() {
   };
 
   const sync = async (connectionId: string, resource: string) => {
-    const response = await fetch("/api/merchant/channels/" + encodeURIComponent(connectionId) + "/sync", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ direction: "pull", resource }),
-    });
-    const data = await response.json().catch(() => ({}));
-    setMessage(response.ok ? "Sync job queued for " + resource + ". The worker will report provider evidence and the resulting job state." : (data.error || "Could not queue sync"));
-    if (response.ok) await load();
+    const busyKey = connectionId + ":" + resource;
+    if (syncingKey === busyKey) return;
+    setSyncingKey(busyKey);
+    try {
+      const response = await fetch("/api/merchant/channels/" + encodeURIComponent(connectionId) + "/sync", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ direction: "pull", resource, idempotencyKey: crypto.randomUUID() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not queue sync");
+      setMessage(data.execution === "succeeded" || data.execution === "partial"
+        ? "This key resolved to an existing " + data.execution + " sync. A fresh request key is required for a new run."
+        : "Sync job accepted for " + resource + ". Completion depends on provider evidence and confirmed local commit.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not queue sync");
+    } finally {
+      setSyncingKey(null);
+    }
   };
 
   const verifyConnection = async (connectionId: string) => {
@@ -163,7 +176,7 @@ export default function Channels() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => void verifyConnection(connection.id)} disabled={connectingId === connection.id || connection.status === "revoked" || connection.status === "paused"} className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-black text-primary-foreground disabled:opacity-50"><ShieldCheck className="h-3 w-3" /> {connectingId === connection.id ? "Verifying…" : "Verify & connect"}</button>
-              {["products","inventory","orders","fulfillment"].map(resource => <button key={resource} disabled={!["connected","degraded"].includes(connection.status)} onClick={() => void sync(connection.id, resource)} className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-black disabled:opacity-40"><ArrowDownUp className="h-3 w-3" /> {resource}</button>)}
+              {["products","inventory","orders","fulfillment"].map(resource => <button key={resource} disabled={!["connected","degraded"].includes(connection.status) || syncingKey === connection.id + ":" + resource} onClick={() => void sync(connection.id, resource)} className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-black disabled:opacity-40"><ArrowDownUp className="h-3 w-3" /> {syncingKey === connection.id + ":" + resource ? "Queueing…" : resource}</button>)}
               <button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-black"><RefreshCw className="h-3 w-3" /> Refresh</button>
             </div>
           </div>
