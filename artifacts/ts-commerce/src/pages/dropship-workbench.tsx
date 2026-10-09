@@ -56,14 +56,25 @@ const initialQuote: QuoteForm = {
   supplierProductId: "", supplierName: "", productTitle: "", sku: "", sourceUrl: "", destinationCountry: "US",
   currency: "USD", quantity: "1", targetPrice: "", desiredDays: "", requestNotes: "",
 };
-const amountToMinor = (raw: string): number | null => {
+const currencyDigits = (currency: string): number => {
+  try { return new Intl.NumberFormat("en", { style: "currency", currency: currency.toUpperCase() }).resolvedOptions().maximumFractionDigits; }
+  catch { return 2; }
+};
+const amountToMinor = (raw: string, currency = "USD"): number | null => {
   const text = raw.trim();
-  if (!/^[0-9]{1,14}(?:\.[0-9]{1,2})?$/.test(text)) return null;
+  if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
+  const digits = currencyDigits(currency);
   const parts = text.split(".");
-  const whole = Number(parts[0]);
-  const fraction = Number((parts[1] ?? "").padEnd(2, "0"));
-  const value = whole * 100 + fraction;
-  return Number.isSafeInteger(value) ? value : null;
+  if ((parts[1] ?? "").length > digits) return null;
+  try {
+    const value = BigInt(parts[0]!) * (10n ** BigInt(digits)) + BigInt(((parts[1] ?? "").padEnd(digits, "0")).slice(0, digits) || "0");
+    return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
+  } catch { return null; }
+};
+const minorToMajor = (value: number | null | undefined, currency: string): string => {
+  if (value == null || !Number.isSafeInteger(value)) return "";
+  const digits = currencyDigits(currency);
+  return (value / (10 ** digits)).toFixed(digits);
 };
 const percentToBps = (raw: string): number | null => {
   const text = raw.trim();
@@ -74,8 +85,9 @@ const percentToBps = (raw: string): number | null => {
 };
 const money = (minor: number | null | undefined, currency: string) => {
   if (minor == null || !Number.isFinite(Number(minor))) return "—";
-  try { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(minor) / 100); }
-  catch { return currency + " " + (Number(minor) / 100).toFixed(2); }
+  const digits = currencyDigits(currency);
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(minor) / (10 ** digits)); }
+  catch { return currency + " " + (Number(minor) / (10 ** digits)).toFixed(digits); }
 };
 const rate = (bps: number | null | undefined) => bps == null ? "—" : (Number(bps) / 100).toFixed(2) + "%";
 const inputClass = "mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-accent";
@@ -93,7 +105,7 @@ async function api(path: string, init?: RequestInit) {
 function Field({ label, value, onChange, placeholder, required = false, type = "text" }: {
   label: string; value: string; onChange: (value: string) => void; placeholder?: string; required?: boolean; type?: string;
 }) {
-  return <label className={labelClass}>{label}<input className={inputClass} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} required={required} type={type} /></label>;
+  return <label className={labelClass}>{label}<input className={inputClass} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} required={required} type={type} step={type === "number" ? "any" : undefined} /></label>;
 }
 
 export default function DropshipWorkbench() {
