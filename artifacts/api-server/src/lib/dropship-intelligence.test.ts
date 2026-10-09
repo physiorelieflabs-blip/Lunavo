@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availableMerchantStock, confidenceFor, conversionRateBps, churnRisk, nextBestAction, partialSourceMarginBps, segment, supplierStockIsAtRisk }, selectUniqueComparableLandedScenario from "./dropship-intelligence";
+import { availableMerchantStock, confidenceFor, conversionRateBps, churnRisk, nextBestAction, partialSourceMarginBps, segment, selectUniqueComparableLandedScenario, supplierStockIsAtRisk } from "./dropship-intelligence";
 
 describe("dropship intelligence decision rules", () => {
   it("uses exactly one currency-and-price-matched landed-cost scenario and rejects ambiguity", () => {
