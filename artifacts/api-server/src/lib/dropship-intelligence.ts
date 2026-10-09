@@ -107,6 +107,29 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const productId = int(row.supplier_product_id, 0);
     if (productId > 0) inventoryReserved.set(productId, int(row.reserved, 0));
   }
+  const customerMetricsResult = await db.execute(sql`
+    SELECT customer_id,
+      COUNT(*)::int AS order_count,
+      COUNT(*) FILTER (WHERE upper(currency)=${currency})::int AS comparable_order_count,
+      COALESCE(SUM(total) FILTER (WHERE upper(currency)=${currency}),0)::numeric(20,2) AS gross,
+      MAX(created_at) AS last_date,
+      ARRAY_AGG(DISTINCT upper(currency)) AS currencies
+    FROM orders
+    WHERE merchant_id=${merchantId} AND status IN ('paid','processing','completed','shipped','delivered')
+    GROUP BY customer_id
+  `);
+  const customerMetrics = new Map<number, { count: number; comparableOrderCount: number; grossMinor: number; lastDate: string | null; currencies: string[] }>();
+  for (const row of customerMetricsResult.rows as Row[]) {
+    const id = int(row.customer_id, 0);
+    const rawCurrencies = Array.isArray(row.currencies) ? row.currencies : [];
+    customerMetrics.set(id, {
+      count: Math.max(0, int(row.order_count)),
+      comparableOrderCount: Math.max(0, int(row.comparable_order_count)),
+      grossMinor: Math.max(0, money(row.gross) ?? 0),
+      lastDate: row.last_date ? new Date(String(row.last_date)).toISOString() : null,
+      currencies: rawCurrencies.map((value) => String(value).toUpperCase()).filter((value) => /^[A-Z]{3}$/.test(value)).slice(0, 10),
+    });
+  }
 
   const cutoff14 = isoDaysAgo(14);
   const cutoff30 = isoDaysAgo(30);
@@ -120,21 +143,11 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     if (productId > 0 && when >= cutoff30) {
       units30.set(productId, (units30.get(productId) ?? 0) + qty);
       const total = money(row.total);
-      if (total !== null) revenueMinor30.set(productId, (revenueMinor30.get(productId) ?? 0) + total);
+      if (total !== null && String(row.currency ?? currency).toUpperCase() === currency) revenueMinor30.set(productId, (revenueMinor30.get(productId) ?? 0) + total);
       if (when >= cutoff14) units14.set(productId, (units14.get(productId) ?? 0) + qty);
       else unitsPrev16.set(productId, (unitsPrev16.get(productId) ?? 0) + qty);
     }
 
-    const customerId = int(row.customer_id, 0);
-    if (customerId > 0) {
-      const current = customerOrders.get(customerId) ?? { count: 0, grossMinor: 0, lastDate: null, currencies: new Set<string>() };
-      const total = money(row.total);
-      current.count += 1;
-      if (total !== null && String(row.currency ?? currency).toUpperCase() === currency) current.grossMinor += total;
-      current.lastDate = current.lastDate ? (new Date(current.lastDate) > when ? current.lastDate : when.toISOString()) : when.toISOString();
-      current.currencies.add(String(row.currency ?? currency).toUpperCase());
-      customerOrders.set(customerId, current);
-    }
   }
 
   const campaigns = new Map<number, Row>();
@@ -225,6 +238,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       conversionBps,
       adPurchases: campaign ? int(campaign.purchases) : 0,
       adRevenueMinor: campaign ? int(campaign.revenue_minor) : 0,
+      revenue30Minor: revenueMinor30.get(id) ?? 0,
       priorities,
       supplierFallback: null as SupplierFallback,
     };
@@ -232,7 +246,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
 
   const customerIntelligence = customers.map((customer) => {
     const id = int(customer.id);
-    const data = customerOrders.get(id) ?? { count: 0, grossMinor: 0, lastDate: null, currencies: new Set<string>() };
+    const data = customerMetrics.get(id) ?? { count: 0, comparableOrderCount: 0, grossMinor: 0, lastDate: null, currencies: [] };
     const recency = recencyDays(data.lastDate);
     const risk = churnRisk(data.count, recency);
     const seg = segment(data.count, data.grossMinor, recency);
@@ -241,15 +255,17 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       id,
       name: String(customer.name ?? ""),
       orderCount: data.count,
+      comparableOrderCount: data.comparableOrderCount,
       grossMinor: data.grossMinor,
-      averageOrderMinor: data.count > 0 ? Math.trunc(data.grossMinor / data.count) : 0,
+      averageOrderMinor: data.comparableOrderCount > 0 ? Math.trunc(data.grossMinor / data.comparableOrderCount) : 0,
       ltvMinor: data.grossMinor,
+      currencyCoverage: data.currencies.length <= 1 ? "single_currency" : "mixed_currency_totals_excluded",
       recencyDays: recency,
       churnRiskBps: risk,
       segment: seg,
       nextBestAction: nextBestAction(seg, marketingEligible, risk),
       marketingEligible,
-      currencies: [...data.currencies],
+      currencies: data.currencies,
     };
   });
 
