@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
@@ -48,8 +49,8 @@ function tokenParam(value: unknown): string | null {
   return uuid(value);
 }
 
-async function findOrder(executor: { execute: (query: unknown) => Promise<unknown> }, token: string) {
-  const result = await (executor as typeof db).execute(sql`
+async function findOrder(token: string) {
+  const result = await db.execute(sql`
     SELECT
       o.id AS order_id,
       o.merchant_id,
@@ -168,7 +169,7 @@ router.get("/public/order-portal/:token", async (req: Request, res: Response, ne
   try {
     const token = tokenParam(req.params.token);
     if (!token) { res.status(404).json({ error: "Order portal not found." }); return; }
-    const order = await findOrder(db, token);
+    const order = await findOrder(token);
     if (!order) { res.status(404).json({ error: "Order portal not found." }); return; }
     const result = await db.execute(sql`
       SELECT id,request_type,quantity,reason,customer_message,status,created_at,updated_at
@@ -205,14 +206,10 @@ router.post("/public/order-portal/:token/returns", async (req: Request, res: Res
       res.status(400).json({ error: "Choose a request type, reason, valid quantity and idempotency key." });
       return;
     }
-    const fingerprintInput = { requestType, reason, quantity, customerMessage };
-    const fingerprint = await import("node:crypto").then(({ createHash }) =>
-      createHash("sha256").update(JSON.stringify(fingerprintInput)).digest("hex")
-    );
     const result = await db.transaction(async tx => {
       const lockedResult = await tx.execute(sql`
         SELECT o.id AS order_id,o.merchant_id,o.customer_id,o.order_number,o.quantity,
-          o.order_status,o.status AS actual_order_status,o.fulfillment_status,o.fulfillment_updated_at,
+          o.status AS order_status,o.fulfillment_status,o.fulfillment_updated_at,
           fj.delivered_at AS fulfillment_delivered_at,
           m.returns_enabled,m.return_window_days
         FROM orders o
@@ -224,15 +221,17 @@ router.post("/public/order-portal/:token/returns", async (req: Request, res: Res
       const order = ((lockedResult as { rows?: Row[] }).rows ?? [])[0];
       if (!order) return { status: 404, body: { error: "Order portal not found." } };
 
+      const fingerprintInput = { orderId: Number(order.order_id), requestType, reason, quantity, customerMessage };
+      const fingerprint = createHash("sha256").update(JSON.stringify(fingerprintInput)).digest("hex");
       const existingResult = await tx.execute(sql`
-        SELECT id,request_type,quantity,reason,customer_message,status,created_at,updated_at,request_fingerprint
+        SELECT id,order_id,request_type,quantity,reason,customer_message,status,created_at,updated_at,request_fingerprint
         FROM customer_return_requests
         WHERE merchant_id=${Number(order.merchant_id)} AND idempotency_key=${idempotencyKey}
         LIMIT 1
       `);
       const existing = ((existingResult as { rows?: Row[] }).rows ?? [])[0];
       if (existing) {
-        if (String(existing.request_fingerprint) !== fingerprint || Number(existing.order_id ?? order.order_id) !== Number(order.order_id)) {
+        if (String(existing.request_fingerprint) !== fingerprint || Number(existing.order_id) !== Number(order.order_id)) {
           return { status: 409, body: { error: "This idempotency key was already used for another return request." } };
         }
         return { status: 200, body: { request: existing, replayed: true, executionBoundary: "request_record_only_no_refund_or_restock" } };
