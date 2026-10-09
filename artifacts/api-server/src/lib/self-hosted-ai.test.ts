@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveLocalAiProfile } from "./self-hosted-ai";
+import { resolveLocalAiProfile, selfHostedAiQueueState } from "./self-hosted-ai";
 
 const original = {
   LUNAVO_LOCAL_LLM_URL: process.env.LUNAVO_LOCAL_LLM_URL,
   LUNAVO_LOCAL_AI_BASE_URL: process.env.LUNAVO_LOCAL_AI_BASE_URL,
   LUNAVO_LOCAL_AI_FAST_URL: process.env.LUNAVO_LOCAL_AI_FAST_URL,
+  LUNAVO_LOCAL_AI_MAX_PARALLEL: process.env.LUNAVO_LOCAL_AI_MAX_PARALLEL,
 };
 
 afterEach(() => {
@@ -37,5 +38,14 @@ describe("self-hosted AI endpoint boundary", () => {
     delete process.env.LUNAVO_LOCAL_AI_BASE_URL;
     process.env.LUNAVO_LOCAL_AI_FAST_URL = "https://example.com/v1/chat/completions";
     expect(() => resolveLocalAiProfile("fast")).toThrow(/private\/local/i);
+  });
+
+  it("bounds configured inference concurrency and falls back safely", () => {
+    process.env.LUNAVO_LOCAL_AI_MAX_PARALLEL = "3";
+    expect(selfHostedAiQueueState()).toMatchObject({ maxParallel: 3, inFlight: 0, queued: 0 });
+    process.env.LUNAVO_LOCAL_AI_MAX_PARALLEL = "100";
+    expect(selfHostedAiQueueState().maxParallel).toBe(8);
+    process.env.LUNAVO_LOCAL_AI_MAX_PARALLEL = "0";
+    expect(selfHostedAiQueueState().maxParallel).toBe(2);
   });
 });
