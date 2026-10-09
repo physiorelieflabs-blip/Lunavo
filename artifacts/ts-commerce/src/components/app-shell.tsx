@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalAuth, useUser } from '@/components/local-auth';
 import { getGetCurrentWorkspaceQueryKey, getListAccessibleWorkspacesQueryKey, getListMerchantsQueryKey, getSelectedWorkspaceId, setSelectedWorkspaceId, useGetCurrentWorkspace, useListAccessibleWorkspaces, useListMerchants } from '@workspace/api-client-react';
-import { ArrowLeft, BarChart3, Bell, BookOpen, BrainCircuit, Building2, Calculator, ChevronDown, ChevronRight, CircleHelp, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, KeyRound, Landmark, LayoutDashboard, LineChart, LogOut, Menu, Megaphone, PackageCheck, PanelLeftClose, PanelLeftOpen, Route, Search, Settings2, ShoppingCart, Store, Users, UsersRound, Warehouse, WalletCards, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Bell, BookOpen, BrainCircuit, Building2, Calculator, ChevronDown, ChevronRight, CircleHelp, CreditCard, FileText, Gauge, Gavel, Globe2, ImagePlus, KeyRound, Landmark, LayoutDashboard, LineChart, LogOut, Menu, Megaphone, PackageCheck, RefreshCw, PanelLeftClose, PanelLeftOpen, Route, Search, Settings2, ShoppingCart, Store, Users, UsersRound, Warehouse, WalletCards, ShieldCheck, X } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { ErrorState, LoadingState, Logo } from '@/components/primitives';
 import { HelpBot } from '@/components/help-bot';
