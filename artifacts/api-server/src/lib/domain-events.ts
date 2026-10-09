@@ -21,7 +21,7 @@ type EventExecutor = Pick<typeof db, "insert" | "select">;
 export type EmitDomainEventInput = {
   merchantId: number; eventType: DomainEventType; aggregateType: string; aggregateId: string | number;
   actorType: "merchant" | "staff" | "customer" | "admin" | "system" | "ai"; actorId?: string | null;
-  source: "merchant_api" | "public_checkout" | "admin_api" | "system" | "ai"; idempotencyKey: string;
+  source: "merchant_api" | "public_checkout" | "public_customer_api" | "admin_api" | "system" | "ai"; idempotencyKey: string;
   payload: Record<string, unknown>; payloadVersion?: number; before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null; context?: Record<string, unknown>; correlationId?: string | null; causationId?: string | null;
 };
