@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ArrowRight, BrainCircuit, Boxes, ChartNoAxesCombined, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, UsersRound, Warehouse } from "lucide-react";
 import { Link } from "wouter";
 
-type Product = { id:number; title:string; stock:number|null; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
-type Customer = { id:number; name:string; orderCount:number; grossMinor:number; recencyDays:number|null; churnRiskBps:number; segment:string; nextBestAction:string; marketingEligible:boolean };
-type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;topProducts:Product[];reorderCandidates:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
-type Plan = { brain:{model:string;contributors:string[];roles:string[];consensus:string;content:string}; persisted:boolean };
+type Product = { id:number; title:string; stock:number|null; supplierStock?:number|null; inventoryKnown?:boolean; inventoryStrategy?:string; reservedUnits?:number; supplierStockRisk?:boolean; marginBasis?:string; revenue30Minor?:number; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
+type Customer = { id:number; name:string; orderCount:number; comparableOrderCount?:number; grossMinor:number; currencyCoverage?:string; currencies?:string[]; recencyDays:number|null; churnRiskBps:number; segment:string; nextBestAction:string; marketingEligible:boolean };
+type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;supplierStockRiskCount?:number;topProducts:Product[];reorderCandidates:Product[];supplierRiskProducts?:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
+type Plan = { brain:{model:string;contributors:string[];roles:string[];consensus:string;content:string}; persisted:boolean; commandRun?:{id:string;created_at?:string}; replayed?:boolean };
+type CommandHistory = { id:string; question:string; brain_model:string|null; contributors:unknown; roles:unknown; consensus:string; status:string; created_at:string; plan:unknown };
 
 const money=(minor:number|null,currency:string)=>minor==null?"—":new Intl.NumberFormat(undefined,{style:"currency",currency,maximumFractionDigits:2}).format(minor/100);
 const pct=(bps:number|null)=>bps==null?"—":(bps/100).toFixed(1)+"%";
@@ -17,6 +18,9 @@ export default function DropshipIntelligence(){
   const [plan,setPlan]=useState<Plan|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
+  const [recentRuns,setRecentRuns]=useState<CommandHistory[]>([]);
+  const [selectedHistory,setSelectedHistory]=useState("");
+  const idempotencyRef=useRef<string|null>(null);
 
   const load=async()=>{
     setError("");
@@ -26,7 +30,15 @@ export default function DropshipIntelligence(){
     setGraph(data);
   };
 
-  useEffect(()=>{void load().catch(e=>setError(e instanceof Error?e.message:"Could not load intelligence"));},[]);
+  const loadRuns=async()=>{
+    try{
+      const r=await fetch("/api/merchant/dropship/commands/recent?limit=8",{credentials:"same-origin",headers:{Accept:"application/json"}});
+      const data=await r.json().catch(()=>({}));
+      if(r.ok&&Array.isArray(data.runs)) setRecentRuns(data.runs);
+    }catch{/* history is supplementary; the operating graph must remain usable */}
+  };
+
+  useEffect(()=>{void load().catch(e=>setError(e instanceof Error?e.message:"Could not load intelligence"));void loadRuns();},[]);
 
   const run=async()=>{
     setBusy(true);
@@ -36,12 +48,14 @@ export default function DropshipIntelligence(){
         method:"POST",
         credentials:"same-origin",
         headers:{"Content-Type":"application/json",Accept:"application/json"},
-        body:JSON.stringify({question:"Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation. Keep all money, stock and publishing changes approval-gated."})
+        body:JSON.stringify({question:"Find the highest-leverage connected actions across products, supplier routing, landed cost, demand, inventory, fulfillment, customers, marketing and automation. Keep all money, stock and publishing changes approval-gated.",idempotencyKey:(idempotencyRef.current??(idempotencyRef.current=crypto.randomUUID()))})
       });
       const data=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(data.error||"Could not run local intelligence");
       setPlan(data);
       setGraph(data.graph);
+      idempotencyRef.current=null;
+      await loadRuns();
     }catch(e){
       setError(e instanceof Error?e.message:"Local intelligence failed");
     }finally{
@@ -80,14 +94,15 @@ export default function DropshipIntelligence(){
 
     {error&&<div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{error}</div>}
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
       {[
         ["Products",graph.summary.productCount,Boxes],
         ["Customers",graph.summary.customerCount,UsersRound],
         ["Reorder",graph.summary.reorderCandidateCount,Warehouse],
         ["Winners",graph.summary.scaleWinnerCount,ChartNoAxesCombined],
         ["Declining",graph.summary.decliningProductCount,ShoppingCart],
-        ["At risk",graph.summary.atRiskCustomerCount,UsersRound]
+        ["At risk",graph.summary.atRiskCustomerCount,UsersRound],
+        ["Supplier stock risks",graph.summary.supplierStockRiskCount??graph.summary.supplierRiskProducts?.length??0,Warehouse]
       ].map(([label,value,Icon])=><div key={String(label)} className="rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-[.12em] text-muted-foreground">{String(label)}</p><Icon className="h-4 w-4 text-accent"/></div>
         <p className="mt-3 text-2xl font-black">{String(value)}</p>
@@ -108,10 +123,12 @@ export default function DropshipIntelligence(){
             </div>
             <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-4">
               <div><span className="text-muted-foreground">Selling</span><p className="font-black">{money(p.sellingPriceMinor,graph.merchant.currency)}</p></div>
-              <div><span className="text-muted-foreground">Landed</span><p className="font-black">{money(p.landedCostMinor,graph.merchant.currency)}</p></div>
-              <div><span className="text-muted-foreground">Stock</span><p className="font-black">{p.stock==null?"Unknown":p.stock}</p></div>
+              <div><span className="text-muted-foreground">Landed cost (verified)</span><p className="font-black">{p.landedCostMinor==null?"Not evidenced":money(p.landedCostMinor,graph.merchant.currency)}</p></div>
+              <div><span className="text-muted-foreground">Merchant stock</span><p className="font-black">{p.stock==null?"Unknown":p.stock} {p.reservedUnits?`(${p.reservedUnits} reserved)`:""}</p></div>
               <div><span className="text-muted-foreground">Reorder</span><p className="font-black">{p.reorderUnits||"—"}</p></div>
+              <div><span className="text-muted-foreground">Supplier stock</span><p className="font-black">{p.supplierStock==null?"Unknown":p.supplierStock}</p></div>
             </div>
+            <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{p.marginBasis??"Margin estimate may exclude logistics and other costs."}</p>
           </div>)}
         </div>
       </div>
@@ -128,6 +145,25 @@ export default function DropshipIntelligence(){
         </div>
         <Link href="/customers" className="mt-4 inline-flex items-center gap-1 text-xs font-black text-accent">Open customer workspace <ArrowRight className="h-3 w-3"/></Link>
       </div>
+    </section>
+
+    <section className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div><p className="text-[10px] font-black uppercase tracking-[.14em] text-muted-foreground">Persistent operating memory</p><h2 className="mt-1 text-xl font-black">Recent brain runs</h2></div>
+        <button onClick={()=>void loadRuns()} className="rounded-xl border border-border px-3 py-2 text-xs font-black">Refresh history</button>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {recentRuns.length===0?<p className="text-xs text-muted-foreground">No saved runs yet. Run the max-consensus brain to create an auditable advisory plan.</p>:recentRuns.map(run=>{
+          const saved=run.plan&&typeof run.plan==="object"&&!Array.isArray(run.plan)?(run.plan as {content?:unknown}).content:null;
+          const content=typeof saved==="string"?saved:"No saved plan text.";
+          return <button key={run.id} onClick={()=>setSelectedHistory(content)} className="rounded-xl border border-border p-3 text-left hover:bg-muted/50">
+            <div className="flex items-center justify-between gap-2"><span className="text-[10px] font-black uppercase text-accent">{run.consensus} consensus</span><span className="text-[10px] text-muted-foreground">{new Date(run.created_at).toLocaleString()}</span></div>
+            <p className="mt-2 text-xs font-extrabold">{run.question}</p>
+            <p className="mt-1 truncate text-[10px] text-muted-foreground">{run.brain_model??"Local model not recorded"} · {run.status}</p>
+          </button>;
+        })}
+      </div>
+      {selectedHistory&&<div className="mt-3 rounded-xl bg-muted/60 p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-black">Saved recommendation</p><button onClick={()=>setSelectedHistory("")} className="text-xs font-bold">Close</button></div><p className="mt-2 whitespace-pre-wrap text-xs leading-5">{selectedHistory}</p></div>}
     </section>
 
     <section className="grid gap-4 lg:grid-cols-3">
