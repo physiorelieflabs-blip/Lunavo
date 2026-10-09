@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
-import { ArrowDownRight, ArrowUpRight, Boxes, CheckCircle2, CircleAlert, ClipboardList, LoaderCircle, Plus, RefreshCw, ShieldCheck, Truck } from "lucide-react";
+import { Boxes, CheckCircle2, CircleAlert, ClipboardList, Plus, RefreshCw, ShieldCheck, Truck } from "lucide-react";
 
 type CostResult = {
   id: string;
@@ -89,8 +89,8 @@ async function api(path: string, init?: RequestInit) {
   return data;
 }
 
-function Field({ label, value, onChange, placeholder, required = false, type = "text", hint }: {
-  label: string; value: string; onChange: (value: string) => void; placeholder?: string; required?: boolean; type?: string; hint?: string;
+function Field({ label, value, onChange, placeholder, required = false, type = "text" }: {
+  label: string; value: string; onChange: (value: string) => void; placeholder?: string; required?: boolean; type?: string;
 }) {
   return <label className={labelClass}>{label}<input className={inputClass} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} required={required} type={type} /></label>;
 }
@@ -136,8 +136,8 @@ export default function DropshipWorkbench() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const setCost = (key: keyof CostForm, value: string) => setCostForm(current => ({ ...current, [key]: value }));
-  const setQuote = (key: keyof QuoteForm, value: string) => setQuoteForm(current => ({ ...current, [key]: value }));
+  const setCost = (key: keyof CostForm, value: string) => { costKey.current = null; setCostForm(current => ({ ...current, [key]: value })); };
+  const setQuote = (key: keyof QuoteForm, value: string) => { quoteKey.current = null; setQuoteForm(current => ({ ...current, [key]: value })); };
 
   const submitCost = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -242,7 +242,7 @@ export default function DropshipWorkbench() {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "record_quote", quotedUnitPriceMinor: unitPrice, quotedShippingMinor: shipping,
-          quotedDeliveryDays: deliveryDays, quoteExpiresAt: quoteEntry.expiresAt || null,
+          quotedDeliveryDays: deliveryDays, quoteExpiresAt: quoteEntry.expiresAt ? new Date(quoteEntry.expiresAt).toISOString() : null,
           quoteNotes: quoteEntry.notes, quoteEvidenceUrl: quoteEntry.evidenceUrl || null,
         }),
       });
