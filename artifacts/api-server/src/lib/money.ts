@@ -5,6 +5,21 @@
  * values are parsed as decimal text and rounded explicitly with half-up semantics,
  * never by JavaScript floating-point multiplication.
  */
+/** ISO-4217 currency scale, resolved locally through the runtime's Intl data. */
+export function currencyMinorDigits(currency: string): number {
+  const normalized = currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalized)) return 2;
+  try {
+    const digits = new Intl.NumberFormat("en", {
+      style: "currency",
+      currency: normalized,
+    }).resolvedOptions().maximumFractionDigits;
+    return Number.isInteger(digits) && digits >= 0 && digits <= 6 ? digits : 2;
+  } catch {
+    return 2;
+  }
+}
+
 export function toMinorUnits(value: unknown, minorDigits = 2): number | null {
   if (!Number.isInteger(minorDigits) || minorDigits < 0 || minorDigits > 6) return null;
 
