@@ -83,6 +83,33 @@ function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
+function canTryAlternateProfile(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : String(reason ?? "");
+  // Only retry failures that plausibly belong to one model/profile. Do not fan out
+  // on queue saturation, bad endpoint configuration, or a shared server outage.
+  return /HTTP\\s*404|model.{0,120}(not found|unknown|does not exist)|unknown model|no usable text/i.test(message);
+}
+
+export async function runWithLocalProfileFallback<T>(
+  profiles: readonly LocalAiProfile[],
+  attempt: (profile: LocalAiProfile) => Promise<T>,
+): Promise<{ profile: LocalAiProfile; value: T; fallbacksUsed: LocalAiProfile[] }> {
+  const candidates = unique([...profiles]).slice(0, 3);
+  if (!candidates.length) throw new Error("No local AI profile candidates were configured");
+  const attempted: LocalAiProfile[] = [];
+  let lastError: unknown = null;
+  for (const profile of candidates) {
+    attempted.push(profile);
+    try {
+      return { profile, value: await attempt(profile), fallbacksUsed: attempted.slice(0, -1) };
+    } catch (error) {
+      lastError = error;
+      if (attempted.length >= candidates.length || !canTryAlternateProfile(error)) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("All local AI profile attempts failed");
+}
+
 export async function completeLunavoBrain(
   task: string,
   context: string,
@@ -92,7 +119,7 @@ export async function completeLunavoBrain(
   content: string;
   contributors: string[];
   roles: string[];
-  consensus: "strong" | "mixed" | "single";
+  consensus: "full_ensemble" | "partial_ensemble" | "single";
 }> {
   const defaultRoles: LunavoBrainRole[] = ["orchestrator", "researcher", "reviewer"];
   const roles = selectLunavoBrainRoles(options.roles?.length ? options.roles : defaultRoles);
@@ -114,7 +141,6 @@ export async function completeLunavoBrain(
     roles,
     3,
     async (role) => {
-      const primary = ROLE_PROFILES[role][0]!;
       const prompt = [
         baseSystem,
         "Your specialty: " + ROLE_INSTRUCTIONS[role],
@@ -128,13 +154,13 @@ export async function completeLunavoBrain(
         { role: "system" as const, content: prompt },
         { role: "user" as const, content: safeTask },
       ];
-      const response = await completeLocalChat(messages, {
-        profile: primary,
+      const attempt = await runWithLocalProfileFallback(ROLE_PROFILES[role], (profile) => completeLocalChat(messages, {
+        profile,
         json: options.json,
         maxTokens: Math.min(options.reasoningEffort === "max" ? 3000 : 6000, options.maxTokens ?? 3200),
         reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
-      });
-      return { role, response };
+      }));
+      return { role, response: attempt.value };
     },
   );
 
@@ -187,7 +213,7 @@ export async function completeLunavoBrain(
       content: arbiter.content,
       contributors: successes.map((item) => item.response.model),
       roles: successes.map((item) => item.role),
-      consensus: successes.length === roles.length ? "strong" : "mixed",
+      consensus: successes.length === roles.length ? "full_ensemble" : "partial_ensemble",
     };
   } catch {
     return {
@@ -195,7 +221,7 @@ export async function completeLunavoBrain(
       content: successes[0]!.response.content,
       contributors: successes.map((item) => item.response.model),
       roles: successes.map((item) => item.role),
-      consensus: "mixed",
+      consensus: "partial_ensemble",
     };
   }
 }
