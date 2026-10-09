@@ -175,7 +175,8 @@ export async function completeLunavoBrain(
         },
       ],
       {
-        profile: "review",
+        // The independent critic is Gemma by default; let DeepSeek perform the final reasoned arbitration.
+        profile: "reasoning",
         json: options.json,
         maxTokens: Math.min(7_000, options.maxTokens ?? 4_000),
         reasoningEffort: "high",
