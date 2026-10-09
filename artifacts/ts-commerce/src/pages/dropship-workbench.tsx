@@ -289,36 +289,6 @@ export default function DropshipWorkbench() {
     } finally { setEntrySaving(false); }
   };
 
-  const useQuoteForCost = (item: Quote) => {
-    const unitPrice = item.quoted_unit_price_minor == null ? null : Number(item.quoted_unit_price_minor);
-    const totalShipping = Number(item.quoted_shipping_minor ?? 0);
-    const quantity = Math.max(1, Number(item.quantity) || 1);
-    if (unitPrice === null || !Number.isSafeInteger(unitPrice) || unitPrice < 0 ||
-        !Number.isSafeInteger(totalShipping) || totalShipping < 0) {
-      setCostError("This quote does not contain a usable exact-integer price yet.");
-      return;
-    }
-    const perUnitShipping = Number((BigInt(totalShipping) + BigInt(Math.floor(quantity / 2))) / BigInt(quantity));
-    setCostError("");
-    setCostForm(current => ({
-      ...current,
-      scenarioName: (item.product_title || item.linked_product_title || "Supplier quote").slice(0, 160) +
-        " — " + (item.supplier_name || "supplier") + " — " + item.destination_country,
-      supplierProductId: item.supplier_product_id == null ? current.supplierProductId : String(item.supplier_product_id),
-      destinationCountry: item.destination_country,
-      currency: item.currency,
-      sourceCurrency: item.currency,
-      quantity: String(quantity),
-      sourceCost: (unitPrice / 100).toFixed(2),
-      shipping: (perUnitShipping / 100).toFixed(2),
-      evidenceNote: "Seeded from manually recorded supplier quote " + item.id +
-        "; quote shipping total was allocated across " + quantity + " units. Verify freight, insurance, duties, tax and source evidence.",
-    }));
-    costKey.current = null;
-    setNotice("Cost scenario prefilled from the recorded quote. Verify per-unit freight, currency, selling price and destination tax assumptions.");
-    window.setTimeout(() => costFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-  };
-
   const transitionQuote = async (id: string, action: "accept" | "reject" | "cancel" | "expire") => {
     setQuoteError(""); setNotice("");
     try {
@@ -481,10 +451,9 @@ export default function DropshipWorkbench() {
             <div className="flex flex-wrap gap-2"><button type="submit" className={buttonClass} disabled={entrySaving}><CheckCircle2 className="h-4 w-4"/>{entrySaving ? "Saving…" : "Save quoted offer"}</button><button type="button" className={secondaryClass} onClick={()=>setActiveQuote(null)}>Close</button></div>
           </form>}
           <div className="mt-3 flex flex-wrap gap-2">
-            {(item.status==="quoted" || item.status==="accepted") && <button className={secondaryClass} onClick={()=>useQuoteForCost(item)}>Model this quote in landed cost</button>}
+            {(item.status==="quoted" || item.status==="accepted") && <button className={secondaryClass} onClick={()=>modelQuoteCosts(item)}><Plus className="h-3.5 w-3.5"/>Model this quote in landed cost</button>}
             {item.status==="draft" && <button className={secondaryClass} onClick={()=>{setActiveQuote(item.id);setQuoteError("");}}>Enter supplier quote</button>}
-            {(item.status==="quoted" || item.status==="accepted") && <button className={secondaryClass} onClick={()=>modelQuoteCosts(item)}><Plus className="h-3.5 w-3.5"/>Model landed cost</button>}
-          {item.status==="quoted" && <><button className={secondaryClass} onClick={()=>{if(window.confirm("Record this supplier quote as accepted? This does not create a purchase order or send money."))void transitionQuote(item.id,"accept")}}>Record acceptance</button><button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"reject")}>Reject quote</button>{item.quote_expires_at && new Date(item.quote_expires_at).getTime()<=Date.now() && <button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"expire")}>Mark expired</button></>}
+          {item.status==="quoted" && <><button className={secondaryClass} onClick={()=>{if(window.confirm("Record this supplier quote as accepted? This does not create a purchase order or send money."))void transitionQuote(item.id,"accept")}}>Record acceptance</button><button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"reject")}>Reject quote</button>{item.quote_expires_at && new Date(item.quote_expires_at).getTime()<=Date.now() && <button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"expire")}>Mark expired</button>}</>}
             {item.status==="draft" && <button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"cancel")}>Cancel draft</button>}
           </div>
           {item.status==="accepted" && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">Acceptance is recorded for negotiation tracking only. Create a separate reviewed purchase order and payment through the normal guarded workflows.</p>}
