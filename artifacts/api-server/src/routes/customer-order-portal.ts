@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { and, eq, or, sql } from "drizzle-orm";
+import { db, merchantsTable } from "@workspace/db";
+import { getAuth } from "../lib/auth-compat";
+import { requirePermission } from "../lib/tenant-access";
 import { emitDomainEvent } from "../lib/domain-events";
 
 const router = Router();
@@ -47,6 +49,21 @@ function daysSince(date: Date, now = Date.now()): number {
 }
 function tokenParam(value: unknown): string | null {
   return uuid(value);
+}
+
+async function merchantFor(req: Request, res: Response) {
+  const userId = getAuth(req).userId;
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return null; }
+  const [merchant] = await db.select({ id: merchantsTable.id })
+    .from(merchantsTable)
+    .where(and(
+      eq(merchantsTable.status, "active"),
+      or(eq(merchantsTable.localAuthUserId, userId), eq(merchantsTable.clerkUserId, userId)),
+    )).limit(1);
+  if (!merchant) { res.status(404).json({ error: "Merchant workspace not found" }); return null; }
+  try { await requirePermission(userId, merchant.id, "orders.manage"); }
+  catch { res.status(403).json({ error: "Permission required: orders.manage" }); return null; }
+  return { merchantId: merchant.id, userId };
 }
 
 async function findOrder(token: string) {
@@ -303,6 +320,112 @@ router.post("/public/order-portal/:token/returns", async (req: Request, res: Res
   } catch (error) {
     next(error);
   }
+});
+
+router.get("/merchant/order-portal/return-requests", async (req: Request, res: Response, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+    const requested = Number(req.query.limit ?? 100);
+    const limit = Number.isInteger(requested) ? Math.max(1, Math.min(200, requested)) : 100;
+    const result = await db.execute(sql`
+      SELECT r.id,r.order_id,r.request_type,r.quantity,r.reason,r.customer_message,r.status,
+        r.return_window_days_snapshot,r.resolution_note,r.reviewed_by,r.reviewed_at,r.created_at,r.updated_at,
+        o.order_number,o.quantity AS purchased_quantity,o.currency,o.total AS order_total,o.fulfillment_status,
+        p.title AS product_title,c.name AS customer_name,c.email AS customer_email
+      FROM customer_return_requests r
+      JOIN orders o ON o.id=r.order_id AND o.merchant_id=r.merchant_id
+      LEFT JOIN supplier_products p ON p.id=o.supplier_product_id AND p.merchant_id=o.merchant_id
+      JOIN customers c ON c.id=o.customer_id AND c.merchant_id=o.merchant_id
+      WHERE r.merchant_id=${ctx.merchantId}
+      ORDER BY CASE r.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 WHEN 'received' THEN 2 ELSE 3 END,
+        r.created_at DESC
+      LIMIT ${limit}
+    `);
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ requests: (result as { rows?: Row[] }).rows ?? [] });
+  } catch (error) { next(error); }
+});
+
+router.patch("/merchant/order-portal/return-requests/:id", async (req: Request, res: Response, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+    const id = uuid(req.params.id);
+    if (!id) { res.status(400).json({ error: "Invalid return request id." }); return; }
+    const body = record(req.body) ? req.body : {};
+    const action = boundedText(body.action, 24);
+    const resolutionNote = boundedText(body.resolutionNote, 2000);
+    const transitions: Record<string, { from: string[]; to: string }> = {
+      approve: { from: ["pending"], to: "approved" },
+      reject: { from: ["pending"], to: "rejected" },
+      mark_received: { from: ["approved"], to: "received" },
+      complete: { from: ["received"], to: "completed" },
+      cancel: { from: ["pending", "approved"], to: "cancelled" },
+    };
+    const transition = action ? transitions[action] : null;
+    if (!transition) {
+      res.status(400).json({ error: "Use approve, reject, mark_received, complete or cancel." });
+      return;
+    }
+    if (action === "reject" && !resolutionNote) {
+      res.status(400).json({ error: "A reason is required when rejecting a return/exchange request." });
+      return;
+    }
+    const updated = await db.transaction(async tx => {
+      const found = await tx.execute(sql`
+        SELECT id,order_id,merchant_id,status,request_type,quantity,reason,created_at
+        FROM customer_return_requests
+        WHERE id=${id}::uuid AND merchant_id=${ctx.merchantId}
+        LIMIT 1 FOR UPDATE
+      `);
+      const current = ((found as { rows?: Row[] }).rows ?? [])[0];
+      if (!current) return { status: 404, body: { error: "Return request not found." } };
+      if (!transition.from.includes(String(current.status))) {
+        return { status: 409, body: { error: "This return request cannot make that status transition.", currentStatus: String(current.status) } };
+      }
+      const next = await tx.execute(sql`
+        UPDATE customer_return_requests
+        SET status=${transition.to},
+          resolution_note=CASE WHEN ${resolutionNote}::text IS NOT NULL THEN ${resolutionNote} ELSE resolution_note END,
+          reviewed_by=${ctx.userId},
+          reviewed_at=now(),
+          updated_at=now()
+        WHERE id=${id}::uuid AND merchant_id=${ctx.merchantId} AND status=${String(current.status)}
+        RETURNING id,order_id,request_type,quantity,reason,status,resolution_note,reviewed_by,reviewed_at,updated_at
+      `);
+      const row = ((next as { rows?: Row[] }).rows ?? [])[0];
+      if (!row) return { status: 409, body: { error: "The request changed concurrently. Reload and retry." } };
+      await emitDomainEvent(tx, {
+        merchantId: ctx.merchantId,
+        eventType: "merchant.operation.transitioned",
+        aggregateType: "customer_return_request",
+        aggregateId: id,
+        actorType: "merchant",
+        actorId: ctx.userId,
+        source: "merchant_api",
+        idempotencyKey: "customer-return-request:" + id + ":" + transition.to,
+        payload: {
+          previousStatus: String(current.status),
+          status: transition.to,
+          requestType: String(current.request_type),
+          quantity: Number(current.quantity),
+          orderId: Number(current.order_id),
+          resolution: action,
+        },
+      });
+      return {
+        status: 200,
+        body: {
+          request: row,
+          persisted: true,
+          executionBoundary: "status_record_only_no_provider_refund_no_ledger_mutation_no_inventory_restock",
+        },
+      };
+    });
+    res.setHeader("Cache-Control", "no-store, private");
+    res.status(updated.status).json(updated.body);
+  } catch (error) { next(error); }
 });
 
 export default router;
