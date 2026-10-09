@@ -3,9 +3,9 @@ import { AppShell } from "@/components/app-shell";
 import { ArrowRight, BrainCircuit, Boxes, ChartNoAxesCombined, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, UsersRound, Warehouse } from "lucide-react";
 import { Link } from "wouter";
 
-type Product = { id:number; title:string; stock:number|null; supplierStock?:number|null; inventoryKnown?:boolean; inventoryStrategy?:string; reservedUnits?:number; supplierStockRisk?:boolean; marginBasis?:string; revenue30Minor?:number; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
+type Product = { id:number; title:string; stock:number|null; supplierStock?:number|null; inventoryKnown?:boolean; inventoryStrategy?:string; reservedUnits?:number; supplierStockRisk?:boolean; supplierDataAgeHours?:number|null; supplierDataStale?:boolean; supplierSyncStatus?:string; supplierSyncEnabled?:boolean; marginBasis?:string; revenue30Minor?:number; sellingPriceMinor:number|null; landedCostMinor:number|null; grossMarginBps:number|null; sold30:number; trendFactor:number; projected30:number; reorderUnits:number; priorities:string[] };
 type Customer = { id:number; name:string; orderCount:number; comparableOrderCount?:number; grossMinor:number; currencyCoverage?:string; currencies?:string[]; recencyDays:number|null; churnRiskBps:number; segment:string; nextBestAction:string; marketingEligible:boolean };
-type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;supplierStockRiskCount?:number;topProducts:Product[];reorderCandidates:Product[];supplierRiskProducts?:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
+type Graph = { generatedAt:string; merchant:{storeName:string;currency:string}; products:Product[]; customers:Customer[]; summary:{productCount:number;customerCount:number;reorderCandidateCount:number;decliningProductCount:number;scaleWinnerCount:number;atRiskCustomerCount:number;supplierStockRiskCount?:number;fulfillmentExceptionCount?:number;staleFulfillmentJobCount?:number;fulfillmentJobCount?:number;topProducts:Product[];reorderCandidates:Product[];supplierRiskProducts?:Product[];winners:Product[];atRiskCustomers:Customer[]}; graph:string[]; authorityRules:string[]; modernPlatformParity?:Array<{feature:string;status:string;connectedTo:string[]}>; intelligenceCapabilities?:string[]; decisionLoop?:string[] };
 type Plan = { brain:{model:string;contributors:string[];roles:string[];consensus:string;content:string}; persisted:boolean; commandRun?:{id:string;created_at?:string}; replayed?:boolean };
 type CommandHistory = { id:string; question:string; brain_model:string|null; contributors:unknown; roles:unknown; consensus:string; status:string; created_at:string; plan:unknown };
 
@@ -94,7 +94,7 @@ export default function DropshipIntelligence(){
 
     {error&&<div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{error}</div>}
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
       {[
         ["Products",graph.summary.productCount,Boxes],
         ["Customers",graph.summary.customerCount,UsersRound],
@@ -102,7 +102,9 @@ export default function DropshipIntelligence(){
         ["Winners",graph.summary.scaleWinnerCount,ChartNoAxesCombined],
         ["Declining",graph.summary.decliningProductCount,ShoppingCart],
         ["At risk",graph.summary.atRiskCustomerCount,UsersRound],
-        ["Supplier stock risks",graph.summary.supplierStockRiskCount??graph.summary.supplierRiskProducts?.length??0,Warehouse]
+        ["Supplier stock risks",graph.summary.supplierStockRiskCount??graph.summary.supplierRiskProducts?.length??0,Warehouse],
+        ["Fulfillment exceptions",graph.summary.fulfillmentExceptionCount??0,RefreshCw],
+        ["Stuck fulfillment",graph.summary.staleFulfillmentJobCount??0,Boxes]
       ].map(([label,value,Icon])=><div key={String(label)} className="rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-[.12em] text-muted-foreground">{String(label)}</p><Icon className="h-4 w-4 text-accent"/></div>
         <p className="mt-3 text-2xl font-black">{String(value)}</p>
@@ -129,6 +131,7 @@ export default function DropshipIntelligence(){
               <div><span className="text-muted-foreground">Supplier stock</span><p className="font-black">{p.supplierStock==null?"Unknown":p.supplierStock}</p></div>
             </div>
             <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{p.marginBasis??"Margin estimate may exclude logistics and other costs."}</p>
+            <p className={"mt-1 text-[10px] font-bold "+(p.supplierDataStale?"text-amber-700":"text-muted-foreground")}>Supplier feed: {p.supplierSyncEnabled?p.supplierSyncStatus??"configured":"monitoring not configured"}{p.supplierDataAgeHours==null?" · observation time unknown":` · ${p.supplierDataAgeHours.toFixed(1)}h since last observation`}{p.supplierDataStale?" · stale/failed source data":""}</p>
           </div>)}
         </div>
       </div>
