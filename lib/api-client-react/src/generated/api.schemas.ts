@@ -774,6 +774,9 @@ export interface OrderRecord {
   orderNumber: string;
   customerName: string;
   customerEmail: string;
+  discountAmount: number;
+  /** @nullable */
+  discountCode: string | null;
   total: number;
   /** @minimum 1 */
   quantity: number;
