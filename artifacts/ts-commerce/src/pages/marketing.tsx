@@ -66,8 +66,8 @@ export default function Marketing() {
   const [budget, setBudget] = useState('25.00');
   const [references, setReferences] = useState<Record<number, string>>({});
   const [message, setMessage] = useState('');
-  const [discountCodes, setDiscountCodes] = useState<Array<{id:number;code:string;kind:string;value:string;minimumSubtotal:string;currency:string;active:boolean;createdAt:string}>>([]);
-  const [discountForm, setDiscountForm] = useState({code:'',kind:'percentage',value:'10',minimumSubtotal:'0'});
+  const [discountCodes, setDiscountCodes] = useState<Array<{id:number;code:string;kind:string;value:string;minimumSubtotal:string;currency:string;active:boolean;createdAt:string;usageLimit:number|null;usageCount:number;startsAt:string|null;endsAt:string|null}>>([]);
+  const [discountForm, setDiscountForm] = useState({code:'',kind:'percentage',value:'10',minimumSubtotal:'0',usageLimit:'',startsAt:'',endsAt:''});
   const [discountBusy, setDiscountBusy] = useState(false);
   const loadDiscountCodes = async () => {
     try {
@@ -81,11 +81,16 @@ export default function Marketing() {
     try {
       const result = await customFetch<{code:any}>('/api/commerce/discount-codes', {
         method:'POST', credentials:'include', headers:{'content-type':'application/json'},
-        body:JSON.stringify(discountForm),
+        body:JSON.stringify({
+          ...discountForm,
+          usageLimit: discountForm.usageLimit ? Number(discountForm.usageLimit) : null,
+          startsAt: discountForm.startsAt ? new Date(discountForm.startsAt).toISOString() : null,
+          endsAt: discountForm.endsAt ? new Date(discountForm.endsAt).toISOString() : null,
+        }),
       });
       setDiscountCodes(v => [result.code, ...v]);
-      setDiscountForm({code:'',kind:'percentage',value:'10',minimumSubtotal:'0'});
-      setMessage('Discount code created and is now available for checkout.');
+      setDiscountForm({code:'',kind:'percentage',value:'10',minimumSubtotal:'0',usageLimit:'',startsAt:'',endsAt:''});
+      setMessage('Discount code created. Checkout enforces its value, start/end dates, minimum subtotal and usage limit.');
     } catch(error) {
       setMessage(error instanceof Error ? error.message : 'Discount code could not be created.');
     } finally { setDiscountBusy(false); }
@@ -433,14 +438,17 @@ export default function Marketing() {
         </div>
         <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-7">
           <SectionHeading eyebrow="Promotions" title="Discount codes" description="Create real checkout discounts for this merchant store. Discounts are validated and applied server-side; deactivating a code is immediate." />
-          <div className="grid gap-4 md:grid-cols-[1.2fr_.8fr_.7fr_1fr_auto]">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-sm font-bold">Code<input value={discountForm.code} onChange={e=>setDiscountForm(v=>({...v,code:e.target.value.toUpperCase()}))} maxLength={40} placeholder="WELCOME10" className={inputClass}/></label>
             <label className="text-sm font-bold">Type<select value={discountForm.kind} onChange={e=>setDiscountForm(v=>({...v,kind:e.target.value}))} className={inputClass}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label>
             <label className="text-sm font-bold">Value<input type="number" min="0.01" step="0.01" value={discountForm.value} onChange={e=>setDiscountForm(v=>({...v,value:e.target.value}))} className={inputClass}/></label>
             <label className="text-sm font-bold">Minimum subtotal<input type="number" min="0" step="0.01" value={discountForm.minimumSubtotal} onChange={e=>setDiscountForm(v=>({...v,minimumSubtotal:e.target.value}))} className={inputClass}/></label>
+            <label className="text-sm font-bold">Maximum redemptions<input type="number" min="1" step="1" value={discountForm.usageLimit} onChange={e=>setDiscountForm(v=>({...v,usageLimit:e.target.value.replace(/[^0-9]/g,'').slice(0,10)}))} placeholder="Unlimited" className={inputClass}/></label>
+            <label className="text-sm font-bold">Starts at <span className="font-normal text-[#697687]">(optional)</span><input type="datetime-local" value={discountForm.startsAt} onChange={e=>setDiscountForm(v=>({...v,startsAt:e.target.value}))} className={inputClass}/></label>
+            <label className="text-sm font-bold">Ends at <span className="font-normal text-[#697687]">(optional)</span><input type="datetime-local" min={discountForm.startsAt || undefined} value={discountForm.endsAt} onChange={e=>setDiscountForm(v=>({...v,endsAt:e.target.value}))} className={inputClass}/></label>
             <div className="flex items-end"><Button onClick={()=>void createDiscountCode()} disabled={discountBusy || discountForm.code.trim().length<3}><Megaphone className="h-4 w-4"/>Create</Button></div>
           </div>
-          {discountCodes.length ? <div className="mt-6 overflow-hidden rounded-xl border border-[#d9d2c4]"><div className="divide-y divide-[#ded8cd]">{discountCodes.map(code=><div key={code.id} className="flex flex-wrap items-center gap-4 bg-[#f7f4ed] px-4 py-3"><div className="min-w-[150px]"><p className="font-mono font-extrabold tracking-wide">{code.code}</p><p className="mt-1 text-xs text-[#697687]">Minimum {money(Number(code.minimumSubtotal),code.currency)}</p></div><Badge tone={code.active?'success':'danger'}>{code.active?'active':'inactive'}</Badge><p className="text-sm font-bold">{code.kind==='percentage'?code.value+'%':money(Number(code.value),code.currency)}</p>{code.active&&<Button variant="ghost" className="ml-auto min-h-9 px-3 text-xs" onClick={()=>void deactivateDiscountCode(code.id)} disabled={discountBusy}>Deactivate</Button>}</div>)}</div></div> : <div className="mt-5"><EmptyState title="No discount codes" description="Create a code above and it will be enforced by the storefront checkout." /></div>}
+          {discountCodes.length ? <div className="mt-6 overflow-hidden rounded-xl border border-[#d9d2c4]"><div className="divide-y divide-[#ded8cd]">{discountCodes.map(code=><div key={code.id} className="flex flex-wrap items-center gap-4 bg-[#f7f4ed] px-4 py-3"><div className="min-w-[150px]"><p className="font-mono font-extrabold tracking-wide">{code.code}</p><p className="mt-1 text-xs text-[#697687]">Minimum {money(Number(code.minimumSubtotal),code.currency)}</p><p className="mt-1 text-xs text-[#697687]">{code.usageLimit ? `Redemptions: ${code.usageCount}/${code.usageLimit}` : `Redemptions: ${code.usageCount} · no limit`}</p><p className="mt-1 text-xs text-[#697687]">{code.startsAt ? `From ${new Date(code.startsAt).toLocaleString()}` : 'Starts immediately'}{code.endsAt ? ` · until ${new Date(code.endsAt).toLocaleString()}` : ' · no end date'}</p></div><Badge tone={code.active?'success':'danger'}>{code.active?'active':'inactive'}</Badge><p className="text-sm font-bold">{code.kind==='percentage'?code.value+'%':money(Number(code.value),code.currency)}</p>{code.active&&<Button variant="ghost" className="ml-auto min-h-9 px-3 text-xs" onClick={()=>void deactivateDiscountCode(code.id)} disabled={discountBusy}>Deactivate</Button>}</div>)}</div></div> : <div className="mt-5"><EmptyState title="No discount codes" description="Create a code above and it will be enforced by the storefront checkout." /></div>}
         </section>
         <section className="mt-8 rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6 md:p-7">
           <SectionHeading
