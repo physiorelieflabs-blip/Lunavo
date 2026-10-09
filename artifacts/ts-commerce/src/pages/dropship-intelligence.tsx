@@ -77,9 +77,12 @@ export default function DropshipIntelligence(){
           <h1 className="mt-2 max-w-4xl text-3xl font-black tracking-[-.055em] sm:text-4xl">One brain for sourcing, pricing, inventory, fulfillment and growth.</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">Deterministic commerce signals are calculated first. Multiple self-hosted specialists then critique and synthesize the connected plan. Nothing here becomes money, stock or external-publishing authority by itself.</p>
         </div>
-        <button onClick={()=>void run()} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-[#12345a] disabled:opacity-60">
-          <Sparkles className="h-4 w-4"/>{busy?"Thinking across the graph…":"Run max-consensus brain"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={()=>void run()} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-[#12345a] disabled:opacity-60">
+            <Sparkles className="h-4 w-4"/>{busy?"Thinking across the graph…":"Run max-consensus brain"}
+          </button>
+          <Link href="/dropship-workbench" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-bold text-white hover:bg-white/10">Cost & supplier quotes →</Link>
+        </div>
       </div>
       {plan&&<div className="mt-6 rounded-2xl border border-white/10 bg-white/[.07] p-4">
         <div className="flex flex-wrap items-center gap-2">
