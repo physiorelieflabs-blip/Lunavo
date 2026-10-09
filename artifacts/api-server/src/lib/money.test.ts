@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { multiplyMinorUnits, toMinorUnits } from "./money";
+import { currencyMinorDigits, multiplyMinorUnits, toMinorUnits } from "./money";
 
 describe("exact monetary conversion", () => {
   it("converts decimal text without floating-point drift", () => {
@@ -14,6 +14,16 @@ describe("exact monetary conversion", () => {
     expect(toMinorUnits("-1.005")).toBe(-101);
     expect(toMinorUnits(Number.NaN)).toBeNull();
     expect(toMinorUnits("not-money")).toBeNull();
+  });
+
+  it("uses ISO currency minor-unit precision rather than assuming two decimals", () => {
+    expect(currencyMinorDigits("JPY")).toBe(0);
+    expect(currencyMinorDigits("USD")).toBe(2);
+    expect(currencyMinorDigits("BHD")).toBe(3);
+    expect(currencyMinorDigits("CLF")).toBe(4);
+    expect(currencyMinorDigits("invalid")).toBe(2);
+    expect(toMinorUnits("1500", currencyMinorDigits("JPY"))).toBe(1500);
+    expect(toMinorUnits("1.2345", currencyMinorDigits("BHD"))).toBe(1235);
   });
 
   it("uses safe integer arithmetic for quantity multiplication", () => {
