@@ -19,6 +19,18 @@ function money(value: unknown): number | null {
   return toMinorUnits(value);
 }
 
+function nullableSafeInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "bigint" ? Number(value) : Number(value);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
+function isoTimestamp(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const date = new Date(String(value));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
 function isoDaysAgo(days: number): Date {
   return new Date(Date.now() - days * 86_400_000);
 }
@@ -309,9 +321,42 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const sourceCostMinor = money(product.sale_price ?? product.price);
     const sellingPriceMinor = money(product.selling_price);
     const comparableCurrency = sourceCurrency === currency;
-    // Supplier product price is not a fully landed cost unless logistics evidence is present.
-    const landedCostMinor: number | null = null;
-    const contributionMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
+    // Use a stored landed-cost scenario only when it is unambiguous for this product,
+    // calculation currency, and current selling price. A scenario for another country,
+    // currency, or stale selling price must never masquerade as today's margin.
+    const landedCostOptions = (landedScenariosByProduct.get(id) ?? []).flatMap((row) => {
+      const optionCurrency = String(row.currency ?? "").toUpperCase();
+      const destinationCountry = String(row.destination_country ?? "").toUpperCase();
+      const landed = nullableSafeInteger(row.landed_cost_minor);
+      const price = nullableSafeInteger(row.selling_price_minor);
+      const margin = nullableSafeInteger(row.contribution_margin_minor);
+      const marginBps = nullableSafeInteger(row.contribution_margin_bps);
+      if (!/^[A-Z]{3}$/.test(optionCurrency) || !/^[A-Z]{2}$/.test(destinationCountry) || landed === null || landed < 0) return [];
+      return [{
+        id: String(row.id ?? ""),
+        scenarioName: String(row.scenario_name ?? "Landed-cost scenario").slice(0, 160),
+        destinationCountry,
+        currency: optionCurrency,
+        quantity: Math.max(1, int(row.quantity, 1)),
+        landedCostMinor: landed,
+        sellingPriceMinor: price,
+        contributionMarginMinor: margin,
+        contributionMarginBps: marginBps,
+        calculationVersion: String(row.calculation_version ?? "unknown").slice(0, 80),
+        createdAt: isoTimestamp(row.created_at),
+      }];
+    });
+    const comparableLandedScenarios = landedCostOptions.filter((scenario) =>
+      scenario.currency === currency && sellingPriceMinor !== null &&
+      scenario.sellingPriceMinor === sellingPriceMinor && scenario.contributionMarginBps !== null
+    );
+    const selectedLandedScenario = comparableLandedScenarios.length === 1 ? comparableLandedScenarios[0]! : null;
+    const landedCostMinor: number | null = selectedLandedScenario?.landedCostMinor ?? null;
+    const partialMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
+    const contributionMarginBps = selectedLandedScenario?.contributionMarginBps ?? partialMarginBps;
+    const marginBasis = selectedLandedScenario
+      ? "evidence-qualified landed-cost scenario; current selling price and currency match; destination-specific; exclusions remain in scenario warnings"
+      : "source_cost_plus_lunavo_1pct_fee; excludes unverified shipping, duties, taxes, provider fees, discounts, and returns";
 
     const campaign = campaigns.get(id);
     const conversionBps = campaign
@@ -361,8 +406,11 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       sourceCostMinor,
       sellingPriceMinor,
       landedCostMinor,
+      landedCostOptions: landedCostOptions.slice(0, 4),
+      selectedLandedScenarioId: selectedLandedScenario?.id ?? null,
+      landedContributionMarginMinor: selectedLandedScenario?.contributionMarginMinor ?? null,
       grossMarginBps: contributionMarginBps,
-      marginBasis: "source_cost_plus_lunavo_1pct_fee; excludes unverified shipping, duties, taxes, provider fees, discounts, and returns",
+      marginBasis,
       sold30,
       sold14,
       priorDailyUnits: Number(priorDaily.toFixed(4)),
