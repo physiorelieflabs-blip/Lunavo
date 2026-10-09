@@ -96,7 +96,11 @@ router.get("/merchant/channels", async (req, res, next) => {
     const rows = await db.execute(sql.raw(query));
     res.setHeader("Cache-Control", "no-store");
     res.json({
-      providers: PROVIDERS.map(provider => ({ provider, adapterState: provider === "custom" ? "configured-by-merchant" : "adapter-slot" })),
+      adapterGatewayConfigured: channelGatewayConfigured(),
+      providers: PROVIDERS.map(provider => ({
+        provider,
+        adapterState: channelGatewayConfigured() ? "capability-verified-on-connect" : "private-adapter-gateway-not-configured",
+      })),
       connections: rows.rows.map(row => serialize(row as Record<string, unknown>)),
     });
   } catch (error) {
@@ -160,6 +164,41 @@ router.post("/merchant/channels", async (req, res, next) => {
       connection: serialize({ ...row, credential_configured: Boolean(accessToken), webhook_configured: Boolean(webhookSecret) }),
       syncQueued: [],
       nextStep: "Run connection test before syncing. External jobs are not marked successful until the self-hosted provider adapter confirms the provider result and local commit.",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/merchant/channels/jobs", async (req, res, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+    const result = await db.execute(sql`
+      SELECT id, connection_id, direction, resource, status, attempts, last_error,
+             metrics, next_attempt_at, started_at, completed_at, created_at, updated_at
+      FROM merchant_channel_sync_jobs
+      WHERE merchant_id = ${ctx.merchantId}
+      ORDER BY created_at DESC
+      LIMIT 200
+    `);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      jobs: (result.rows as Array<Record<string, unknown>>).map(row => ({
+        id: row.id,
+        connectionId: row.connection_id,
+        direction: row.direction,
+        resource: row.resource,
+        status: row.status,
+        attempts: Number(row.attempts ?? 0),
+        lastError: row.last_error ?? null,
+        metrics: row.metrics ?? {},
+        nextAttemptAt: row.next_attempt_at ?? null,
+        startedAt: row.started_at ?? null,
+        completedAt: row.completed_at ?? null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
     });
   } catch (error) {
     next(error);
