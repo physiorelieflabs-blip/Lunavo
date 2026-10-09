@@ -24,11 +24,11 @@ type BrainOptions = {
 const ROLE_PROFILES: Record<LunavoBrainRole, LocalAiProfile[]> = {
   orchestrator: ["reasoning", "general", "review"],
   researcher: ["general", "reasoning", "review"],
-  merchandiser: ["general", "reasoning", "review"],
+  merchandiser: ["fast", "general", "reasoning"],
   growth: ["reasoning", "general", "review"],
   operations: ["reasoning", "general", "review"],
-  customer: ["general", "reasoning", "review"],
-  creative: ["general", "reasoning", "review"],
+  customer: ["general", "fast", "review"],
+  creative: ["vision", "general", "review"],
   reviewer: ["review", "reasoning"],
   coder: ["coding", "reasoning", "review"],
 };
@@ -92,19 +92,15 @@ export async function completeLunavoBrain(
         { role: "system" as const, content: prompt },
         { role: "user" as const, content: safeTask },
       ];
-      if (options.reasoningEffort === "max") {
-        const ensemble = await completeLocalEnsemble(messages, {
-          profiles: ROLE_PROFILES[role],
-          json: options.json,
-          maxTokens: Math.min(6_000, options.maxTokens ?? 3_200),
-        });
-        return { role, response: { ...ensemble, profile: "ensemble" as LocalAiProfile } };
-      }
+      // One bounded call per specialist; the shared local inference queue controls
+      // concurrency. The final arbiter synthesizes all specialists once. Running a
+      // full three-model ensemble inside every role multiplies inference cost and
+      // can exhaust RAM/VRAM on self-hosted deployments without improving coverage.
       const response = await completeLocalChat(messages, {
         profile: primary,
         json: options.json,
         maxTokens: Math.min(6_000, options.maxTokens ?? 3_200),
-        reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
+        reasoningEffort: options.reasoningEffort === "max" ? "max" : role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
       });
       return { role, response };
     }),
