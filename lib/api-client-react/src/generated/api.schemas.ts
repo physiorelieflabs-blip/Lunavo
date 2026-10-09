@@ -2769,6 +2769,8 @@ export interface PublicCheckoutInput {
      */
   paymentCurrency?: string;
   marketingConsent?: boolean;
+  /** @minLength 3 @maxLength 40 */
+  discountCode?: string;
   /**
      * @minLength 8
      * @maxLength 120
@@ -2826,6 +2828,9 @@ export interface PublicCheckoutOrder {
   orderNumber: string;
   title: string;
   subtotal: number;
+  discountAmount: number;
+  /** @nullable */
+  discountCode: string | null;
   tax: number;
   shipping: number;
   total: number;
