@@ -4,14 +4,16 @@ import { availableMerchantStock, confidenceFor, conversionRateBps, churnRisk, ne
 describe("dropship intelligence decision rules", () => {
   it("uses exactly one currency-and-price-matched landed-cost scenario and rejects ambiguity", () => {
     const scenarios = [
-      { id: "ng", currency: "NGN", sellingPriceMinor: 10_000, contributionMarginBps: 2_000 },
-      { id: "gb", currency: "GBP", sellingPriceMinor: 10_000, contributionMarginBps: 3_000 },
+      { id: "ng", currency: "NGN", destinationCountry: "NG", sellingPriceMinor: 10_000, contributionMarginBps: 2_000 },
+      { id: "gb", currency: "GBP", destinationCountry: "GB", sellingPriceMinor: 10_000, contributionMarginBps: 3_000 },
     ];
-    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 10_000)?.id).toBe("ng");
-    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 11_000)).toBeNull();
-    expect(selectUniqueComparableLandedScenario(scenarios, "USD", 10_000)).toBeNull();
-    expect(selectUniqueComparableLandedScenario([...scenarios, { ...scenarios[0]!, id: "ng-other" }], "NGN", 10_000)).toBeNull();
-    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 0)).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 10_000, "NG")?.id).toBe("ng");
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 10_000, "GB")).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 11_000, "NG")).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "USD", 10_000, "NG")).toBeNull();
+    expect(selectUniqueComparableLandedScenario([...scenarios, { ...scenarios[0]!, id: "ng-other" }], "NGN", 10_000, "NG")).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 0, "NG")).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 10_000, null)).toBeNull();
   });
 
   it("calculates purchase-per-click conversion in basis points and rejects invalid denominators", () => {
