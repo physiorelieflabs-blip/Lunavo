@@ -1585,6 +1585,8 @@ function serializeOrder(
     orderNumber: order.orderNumber,
     customerName: customer.name,
     customerEmail: customer.email,
+    discountAmount: toNumber(order.discountAmount),
+    discountCode: order.discountCodeSnapshot,
     total: toNumber(order.total),
     quantity: order.quantity,
     currency: order.currency,
