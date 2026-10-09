@@ -527,13 +527,76 @@ export async function persistDropshipIntelligence(merchantId: number, graph: Awa
 export async function buildMaxConsensusDropshipPlan(merchantId: number, question?: string | null) {
   const graph = await buildDropshipOperatingGraph(merchantId);
   const memory = await recallMerchantMemory(merchantId, 24);
+  const priorMerchantMemory = memory.slice(0, 12).flatMap((item) => {
+    const content = typeof item.content === "string" ? item.content.trim().slice(0, 900) : "";
+    if (!content) return [];
+    return [{
+      type: typeof item.memory_type === "string" ? item.memory_type.slice(0, 40) : "unknown",
+      key: typeof item.memory_key === "string" ? item.memory_key.slice(0, 160) : "unknown",
+      confidenceBps: Number.isInteger(Number(item.confidence_bps)) ? Math.max(0, Math.min(10_000, Number(item.confidence_bps))) : 0,
+      source: typeof item.source === "string" ? item.source.slice(0, 120) : "unknown",
+      updatedAt: item.updated_at ? new Date(String(item.updated_at)).toISOString() : null,
+      content,
+    }];
+  });
+  // Keep the live question and remembered operating preferences at the front of
+  // the bounded model context. Use curated evidence rather than serializing the
+  // entire product/customer graph and silently truncating the most important tail.
   const context = JSON.stringify({
-    merchant: graph.merchant,
-    summary: graph.summary,
-    fulfillment: graph.fulfillment,
-    graph: graph.graph,
-    authorityRules: graph.authorityRules,
     question: question?.slice(0, 2000) ?? "How should the store improve profitable dropshipping operations next?",
+    memoryGuidance: "Prior memory contains old preferences, lessons, decisions and AI recommendations; it is not current operational truth. Re-check operational claims against the live graph and treat prior recommendations as unapproved unless an explicit approval record is supplied.",
+    priorMerchantMemory,
+    merchant: graph.merchant,
+    summary: {
+      productCount: graph.summary.productCount,
+      customerCount: graph.summary.customerCount,
+      reorderCandidateCount: graph.summary.reorderCandidateCount,
+      decliningProductCount: graph.summary.decliningProductCount,
+      scaleWinnerCount: graph.summary.scaleWinnerCount,
+      atRiskCustomerCount: graph.summary.atRiskCustomerCount,
+      supplierStockRiskCount: graph.summary.supplierStockRiskCount,
+      researchCount: graph.summary.researchCount,
+      automationCandidates: graph.summary.automationCandidates.slice(0, 16),
+    },
+    priorityProducts: graph.products
+      .filter((product) => product.priorities.some((priority) => priority !== "monitor"))
+      .sort((a, b) => b.priorities.length - a.priorities.length || b.reorderUnits - a.reorderUnits)
+      .slice(0, 16)
+      .map((product) => ({
+        id: product.id,
+        title: product.title,
+        sourceDomain: product.sourceDomain,
+        stock: product.stock,
+        inventoryKnown: product.inventoryKnown,
+        supplierStock: product.supplierStock,
+        supplierStockRisk: product.supplierStockRisk,
+        sourceCurrency: product.sourceCurrency,
+        sourceCostMinor: product.sourceCostMinor,
+        sellingPriceMinor: product.sellingPriceMinor,
+        grossMarginBps: product.grossMarginBps,
+        sold14: product.sold14,
+        sold30: product.sold30,
+        trendFactor: product.trendFactor,
+        projected30: product.projected30,
+        leadTimeDays: product.leadTimeDays,
+        reorderUnits: product.reorderUnits,
+        conversionBps: product.conversionBps,
+        priorities: product.priorities,
+        fallbackAvailable: Boolean(product.supplierFallback),
+      })),
+    atRiskCustomers: graph.summary.atRiskCustomers.slice(0, 8).map((customer) => ({
+      id: customer.id,
+      orderCount: customer.orderCount,
+      currencyCoverage: customer.currencyCoverage,
+      recencyDays: customer.recencyDays,
+      churnRiskBps: customer.churnRiskBps,
+      segment: customer.segment,
+      nextBestAction: customer.nextBestAction,
+      marketingEligible: customer.marketingEligible,
+    })),
+    fulfillment: graph.fulfillment.slice(0, 20),
+    operatingGraph: graph.graph,
+    authorityRules: graph.authorityRules,
   });
 
   const brain = await completeLunavoBrain(
