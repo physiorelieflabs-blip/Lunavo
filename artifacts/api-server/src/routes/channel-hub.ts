@@ -3,7 +3,8 @@ import { Router, type Request, type Response } from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { db, merchantsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
-import { encryptSecret } from "../lib/withdrawal-security";
+import { decryptSecret, encryptSecret } from "../lib/withdrawal-security";
+import { channelGatewayConfigured, channelGatewayRequest } from "../lib/channel-gateway-client";
 import { requirePermission } from "../lib/tenant-access";
 
 const router = Router();
@@ -26,7 +27,7 @@ function quote(value: string | null): string {
   return "'" + value.replaceAll("'", "''") + "'";
 }
 function safeUuid(value: string): boolean {
-  return /^[0-9a-f-]{20,64}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 async function merchantFor(req: Request, res: Response) {
@@ -155,22 +156,145 @@ router.post("/merchant/channels", async (req, res, next) => {
       return;
     }
 
-    const bootstrap = [
-      "INSERT INTO merchant_channel_sync_jobs (connection_id,merchant_id,direction,resource,status,idempotency_key,requested_by,metrics) VALUES",
-      "(" + quote(String(row.id)) + "," + String(ctx.merchantId) + ",'pull','products','queued'," +
-        quote("channel-bootstrap-products:" + String(row.id)) + "," + quote(ctx.userId) + ",'{}'::jsonb),",
-      "(" + quote(String(row.id)) + "," + String(ctx.merchantId) + ",'pull','inventory','queued'," +
-        quote("channel-bootstrap-inventory:" + String(row.id)) + "," + quote(ctx.userId) + ",'{}'::jsonb)",
-      "ON CONFLICT (connection_id,idempotency_key) DO NOTHING",
-    ].join(" ");
-    await db.execute(sql.raw(bootstrap));
-
     res.status(201).json({
       connection: serialize({ ...row, credential_configured: Boolean(accessToken), webhook_configured: Boolean(webhookSecret) }),
-      syncQueued: ["products","inventory"],
-      executionBoundary: "provider-adapter",
+      syncQueued: [],
+      nextStep: "Run connection test before syncing. External jobs are not marked successful until the self-hosted provider adapter confirms the provider result and local commit.",
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/merchant/channels/:id/connect", async (req, res, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+    const id = txt(req.params.id, 80);
+    if (!id || !safeUuid(id)) {
+      res.status(400).json({ error: "Invalid channel connection id" });
+      return;
+    }
+    if (!channelGatewayConfigured()) {
+      res.status(503).json({ error: "The private self-hosted channel adapter gateway is not configured. No provider connection was attempted." });
+      return;
+    }
+
+    const found = await db.execute(sql`
+      SELECT c.*,
+        (c.encrypted_access_token IS NOT NULL AND c.encrypted_access_token <> '') AS credential_configured,
+        (c.encrypted_webhook_secret IS NOT NULL AND c.encrypted_webhook_secret <> '') AS webhook_configured
+      FROM merchant_channel_connections c
+      WHERE c.id = ${id}::uuid AND c.merchant_id = ${ctx.merchantId}
+      LIMIT 1
+    `);
+    const connection = found.rows[0] as Record<string, unknown> | undefined;
+    if (!connection) {
+      res.status(404).json({ error: "Channel connection not found" });
+      return;
+    }
+    if (connection.status === "revoked" || connection.status === "paused") {
+      res.status(409).json({ error: "Paused or revoked channel connections cannot be connected" });
+      return;
+    }
+    const storeUrl = typeof connection.store_url === "string" ? connection.store_url : null;
+    if (connection.provider !== "custom" && (!storeUrl || !/^https:\/\//i.test(storeUrl))) {
+      res.status(400).json({ error: "Add the channel's HTTPS store URL before connecting" });
+      return;
+    }
+
+    let accessToken: string | null = null;
+    let refreshToken: string | null = null;
+    try {
+      accessToken = typeof connection.encrypted_access_token === "string" ? decryptSecret(connection.encrypted_access_token) : null;
+      refreshToken = typeof connection.encrypted_refresh_token === "string" ? decryptSecret(connection.encrypted_refresh_token) : null;
+    } catch {
+      res.status(409).json({ error: "Stored channel credentials could not be decrypted. Re-enter the credentials and reconnect." });
+      return;
+    }
+    const test = await channelGatewayRequest<unknown>("connection.test", {
+      connection: {
+        id: String(connection.id),
+        merchantId: ctx.merchantId,
+        provider: String(connection.provider),
+        displayName: String(connection.display_name),
+        storeUrl,
+        externalAccountRef: typeof connection.external_account_ref === "string" ? connection.external_account_ref : null,
+        accessToken,
+        refreshToken,
+      },
+    });
+    if (!test || typeof test !== "object" || Array.isArray(test)) {
+      res.status(502).json({ error: "Channel adapter returned an invalid connection test result" });
+      return;
+    }
+    const tested = test as Record<string, unknown>;
+    if (tested.ok !== true || tested.verified !== true) {
+      const message = typeof tested.error === "string" ? tested.error.slice(0, 400) : "The provider adapter did not verify this connection";
+      res.status(502).json({ error: message, connected: false });
+      return;
+    }
+    const accountRef = typeof tested.providerAccountRef === "string" ? tested.providerAccountRef.trim().slice(0, 250) : null;
+    const capabilities = Array.isArray(tested.capabilities)
+      ? tested.capabilities.filter((value): value is string => typeof value === "string").slice(0, 30).map(value => value.slice(0, 80))
+      : [];
+
+    const connected = await db.transaction(async tx => {
+      const updated = await tx.execute(sql`
+        UPDATE merchant_channel_connections
+        SET status = 'connected',
+            external_account_ref = COALESCE(${accountRef}, external_account_ref),
+            last_error = NULL,
+            updated_at = now()
+        WHERE id = ${id}::uuid
+          AND merchant_id = ${ctx.merchantId}
+          AND status NOT IN ('revoked','paused')
+        RETURNING *
+      `);
+      const row = updated.rows[0] as Record<string, unknown> | undefined;
+      if (!row) return null;
+      const resources: Array<{ resource: "products" | "inventory"; enabled: boolean }> = [
+        { resource: "products", enabled: row.sync_products === true },
+        { resource: "inventory", enabled: row.sync_inventory === true },
+      ];
+      for (const item of resources) {
+        if (!item.enabled) continue;
+        await tx.execute(sql`
+          INSERT INTO merchant_channel_sync_jobs
+            (connection_id,merchant_id,direction,resource,status,idempotency_key,requested_by,metrics)
+          VALUES (${id}::uuid,${ctx.merchantId},'pull',${item.resource},'queued',
+            ${"channel-bootstrap-" + item.resource + ":" + id},${ctx.userId},'{}'::jsonb)
+          ON CONFLICT (connection_id,idempotency_key) DO UPDATE
+          SET status='queued', attempts=0, locked_at=NULL, started_at=NULL, completed_at=NULL,
+              next_attempt_at=NULL, last_error=NULL, updated_at=now()
+          WHERE merchant_channel_sync_jobs.status IN ('failed','cancelled')
+        `);
+      }
+      return row;
+    });
+    if (!connected) {
+      res.status(409).json({ error: "Channel was paused or revoked during connection testing" });
+      return;
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      connection: serialize({
+        ...connected,
+        credential_configured: Boolean(connection.encrypted_access_token),
+        webhook_configured: Boolean(connection.encrypted_webhook_secret),
+      }),
+      verified: true,
+      capabilities,
+      bootstrapQueued: ["products", "inventory"].filter(resource =>
+        resource === "products" ? connected.sync_products === true : connected.sync_inventory === true
+      ),
+    });
+  } catch (error) {
+    if (error instanceof Error && /gateway|adapter/.test(error.message)) {
+      res.status(503).json({ error: error.message.slice(0, 500) });
+      return;
+    }
     next(error);
   }
 });
