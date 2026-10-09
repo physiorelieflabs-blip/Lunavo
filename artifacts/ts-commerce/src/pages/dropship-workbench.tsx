@@ -336,7 +336,7 @@ export default function DropshipWorkbench() {
         <div>
           <p className="font-mono text-[10px] font-black uppercase tracking-[.18em] text-[#8fb8e8]">Connected dropshipping operations</p>
           <h1 className="mt-2 max-w-3xl text-3xl font-black tracking-[-.05em] sm:text-4xl">Know your real unit economics before you scale.</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">Compare per-unit landed cost, provider fees, returns reserve and contribution margin. Prepare supplier quote requests and record actual offers. Every amount is traceable; estimates never become payment or stock truth.</p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">Compare per-unit landed cost, provider fees, returns reserve and contribution margin. Prepare supplier quote requests and record actual offers. Every amount is traceable; estimates never become payment or stock truth.</p><p className="mt-2 text-[10px] font-bold text-white/55">Detected merchant workspace currency: {merchantCurrency}. Currency and destination assumptions must be verified for each market.</p>
         </div>
         <button className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-[#12345a]" onClick={() => void load()} disabled={loading}><RefreshCw className="h-4 w-4"/>{loading ? "Refreshing…" : "Refresh workspace"}</button>
       </div>
