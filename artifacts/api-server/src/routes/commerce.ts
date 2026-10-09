@@ -24,6 +24,7 @@ import { getAuth } from "../lib/auth-compat";
 import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
 import { currencyMinorDigits, multiplyMinorUnits, toMinorUnits } from "../lib/money";
+import { calculateDiscountMinorUnits } from "../lib/discount-pricing";
 import {
   activityTable,
   aiActionsTable,
@@ -9533,21 +9534,16 @@ router.post(
           if (lockedCode.usageLimit !== null && lockedCode.usageCount + inFlightRedemptions >= lockedCode.usageLimit) {
             throw new Error("This discount code has reached its usage limit");
           }
-          if (lockedCode.kind === "percentage") {
-            // The discount value is a percentage with two decimal places: 10.00 means 10%.
-            const percentBasisPoints = toMinorUnits(lockedCode.value, 2);
-            if (percentBasisPoints === null || percentBasisPoints <= 0 || percentBasisPoints > 10_000) {
-              throw new Error("This discount code has an invalid percentage");
-            }
-            discountMinor = Number((BigInt(subtotalMinor) * BigInt(percentBasisPoints)) / 10_000n);
-          } else if (lockedCode.kind === "fixed") {
-            const fixedDiscountMinor = toMinorUnits(lockedCode.value, currencyDigits);
-            if (fixedDiscountMinor === null || fixedDiscountMinor <= 0) throw new Error("This discount code has an invalid amount");
-            discountMinor = Math.min(subtotalMinor, fixedDiscountMinor);
-          } else {
-            throw new Error("This discount code uses an unsupported discount type");
+          const calculatedDiscount = calculateDiscountMinorUnits({
+            subtotalMinor,
+            kind: lockedCode.kind,
+            value: lockedCode.value,
+            currencyMinorDigits: currencyDigits,
+          });
+          if (calculatedDiscount === null || calculatedDiscount <= 0) {
+            throw new Error("This discount code has an invalid value or does not reduce the order total");
           }
-          if (discountMinor <= 0) throw new Error("This discount code does not reduce the order total");
+          discountMinor = calculatedDiscount;
           appliedDiscountCode = lockedCode;
         }
 
