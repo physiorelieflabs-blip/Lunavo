@@ -2607,6 +2607,8 @@ components:
         orderNumber: { type: string }
         customerName: { type: string }
         customerEmail: { type: string, format: email }
+        discountAmount: { type: number }
+        discountCode: { type: ["string", "null"] }
         total: { type: number }
         quantity: { type: integer, minimum: 1 }
         currency: { type: string }
@@ -2619,7 +2621,7 @@ components:
         paymentStatus: { type: ["string", "null"] }
         paymentEvidenceReference: { type: ["string", "null"] }
         createdAt: { type: string, format: date-time }
-      required: [id, orderNumber, customerName, customerEmail, total, quantity, currency, status, supplierProductId, productTitle, shippingAddress, fulfillmentStatus, paymentIntentId, paymentStatus, paymentEvidenceReference, createdAt]
+      required: [id, orderNumber, customerName, customerEmail, discountAmount, discountCode, total, quantity, currency, status, supplierProductId, productTitle, shippingAddress, fulfillmentStatus, paymentIntentId, paymentStatus, paymentEvidenceReference, createdAt]
     CreateOrderInput:
       type: object
       properties:
