@@ -1,4 +1,4 @@
-import { completeLocalChat, completeLocalEnsemble, type LocalAiProfile } from "./self-hosted-ai";
+import { completeLocalChat, completeLocalEnsemble, type LocalAiMessage, type LocalAiProfile } from "./self-hosted-ai";
 
 export type ReasoningMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -211,7 +211,7 @@ export async function completeLunavoBrain(
   ).join("\n\n");
 
   try {
-    const arbiterMessages = [
+    const arbiterMessages: LocalAiMessage[] = [
         {
           role: "system",
           content: [
