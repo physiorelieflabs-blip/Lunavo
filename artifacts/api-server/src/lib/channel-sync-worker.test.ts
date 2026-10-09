@@ -4,7 +4,7 @@ import { assertChannelSyncResult, retryDelaySeconds } from "./channel-sync-worke
 describe("channel sync execution evidence", () => {
   it("does not call an adapter response successful without provider evidence and local commit", () => {
     expect(() => assertChannelSyncResult({ status: "succeeded", requestId: "req-1", providerConfirmed: true }, "pull")).toThrow(/localCommitConfirmed/);
-    expect(() => assertChannelSyncResult({ status: "succeeded", requestId: "req-1", localCommitConfirmed: true }, "push")).toThrow(/providerConfirmed/);
+    expect(() => assertChannelSyncResult({ status: "succeeded", requestId: "req-1", localCommitConfirmed: true }, "push")).toThrow(/provider operation/);
   });
 
   it("accepts explicit complete pull and push acknowledgements", () => {
