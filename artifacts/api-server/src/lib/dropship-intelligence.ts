@@ -30,6 +30,13 @@ function recencyDays(date: unknown): number | null {
   return Math.max(0, Math.floor((Date.now() - ms) / 86_400_000));
 }
 
+function ageHours(date: unknown): number | null {
+  if (!date) return null;
+  const ms = new Date(String(date)).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, (Date.now() - ms) / 3_600_000);
+}
+
 function shippingLeadTime(value: unknown): number {
   const text = JSON.stringify(value ?? "");
   const nums = [...text.matchAll(/\b(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?\s*(?:business\s*)?(?:day|days)\b/gi)]
@@ -96,16 +103,18 @@ export function partialSourceMarginBps(sellingPriceMinor: number | null, sourceC
 export async function buildDropshipOperatingGraph(merchantId: number) {
   if (!Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid merchant id");
 
-  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult, inventoryMovementResult, reservationResult] = await Promise.all([
+  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult, inventoryMovementResult, reservationResult, supplierSyncResult, supplierSyncPolicyResult] = await Promise.all([
     db.execute(sql`SELECT id,name,store_name,currency,tax_rate,shipping_fee,free_shipping_threshold FROM merchants WHERE id=${merchantId} AND status='active' LIMIT 1`),
-    db.execute(sql`SELECT id,title,category,brand,currency,price,sale_price,selling_price,availability,availability_quantity,inventory_strategy,status,visibility,shipping_information,shipping_configuration,source_domain,updated_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 500`),
+    db.execute(sql`SELECT id,title,category,brand,currency,price,sale_price,selling_price,availability,availability_quantity,inventory_strategy,status,visibility,shipping_information,shipping_configuration,source_domain,imported_at,last_attempted_sync,updated_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 500`),
     db.execute(sql`SELECT id,customer_id,supplier_product_id,quantity,total,currency,status,created_at,fulfillment_status FROM orders WHERE merchant_id=${merchantId} AND created_at >= ${isoDaysAgo(180)} ORDER BY created_at DESC LIMIT 5000`),
     db.execute(sql`SELECT id,name,email,marketing_consent,created_at,updated_at FROM customers WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 2000`),
-    db.execute(sql`SELECT status,COUNT(*)::int AS count FROM fulfillment_jobs WHERE merchant_id=${merchantId} GROUP BY status ORDER BY count DESC`),
+    db.execute(sql`SELECT status,COUNT(*)::int AS count,COUNT(*) FILTER (WHERE last_error IS NOT NULL OR status IN ('failed','exception','review_required'))::int AS exception_count,COUNT(*) FILTER (WHERE status NOT IN ('delivered','cancelled','completed') AND updated_at < now() - INTERVAL '72 hours')::int AS stale_count FROM fulfillment_jobs WHERE merchant_id=${merchantId} GROUP BY status ORDER BY count DESC`),
     db.execute(sql`SELECT product_id,COALESCE(SUM(impressions),0)::bigint impressions,COALESCE(SUM(clicks),0)::bigint clicks,COALESCE(SUM(add_to_carts),0)::bigint add_to_carts,COALESCE(SUM(purchases),0)::bigint purchases,COALESCE(SUM(attributed_revenue_minor),0)::bigint revenue_minor FROM product_advertising_campaigns WHERE merchant_id=${merchantId} GROUP BY product_id`),
     db.execute(sql`SELECT id,supplier_product_id,source_kind,source_url,observed_at,currency,observed_price_minor,demand_score,competition_score,trend_score,notes,evidence,model FROM dropship_market_research WHERE merchant_id=${merchantId} ORDER BY observed_at DESC LIMIT 500`),
     db.execute(sql`SELECT supplier_product_id,COALESCE(SUM(quantity_delta),0)::bigint AS on_hand FROM inventory_movements WHERE merchant_id=${merchantId} GROUP BY supplier_product_id`),
     db.execute(sql`SELECT supplier_product_id,COALESCE(SUM(quantity),0)::bigint AS reserved FROM inventory_reservations WHERE merchant_id=${merchantId} AND status='reserved' AND expires_at > now() GROUP BY supplier_product_id`),
+    db.execute(sql`SELECT DISTINCT ON (supplier_product_id) supplier_product_id,status,created_at,completed_at,error_message FROM supplier_sync_runs WHERE merchant_id=${merchantId} ORDER BY supplier_product_id,created_at DESC`),
+    db.execute(sql`SELECT supplier_product_id,enabled,sync_price,sync_stock,max_price_change_bps,min_margin_bps,out_of_stock_action,require_price_review,auto_apply,last_run_at FROM supplier_sync_policies WHERE merchant_id=${merchantId}`),
   ]);
 
   const merchant = (merchantResult.rows[0] ?? null) as Row | null;
@@ -130,6 +139,21 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const productId = int(row.supplier_product_id, 0);
     if (productId > 0) inventoryReserved.set(productId, int(row.reserved, 0));
   }
+  const supplierSyncStatus = new Map<number, Row>();
+  for (const row of supplierSyncResult.rows as Row[]) {
+    const productId = int(row.supplier_product_id, 0);
+    if (productId > 0) supplierSyncStatus.set(productId, row);
+  }
+  const supplierSyncPolicies = new Map<number, Row>();
+  for (const row of supplierSyncPolicyResult.rows as Row[]) {
+    const productId = int(row.supplier_product_id, 0);
+    if (productId > 0) supplierSyncPolicies.set(productId, row);
+  }
+  const fulfillmentStats = (fulfillmentResult.rows as Row[]).reduce((acc, row) => ({
+    jobCount: acc.jobCount + Math.max(0, int(row.count)),
+    exceptionCount: acc.exceptionCount + Math.max(0, int(row.exception_count)),
+    staleCount: acc.staleCount + Math.max(0, int(row.stale_count)),
+  }), { jobCount: 0, exceptionCount: 0, staleCount: 0 });
   const customerMetricsResult = await db.execute(sql`
     SELECT customer_id,
       COUNT(*)::int AS order_count,
@@ -203,6 +227,13 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       ? 0
       : Math.max(0, Math.ceil(projected30 + leadUnits + safetyUnits - stock));
     const supplierStockRisk = supplierStockIsAtRisk(product.availability, supplierStock, leadUnits + safetyUnits);
+    const syncState = supplierSyncStatus.get(id) ?? null;
+    const syncPolicy = supplierSyncPolicies.get(id) ?? null;
+    const lastObservedAt = syncState?.completed_at ?? syncState?.created_at ?? product.last_attempted_sync ?? product.imported_at ?? null;
+    const supplierDataAgeHours = ageHours(lastObservedAt);
+    const supplierDataStale = syncState?.status === "failed" || supplierDataAgeHours === null || supplierDataAgeHours > 72;
+    const syncEnabled = syncPolicy?.enabled === true;
+    const syncStatus = syncState ? String(syncState.status) : "never_synced";
 
     const sourceCurrency = String(product.currency ?? currency).toUpperCase();
     const sourceCostMinor = money(product.sale_price ?? product.price);
@@ -221,6 +252,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     if (stock !== null && reorderUnits > 0) priorities.push("reorder");
     if (strategy !== "source_based" && stock === null) priorities.push("inventory_baseline_missing");
     if (supplierStockRisk) priorities.push("supplier_stock_risk");
+    if (supplierDataStale) priorities.push("supplier_data_stale");
+    if (!syncEnabled) priorities.push("supplier_sync_unconfigured");
     if (contributionMarginBps !== null && contributionMarginBps < 1500) priorities.push("margin_review");
     if (trend >= 1.25) priorities.push("scale_winner");
     if (trend <= 0.75 && sold30 > 0) priorities.push("declining_demand");
@@ -239,6 +272,19 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       reservedUnits: reserved,
       supplierStock,
       supplierStockRisk,
+      supplierDataAgeHours: supplierDataAgeHours === null ? null : Number(supplierDataAgeHours.toFixed(1)),
+      supplierDataStale,
+      supplierSyncStatus: syncStatus,
+      supplierSyncEnabled: syncEnabled,
+      supplierSyncPolicy: syncPolicy ? {
+        syncPrice: syncPolicy.sync_price === true,
+        syncStock: syncPolicy.sync_stock === true,
+        requirePriceReview: syncPolicy.require_price_review !== false,
+        autoApply: syncPolicy.auto_apply === true,
+        maxPriceChangeBps: int(syncPolicy.max_price_change_bps, 1500),
+        minMarginBps: int(syncPolicy.min_margin_bps, 1500),
+        outOfStockAction: String(syncPolicy.out_of_stock_action ?? "pause"),
+      } : null,
       sourceCurrency,
       sourceCostMinor,
       sellingPriceMinor,
@@ -310,6 +356,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   const supplierRiskProducts = productIntelligence.filter((x) => x.supplierStockRisk).sort((a, b) => Number(Boolean(b.supplierFallback)) - Number(Boolean(a.supplierFallback))).slice(0, 30);
   const winners = productIntelligence.filter((x) => x.priorities.includes("scale_winner")).slice(0, 20);
   const automationCandidates = [
+    ...(fulfillmentStats.exceptionCount > 0 || fulfillmentStats.staleCount > 0 ? [{ kind: "fulfillment.exceptions.review", exceptionCount: fulfillmentStats.exceptionCount, staleCount: fulfillmentStats.staleCount, requiresApproval: true }] : []),
     ...reorderCandidates.slice(0, 10).map((product) => ({ kind: "inventory.reorder.review", productId: product.id, recommendedUnits: product.reorderUnits, requiresApproval: true })),
     ...supplierRiskProducts.slice(0, 10).map((product) => ({ kind: "supplier.stock-risk.review", productId: product.id, supplierStock: product.supplierStock, fallbackAvailable: Boolean(product.supplierFallback), requiresApproval: true })),
     ...atRiskCustomers.slice(0, 10).map((customer) => ({ kind: "customer.retention.review", customerId: customer.id, nextBestAction: customer.nextBestAction, requiresApproval: true })),
@@ -329,6 +376,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     products: productIntelligence,
     customers: customerIntelligence,
     fulfillment: fulfillmentResult.rows,
+    fulfillmentStats,
     summary: {
       productCount: productIntelligence.length,
       customerCount: customerIntelligence.length,
@@ -336,6 +384,9 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       decliningProductCount: productIntelligence.filter((x) => x.priorities.includes("declining_demand")).length,
       scaleWinnerCount: winners.length,
       atRiskCustomerCount: atRiskCustomers.length,
+      fulfillmentJobCount: fulfillmentStats.jobCount,
+      fulfillmentExceptionCount: fulfillmentStats.exceptionCount,
+      staleFulfillmentJobCount: fulfillmentStats.staleCount,
       topProducts,
       reorderCandidates,
       supplierRiskProducts,
@@ -358,6 +409,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       { feature: "Supplier/product discovery and URL import", status: "implemented", connectedTo: ["research", "catalog", "pricing", "inventory"] },
       { feature: "Multi-supplier mapping and supplier optimizer", status: "implemented", connectedTo: ["supplier", "landed_cost", "fulfillment", "fallback"] },
       { feature: "Price and stock monitoring", status: "implemented", connectedTo: ["supplier_sync", "margin", "inventory", "catalog"] },
+      { feature: "Supplier feed freshness and failed-sync triage", status: "implemented", connectedTo: ["sync_history", "source_data", "stock_risk", "price_review"] },
+      { feature: "Aged fulfillment and stuck-order exception queue", status: "implemented", connectedTo: ["fulfillment_jobs", "tracking", "customer_support", "retention"] },
       { feature: "Alternative-product / supplier fallback", status: "implemented", connectedTo: ["stock", "destination", "shipping", "margin"] },
       { feature: "Auto-fulfillment and batch operations", status: "implemented", connectedTo: ["verified_order", "supplier", "tracking", "exceptions"] },
       { feature: "Tracking and customer delivery lifecycle", status: "implemented", connectedTo: ["fulfillment", "customer", "support", "retention"] },
