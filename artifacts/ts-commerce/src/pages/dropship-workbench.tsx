@@ -330,6 +330,42 @@ export default function DropshipWorkbench() {
     } catch (error) { setQuoteError(error instanceof Error ? error.message : "Quote status could not be updated."); }
   };
 
+  const modelQuoteCosts = (item: Quote) => {
+    const currency = String(item.currency || "USD").toUpperCase();
+    const quantity = Number(item.quantity);
+    const sourceProductId = item.supplier_product_id == null ? "" : String(item.supplier_product_id);
+    const quotedPrice = item.quoted_unit_price_minor;
+    const quotedShipping = Number(item.quoted_shipping_minor ?? 0);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || !Number.isSafeInteger(Number(quotedPrice)) || Number(quotedPrice) < 0 || !Number.isSafeInteger(quotedShipping) || quotedShipping < 0) {
+      setQuoteError("This quote has no valid recorded price/quantity to model yet.");
+      return;
+    }
+    const allocatedShipping = Math.round(quotedShipping / quantity);
+    const sameCurrencyAsCurrent = costForm.currency.toUpperCase() === currency;
+    setCostForm(current => ({
+      ...current,
+      scenarioName: (item.product_title || item.linked_product_title || "Supplier quote") + " - " + item.destination_country + " landed cost",
+      supplierProductId: sourceProductId,
+      destinationCountry: String(item.destination_country || current.destinationCountry).toUpperCase(),
+      currency,
+      sourceCurrency: currency,
+      quantity: String(quantity),
+      sourceCost: minorToMajor(Number(quotedPrice), currency),
+      shipping: minorToMajor(allocatedShipping, currency),
+      freight: "0",
+      insurance: "0",
+      handling: "0",
+      packaging: "0",
+      sellingPrice: sameCurrencyAsCurrent ? current.sellingPrice : "",
+      fxNote: "",
+      fxUrl: "",
+      evidenceNote: "Prefilled from manually recorded supplier quote " + item.id + ". Quoted shipping total " + money(quotedShipping, currency) + " was allocated across " + quantity + " units with per-unit minor-unit rounding. Verify freight, duties, tax, provider fees and delivery assumptions.",
+    }));
+    setQuoteError("");
+    setNotice("Supplier quote copied into the landed-cost form. Verify the quote validity and fill every missing destination cost before relying on the estimate.");
+    costFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return <AppShell><div className="space-y-6">
     <section className="overflow-hidden rounded-[24px] border border-[#1c3f68] bg-[#0b2748] p-6 text-white sm:p-8">
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
@@ -447,7 +483,8 @@ export default function DropshipWorkbench() {
           <div className="mt-3 flex flex-wrap gap-2">
             {(item.status==="quoted" || item.status==="accepted") && <button className={secondaryClass} onClick={()=>useQuoteForCost(item)}>Model this quote in landed cost</button>}
             {item.status==="draft" && <button className={secondaryClass} onClick={()=>{setActiveQuote(item.id);setQuoteError("");}}>Enter supplier quote</button>}
-            {item.status==="quoted" && <><button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"accept")}>Record acceptance</button><button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"reject")}>Reject quote</button>{item.quote_expires_at && new Date(item.quote_expires_at).getTime()<=Date.now() && <button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"expire")}>Mark expired</button>}</>}
+            {(item.status==="quoted" || item.status==="accepted") && <button className={secondaryClass} onClick={()=>modelQuoteCosts(item)}><Plus className="h-3.5 w-3.5"/>Model landed cost</button>}
+          {item.status==="quoted" && <><button className={secondaryClass} onClick={()=>{if(window.confirm("Record this supplier quote as accepted? This does not create a purchase order or send money."))void transitionQuote(item.id,"accept")}}>Record acceptance</button><button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"reject")}>Reject quote</button>{item.quote_expires_at && new Date(item.quote_expires_at).getTime()<=Date.now() && <button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"expire")}>Mark expired</button></>}
             {item.status==="draft" && <button className={secondaryClass} onClick={()=>void transitionQuote(item.id,"cancel")}>Cancel draft</button>}
           </div>
           {item.status==="accepted" && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">Acceptance is recorded for negotiation tracking only. Create a separate reviewed purchase order and payment through the normal guarded workflows.</p>}
