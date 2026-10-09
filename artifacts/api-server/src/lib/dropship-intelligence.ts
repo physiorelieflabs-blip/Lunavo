@@ -258,6 +258,52 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     const supplierDataStale = syncState?.status === "failed" || supplierDataAgeHours === null || supplierDataAgeHours > 72;
     const syncEnabled = syncPolicy?.enabled === true;
     const syncStatus = syncState ? String(syncState.status) : "never_synced";
+    const landedCostScenarios = (landedScenariosByProduct.get(id) ?? []).map((scenario) => ({
+      id: String(scenario.id),
+      name: String(scenario.scenario_name ?? "Landed cost scenario"),
+      destinationCountry: String(scenario.destination_country ?? ""),
+      currency: String(scenario.currency ?? "").toUpperCase(),
+      quantity: Math.max(1, int(scenario.quantity, 1)),
+      sourceCostMinor: int(scenario.source_cost_minor, 0),
+      outboundShippingMinor: int(scenario.outbound_shipping_minor, 0),
+      freightMinor: int(scenario.freight_minor, 0),
+      insuranceMinor: int(scenario.insurance_minor, 0),
+      handlingMinor: int(scenario.handling_minor, 0),
+      packagingMinor: int(scenario.packaging_minor, 0),
+      sellingPriceMinor: int(scenario.selling_price_minor, 0),
+      landedCostMinor: int(scenario.landed_cost_minor, 0),
+      providerFeeMinor: int(scenario.provider_fee_minor, 0),
+      platformFeeMinor: int(scenario.platform_fee_minor, 0),
+      returnsReserveMinor: int(scenario.returns_reserve_minor, 0),
+      contributionMarginMinor: int(scenario.contribution_margin_minor, 0),
+      contributionMarginBps: int(scenario.contribution_margin_bps, 0),
+      calculationVersion: String(scenario.calculation_version ?? "unknown"),
+      createdAt: scenario.created_at ? new Date(String(scenario.created_at)).toISOString() : null,
+      evidenceStatus: "operator_supplied_assumptions; destination-specific estimate, not a binding supplier quote",
+    }));
+    const latestSupplierQuotes = (supplierQuotesByProduct.get(id) ?? []).map((quote) => {
+      const expiry = quote.quote_expires_at ? new Date(String(quote.quote_expires_at)) : null;
+      return {
+        id: String(quote.id),
+        supplierName: typeof quote.supplier_name === "string" ? quote.supplier_name.slice(0, 200) : null,
+        destinationCountry: String(quote.destination_country ?? ""),
+        currency: String(quote.currency ?? "").toUpperCase(),
+        quantity: Math.max(1, int(quote.quantity, 1)),
+        status: String(quote.status ?? "draft"),
+        quotedUnitPriceMinor: quote.quoted_unit_price_minor == null ? null : int(quote.quoted_unit_price_minor, 0),
+        quotedShippingMinor: quote.quoted_shipping_minor == null ? null : int(quote.quoted_shipping_minor, 0),
+        quotedTotalMinor: quote.quoted_total_minor == null ? null : int(quote.quoted_total_minor, 0),
+        deliveryDays: quote.quoted_delivery_days == null ? null : int(quote.quoted_delivery_days, 0),
+        targetUnitPriceMinor: quote.target_unit_price_minor == null ? null : int(quote.target_unit_price_minor, 0),
+        desiredDeliveryDays: quote.desired_delivery_days == null ? null : int(quote.desired_delivery_days, 0),
+        expiresAt: expiry && Number.isFinite(expiry.getTime()) ? expiry.toISOString() : null,
+        expired: Boolean(expiry && Number.isFinite(expiry.getTime()) && expiry.getTime() <= Date.now()),
+        requestNotes: String(quote.request_notes ?? "").slice(0, 300),
+        quoteNotes: String(quote.quote_notes ?? "").slice(0, 300),
+        updatedAt: quote.updated_at ? new Date(String(quote.updated_at)).toISOString() : null,
+        evidenceStatus: "merchant_recorded_quote; verify source evidence before treating as binding",
+      };
+    });
 
     const sourceCurrency = String(product.currency ?? currency).toUpperCase();
     const sourceCostMinor = money(product.sale_price ?? product.price);
@@ -300,6 +346,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       supplierDataStale,
       supplierSyncStatus: syncStatus,
       supplierSyncEnabled: syncEnabled,
+      landedCostScenarios,
+      latestSupplierQuotes,
       supplierSyncPolicy: syncPolicy ? {
         syncPrice: syncPolicy.sync_price === true,
         syncStock: syncPolicy.sync_stock === true,
@@ -378,11 +426,21 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   const atRiskCustomers = [...customerIntelligence].filter((x) => x.churnRiskBps >= 6000).sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20);
   const reorderCandidates = productIntelligence.filter((x) => x.reorderUnits > 0).sort((a, b) => b.reorderUnits - a.reorderUnits).slice(0, 30);
   const supplierRiskProducts = productIntelligence.filter((x) => x.supplierStockRisk).sort((a, b) => Number(Boolean(b.supplierFallback)) - Number(Boolean(a.supplierFallback))).slice(0, 30);
+  const quoteRequestCandidates = supplierRiskProducts.filter((product) =>
+    !product.latestSupplierQuotes.some((quote) => ["quoted", "accepted"].includes(quote.status) && !quote.expired),
+  ).slice(0, 8);
+  const landedCostScenarioCount = (landedScenarioResult.rows as Row[]).length;
+  const supplierQuoteRequestCount = (supplierQuoteResult.rows as Row[]).length;
+  const activeSupplierQuoteCount = (supplierQuoteResult.rows as Row[]).filter((quote) =>
+    ["quoted", "accepted"].includes(String(quote.status)) &&
+    (!quote.quote_expires_at || new Date(String(quote.quote_expires_at)).getTime() > Date.now()),
+  ).length;
   const winners = productIntelligence.filter((x) => x.priorities.includes("scale_winner")).slice(0, 20);
   const automationCandidates = [
     ...(fulfillmentStats.exceptionCount > 0 || fulfillmentStats.staleCount > 0 ? [{ kind: "fulfillment.exceptions.review", exceptionCount: fulfillmentStats.exceptionCount, staleCount: fulfillmentStats.staleCount, requiresApproval: true }] : []),
     ...reorderCandidates.slice(0, 10).map((product) => ({ kind: "inventory.reorder.review", productId: product.id, recommendedUnits: product.reorderUnits, requiresApproval: true })),
     ...supplierRiskProducts.slice(0, 10).map((product) => ({ kind: "supplier.stock-risk.review", productId: product.id, supplierStock: product.supplierStock, fallbackAvailable: Boolean(product.supplierFallback), requiresApproval: true })),
+    ...quoteRequestCandidates.map((product) => ({ kind: "supplier.quote-request.review", productId: product.id, supplierStockRisk: true, existingQuoteRequests: product.latestSupplierQuotes.length, requiresApproval: true })),
     ...atRiskCustomers.slice(0, 10).map((customer) => ({ kind: "customer.retention.review", customerId: customer.id, nextBestAction: customer.nextBestAction, requiresApproval: true })),
     ...winners.slice(0, 10).map((product) => ({ kind: "growth.scale-review", productId: product.id, requiresApproval: true })),
   ];
@@ -415,6 +473,9 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       reorderCandidates,
       supplierRiskProducts,
       supplierStockRiskCount: supplierRiskProducts.length,
+      landedCostScenarioCount,
+      supplierQuoteRequestCount,
+      activeSupplierQuoteCount,
       winners,
       atRiskCustomers,
       automationCandidates,
@@ -579,6 +640,9 @@ export async function buildMaxConsensusDropshipPlan(merchantId: number, question
       scaleWinnerCount: graph.summary.scaleWinnerCount,
       atRiskCustomerCount: graph.summary.atRiskCustomerCount,
       supplierStockRiskCount: graph.summary.supplierStockRiskCount,
+      landedCostScenarioCount: graph.summary.landedCostScenarioCount,
+      supplierQuoteRequestCount: graph.summary.supplierQuoteRequestCount,
+      activeSupplierQuoteCount: graph.summary.activeSupplierQuoteCount,
       fulfillmentJobCount: graph.summary.fulfillmentJobCount,
       fulfillmentExceptionCount: graph.summary.fulfillmentExceptionCount,
       staleFulfillmentJobCount: graph.summary.staleFulfillmentJobCount,
@@ -599,6 +663,8 @@ export async function buildMaxConsensusDropshipPlan(merchantId: number, question
         supplierStockRisk: product.supplierStockRisk,
         supplierDataAgeHours: product.supplierDataAgeHours,
         supplierDataStale: product.supplierDataStale,
+        landedCostScenarios: product.landedCostScenarios.slice(0, 2),
+        supplierQuotes: product.latestSupplierQuotes.slice(0, 2),
         supplierSyncStatus: product.supplierSyncStatus,
         supplierSyncEnabled: product.supplierSyncEnabled,
         supplierSyncPolicy: product.supplierSyncPolicy,
