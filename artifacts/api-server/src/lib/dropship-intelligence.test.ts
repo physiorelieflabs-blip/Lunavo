@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { availableMerchantStock, confidenceFor, conversionRateBps, churnRisk, nextBestAction, partialSourceMarginBps, segment, supplierStockIsAtRisk } from "./dropship-intelligence";
+import { availableMerchantStock, confidenceFor, conversionRateBps, churnRisk, nextBestAction, partialSourceMarginBps, segment, supplierStockIsAtRisk }, selectUniqueComparableLandedScenario from "./dropship-intelligence";
 
 describe("dropship intelligence decision rules", () => {
+  it("uses exactly one currency-and-price-matched landed-cost scenario and rejects ambiguity", () => {
+    const scenarios = [
+      { id: "ng", currency: "NGN", sellingPriceMinor: 10_000, contributionMarginBps: 2_000 },
+      { id: "gb", currency: "GBP", sellingPriceMinor: 10_000, contributionMarginBps: 3_000 },
+    ];
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 10_000)?.id).toBe("ng");
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 11_000)).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "USD", 10_000)).toBeNull();
+    expect(selectUniqueComparableLandedScenario([...scenarios, { ...scenarios[0]!, id: "ng-other" }], "NGN", 10_000)).toBeNull();
+    expect(selectUniqueComparableLandedScenario(scenarios, "NGN", 0)).toBeNull();
+  });
+
   it("calculates purchase-per-click conversion in basis points and rejects invalid denominators", () => {
     expect(conversionRateBps(2, 100)).toBe(200);
     expect(conversionRateBps(1, 20)).toBe(500);
