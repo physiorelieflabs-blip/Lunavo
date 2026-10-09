@@ -37,7 +37,7 @@ const PROFILE_DEFAULTS: Record<LocalAiProfile, { model: string; timeoutMs: numbe
   review: { model: "gemma3:12b", timeoutMs: 120_000 },
 };
 
-function assertSelfHostedEndpoint(value: string): string {
+export function assertSelfHostedEndpoint(value: string): string {
   let url: URL;
   try {
     url = new URL(value);
