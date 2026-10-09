@@ -352,6 +352,30 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     );
     const selectedLandedScenario = comparableLandedScenarios.length === 1 ? comparableLandedScenarios[0]! : null;
     const landedCostMinor: number | null = selectedLandedScenario?.landedCostMinor ?? null;
+    const supplierQuoteOptions = (supplierQuotesByProduct.get(id) ?? []).flatMap((row) => {
+      const quoteCurrency = String(row.currency ?? "").toUpperCase();
+      const destinationCountry = String(row.destination_country ?? "").toUpperCase();
+      const status = String(row.status ?? "unknown");
+      if (!/^[A-Z]{3}$/.test(quoteCurrency) || !/^[A-Z]{2}$/.test(destinationCountry)) return [];
+      const expiresAt = isoTimestamp(row.quote_expires_at);
+      return [{
+        id: String(row.id ?? ""),
+        supplierName: String(row.supplier_name ?? "Unspecified supplier").slice(0, 160),
+        destinationCountry,
+        currency: quoteCurrency,
+        quantity: Math.max(1, int(row.quantity, 1)),
+        status,
+        quotedUnitPriceMinor: nullableSafeInteger(row.quoted_unit_price_minor),
+        quotedShippingMinor: nullableSafeInteger(row.quoted_shipping_minor),
+        quotedTotalMinor: nullableSafeInteger(row.quoted_total_minor),
+        quotedDeliveryDays: nullableSafeInteger(row.quoted_delivery_days),
+        quoteExpiresAt: expiresAt,
+        expired: expiresAt !== null && new Date(expiresAt).getTime() <= Date.now(),
+        targetUnitPriceMinor: nullableSafeInteger(row.target_unit_price_minor),
+        desiredDeliveryDays: nullableSafeInteger(row.desired_delivery_days),
+        updatedAt: isoTimestamp(row.updated_at),
+      }];
+    });
     const partialMarginBps = partialSourceMarginBps(sellingPriceMinor, sourceCostMinor, comparableCurrency);
     const contributionMarginBps = selectedLandedScenario?.contributionMarginBps ?? partialMarginBps;
     const marginBasis = selectedLandedScenario
@@ -409,6 +433,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       landedCostOptions: landedCostOptions.slice(0, 4),
       selectedLandedScenarioId: selectedLandedScenario?.id ?? null,
       landedContributionMarginMinor: selectedLandedScenario?.contributionMarginMinor ?? null,
+      supplierQuoteOptions: supplierQuoteOptions.slice(0, 4),
       grossMarginBps: contributionMarginBps,
       marginBasis,
       sold30,
