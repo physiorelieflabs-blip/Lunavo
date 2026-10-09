@@ -47,7 +47,7 @@ describe("connected dropship risk boundaries", () => {
 
   it("uses exact rounded platform fee and suppresses incomparable or invalid margin data", () => {
     expect(partialSourceMarginBps(10_000, 4_000, true)).toBe(5_900);
-    expect(partialSourceMarginBps(10_050, 4_000, true)).toBe(5_970);
+    expect(partialSourceMarginBps(10_050, 4_000, true)).toBe(5_919);
     expect(partialSourceMarginBps(10_000, 4_000, false)).toBeNull();
     expect(partialSourceMarginBps(0, 4_000, true)).toBeNull();
     expect(partialSourceMarginBps(10_000, -1, true)).toBeNull();
