@@ -4,6 +4,7 @@ import { completeLunavoBrain } from "./ai-provider";
 import { resolveAutoFallbackSupplierProduct } from "./supplier-routing";
 import { recallMerchantMemory, rememberMerchantMemory } from "./merchant-ai-memory";
 import { currencyMinorDigits, toMinorUnits } from "./money";
+import { getSupplierScorecards, type SupplierScorecard } from "./supplier-performance";
 
 type Row = Record<string, unknown>;
 type SupplierFallback = Awaited<ReturnType<typeof resolveAutoFallbackSupplierProduct>>;
@@ -135,7 +136,7 @@ export function partialSourceMarginBps(sellingPriceMinor: number | null, sourceC
 export async function buildDropshipOperatingGraph(merchantId: number) {
   if (!Number.isInteger(merchantId) || merchantId <= 0) throw new Error("Invalid merchant id");
 
-  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult, inventoryMovementResult, reservationResult, supplierSyncResult, supplierSyncPolicyResult, landedScenarioResult, supplierQuoteResult] = await Promise.all([
+  const [merchantResult, productResult, orderResult, customerResult, fulfillmentResult, campaignResult, researchResult, inventoryMovementResult, reservationResult, supplierSyncResult, supplierSyncPolicyResult, landedScenarioResult, supplierQuoteResult, supplierScorecardResult] = await Promise.all([
     db.execute(sql`SELECT id,name,store_name,currency,tax_rate,shipping_fee,free_shipping_threshold FROM merchants WHERE id=${merchantId} AND status='active' LIMIT 1`),
     db.execute(sql`SELECT id,title,category,brand,currency,price,sale_price,selling_price,availability,availability_quantity,inventory_strategy,status,visibility,shipping_information,shipping_configuration,source_domain,imported_at,last_attempted_sync,updated_at FROM supplier_products WHERE merchant_id=${merchantId} ORDER BY updated_at DESC LIMIT 500`),
     db.execute(sql`SELECT id,customer_id,supplier_product_id,quantity,total,currency,status,created_at,fulfillment_status FROM orders WHERE merchant_id=${merchantId} AND created_at >= ${isoDaysAgo(180)} ORDER BY created_at DESC LIMIT 5000`),
@@ -149,8 +150,11 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
     db.execute(sql`SELECT supplier_product_id,enabled,sync_price,sync_stock,max_price_change_bps,min_margin_bps,out_of_stock_action,require_price_review,auto_apply,last_run_at FROM supplier_sync_policies WHERE merchant_id=${merchantId}`),
     db.execute(sql`SELECT DISTINCT ON (supplier_product_id,destination_country,currency) id,supplier_product_id,scenario_name,destination_country,currency,quantity,source_cost_minor,outbound_shipping_minor,freight_minor,insurance_minor,handling_minor,packaging_minor,selling_price_minor,dutiable_base_minor,customs_duty_minor,import_tax_base_minor,import_tax_minor,landed_cost_minor,platform_fee_minor,provider_fee_minor,returns_reserve_minor,contribution_margin_minor,contribution_margin_bps,calculation_version,created_at FROM dropship_landed_cost_scenarios WHERE merchant_id=${merchantId} AND supplier_product_id IS NOT NULL ORDER BY supplier_product_id,destination_country,currency,created_at DESC LIMIT 3000`),
     db.execute(sql`SELECT DISTINCT ON (supplier_product_id,destination_country,currency) id,supplier_product_id,supplier_name,destination_country,currency,quantity,status,quoted_unit_price_minor,quoted_shipping_minor,quoted_total_minor,quoted_delivery_days,quote_expires_at,target_unit_price_minor,desired_delivery_days,request_notes,quote_notes,updated_at FROM dropship_supplier_quote_requests WHERE merchant_id=${merchantId} AND supplier_product_id IS NOT NULL AND (updated_at > now() - INTERVAL '180 days' OR status IN ('quoted','accepted')) ORDER BY supplier_product_id,destination_country,currency,updated_at DESC LIMIT 3000`),
+    getSupplierScorecards(merchantId).then((items) => ({ status: "available" as const, items })).catch(() => ({ status: "unavailable" as const, items: [] as SupplierScorecard[] })),
   ]);
 
+  const supplierScorecards = supplierScorecardResult.items;
+  const supplierScorecardsById = new Map<number, SupplierScorecard>(supplierScorecards.filter((item) => item.supplierId !== null).map((item) => [item.supplierId as number, item]));
   const merchant = (merchantResult.rows[0] ?? null) as Row | null;
   if (!merchant) throw new Error("Merchant workspace not found");
 
@@ -417,6 +421,7 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       revenue30Minor: revenueMinor30.get(id) ?? 0,
       priorities,
       supplierFallback: null as SupplierFallback,
+      supplierFallbackScorecard: null as SupplierScorecard | null,
     };
   });
 
@@ -473,6 +478,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
   const fallbacks = new Map(fallbackRows.map((row) => [row.productId, row.fallback]));
   for (const product of productIntelligence) {
     product.supplierFallback = fallbacks.get(product.id) ?? null;
+    product.supplierFallbackScorecard = product.supplierFallback?.supplierId == null ? null : supplierScorecardsById.get(product.supplierFallback.supplierId) ?? null;
+    if (product.supplierFallbackScorecard?.recommendation === "avoid" && product.supplierFallbackScorecard.fulfillmentJobs > 0) product.priorities.push("fallback_supplier_low_score");
     if (product.supplierStockRisk && product.supplierFallback) product.priorities.push("fallback_available");
     if (product.priorities.includes("monitor") && product.priorities.length > 1) product.priorities = product.priorities.filter((item) => item !== "monitor");
   }
@@ -510,6 +517,8 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       shippingFee: merchant.shipping_fee,
     },
     products: productIntelligence,
+    supplierScorecards: supplierScorecards.map((item) => ({ ...item, evidenceStrength: item.fulfillmentJobs >= 10 ? "broader operating history" : item.fulfillmentJobs > 0 ? "limited fulfillment history" : "no fulfillment outcome sample; score is a prior only" })),
+    supplierScorecardStatus: supplierScorecardResult.status,
     customers: customerIntelligence,
     fulfillment: fulfillmentResult.rows,
     fulfillmentStats,
@@ -527,6 +536,10 @@ export async function buildDropshipOperatingGraph(merchantId: number) {
       reorderCandidates,
       supplierRiskProducts,
       supplierStockRiskCount: supplierRiskProducts.length,
+      supplierScorecardCount: supplierScorecards.length,
+      suppliersPreferredCount: supplierScorecards.filter((item) => item.recommendation === "preferred" && item.fulfillmentJobs > 0).length,
+      suppliersAvoidCount: supplierScorecards.filter((item) => item.recommendation === "avoid" && item.fulfillmentJobs > 0).length,
+      supplierScorecardStatus: supplierScorecardResult.status,
       landedCostScenarioCount,
       supplierQuoteRequestCount,
       activeSupplierQuoteCount,
@@ -738,7 +751,17 @@ export async function buildMaxConsensusDropshipPlan(merchantId: number, question
         conversionBps: product.conversionBps,
         priorities: product.priorities,
         fallbackAvailable: Boolean(product.supplierFallback),
+        fallbackSupplierScore: product.supplierFallbackScorecard ? {
+          supplierName: product.supplierFallbackScorecard.supplierName,
+          score: product.supplierFallbackScorecard.score,
+          recommendation: product.supplierFallbackScorecard.recommendation,
+          fulfillmentJobs: product.supplierFallbackScorecard.fulfillmentJobs,
+          failureRate: product.supplierFallbackScorecard.failureRate,
+          onTimeRate: product.supplierFallbackScorecard.onTimeRate,
+          evidenceStrength: product.supplierFallbackScorecard.fulfillmentJobs >= 10 ? "broader operating history" : product.supplierFallbackScorecard.fulfillmentJobs > 0 ? "limited fulfillment history" : "no fulfillment outcome sample; score is a prior only",
+        } : null,
       })),
+    supplierPerformance: graph.supplierScorecards.slice(0, 20),
     atRiskCustomers: graph.summary.atRiskCustomers.slice(0, 8).map((customer) => ({
       id: customer.id,
       orderCount: customer.orderCount,
