@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { availableMerchantStock, confidenceFor, churnRisk, nextBestAction, partialSourceMarginBps, segment, supplierStockIsAtRisk } from "./dropship-intelligence";
+import { availableMerchantStock, confidenceFor, conversionRateBps, churnRisk, nextBestAction, partialSourceMarginBps, segment, supplierStockIsAtRisk } from "./dropship-intelligence";
 
 describe("dropship intelligence decision rules", () => {
+  it("calculates purchase-per-click conversion in basis points and rejects invalid denominators", () => {
+    expect(conversionRateBps(2, 100)).toBe(200);
+    expect(conversionRateBps(1, 20)).toBe(500);
+    expect(conversionRateBps(2, 0)).toBeNull();
+    expect(conversionRateBps(-1, 10)).toBeNull();
+    expect(conversionRateBps(2, Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+  });
+
   it("raises confidence as observed order count grows but keeps it bounded", () => {
     expect(confidenceFor(0)).toBe(2500);
     expect(confidenceFor(10)).toBeGreaterThan(confidenceFor(1));
