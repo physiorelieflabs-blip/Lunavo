@@ -190,7 +190,8 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
       WHERE id=${commandRun.id} AND merchant_id=${ctx.merchantId} AND status='running'
       RETURNING id,question,brain_model,contributors,roles,consensus,status,idempotency_key,created_at,completed_at
     `);
-    const finalRun = saved.rows[0] ?? commandRun;
+    if (!saved.rows[0]) throw new Error("Could not persist completed dropship command result");
+    const finalRun = saved.rows[0];
     res.setHeader("Cache-Control", "no-store");
     res.status(isReplay ? 200 : 201).json({
       ...result,
@@ -316,7 +317,7 @@ router.get("/merchant/dropship/research", async (req, res, next) => {
     const ctx = await merchantFor(req, res);
     if (!ctx) return;
     const rows = await db.execute(
-      require("@workspace/db").sql`
+      sql`
         SELECT r.*, p.title
         FROM dropship_market_research r
         LEFT JOIN supplier_products p ON p.id=r.supplier_product_id AND p.merchant_id=r.merchant_id
