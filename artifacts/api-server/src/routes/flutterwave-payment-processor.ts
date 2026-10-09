@@ -431,6 +431,18 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
+      // A promo code is redeemed only alongside provider-verified payment. The state transition
+      // prevents duplicate webhooks/retries from incrementing usage more than once.
+      await tx.execute(sql`WITH redeemed AS (
+        UPDATE discount_code_redemptions
+        SET status='redeemed', redeemed_at=now()
+        WHERE order_id=${order.id} AND merchant_id=${merchant.id} AND status='reserved'
+        RETURNING discount_code_id, merchant_id
+      )
+      UPDATE discount_codes AS code
+      SET usage_count=code.usage_count + 1, updated_at=now()
+      FROM redeemed
+      WHERE code.id=redeemed.discount_code_id AND code.merchant_id=redeemed.merchant_id`);
     if (order.supplierProductId) {
       await tx.insert(marketplaceDiscoveryEventsTable).values({
         productId: String(order.supplierProductId),
