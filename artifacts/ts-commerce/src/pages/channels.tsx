@@ -2,6 +2,18 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ArrowDownUp, Link2, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 
+type SyncJob = {
+  id: string;
+  connectionId: string;
+  direction: string;
+  resource: string;
+  status: string;
+  attempts: number;
+  lastError?: string | null;
+  metrics?: Record<string, unknown>;
+  createdAt?: string;
+};
+
 type Connection = {
   id: string;
   provider: string;
@@ -18,6 +30,8 @@ const providers = ["shopify","woocommerce","etsy","amazon","tiktok_shop","wix","
 
 export default function Channels() {
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [syncJobs, setSyncJobs] = useState<SyncJob[]>([]);
+  const [adapterGatewayConfigured, setAdapterGatewayConfigured] = useState(false);
   const [provider, setProvider] = useState("shopify");
   const [name, setName] = useState("");
   const [storeUrl, setStoreUrl] = useState("");
@@ -29,10 +43,19 @@ export default function Channels() {
   const [message, setMessage] = useState("");
 
   const load = async () => {
-    const response = await fetch("/api/merchant/channels", { credentials: "same-origin", headers: { Accept: "application/json" } });
-    const data = await response.json().catch(() => ({}));
+    const [response, jobsResponse] = await Promise.all([
+      fetch("/api/merchant/channels", { credentials: "same-origin", headers: { Accept: "application/json" } }),
+      fetch("/api/merchant/channels/jobs", { credentials: "same-origin", headers: { Accept: "application/json" } }),
+    ]);
+    const [data, jobsData] = await Promise.all([
+      response.json().catch(() => ({})),
+      jobsResponse.json().catch(() => ({})),
+    ]);
     if (!response.ok) throw new Error(data.error || "Could not load channels");
+    if (!jobsResponse.ok) throw new Error(jobsData.error || "Could not load sync history");
+    setAdapterGatewayConfigured(data.adapterGatewayConfigured === true);
     setConnections(data.connections ?? []);
+    setSyncJobs(jobsData.jobs ?? []);
   };
 
   useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : "Could not load channels")); }, []);
@@ -72,6 +95,7 @@ export default function Channels() {
     });
     const data = await response.json().catch(() => ({}));
     setMessage(response.ok ? "Sync job queued for " + resource + ". The worker will report provider evidence and the resulting job state." : (data.error || "Could not queue sync"));
+    if (response.ok) await load();
   };
 
   const verifyConnection = async (connectionId: string) => {
@@ -108,6 +132,10 @@ export default function Channels() {
         </div>
       </section>
 
+      {!adapterGatewayConfigured && <section className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6">
+        <strong>Self-hosted adapter gateway is not configured.</strong> Channel credentials can be saved encrypted, but connection checks will not pass and sync jobs remain queued. Configure <code>LUNAVO_CHANNEL_GATEWAY_URL</code> and <code>LUNAVO_CHANNEL_GATEWAY_TOKEN</code> on the private deployment. The gateway must be a local/private endpoint; public adapter endpoints are rejected.
+      </section>}
+
       <section className="rounded-2xl border border-border bg-card p-5">
         <div className="flex items-center gap-2"><Plus className="h-4 w-4 text-accent" /><h2 className="font-black">Add a channel connection</h2></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -143,6 +171,10 @@ export default function Channels() {
             <p className="rounded-xl bg-muted px-3 py-2 text-xs font-semibold">Webhook: {connection.webhookConfigured ? "encrypted" : "not configured"}</p>
             <p className="rounded-xl bg-muted px-3 py-2 text-xs font-semibold">Sync runs only after verification and requires a configured self-hosted adapter. Provider credentials are never shown again.</p>
           {connection.lastError && <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-700">Last adapter error: {connection.lastError}</p>}
+          {syncJobs.filter(job => job.connectionId === connection.id).slice(0, 3).map(job => <div key={job.id} className="flex flex-col gap-1 rounded-xl bg-muted px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+            <span className="font-semibold">{job.direction} · {job.resource} · {job.status} · attempt {job.attempts}</span>
+            <span className="text-muted-foreground">{job.completedAt ? new Date(job.completedAt).toLocaleString() : job.lastError || "Queued/processing"}</span>
+          </div>)}
           </div>
         </div>)}
         {!connections.length && <div className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">No channels connected yet.</div>}
