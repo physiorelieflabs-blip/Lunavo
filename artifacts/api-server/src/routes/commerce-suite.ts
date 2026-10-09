@@ -3,6 +3,7 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
 import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
+import { toMinorUnits } from "../lib/money";
 
 const router = Router();
 async function merchantFor(req: Request, permission: PermissionKey) {
@@ -67,7 +68,63 @@ router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
 router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{const m=await merchantFor(req, "fulfillment.manage");if(!m)return fail(res,401,"Authentication required");const jobId=String(req.params.id ?? "").trim();if(!/^[0-9a-fA-F-]{36}$/.test(jobId))return fail(res,400,"Invalid fulfillment job id");const[j]=await db.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0}).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();if(!j)return fail(res,404,"Ready fulfillment job not found");res.json({job:j,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});});
 
 router.get("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");res.json({codes:await db.select().from(discountCodesTable).where(eq(discountCodesTable.merchantId,m.id)).orderBy(desc(discountCodesTable.createdAt))});});
-router.post("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const code=typeof req.body?.code==="string"?req.body.code.trim().toUpperCase():"";const kind=req.body?.kind==="fixed"?"fixed":"percentage";const value=Number(req.body?.value);if(!/^[A-Z0-9_-]{3,40}$/.test(code)||!Number.isFinite(value)||value<=0||(kind==="percentage"&&value>100))return fail(res,400,"Enter a valid discount code and value");const[c]=await db.insert(discountCodesTable).values({merchantId:m.id,code,kind,value:value.toFixed(2),minimumSubtotal:Number(req.body?.minimumSubtotal??0).toFixed(2),currency:m.currency,active:true}).returning();if(!c)return fail(res,409,"Discount code already exists or could not be created");res.status(201).json({code:c});});
+router.post("/commerce/discount-codes", async (req, res) => {
+  const m = await merchantFor(req, "team.manage");
+  if (!m) return fail(res, 401, "Authentication required");
+
+  const code = typeof req.body?.code === "string" ? req.body.code.trim().toUpperCase() : "";
+  const kind = req.body?.kind;
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code) || (kind !== "fixed" && kind !== "percentage")) {
+    return fail(res, 400, "Enter a valid code and choose percentage or fixed amount");
+  }
+
+  const valueMinor = toMinorUnits(req.body?.value, 2);
+  const minimumMinor = toMinorUnits(req.body?.minimumSubtotal ?? "0", 2);
+  if (valueMinor === null || valueMinor <= 0 || minimumMinor === null || minimumMinor < 0
+    || (kind === "percentage" && valueMinor > 10_000)) {
+    return fail(res, 400, "Enter a positive discount value; percentage discounts cannot exceed 100%");
+  }
+
+  const usageLimitInput = req.body?.usageLimit;
+  let usageLimit: number | null = null;
+  if (usageLimitInput !== undefined && usageLimitInput !== null && usageLimitInput !== "") {
+    usageLimit = Number(usageLimitInput);
+    if (!Number.isSafeInteger(usageLimit) || usageLimit <= 0 || usageLimit > 2_147_483_647) {
+      return fail(res, 400, "Usage limit must be a positive whole number");
+    }
+  }
+
+  const parseDate = (input: unknown): Date | null | undefined => {
+    if (input === undefined || input === null || input === "") return null;
+    if (typeof input !== "string" || input.length > 80) return undefined;
+    const milliseconds = Date.parse(input);
+    if (!Number.isFinite(milliseconds)) return undefined;
+    return new Date(milliseconds);
+  };
+  const startsAt = parseDate(req.body?.startsAt);
+  const endsAt = parseDate(req.body?.endsAt);
+  if (startsAt === undefined || endsAt === undefined || (startsAt && endsAt && endsAt <= startsAt)) {
+    return fail(res, 400, "Enter valid promotion dates; the end must be after the start");
+  }
+
+  const decimal = (minor: number) => `${Math.floor(minor / 100)}.${String(minor % 100).padStart(2, "0")}`;
+  const [created] = await db.insert(discountCodesTable).values({
+    merchantId: m.id,
+    code,
+    kind,
+    value: decimal(valueMinor),
+    minimumSubtotal: decimal(minimumMinor),
+    currency: m.currency,
+    usageLimit,
+    startsAt,
+    endsAt,
+    active: true,
+  }).onConflictDoNothing({
+    target: [discountCodesTable.merchantId, discountCodesTable.code],
+  }).returning();
+  if (!created) return fail(res, 409, "That discount code already exists for this store");
+  res.status(201).json({ code: created });
+});
 router.post("/commerce/discount-codes/:id/deactivate", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const[c]=await db.update(discountCodesTable).set({active:false,updatedAt:new Date()}).where(and(eq(discountCodesTable.id,Number(req.params.id)),eq(discountCodesTable.merchantId,m.id))).returning();if(!c)return fail(res,404,"Discount code not found");res.json({code:c});});
 
 router.get("/commerce/loyalty", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const accounts=await db.select({id:loyaltyAccountsTable.id,customerId:loyaltyAccountsTable.customerId,pointsBalance:loyaltyAccountsTable.pointsBalance,lifetimePoints:loyaltyAccountsTable.lifetimePoints,tier:loyaltyAccountsTable.tier,customerName:customersTable.name,customerEmail:customersTable.email}).from(loyaltyAccountsTable).innerJoin(customersTable,eq(loyaltyAccountsTable.customerId,customersTable.id)).where(eq(loyaltyAccountsTable.merchantId,m.id)).orderBy(desc(loyaltyAccountsTable.pointsBalance)).limit(200);res.json({accounts});});
