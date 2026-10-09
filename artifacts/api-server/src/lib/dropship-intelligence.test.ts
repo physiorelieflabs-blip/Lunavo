@@ -32,6 +32,8 @@ describe("dropship intelligence decision rules", () => {
     expect(segment(0, 0, 5)).toBe("new");
     expect(segment(2, 50_000, 20)).toBe("loyal");
     expect(segment(6, 20_000, 20)).toBe("vip");
+    expect(segment(2, 250_000, 20)).toBe("loyal");
+    expect(segment(2, 250_000, 20, true)).toBe("vip");
     expect(segment(2, 50_000, 75)).toBe("at_risk");
     expect(segment(2, 50_000, 140)).toBe("lapsed");
   });
