@@ -106,17 +106,31 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
   const providerFee = rateAmount(sell, input.providerFeeBps);
   const reserve = rateAmount(sell, input.returnsReserveBps);
   const margin = sell - landedCost - platformFee - providerFee - reserve;
+
+  // Validate every monetary aggregate before calculating ratios so an oversized
+  // intermediate amount receives the precise-integer error, not a misleading
+  // downstream margin-ratio error.
+  const dutiableBaseMinor = safeNumber(dutiableBase, "Dutiable base");
+  const customsDutyMinor = safeNumber(duty, "Customs duty");
+  const importTaxBaseMinor = safeNumber(importTaxBase, "Import tax base");
+  const importTaxMinor = safeNumber(importTax, "Import tax");
+  const landedCostMinor = safeNumber(landedCost, "Landed cost");
+  const platformFeeMinor = safeNumber(platformFee, "Platform fee");
+  const providerFeeMinor = safeNumber(providerFee, "Provider fee");
+  const returnsReserveMinor = safeNumber(reserve, "Returns reserve");
+  const contributionMarginMinor = safeNumber(margin, "Contribution margin");
   const marginBps = ratioBps(margin, sell);
+
   return {
-    dutiableBaseMinor: safeNumber(dutiableBase, "Dutiable base"),
-    customsDutyMinor: safeNumber(duty, "Customs duty"),
-    importTaxBaseMinor: safeNumber(importTaxBase, "Import tax base"),
-    importTaxMinor: safeNumber(importTax, "Import tax"),
-    landedCostMinor: safeNumber(landedCost, "Landed cost"),
-    platformFeeMinor: safeNumber(platformFee, "Platform fee"),
-    providerFeeMinor: safeNumber(providerFee, "Provider fee"),
-    returnsReserveMinor: safeNumber(reserve, "Returns reserve"),
-    contributionMarginMinor: safeNumber(margin, "Contribution margin"),
+    dutiableBaseMinor,
+    customsDutyMinor,
+    importTaxBaseMinor,
+    importTaxMinor,
+    landedCostMinor,
+    platformFeeMinor,
+    providerFeeMinor,
+    returnsReserveMinor,
+    contributionMarginMinor,
     contributionMarginBps: marginBps,
     profitability: margin > 0n ? "profitable" : margin === 0n ? "break_even" : "loss",
     calculationVersion: "landed-cost-v1",
