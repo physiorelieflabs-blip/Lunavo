@@ -2468,7 +2468,12 @@ async function verifyPublicFlutterwaveOrder(
               eq(inventoryReservationsTable.status, "reserved"),
             ),
           );
-        if (product?.inventoryStrategy !== "source_based" && product?.availabilityQuantity !== null) {
+        if (!product) {
+          inventoryReservationException = "Payment was verified but the reserved product record is missing. Review stock and fulfilment.";
+          await tx.update(inventoryReservationsTable)
+            .set({ status: "released", updatedAt: new Date() })
+            .where(and(eq(inventoryReservationsTable.id, reservation.id), eq(inventoryReservationsTable.status, "consumed")));
+        } else if (product.inventoryStrategy !== "source_based" && product.availabilityQuantity !== null) {
           const [updatedProduct] = await tx
             .update(supplierProductsTable)
             .set({
@@ -2482,9 +2487,14 @@ async function verifyPublicFlutterwaveOrder(
               ),
             )
             .returning();
-          if (!updatedProduct) throw new Error("Inventory changed before payment verification");
+          if (!updatedProduct) {
+            inventoryReservationException = "Payment was verified but stock changed after reservation. Review stock and fulfilment.";
+            await tx.update(inventoryReservationsTable)
+              .set({ status: "released", updatedAt: new Date() })
+              .where(and(eq(inventoryReservationsTable.id, reservation.id), eq(inventoryReservationsTable.status, "consumed")));
+          }
         }
-        await tx
+        if (!inventoryReservationException) await tx
           .insert(inventoryMovementsTable)
           .values({
             merchantId: order.merchantId,
