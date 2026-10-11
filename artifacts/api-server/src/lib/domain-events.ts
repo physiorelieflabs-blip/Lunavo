@@ -14,7 +14,7 @@ export const domainEventTypes = [
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
   "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","account.exported","account.deleted",
-  "sourcing.source_registered", "supplier.product_imported", "fulfillment.job_created", "fulfillment.status_changed",
+  "sourcing.source_registered", "supplier.product_imported", "supplier.product_refreshed", "fulfillment.job_created", "fulfillment.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -72,6 +72,7 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "account.deleted": ["Account disabled", "Merchant account access was disabled.", "warning"],
     "sourcing.source_registered": ["Supplier source registered", "A supplier source was added for evidence-backed product research.", "info"],
     "supplier.product_imported": ["Supplier product imported", "A supplier product was imported or updated and is available for downstream review.", "info"],
+    "supplier.product_refreshed": ["Supplier changes accepted", "Reviewed supplier facts were accepted; connected workflows can reassess cost and availability.", "info"],
     "fulfillment.job_created": ["Fulfillment task created", "A paid order qualified for a supplier fulfillment task. This does not confirm a supplier order was placed.", "info"],
     "fulfillment.status_changed": ["Fulfillment status updated", "A fulfillment job changed state. Confirm any external supplier action separately.", "info"],
   };

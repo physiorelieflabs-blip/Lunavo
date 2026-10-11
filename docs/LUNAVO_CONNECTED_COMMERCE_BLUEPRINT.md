@@ -228,7 +228,7 @@ Use the repository's existing domain-event/outbox infrastructure where appropria
 
 Initial event families to trace/standardize include:
 
-- sourcing: source registered, supplier product imported/updated, source fetched, observation changed, candidate scored, listing draft created, listing approved/published;
+- sourcing: source registered, supplier product imported/updated, accepted refresh, source fetched, observation changed, candidate scored, listing draft created, listing approved/published;
 - catalog/inventory: product or variant changed, cost/FX stale, source stock changed, stock reserved/released/committed, product paused;
 - checkout/payment: checkout created, provider event received/verified/rejected, payment posted, refund requested/verified, dispute opened, reconciliation mismatch;
 - order/fulfillment: paid order eligible, supplier task queued, supplier order confirmed/ambiguous/failed, shipment added, tracking changed, delivery exception, return opened/resolved;

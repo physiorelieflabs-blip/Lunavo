@@ -6884,19 +6884,56 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
         updates[field] = value;
       }
     }
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(eq(supplierProductsTable.id, product.id))
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: product.sourceUrl,
-      status: "imported",
-      message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
-      changes: parsed.data.fields,
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .update(supplierProductsTable)
+        .set(updates)
+        .where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)))
+        .returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: product.sourceUrl,
+        status: "imported",
+        message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
+        changes: parsed.data.fields,
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "supplier.product_refreshed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `supplier-product-refresh:${saved.id}:${randomUUID()}`,
+        payload: {
+          supplierProductId: saved.id,
+          acceptedFields: parsed.data.fields,
+          sourceDomain: saved.sourceDomain,
+          previousSourcePrice: product.salePrice ?? product.price,
+          sourcePrice: saved.salePrice ?? saved.price,
+          currency: saved.currency,
+          previousAvailability: product.availability,
+          availability: saved.availability,
+          previousAvailabilityQuantity: product.availabilityQuantity,
+          availabilityQuantity: saved.availabilityQuantity,
+        },
+        before: {
+          sourcePrice: product.salePrice ?? product.price,
+          currency: product.currency,
+          availability: product.availability,
+          availabilityQuantity: product.availabilityQuantity,
+        },
+        after: {
+          sourcePrice: saved.salePrice ?? saved.price,
+          currency: saved.currency,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+        },
+      });
+      return saved;
     });
     res.json(
       AcceptSupplierRefreshResponse.parse({
