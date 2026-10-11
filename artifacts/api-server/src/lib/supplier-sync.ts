@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { emitDomainEvent } from "./domain-events";
 import { toMinorUnits } from "./money";
+import { shouldApplySupplierPriceFields } from "./supplier-sync-policy";
 import { sql } from "drizzle-orm";
 
 export type SyncPolicy = {
@@ -55,6 +56,7 @@ type ProductRow = {
   status: string;
   import_status: string;
   last_attempted_sync: string | null;
+  updated_at: Date | string;
 };
 
 type SyncResult = {
@@ -200,13 +202,16 @@ export async function synchronizeSupplierProduct(input: {
   if (!Number.isInteger(input.productId) || input.productId <= 0) throw new Error("Invalid supplier product id");
 
   const policy = input.policy ?? await ensurePolicy(input.merchantId, input.productId);
+  if (policy.merchant_id !== input.merchantId || policy.supplier_product_id !== input.productId) {
+    throw new Error("Supplier sync policy does not match the requested merchant product");
+  }
   if (!policy.enabled) throw new Error("Supplier synchronization is disabled for this product");
 
   const productResult = await db.execute(sql`
     SELECT id,merchant_id,source_url,title,description,image_url,image_urls,video_urls,price,sale_price,currency,
            sku,variants,attributes,availability,availability_quantity,inventory_strategy,inventory_status,
            category,tags,specifications,brand,shipping_information,source_metadata,merchant_overrides,
-           pricing_mode,profit_type,profit_value,selling_price,visibility,status,import_status,last_attempted_sync
+           pricing_mode,profit_type,profit_value,selling_price,visibility,status,import_status,last_attempted_sync,updated_at
     FROM supplier_products
     WHERE id=${input.productId} AND merchant_id=${input.merchantId}
     LIMIT 1
@@ -247,10 +252,16 @@ export async function synchronizeSupplierProduct(input: {
 
     const incomingSourceMinor = toMinorUnits(imported.salePrice ?? imported.price);
     const currentSourceMinor = toMinorUnits(product.sale_price ?? product.price);
+    const applySourcePriceFields = shouldApplySupplierPriceFields(
+      policy.sync_price,
+      product.currency,
+      imported.currency,
+      incomingSourceMinor,
+    );
 
     if (policy.sync_price && incomingSourceMinor !== null && currentSourceMinor !== incomingSourceMinor) {
-      changedFields.push("source_price");
-      sourceFields.push("price");
+      changedFields.push(applySourcePriceFields ? "source_price" : "source_price_review");
+      if (applySourcePriceFields) sourceFields.push("price");
     }
     if (policy.sync_stock && (imported.availability !== product.availability || imported.availabilityQuantity !== product.availability_quantity)) {
       changedFields.push("source_availability");
@@ -270,7 +281,7 @@ export async function synchronizeSupplierProduct(input: {
     }
 
     const merchantOverrides = json(product.merchant_overrides, {});
-    const derivedSellingMinor = incomingSourceMinor !== null && imported.currency === product.currency
+    const derivedSellingMinor = applySourcePriceFields && incomingSourceMinor !== null
       ? deriveSellingMinor(incomingSourceMinor, product.pricing_mode, product.profit_type, product.profit_value)
       : null;
 
@@ -302,9 +313,9 @@ export async function synchronizeSupplierProduct(input: {
           changedFields.push("selling_price_review");
         }
       }
-    } else if (policy.sync_price && incomingSourceMinor !== null && imported.currency !== product.currency) {
-      reviewReasons.push("Supplier currency changed or differs from merchant selling currency; automatic repricing was blocked.");
-      changedFields.push("currency_review");
+    } else if (policy.sync_price && String(imported.currency ?? "").trim().toUpperCase() !== String(product.currency ?? "").trim().toUpperCase()) {
+      reviewReasons.push("Supplier currency changed or differs from the product selling currency; source pricing and automatic repricing were blocked until the currency is reviewed.");
+      if (!changedFields.includes("currency_review")) changedFields.push("currency_review");
     }
     if (policy.sync_stock && imported.availability === "out_of_stock") {
       if (policy.out_of_stock_action === "pause") {
@@ -328,9 +339,9 @@ export async function synchronizeSupplierProduct(input: {
       await tx.execute(sql`
         UPDATE supplier_products
         SET
-          price=${imported.price},
-          sale_price=${imported.salePrice},
-          currency=${imported.currency},
+          price=CASE WHEN ${applySourcePriceFields} THEN ${imported.price} ELSE price END,
+          sale_price=CASE WHEN ${applySourcePriceFields} THEN ${imported.salePrice} ELSE sale_price END,
+          currency=CASE WHEN ${applySourcePriceFields} THEN ${imported.currency} ELSE currency END,
           sku=${imported.sku},
           availability=${imported.availability},
           availability_quantity=${imported.availabilityQuantity},
@@ -363,8 +374,12 @@ export async function synchronizeSupplierProduct(input: {
           import_status='synced',
           import_error=NULL,
           updated_at=now()
-        WHERE id=${product.id} AND merchant_id=${product.merchant_id}
+        WHERE id=${product.id} AND merchant_id=${product.merchant_id} AND updated_at=${product.updated_at}
+        RETURNING id
       `);
+      if (!productUpdate.rows.length) {
+        throw new Error("Supplier product changed while this sync was in progress; no stale supplier data was applied. Run the sync again.");
+      }
 
       await tx.execute(sql`
         UPDATE supplier_sync_policies
@@ -485,7 +500,7 @@ export async function synchronizeSupplierProduct(input: {
     await db.execute(sql`
       UPDATE supplier_products
       SET last_attempted_sync=now(),import_status='failed',import_error=${String(error instanceof Error ? error.message : error).slice(0,1000)},updated_at=now()
-      WHERE id=${input.productId} AND merchant_id=${input.merchantId}
+      WHERE id=${input.productId} AND merchant_id=${input.merchantId} AND updated_at=${product.updated_at}
     `);
     await db.execute(sql`
       UPDATE supplier_sync_runs
@@ -498,13 +513,12 @@ export async function synchronizeSupplierProduct(input: {
 
 export async function runDueSupplierSyncs(limit = 10): Promise<number> {
   const result = await db.execute(sql`
-    SELECT p.id AS policy_id,p.merchant_id,p.supplier_product_id,p.enabled,p.sync_price,p.sync_stock,p.sync_variants,
+    SELECT p.id AS id,p.merchant_id,p.supplier_product_id,p.enabled,p.sync_price,p.sync_stock,p.sync_variants,
            p.sync_media,p.sync_description,p.max_price_change_bps,p.min_margin_bps,p.out_of_stock_action,
            p.require_price_review,p.auto_apply
     FROM supplier_sync_policies p
     JOIN supplier_products sp ON sp.id=p.supplier_product_id AND sp.merchant_id=p.merchant_id
     WHERE p.enabled=true
-      AND p.auto_apply=true
       AND (p.last_run_at IS NULL OR p.last_run_at < now() - interval '30 minutes')
     ORDER BY p.last_run_at NULLS FIRST
     LIMIT ${Math.max(1, Math.min(limit, 25))}
