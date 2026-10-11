@@ -74,7 +74,7 @@ export function configuredLunavoBrainRoutes() {
     "customer", "finance", "creative", "reviewer", "coder", "arbiter",
   ];
   return roles.map((role) => {
-    const primaryProfile = role === "arbiter" ? "review" : ROLE_PROFILES[role][0]!;
+    const primaryProfile = role === "arbiter" ? "fast" : ROLE_PROFILES[role][0]!;
     const route = resolveLunavoBrainRoute(role, primaryProfile);
     return {
       role,
@@ -292,10 +292,11 @@ export async function completeLunavoBrain(
           content: "Task:\n" + safeTask + "\n\nSpecialist outputs:\n" + candidateEvidence,
         },
       ];
-    // Reviewer/vision and arbiter remain separately configurable: by default the
-    // arbiter starts with the review profile rather than reusing the orchestrator's
-    // reasoning profile, and can be given a dedicated endpoint/model in production.
-    const arbiterProfiles: LocalAiProfile[] = ["review", "reasoning", "general"];
+    // The final arbiter uses the distinct lightweight profile by default to bring a
+    // fourth model into the ensemble without multiplying GPU load. Operators can
+    // override the arbiter model or give it a dedicated local endpoint for larger
+    // deployments; fallback stays bounded to two alternatives.
+    const arbiterProfiles: LocalAiProfile[] = ["fast", "reasoning", "general"];
     const primaryArbiterProfile = arbiterProfiles[0]!;
     const arbiterAttempt = await runWithLocalProfileFallback(arbiterProfiles, (profile) => {
       const route = resolveLunavoBrainRoute("arbiter", primaryArbiterProfile);
