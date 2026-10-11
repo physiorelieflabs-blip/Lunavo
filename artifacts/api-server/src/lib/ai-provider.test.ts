@@ -66,7 +66,7 @@ test("uses distinct text specialists for an ensemble and a configured critic for
     { id: "primary", url: "http://primary:8000/v1/chat/completions", model: "primary-model", role: "primary", weight: 1 },
   ]);
   const seenModels: string[] = [];
-  vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+  vi.stubGlobal("fetch", async (_input: string | URL, init?: RequestInit) => {
     const request = JSON.parse(String(init?.body)) as {
       model: string;
       messages?: Array<{ content?: string }>;
