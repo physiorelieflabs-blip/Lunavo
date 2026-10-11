@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isBlockedSupplierAddress, isSafeRasterImageType, matchesRasterImageSignature, usesStandardHttpPort } from "./public-supplier";
+import { isBlockedSupplierAddress, usesStandardHttpPort } from "./public-supplier";
+import { isSafeRasterImageType, matchesRasterImageSignature } from "./image-safety";
 describe("public supplier address policy", () => {
   it.each([
     "0.0.0.0","10.0.0.1","100.64.0.1","100.127.255.254","127.0.0.1","169.254.169.254",

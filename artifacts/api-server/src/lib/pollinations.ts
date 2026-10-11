@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { validateGeneratedRasterImage } from "./image-safety";
 type GeneratedImage = {
   model: string;
   mimeType: string;
@@ -38,11 +39,10 @@ function localImageEndpoint(): string {
   return endpoint.replace(/\/$/, "");
 }
 
-function imageResult(bytes: Buffer, mimeType: string, model: string): GeneratedImage {
-  if (!mimeType.startsWith("image/")) throw new Error("Self-hosted image endpoint returned a non-image MIME type");
-  if (!bytes.length || bytes.length > 25 * 1024 * 1024) throw new Error("Self-hosted image endpoint returned an invalid image size");
+export function imageResult(bytes: Buffer, mimeType: string, model: string): GeneratedImage {
+  const safeMimeType = validateGeneratedRasterImage(bytes, mimeType);
   const encoded = bytes.toString("base64");
-  return { model, mimeType, data: `data:${mimeType};base64,${encoded}`, bytes };
+  return { model, mimeType: safeMimeType, data: `data:${safeMimeType};base64,${encoded}`, bytes };
 }
 
 async function generateLocalImage(prompt: string): Promise<GeneratedImage> {
