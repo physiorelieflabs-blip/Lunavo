@@ -267,6 +267,10 @@ export async function synchronizeSupplierProduct(input: {
       changedFields.push("source_availability");
       sourceFields.push("availability");
     }
+    if (policy.sync_variants && imported.sku !== product.sku) {
+      changedFields.push("sku");
+      sourceFields.push("sku");
+    }
     if (policy.sync_variants && !sameJson(imported.variants, product.variants)) {
       changedFields.push("variants");
       sourceFields.push("variants");
