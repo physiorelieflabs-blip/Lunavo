@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldApplySupplierPriceFields } from "./supplier-sync-policy";
+import { shouldApplySupplierPriceFields, shouldApplySupplierStockFields } from "./supplier-sync-policy";
 
 describe("supplier price synchronization policy", () => {
   it("does not mutate product prices when price sync is disabled", () => {
@@ -20,5 +20,21 @@ describe("supplier price synchronization policy", () => {
   it("rejects malformed or missing currency codes", () => {
     expect(shouldApplySupplierPriceFields(true, "US", "USD", 100)).toBe(false);
     expect(shouldApplySupplierPriceFields(true, "USD", null, 100)).toBe(false);
+  });
+});
+
+describe("supplier stock synchronization policy", () => {
+  it("updates only recognized stock observations when stock sync is enabled", () => {
+    expect(shouldApplySupplierStockFields(true, "in_stock")).toBe(true);
+    expect(shouldApplySupplierStockFields(true, "out_of_stock")).toBe(true);
+    expect(shouldApplySupplierStockFields(true, "limited_stock")).toBe(true);
+    expect(shouldApplySupplierStockFields(true, "preorder")).toBe(true);
+  });
+
+  it("does not erase known stock state after missing, disabled, or unrecognized observations", () => {
+    expect(shouldApplySupplierStockFields(false, "in_stock")).toBe(false);
+    expect(shouldApplySupplierStockFields(true, null)).toBe(false);
+    expect(shouldApplySupplierStockFields(true, "")).toBe(false);
+    expect(shouldApplySupplierStockFields(true, "unknown")).toBe(false);
   });
 });
