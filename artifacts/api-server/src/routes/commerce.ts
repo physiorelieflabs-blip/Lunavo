@@ -2404,8 +2404,17 @@ async function verifyPublicFlutterwaveOrder(
         .limit(1)
     )[0];
     if (!currentIntent || !currentOrder) throw new Error("Payment session is no longer available");
-    if (currentIntent.status === "verified") return currentOrder;
+    if (currentIntent.status === "verified") {
+      return {
+        order: currentOrder,
+        inventoryReservationException: null,
+        discountCodeRedeemed: false,
+        promotionReservationExpired: false,
+      };
+    }
     if (currentOrder.status === "cancelled") throw new Error("This order has been cancelled");
+    // Provider-confirmed money must be recorded even if inventory is inconsistent.
+    let inventoryReservationException: string | null = null;
 
     if (currentOrder.supplierProductId) {
       await tx.execute(
@@ -2437,9 +2446,8 @@ async function verifyPublicFlutterwaveOrder(
           .limit(1)
       )[0];
       if (!reservation || reservation.status !== "reserved") {
-        throw new Error("Inventory reservation is missing or no longer active");
-      }
-      if (reservation.expiresAt <= new Date()) {
+        inventoryReservationException = "Payment was verified but the inventory reservation is missing or no longer active. Review stock before fulfilment.";
+      } else if (reservation.expiresAt <= new Date()) {
         await tx
           .update(inventoryReservationsTable)
           .set({ status: "expired", updatedAt: new Date() })
@@ -2449,9 +2457,8 @@ async function verifyPublicFlutterwaveOrder(
               eq(inventoryReservationsTable.status, "reserved"),
             ),
           );
-        return { expired: true as const };
-      }
-      if (reservation.status === "reserved" && reservation.expiresAt > new Date()) {
+        inventoryReservationException = "Payment was verified after the inventory reservation expired. Review stock before fulfilment.";
+      } else if (reservation.status === "reserved" && reservation.expiresAt > new Date()) {
         await tx
           .update(inventoryReservationsTable)
           .set({ status: "consumed", updatedAt: new Date() })
