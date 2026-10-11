@@ -13,7 +13,7 @@ import {
   Store,
   Upload,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getListSupplierProductsQueryKey,
   getListSupplierImportHistoryQueryKey,
@@ -39,6 +39,26 @@ type PricingMode = 'same_price' | 'fixed_markup' | 'percentage_markup' | 'fixed_
 type Visibility = 'draft' | 'active' | 'hidden';
 type InventoryStrategy = 'manual' | 'source_based' | 'synchronized';
 type DuplicateAction = 'create_new' | 'update_existing' | 'skip' | 'review';
+type SupplierSyncHealth = {
+  checkedAt: string;
+  freshnessWindowMinutes: number;
+  tracked: number;
+  healthy: number;
+  syncing: number;
+  stale: number;
+  failed: number;
+  needsReview: number;
+  neverSynced: number;
+  items: Array<{
+    id: number;
+    title: string;
+    state: 'healthy' | 'syncing' | 'stale' | 'failed' | 'needs_review' | 'never_synced';
+    lastSuccessAt: string | null;
+    issue: string | null;
+    inventoryStatus: string | null;
+    availabilityQuantity: number | null;
+  }>;
+};
 
 const inputClass = 'mt-2 h-11 w-full rounded-lg border border-[#d9d2c4] bg-[#f7f4ed] px-3 text-sm text-[#182333] outline-none placeholder:text-[#8994a2] focus:border-[#bca26a] focus:ring-2 focus:ring-[#bca26a]/20';
 const darkInputClass = 'mt-2 h-11 w-full rounded-lg border border-[#46566a] bg-[#26364a] px-3 text-sm text-[#f8f3e8] outline-none placeholder:text-[#aab6c2] focus:border-[#d6aa46]';
@@ -115,6 +135,16 @@ function rightsNotice() {
 }
 
 export default function Suppliers() {
+  const syncHealth = useQuery({
+    queryKey: ['/api/supplier-products/sync-health'],
+    queryFn: async (): Promise<SupplierSyncHealth> => {
+      const response = await fetch('/api/supplier-products/sync-health', { credentials: 'include' });
+      if (!response.ok) throw new Error('Supplier synchronization health is unavailable.');
+      return response.json() as Promise<SupplierSyncHealth>;
+    },
+    refetchInterval: 60_000,
+    staleTime: 15_000,
+  });
   const products = useListSupplierProducts();
   const suppliers = useListSuppliers();
   const analyze = useAnalyzeSupplierProduct();
@@ -343,6 +373,31 @@ export default function Suppliers() {
         <Badge tone="info">{products.data.length} catalog {products.data.length === 1 ? 'item' : 'items'}</Badge>
       </div>
       {message && <div className="mt-7"><Notice tone={message.includes('could not') || message.includes('couldn’t') ? 'danger' : 'success'} title={message.includes('could not') || message.includes('couldn’t') ? 'Action not completed' : 'Workspace updated'}>{message}</Notice></div>}
+      {syncHealth.data && syncHealth.data.tracked > 0 && <section aria-label="Supplier synchronization health" className="mt-7 rounded-xl border border-[#d9d2c4] bg-[#fbfaf6] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Inventory control</p><h2 className="mt-1 text-lg font-extrabold">Synchronized supplier health</h2><p className="mt-1 text-xs leading-5 text-[#697687]">Source observations are refreshed every 15 minutes in bounded batches. Stale or unverified synchronized stock cannot pass checkout.</p></div>
+          <Badge tone={syncHealth.data.failed || syncHealth.data.needsReview || syncHealth.data.stale || syncHealth.data.neverSynced ? 'warning' : 'success'}>{syncHealth.data.healthy} healthy / {syncHealth.data.tracked} tracked</Badge>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            ['Syncing', syncHealth.data.syncing],
+            ['Stale', syncHealth.data.stale],
+            ['Failed', syncHealth.data.failed],
+            ['Needs review', syncHealth.data.needsReview],
+            ['Never synced', syncHealth.data.neverSynced],
+            ['Healthy', syncHealth.data.healthy],
+          ].map(([label, count]) => <div key={String(label)} className="rounded-lg bg-[#f3efe5] p-3"><p className="text-[11px] text-[#697687]">{label}</p><p className="mt-1 font-mono text-xl font-bold text-[#182333]">{count}</p></div>)}
+        </div>
+        {syncHealth.data.items.some((item) => item.issue && item.state !== 'healthy') && <div className="mt-4 space-y-2">
+          {syncHealth.data.items.filter((item) => item.issue && item.state !== 'healthy').slice(0, 5).map((item) => <div key={item.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-[#dfc27a] bg-[#fff7df] p-3 text-xs">
+            <div className="min-w-0 flex-1"><strong className="block truncate text-[#765817]">{item.title}</strong><span className="mt-1 block text-[#765817]">{item.issue}</span></div>
+            <Badge tone={item.state === 'failed' || item.state === 'stale' ? 'danger' : 'warning'}>{item.state.replaceAll('_', ' ')}</Badge>
+          </div>)}
+          {syncHealth.data.items.filter((item) => item.issue && item.state !== 'healthy').length > 5 && <p className="text-xs text-[#697687]">Showing five items; open the catalog cards below for individual source review.</p>}
+        </div>
+        <p className="mt-3 text-[11px] text-[#697687]">Last checked {timeAgo(syncHealth.data.checkedAt)}. Source health is evidence, not a supplier guarantee.</p>
+      </section>}
+      {syncHealth.isError && <div className="mt-4"><Notice tone="warning" title="Sync health unavailable">The product workspace is still available, but supplier synchronization health could not be loaded.</Notice></div>}
 
       <section className="mt-8 rounded-xl border border-[#d9d2c4] bg-[#182333] p-6 text-[#f8f3e8] md:p-7">
         <SectionHeading eyebrow="Step 01 · Analyze first" title="Start with a public product URL" description="Nothing is saved until you review the extracted facts below." />

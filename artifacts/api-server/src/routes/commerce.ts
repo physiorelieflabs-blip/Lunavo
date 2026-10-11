@@ -6032,6 +6032,88 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/supplier-products/sync-health", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
+
+  const products = await db
+    .select({
+      id: supplierProductsTable.id,
+      title: supplierProductsTable.title,
+      status: supplierProductsTable.status,
+      visibility: supplierProductsTable.visibility,
+      importStatus: supplierProductsTable.importStatus,
+      inventoryStatus: supplierProductsTable.inventoryStatus,
+      availabilityQuantity: supplierProductsTable.availabilityQuantity,
+      lastAttemptedSync: supplierProductsTable.lastAttemptedSync,
+      importedAt: supplierProductsTable.importedAt,
+      sourceMetadata: supplierProductsTable.sourceMetadata,
+    })
+    .from(supplierProductsTable)
+    .where(and(
+      eq(supplierProductsTable.merchantId, merchant.id),
+      eq(supplierProductsTable.inventoryStrategy, "synchronized"),
+    ))
+    .orderBy(desc(supplierProductsTable.lastAttemptedSync), desc(supplierProductsTable.importedAt))
+    .limit(500);
+
+  const now = Date.now();
+  const freshnessMs = 45 * 60_000;
+  const items = products.map((product) => {
+    const metadata = jsonRecord(product.sourceMetadata);
+    const sync = jsonRecord(metadata.supplierSync);
+    const lastSuccessAt = typeof sync.lastSuccessAt === "string" ? sync.lastSuccessAt : null;
+    const successTime = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
+    let state: "healthy" | "syncing" | "stale" | "failed" | "needs_review" | "never_synced";
+    let issue: string | null = null;
+    if (product.importStatus === "needs_review" || (product.status === "draft" && product.visibility === "hidden" && Boolean(product.importStatus))) {
+      state = "needs_review";
+      issue = "Review supplier cost, currency, and pricing before republishing.";
+    } else if (sync.state === "failed" || product.importStatus === "source_unavailable") {
+      state = "failed";
+      issue = "The last supplier refresh failed. Checkout is blocked until fresh stock is verified.";
+    } else if (sync.state === "syncing") {
+      state = "syncing";
+      issue = "Supplier source refresh is running.";
+    } else if (!Number.isFinite(successTime)) {
+      state = "never_synced";
+      issue = "No successful scheduled supplier refresh has been recorded yet.";
+    } else if (successTime > now + 60_000 || now - successTime > freshnessMs) {
+      state = "stale";
+      issue = "The last successful source observation is older than 45 minutes.";
+    } else {
+      state = "healthy";
+    }
+    return {
+      id: product.id,
+      title: product.title,
+      status: product.status,
+      visibility: product.visibility,
+      importStatus: product.importStatus,
+      inventoryStatus: product.inventoryStatus,
+      availabilityQuantity: product.availabilityQuantity,
+      lastAttemptedSync: product.lastAttemptedSync?.toISOString() ?? null,
+      lastSuccessAt,
+      state,
+      issue,
+    };
+  });
+  res.json({
+    checkedAt: new Date(now).toISOString(),
+    freshnessWindowMinutes: 45,
+    tracked: items.length,
+    healthy: items.filter((item) => item.state === "healthy").length,
+    syncing: items.filter((item) => item.state === "syncing").length,
+    stale: items.filter((item) => item.state === "stale").length,
+    failed: items.filter((item) => item.state === "failed").length,
+    needsReview: items.filter((item) => item.state === "needs_review").length,
+    neverSynced: items.filter((item) => item.state === "never_synced").length,
+    items: items.slice(0, 100),
+  });
+});
+
 router.get("/supplier-products", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
