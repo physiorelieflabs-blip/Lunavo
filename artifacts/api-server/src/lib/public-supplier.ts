@@ -231,6 +231,117 @@ async function fetchPublicPageUncached(initialUrl: URL, initialAddress: string):
   throw new Error("Supplier page could not be read");
 }
 
+
+// Only passive raster formats are forwarded to a self-hosted vision server. SVG/HTML are intentionally excluded.
+const SAFE_RASTER_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+export function isSafeRasterImageType(contentType: string): boolean {
+  return SAFE_RASTER_IMAGE_TYPES.has(contentType.split(";", 1)[0]!.trim().toLowerCase());
+}
+
+function matchesRasterImageSignature(contentType: string, body: Buffer): boolean {
+  const type = contentType.split(";", 1)[0]!.trim().toLowerCase();
+  if (type === "image/jpeg") return body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
+  if (type === "image/png") return body.length >= 8 && body.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+  if (type === "image/webp") return body.length >= 12 && body.toString("ascii", 0, 4) === "RIFF" && body.toString("ascii", 8, 12) === "WEBP";
+  if (type === "image/gif") return body.length >= 6 && ["GIF87a", "GIF89a"].includes(body.toString("ascii", 0, 6));
+  if (type === "image/avif") return body.length >= 12 && body.toString("ascii", 4, 8) === "ftyp" && /^(avif|avis)$/.test(body.toString("ascii", 8, 12));
+  return false;
+}
+
+async function requestPinnedImage(
+  url: URL,
+  address: string,
+): Promise<{ statusCode: number; location: string | null; contentType: string; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finishError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)({
+      hostname: address,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      servername: isIP(url.hostname) ? undefined : url.hostname,
+      rejectUnauthorized: true,
+      headers: {
+        accept: "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9",
+        host: url.host,
+        "user-agent": "Lunavo-Self-Hosted-Vision/1.0",
+      },
+      timeout: 8_000,
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      response.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > MAX_IMAGE_BYTES) {
+          request.destroy(new Error("Supplier image exceeds the safe size limit"));
+          finishError(new Error("Supplier image exceeds the safe size limit"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on("end", () => {
+        if (settled) return;
+        settled = true;
+        resolve({
+          statusCode: response.statusCode ?? 0,
+          location: headerValue(response.headers, "location"),
+          contentType: headerValue(response.headers, "content-type") ?? "",
+          body: Buffer.concat(chunks),
+        });
+      });
+      response.on("error", finishError);
+    });
+    request.on("timeout", () => request.destroy(new Error("Supplier image request timed out")));
+    request.on("error", finishError);
+    request.end();
+  });
+}
+
+/**
+ * Securely retrieves an image on the API server, pins DNS to a vetted public address,
+ * validates every redirect, and returns raster bytes as a data URL. The local model
+ * server therefore never has to dereference an untrusted supplier URL itself.
+ */
+export async function fetchPublicImageDataUrl(initialUrl: string): Promise<string> {
+  const first = await assertPublicUrl(initialUrl);
+  let url = first.url;
+  let address = first.address;
+
+  for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
+    const previousRequest = lastHostRequest.get(url.hostname) ?? 0;
+    const waitMs = MIN_HOST_REQUEST_GAP_MS - (Date.now() - previousRequest);
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    lastHostRequest.set(url.hostname, Date.now());
+
+    const response = await requestPinnedImage(url, address);
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      if (!response.location || attempt === MAX_REDIRECTS) {
+        throw new Error("Supplier image redirected too many times");
+      }
+      const next = await assertPublicUrl(new URL(response.location, url).toString());
+      url = next.url;
+      address = next.address;
+      continue;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`Supplier image could not be read (HTTP ${response.statusCode})`);
+    }
+    const mimeType = response.contentType.split(";", 1)[0]!.trim().toLowerCase();
+    if (!isSafeRasterImageType(mimeType) || !matchesRasterImageSignature(mimeType, response.body)) {
+      throw new Error("Supplier image must be a supported raster image with a matching content signature");
+    }
+    return `data:${mimeType};base64,${response.body.toString("base64")}`;
+  }
+  throw new Error("Supplier image could not be read");
+}
+
 function decodeHtml(value: string): string {
   return value
     .replace(/<[^>]+>/g, " ")
