@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { imageResult } from "./pollinations";
+import { imageResult, readBoundedResponseBody } from "./pollinations";
 
 describe("self-hosted image-generation output validation", () => {
   it("stores only raster images with matching content signatures", () => {
@@ -16,5 +16,30 @@ describe("self-hosted image-generation output validation", () => {
   it("rejects empty and oversized image bytes", () => {
     expect(() => imageResult(Buffer.alloc(0), "image/png", "local-test")).toThrow(/invalid image size/);
     expect(() => imageResult(Buffer.alloc(25 * 1024 * 1024 + 1), "image/png", "local-test")).toThrow(/invalid image size/);
+  });
+});
+
+
+describe("bounded local image response reading", () => {
+  it("reads a response whose body stays within the configured limit", async () => {
+    const response = new Response(new Uint8Array([1, 2, 3, 4]));
+    await expect(readBoundedResponseBody(response, 4)).resolves.toEqual(Buffer.from([1, 2, 3, 4]));
+  });
+
+  it("rejects an oversized declared response before consuming it", async () => {
+    const response = new Response("12345", { headers: { "content-length": "5" } });
+    await expect(readBoundedResponseBody(response, 4)).rejects.toThrow(/exceeds the safe response-size limit/);
+  });
+
+  it("rejects chunked responses once streamed bytes exceed the limit", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.enqueue(new Uint8Array([4, 5, 6]));
+        controller.close();
+      },
+    });
+    const response = new Response(body);
+    await expect(readBoundedResponseBody(response, 5)).rejects.toThrow(/exceeds the safe response-size limit/);
   });
 });
