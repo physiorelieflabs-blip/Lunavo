@@ -5,7 +5,6 @@ import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { emitDomainEvent } from "../lib/domain-events";
 import { requirePermission } from "../lib/tenant-access";
-import { currencyMinorDigits, toMinorUnits } from "../lib/money";
 import { importPublicSupplierProduct } from "../lib/public-supplier";
 import { buildPublicMarketObservation } from "../lib/public-market-observation";
 import {
@@ -377,7 +376,7 @@ router.post("/merchant/dropship/research/observe-url", async (req, res, next) =>
       return;
     }
 
-    let captured;
+    let captured: Awaited<ReturnType<typeof importPublicSupplierProduct>>;
     try {
       captured = await importPublicSupplierProduct(normalizedUrl);
     } catch {
