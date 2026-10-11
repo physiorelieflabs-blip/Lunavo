@@ -2353,8 +2353,7 @@ async function verifyPublicFlutterwaveOrder(
       .limit(1)
   )[0];
   if (!order) throw new Error("Payment session not found");
-  if (order.status === "cancelled") throw new Error("This order has been cancelled");
-  if (order.status !== "pending") throw new Error("Order is not awaiting payment");
+  if (order.status !== "pending" && order.status !== "cancelled") throw new Error("Order is not awaiting payment");
   const intent = (
     await db
       .select()
@@ -2380,6 +2379,7 @@ async function verifyPublicFlutterwaveOrder(
     return { order, status: "failed" as const, providerPaymentId: provider.providerPaymentId ?? null };
   }
   if (provider.status === "pending") {
+    if (order.status === "cancelled") throw new Error("This checkout was cancelled but the provider has not returned a final payment result. Retry verification later; do not start another payment session.");
     return { order, status: "pending" as const, providerPaymentId: null };
   }
   const settled = await db.transaction(async (tx) => {
@@ -2412,8 +2412,7 @@ async function verifyPublicFlutterwaveOrder(
         promotionReservationExpired: false,
       };
     }
-    if (currentOrder.status === "cancelled") throw new Error("This order has been cancelled");
-    // Provider-confirmed money must be recorded even if inventory is inconsistent.
+    // Provider-confirmed money must be recorded even if cancellation or inventory state changed while checkout was open.
     let inventoryReservationException: string | null = null;
 
     if (currentOrder.supplierProductId) {
@@ -2599,6 +2598,12 @@ async function verifyPublicFlutterwaveOrder(
           .where(eq(subscriptionsTable.id, subscription.id));
       }
     }
+    if (currentOrder.status === "cancelled") {
+      inventoryReservationException = [
+        "Provider confirmed payment after the order was cancelled. Do not fulfil automatically; review the payment and arrange fulfilment or refund.",
+        inventoryReservationException,
+      ].filter(Boolean).join(" ");
+    }
     const [updatedOrder] = await tx
       .update(ordersTable)
       .set({ status: "paid", ...(inventoryReservationException ? { fulfillmentStatus: "review_required" } : {}) })
@@ -2613,15 +2618,22 @@ async function verifyPublicFlutterwaveOrder(
     let discountCodeRedeemed = false;
     let promotionReservationExpired = false;
     const redemptionResult = await tx.execute(sql`
-      UPDATE discount_code_redemptions
+      WITH candidate AS (
+        SELECT id, status AS prior_status
+        FROM discount_code_redemptions
+        WHERE order_id = ${currentOrder.id} AND merchant_id = ${order.merchantId} AND status IN ('reserved', 'released')
+        FOR UPDATE
+      )
+      UPDATE discount_code_redemptions AS redemption
       SET status = 'redeemed', redeemed_at = now(), released_at = NULL
-      WHERE order_id = ${currentOrder.id} AND merchant_id = ${order.merchantId} AND status = 'reserved'
-      RETURNING discount_code_id, reserved_until, code_snapshot
+      FROM candidate
+      WHERE redemption.id = candidate.id
+      RETURNING redemption.discount_code_id, redemption.reserved_until, redemption.code_snapshot, candidate.prior_status
     `);
     const redemption = (redemptionResult.rows[0] as Record<string, unknown> | undefined) ?? null;
     if (redemption) {
       const reservedUntil = new Date(String(redemption.reserved_until)).getTime();
-      promotionReservationExpired = Number.isFinite(reservedUntil) && reservedUntil <= Date.now();
+      promotionReservationExpired = String(redemption.prior_status) === "released" || (Number.isFinite(reservedUntil) && reservedUntil <= Date.now());
       const codeResult = await tx.execute(sql`
         UPDATE discount_codes
         SET usage_count = COALESCE(usage_count, 0) + 1
@@ -8004,6 +8016,11 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
         if (reservation) {
           await tx.update(inventoryReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(eq(inventoryReservationsTable.id, reservation.id), eq(inventoryReservationsTable.status, "reserved")));
         }
+        await tx.execute(sql`
+          UPDATE discount_code_redemptions
+          SET status = 'released', released_at = now()
+          WHERE order_id = ${order.id} AND merchant_id = ${merchant.id} AND status = 'reserved'
+        `);
         await tx.insert(activityTable).values({
           merchantId: merchant.id,
           type: "order_cancelled",
