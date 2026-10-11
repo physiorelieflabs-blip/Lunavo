@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveLocalAiProfile, selfHostedAiQueueState } from "./self-hosted-ai";
+import { assertSelfHostedEndpoint, resolveLocalAiProfile, selfHostedAiQueueState } from "./self-hosted-ai";
 
 const original = {
   LUNAVO_LOCAL_LLM_URL: process.env.LUNAVO_LOCAL_LLM_URL,
+  LUNAVO_LOCAL_LLM_MODEL: process.env.LUNAVO_LOCAL_LLM_MODEL,
   LUNAVO_LOCAL_AI_BASE_URL: process.env.LUNAVO_LOCAL_AI_BASE_URL,
   LUNAVO_LOCAL_AI_FAST_URL: process.env.LUNAVO_LOCAL_AI_FAST_URL,
+  LUNAVO_LOCAL_AI_GENERAL_URL: process.env.LUNAVO_LOCAL_AI_GENERAL_URL,
+  LUNAVO_LOCAL_AI_GENERAL_MODEL: process.env.LUNAVO_LOCAL_AI_GENERAL_MODEL,
   LUNAVO_LOCAL_AI_MAX_PARALLEL: process.env.LUNAVO_LOCAL_AI_MAX_PARALLEL,
 };
 
@@ -26,6 +29,26 @@ describe("self-hosted AI endpoint boundary", () => {
       process.env.LUNAVO_LOCAL_LLM_URL = value;
       expect(resolveLocalAiProfile("general").url).toBe(value);
     }
+  });
+
+  it("rejects endpoint userinfo, query strings, and fragments", () => {
+    for (const value of [
+      "http://user:password@ollama:11434/v1",
+      "http://ollama:11434/v1?token=secret",
+      "http://ollama:11434/v1#fragment",
+    ]) {
+      expect(() => assertSelfHostedEndpoint(value)).toThrow(/credentials|query|fragments/i);
+    }
+  });
+
+  it("normalizes a local base URL and honors the legacy general-model setting", () => {
+    process.env.LUNAVO_LOCAL_LLM_URL = "";
+    process.env.LUNAVO_LOCAL_AI_BASE_URL = "http://ollama:11434/v1";
+    process.env.LUNAVO_LOCAL_LLM_MODEL = "qwen3:14b-custom";
+    expect(resolveLocalAiProfile("general")).toMatchObject({
+      url: "http://ollama:11434/v1/chat/completions",
+      model: "qwen3:14b-custom",
+    });
   });
 
   it("rejects public cloud endpoints for the local AI slot", () => {
