@@ -56,7 +56,7 @@ type ProductRow = {
   status: string;
   import_status: string;
   last_attempted_sync: string | null;
-  updated_at: Date | string;
+  updated_at: string;
 };
 
 type SyncResult = {
@@ -211,7 +211,7 @@ export async function synchronizeSupplierProduct(input: {
     SELECT id,merchant_id,source_url,title,description,image_url,image_urls,video_urls,price,sale_price,currency,
            sku,variants,attributes,availability,availability_quantity,inventory_strategy,inventory_status,
            category,tags,specifications,brand,shipping_information,source_metadata,merchant_overrides,
-           pricing_mode,profit_type,profit_value,selling_price,visibility,status,import_status,last_attempted_sync,updated_at
+           pricing_mode,profit_type,profit_value,selling_price,visibility,status,import_status,last_attempted_sync,updated_at::text AS updated_at
     FROM supplier_products
     WHERE id=${input.productId} AND merchant_id=${input.merchantId}
     LIMIT 1
@@ -374,7 +374,7 @@ export async function synchronizeSupplierProduct(input: {
           import_status='synced',
           import_error=NULL,
           updated_at=now()
-        WHERE id=${product.id} AND merchant_id=${product.merchant_id} AND updated_at=${product.updated_at}
+        WHERE id=${product.id} AND merchant_id=${product.merchant_id} AND updated_at::text=${product.updated_at}
         RETURNING id
       `);
       if (!productUpdate.rows.length) {
@@ -500,7 +500,7 @@ export async function synchronizeSupplierProduct(input: {
     await db.execute(sql`
       UPDATE supplier_products
       SET last_attempted_sync=now(),import_status='failed',import_error=${String(error instanceof Error ? error.message : error).slice(0,1000)},updated_at=now()
-      WHERE id=${input.productId} AND merchant_id=${input.merchantId} AND updated_at=${product.updated_at}
+      WHERE id=${input.productId} AND merchant_id=${input.merchantId} AND updated_at::text=${product.updated_at}
     `);
     await db.execute(sql`
       UPDATE supplier_sync_runs
