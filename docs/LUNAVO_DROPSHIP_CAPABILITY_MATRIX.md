@@ -15,7 +15,7 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Dropshipping fulfillment and tracking | Implemented |
 | Orders, reservations and concurrency-safe stock | Implemented |
 | Dynamic pricing and pricing recommendations | Implemented |
-| Product research/evidence provenance | Implemented |
+| Product research/evidence provenance | Implemented; public competitor/ad-spy product URLs can be safely observed, price-normalized and saved with source URL/domain, observation time, extraction evidence, caveats, idempotency and a durable domain event |
 | Self-hosted multimodal product understanding | Implemented |
 | Self-hosted multi-role reasoning brain | Implemented; dedicated finance specialist added to max-consensus dropshipping plans |
 | Local specialist ensemble + reviewer/arbiter | Implemented; arbiter retries only across local profiles and labels a conservative partial result if synthesis is unavailable |
@@ -30,7 +30,7 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Advertising planning/rendering/measurement | Implemented |
 | Social publishing architecture | Implemented |
 | Marketplace, auctions and advanced operations | Implemented |
-| Returns/exchanges/chargeback/dispute operation records | Implemented; branded customer-facing portal remains a closure target |
+| Returns/exchanges/chargeback/dispute operation records | Implemented; branded tracking/return request portal is live, while refund/restock execution after an approved return remains a separate guarded workflow |
 | B2B/company/price-list operation primitives | Implemented; full catalog and order UX remains a closure target |
 | Invoices/payment links/subscriptions | Implemented |
 | Internal automation engine | Implemented |
@@ -77,22 +77,20 @@ These must remain real provider adapters rather than fake in-app completion:
 - External ad-platform publishing beyond already-supported adapters.
 
 ### Next capability closure targets
-These should be implemented only through the same connected operating graph and checkout/inventory authority, not as isolated tables:
-- Multi-line virtual bundles, mix-and-match bundles, and cross-SKU BOGO with cart-level pricing snapshots. Same-SKU Buy-X-Get-Y-Free is implemented in the current single-line checkout; multi-line bundle support remains open until order-item and split-fulfillment support can preserve stock/payment truth.
-- Branded tracking/returns portal backed by merchant fulfillment state.
-- Channel-level catalog/inventory/order sync state machine with retry-safe jobs.
-- 3PL split-shipment routing and SLA-aware fulfillment selection.
-- POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
-- Automated supplier delivery adapters, supplier identity verification, and provider-side message/reply integrations. The one-time supplier response portal handles inbound offers after a merchant manually shares its link; outbound email, SMS or supplier-platform messaging is not yet connected.
-- Evidence-backed duty/import/tariff rates from authoritative, jurisdiction-specific sources. Current landed-cost scenarios clearly label operator-entered rates and require explicit currency normalization evidence when source and calculation currencies differ.
-- Automated email/SMS lifecycle campaigns with consent, suppression, delivery status and provider verification.
-- Competitor/ad-spy ingestion connectors with source URL, observation time and evidence provenance.
-- A consuming worker plus real provider adapters for channel catalog/inventory/order sync; the existing control plane can queue and track jobs but must never claim external sync succeeded without an adapter result.
-- Multi-line virtual bundles, mix-and-match bundles and BOGO promotions with cart-level pricing snapshots.
-- Branded tracking/returns portal backed by authoritative merchant fulfillment state.
-- 3PL split-shipment routing and SLA-aware fulfillment selection.
-- POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
-- Wholesale quantity breaks, customer-specific catalogs, payment terms and B2B ordering UI on top of existing B2B operation primitives.
+
+These are the remaining significant gaps identified by the repository audit. Build them through the shared order, inventory, payment, supplier, consent, event and approval boundaries rather than isolated tables.
+
+- Multi-line cart/order-item model for virtual bundles, mix-and-match, cross-SKU BOGO and cart-level price snapshots. Same-SKU Buy-X-Get-Y-Free is live; cross-SKU bundle discounts are not claimed until per-item stock, payment allocation, shipment splitting, refunds and idempotent fulfillment are implemented together.
+- Approved return/exchange execution: explicit refund eligibility and amount, provider refund boundary, ledger reversal, restock inspection/grade, inventory movement and customer notification. A return request or approval alone must never refund money or restock inventory.
+- Channel-specific adapters and verified pull/push implementation for catalog, inventory, orders, tracking and fulfillment. The control plane/worker is present; each channel must only report success after remote provider acknowledgement plus local reconciliation, with cursor/version checks and idempotent replay.
+- 3PL split-shipment routing, multi-package tracking, stock-location allocation and SLA-aware fulfillment selection on top of a proper order-item/shipment model.
+- POD/private-label/custom-packaging sourcing, variant mockup/artwork workflow, production lead-time comparison and supplier-specific quality/reprint evidence.
+- Automated outbound supplier message/quote delivery adapters, supplier identity verification and authenticated provider-side replies. The secure one-time supplier quote portal currently handles inbound offers after a merchant manually shares its link; it does not itself send email/SMS or message a supplier platform.
+- Evidence-backed duty/import/tariff rules from authoritative jurisdiction-specific sources, dated by effective period, normalized to the transaction currency and kept distinct from operator-entered estimates.
+- Consent-gated email/SMS lifecycle campaign delivery with provider adapters, suppression/unsubscribe enforcement, bounce/complaint handling, delivery events and retry-safe idempotency. Current lifecycle recommendations remain advisory unless delivery is verified.
+- Scheduled competitor/ad-spy monitoring and real advertising/search connectors. Public URL capture is available and feeds the operating graph, but scheduled recapture or a live ad-network connector must not be claimed until a source adapter and successful fetch evidence exist.
+- Wholesale quantity breaks, customer/company-specific catalogs, negotiated price lists, payment terms/credit limits, tax-exempt evidence and B2B ordering UI. Current B2B/company/price-list records are primitives, not a full self-service wholesale checkout.
+- Returns portal automation, channel/provider operations and all new external actions need observability, per-tenant limits, operator-visible retries/dead letters and end-to-end tests before being marked fully implemented.
 
 ## Non-negotiable architecture rules
 
