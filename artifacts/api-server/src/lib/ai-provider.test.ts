@@ -1,7 +1,46 @@
-import { describe, expect, it } from "vitest";
-import { runWithLocalProfileFallback, selectLunavoBrainRoles, selectSafeBrainFallback } from "./ai-provider";
+import { afterEach, describe, expect, it } from "vitest";
+import { resolveLunavoBrainRoute, runWithLocalProfileFallback, selectLunavoBrainRoles, selectSafeBrainFallback } from "./ai-provider";
+
+const routeEnvKeys = [
+  "LUNAVO_LOCAL_AI_ROLE_FINANCE_MODEL",
+  "LUNAVO_LOCAL_AI_ROLE_FINANCE_URL",
+  "LUNAVO_LOCAL_AI_ARBITER_MODEL",
+  "LUNAVO_LOCAL_AI_ARBITER_URL",
+] as const;
+const originalRouteEnv = Object.fromEntries(routeEnvKeys.map((key) => [key, process.env[key]]));
+afterEach(() => {
+  for (const key of routeEnvKeys) {
+    const original = originalRouteEnv[key];
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
+  }
+});
 
 describe("Lunavo specialist orchestration", () => {
+  it("allows a finance specialist to use a separately hosted private model endpoint", () => {
+    process.env.LUNAVO_LOCAL_AI_ROLE_FINANCE_MODEL = "qwen3:14b-finance";
+    process.env.LUNAVO_LOCAL_AI_ROLE_FINANCE_URL = "http://finance-llm:11434/v1";
+
+    expect(resolveLunavoBrainRoute("finance", "reasoning")).toEqual({
+      profile: "reasoning",
+      model: "qwen3:14b-finance",
+      endpoint: "http://finance-llm:11434/v1",
+    });
+  });
+
+  it("supports a dedicated arbiter and rejects malformed model identifiers", () => {
+    process.env.LUNAVO_LOCAL_AI_ARBITER_MODEL = "deepseek-r1:32b";
+    process.env.LUNAVO_LOCAL_AI_ARBITER_URL = "http://arbiter:11434/v1/chat/completions";
+    expect(resolveLunavoBrainRoute("arbiter", "reasoning")).toEqual({
+      profile: "reasoning",
+      model: "deepseek-r1:32b",
+      endpoint: "http://arbiter:11434/v1/chat/completions",
+    });
+
+    process.env.LUNAVO_LOCAL_AI_ROLE_FINANCE_MODEL = "bad model name";
+    expect(() => resolveLunavoBrainRoute("finance", "reasoning")).toThrow(/model identifier/i);
+  });
+
   it("falls back to a second local model when a configured model is unavailable", async () => {
     const attempted: string[] = [];
     const result = await runWithLocalProfileFallback(["reasoning", "general", "review"], async (profile) => {
