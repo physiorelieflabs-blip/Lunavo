@@ -59,7 +59,7 @@ describe("self-hosted AI endpoint boundary", () => {
     expect(assertSelfHostedEndpoint("http://[fe80::1]:11434/v1/chat/completions"))
       .toBe("http://[fe80::1]:11434/v1/chat/completions");
     expect(() => assertSelfHostedEndpoint("http://[2606:4700::1111]:11434/v1/chat/completions"))
-      .toThrow(/private\\/local network address/i);
+      .toThrow(/private\/local network address/i);
   });
 
   it("rejects public cloud endpoints for the local AI slot", () => {
