@@ -37,6 +37,8 @@ export interface PublicCheckoutInput {
      * @maxLength 3
      */
   paymentCurrency?: string;
+  /** Merchant promo code, validated and applied by the store server. */
+  discountCode?: string;
   marketingConsent?: boolean;
   /**
      * @minLength 8
