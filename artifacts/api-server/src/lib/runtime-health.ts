@@ -39,7 +39,7 @@ function modelListUrl(raw: string): string {
 }
 
 export async function checkLocalAiHealth(): Promise<Probe & { model: string | null; modelAvailable: boolean }> {
-  const raw = process.env.LUNAVO_LOCAL_LLM_URL?.trim() || process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim();
+  const raw = process.env.LUNAVO_LOCAL_AI_GENERAL_URL?.trim() || process.env.LUNAVO_LOCAL_LLM_URL?.trim() || process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim();
   if (!raw) return { configured: false, reachable: false, healthy: false, error: "Self-hosted AI endpoint is not configured", model: null, modelAvailable: false };
   let selected;
   try {
