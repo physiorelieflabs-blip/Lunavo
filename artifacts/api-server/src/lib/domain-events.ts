@@ -76,7 +76,7 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "supplier.observation_changed": ["Supplier observation changed", "Synchronized supplier facts changed and catalog pricing or stock policies were re-evaluated.", "warning"],
     "supplier.sync_failed": ["Supplier sync failed", "A supplier refresh failed; synchronized stock is blocked from checkout until a successful refresh.", "warning"],
     "catalog.product_changed": ["Catalog product changed", "A merchant created, edited, or published a product; downstream workflows can reassess it.", "info"],
-    "fulfillment.job_created": ["Fulfillment task created", "A paid order qualified for a supplier fulfillment task. This does not confirm a supplier order was placed.", "info"],
+    "fulfillment.job_created": ["Fulfillment task created", "A paid order has a supplier fulfillment task. Check its status and margin hold before proceeding.", "info"],
     "fulfillment.status_changed": ["Fulfillment status updated", "A fulfillment job changed state. Confirm any external supplier action separately.", "info"],
     "order.fulfillment_changed": ["Supplier fulfillment updated", "An order moved through the supplier fulfillment workflow.", "info"],
   };

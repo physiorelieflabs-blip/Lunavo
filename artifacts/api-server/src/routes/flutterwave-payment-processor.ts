@@ -33,6 +33,7 @@ import {
   reverseReferralReward,
 } from "../lib/referrals";
 import { emitDomainEvent } from "../lib/domain-events";
+import { evaluateFulfillmentReadiness } from "../lib/fulfillment-readiness";
 
 type ProviderTransaction = Record<string, unknown>;
 function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
@@ -465,52 +466,73 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
       if (autoDs?.enabled) {
         const sourceCost = supplierProduct.salePrice ?? supplierProduct.price;
-        const selling = supplierProduct.sellingPrice;
-        const costNumber = sourceCost === null ? null : Number(sourceCost);
-        const sellNumber = selling === null ? null : Number(selling);
-        const marginPercent = costNumber !== null && sellNumber !== null && sellNumber > 0
-          ? ((sellNumber - costNumber) / sellNumber) * 100
-          : null;
-        if (marginPercent === null || marginPercent >= Number(autoDs.minimumMarginPercent)) {
-          const [createdJob] = await tx.insert(fulfillmentJobsTable).values({
+        const readiness = evaluateFulfillmentReadiness(
+          sourceCost,
+          supplierProduct.sellingPrice,
+          autoDs.minimumMarginPercent,
+        );
+        const totalCostMinor = readiness.sourceCostAmount === null
+          ? null
+          : Math.round(readiness.sourceCostAmount * 100) * order.quantity;
+        const safeCostMinor = totalCostMinor !== null && Number.isSafeInteger(totalCostMinor) ? totalCostMinor : null;
+        const finalReadiness = totalCostMinor !== null && safeCostMinor === null
+          ? {
+              ...readiness,
+              eligible: false,
+              status: "failed" as const,
+              reason: "Automatic fulfillment is blocked because the total supplier cost exceeds the supported money range.",
+            }
+          : readiness;
+        const [createdJob] = await tx.insert(fulfillmentJobsTable).values({
+          merchantId: merchant.id,
+          orderId: order.id,
+          supplierProductId: order.supplierProductId,
+          mode: autoDs.mode,
+          status: finalReadiness.status,
+          lastError: finalReadiness.reason,
+          supplierCheckoutUrl: supplierProduct.supplierUrl || supplierProduct.sourceUrl,
+          customerSnapshot: {
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone,
+            shippingAddress: order.shippingAddress,
+          },
+          costMinor: safeCostMinor,
+          currency: order.currency,
+          attempts: 0,
+          idempotencyKey: `autods:order:${order.id}`,
+        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId })
+          .returning({ id: fulfillmentJobsTable.id, mode: fulfillmentJobsTable.mode, status: fulfillmentJobsTable.status });
+        if (createdJob) {
+          await emitDomainEvent(tx, {
             merchantId: merchant.id,
-            orderId: order.id,
-            supplierProductId: order.supplierProductId,
-            mode: autoDs.mode,
-            status: "ready",
-            supplierCheckoutUrl: supplierProduct.supplierUrl || supplierProduct.sourceUrl,
-            customerSnapshot: {
-              name: customer.name,
-              email: customer.email,
-              phone: customer.phone,
-              shippingAddress: order.shippingAddress,
+            eventType: "fulfillment.job_created",
+            aggregateType: "fulfillment_job",
+            aggregateId: createdJob.id,
+            actorType: "system",
+            actorId: "flutterwave_webhook",
+            source: "system",
+            idempotencyKey: `fulfillment-job:${createdJob.id}:created`,
+            payload: {
+              jobId: createdJob.id,
+              orderId: order.id,
+              supplierProductId: order.supplierProductId,
+              mode: createdJob.mode,
+              status: createdJob.status,
+              routingEligible: finalReadiness.eligible,
+              marginPercent: finalReadiness.marginPercent,
+              minimumMarginPercent: finalReadiness.minimumMarginPercent,
+              holdReason: finalReadiness.reason,
             },
-            costMinor: costNumber === null ? null : Math.round(costNumber * 100) * order.quantity,
-            currency: order.currency,
-            attempts: 0,
-            idempotencyKey: `autods:order:${order.id}`,
-          }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId })
-            .returning({ id: fulfillmentJobsTable.id, mode: fulfillmentJobsTable.mode, status: fulfillmentJobsTable.status });
-          if (createdJob) {
-            await emitDomainEvent(tx, {
-              merchantId: merchant.id,
-              eventType: "fulfillment.job_created",
-              aggregateType: "fulfillment_job",
-              aggregateId: createdJob.id,
-              actorType: "system",
-              actorId: "flutterwave_webhook",
-              source: "system",
-              idempotencyKey: `fulfillment-job:${createdJob.id}:created`,
-              payload: {
-                jobId: createdJob.id,
-                orderId: order.id,
-                supplierProductId: order.supplierProductId,
-                mode: createdJob.mode,
-                status: createdJob.status,
-              },
-              after: { status: createdJob.status, mode: createdJob.mode, orderId: order.id },
-            });
-          }
+            before: null,
+            after: {
+              status: createdJob.status,
+              mode: createdJob.mode,
+              orderId: order.id,
+              routingEligible: finalReadiness.eligible,
+              holdReason: finalReadiness.reason,
+            },
+          });
         }
       }
     }
