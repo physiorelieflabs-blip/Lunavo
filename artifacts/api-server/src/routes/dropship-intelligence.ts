@@ -172,7 +172,7 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
     }
 
     claimedRunId = commandRun.id;
-    const result = await buildMaxConsensusDropshipPlan(ctx.merchantId, question, { destinationCountry });
+    const result = await buildMaxConsensusDropshipPlan(ctx.merchantId, commandQuestion, { destinationCountry });
     await persistDropshipIntelligence(ctx.merchantId, result.graph, result.brain.model);
 
     await emitDomainEvent(db, {
