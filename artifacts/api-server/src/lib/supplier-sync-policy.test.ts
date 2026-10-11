@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldApplySupplierPriceFields, shouldApplySupplierStockFields } from "./supplier-sync-policy";
+import { shouldApplySupplierArrayField, shouldApplySupplierPriceFields, shouldApplySupplierStockFields, shouldApplySupplierTextField } from "./supplier-sync-policy";
 
 describe("supplier price synchronization policy", () => {
   it("does not mutate product prices when price sync is disabled", () => {
@@ -36,5 +36,21 @@ describe("supplier stock synchronization policy", () => {
     expect(shouldApplySupplierStockFields(true, null)).toBe(false);
     expect(shouldApplySupplierStockFields(true, "")).toBe(false);
     expect(shouldApplySupplierStockFields(true, "unknown")).toBe(false);
+  });
+});
+
+describe("supplier optional-field synchronization policy", () => {
+  it("does not erase merchant-known SKU, variants, or media when extraction is empty", () => {
+    expect(shouldApplySupplierTextField(true, null)).toBe(false);
+    expect(shouldApplySupplierTextField(true, "   ")).toBe(false);
+    expect(shouldApplySupplierArrayField(true, [])).toBe(false);
+    expect(shouldApplySupplierArrayField(true, null)).toBe(false);
+  });
+
+  it("accepts non-empty source fields only when their sync toggle is enabled", () => {
+    expect(shouldApplySupplierTextField(true, "SKU-7")).toBe(true);
+    expect(shouldApplySupplierTextField(false, "SKU-7")).toBe(false);
+    expect(shouldApplySupplierArrayField(true, [{ name: "Blue" }])).toBe(true);
+    expect(shouldApplySupplierArrayField(false, [{ name: "Blue" }])).toBe(false);
   });
 });
