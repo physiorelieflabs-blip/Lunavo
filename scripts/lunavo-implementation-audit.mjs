@@ -282,6 +282,10 @@ const supplierSync=await read("artifacts/api-server/src/lib/supplier-sync-worker
 for(const m of ["supplier.sync_failed","supplier.observation_changed","merchant_automation_policies","lastObservation","BATCH_SIZE"])if(!supplierSync.includes(m))failures.push("Supplier sync/guardrail invariant missing: "+m);
 const syncPolicy=await read("artifacts/api-server/src/lib/supplier-sync-policy.ts");
 for(const m of ["supplierSyncCheckoutError","source_unavailable","lastSuccessAt","numeric stock quantity"])if(!syncPolicy.includes(m))failures.push("Synchronized inventory checkout guard invariant missing: "+m);
+const imageSafety=await read("artifacts/api-server/src/lib/image-safety.ts");
+for(const m of ["image/jpeg","image/png","image/webp","image/gif","image/avif","matchesRasterImageSignature","validateGeneratedRasterImage"])if(!imageSafety.includes(m))failures.push("Shared raster image validation invariant missing: "+m);
+const imageGeneration=await read("artifacts/api-server/src/lib/pollinations.ts");
+if(!imageGeneration.includes("validateGeneratedRasterImage(bytes, mimeType)"))failures.push("Local image generation must validate output bytes and declared MIME before storage");
 const publicSupplier=await read("artifacts/api-server/src/lib/public-supplier.ts");
 for(const m of ["isBlockedSupplierAddress","usesStandardHttpPort","MAX_IN_FLIGHT_PAGES","MAX_IMAGE_BYTES","matchesRasterImageSignature","Supplier image redirects cannot downgrade HTTPS to HTTP"])if(!publicSupplier.includes(m))failures.push("Safe supplier/image retrieval invariant missing: "+m);
 const localVision=await read("artifacts/api-server/src/lib/ai-provider.ts");
