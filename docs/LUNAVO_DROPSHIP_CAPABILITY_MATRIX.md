@@ -36,6 +36,20 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Durable domain-event outbox | Implemented |
 | Master Admin/security/audit | Implemented |
 
+## Self-hosted intelligence mesh
+
+The shared commerce brain now supports a local route per specialty (orchestrator, researcher, merchandiser, growth, operations, customer, finance, creative, reviewer, coder) plus a separately configurable arbiter. Routes can use different local model identifiers and private/local OpenAI-compatible endpoints; unset role routes inherit a bounded profile fallback. The final dropshipping command stores its model diversity result, contributors, roles and consensus status with the plan so a single-model fallback is not presented as a full ensemble.
+
+Default profile intent:
+- Fast triage: Qwen 3 4B.
+- General commerce language/extraction: Qwen 3 14B.
+- Deep reasoning and multi-step planning: DeepSeek R1 14B.
+- Product vision and independent review: Gemma 3 12B.
+- Code-oriented analysis: Qwen 3 Coder 30B.
+- Final arbitration starts with the fast profile to keep the ensemble bounded; deployments with more memory can override the arbiter model/endpoint in local environment settings.
+
+These are configurable model defaults, not proof that the weights are installed or healthy. Operators must install the local weights and configure the runtime. Admin runtime diagnostics report configured profiles, dedicated role routing and actual model reuse. Every recommendation remains subordinate to verified payment/ledger, server inventory, tenant authorization and approval boundaries.
+
 ## Modern dropshipping capabilities that Lunavo must keep as first-class connected domains
 
 Current commercial platforms increasingly combine supplier discovery/import, automated fulfillment, tracking, price/stock synchronization, product research, AI optimization, bundles/BOGO, country-based supplier fallback, multi-store management, branded experiences, print-on-demand, private products, customer lifecycle growth, and B2B/wholesale. The external comparison baseline used for this audit includes AutoDS, DSers, Zendrop, Spocket, Syncee and Shopify's current B2B/channel tooling.
