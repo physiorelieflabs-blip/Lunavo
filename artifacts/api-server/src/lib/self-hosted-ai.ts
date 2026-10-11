@@ -19,6 +19,8 @@ type LocalChatOptions = {
   timeoutMs?: number;
   reasoningEffort?: "low" | "high" | "max";
   profile?: LocalAiProfile;
+  /** Optional role-specific local endpoint. This must stay on a private/local network. */
+  endpoint?: string;
 };
 
 type ResolvedProfile = {
@@ -45,6 +47,9 @@ export function assertSelfHostedEndpoint(value: string): string {
     throw new Error("Self-hosted AI endpoint must be a valid URL");
   }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Self-hosted AI endpoint must use HTTP(S)");
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("Self-hosted AI endpoint must not contain credentials, query parameters, or fragments");
+  }
   const hostname = url.hostname.toLowerCase();
   const ipVersion = isIP(hostname);
   const privateIpv4 =
@@ -86,13 +91,27 @@ function configuredProfileEnv(profile: LocalAiProfile): { url?: string; model?: 
   };
 }
 
-export function resolveLocalAiProfile(profile: LocalAiProfile = "general", overrideModel?: string): ResolvedProfile {
+function normalizedChatEndpoint(value: string): string {
+  const normalized = assertSelfHostedEndpoint(value);
+  return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
+}
+
+export function resolveLocalAiProfile(
+  profile: LocalAiProfile = "general",
+  overrideModel?: string,
+  overrideEndpoint?: string,
+): ResolvedProfile {
   const defaults = PROFILE_DEFAULTS[profile];
   const configured = configuredProfileEnv(profile);
+  const legacyGeneralModel = profile === "general" ? process.env.LUNAVO_LOCAL_LLM_MODEL?.trim() : undefined;
   return {
     profile,
-    url: configured.url ? assertSelfHostedEndpoint(configured.url) : globalEndpoint(),
-    model: overrideModel?.trim() || configured.model || defaults.model,
+    url: overrideEndpoint
+      ? normalizedChatEndpoint(overrideEndpoint)
+      : configured.url
+        ? normalizedChatEndpoint(configured.url)
+        : globalEndpoint(),
+    model: overrideModel?.trim() || configured.model || legacyGeneralModel || defaults.model,
   };
 }
 
@@ -166,7 +185,7 @@ async function postChat(
   options: LocalChatOptions,
 ): Promise<{ model: string; content: string; profile: LocalAiProfile }> {
   const profile = options.profile || "general";
-  const selected = resolveLocalAiProfile(profile, options.model);
+  const selected = resolveLocalAiProfile(profile, options.model, options.endpoint);
   const releaseSlot = await acquireInferenceRequestSlot();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutFor(profile, options));
@@ -310,15 +329,26 @@ export async function completeLocalVisionJson(
 
 export function selfHostedAiConfigured(): boolean {
   if (process.env.LUNAVO_LOCAL_LLM_URL?.trim() || process.env.LUNAVO_LOCAL_AI_BASE_URL?.trim()) return true;
-  return (["fast", "general", "reasoning", "coding", "vision", "review"] as LocalAiProfile[])
-    .some((profile) => Boolean(configuredProfileEnv(profile).url));
+  if ((["fast", "general", "reasoning", "coding", "vision", "review"] as LocalAiProfile[])
+    .some((profile) => Boolean(configuredProfileEnv(profile).url))) return true;
+  const roles = [
+    "ORCHESTRATOR", "RESEARCHER", "MERCHANDISER", "GROWTH", "OPERATIONS",
+    "CUSTOMER", "FINANCE", "CREATIVE", "REVIEWER", "CODER", "ARBITER",
+  ];
+  return roles.some((role) => Boolean(process.env[`LUNAVO_LOCAL_AI_ROLE_${role}_URL]?.trim() ||
+    (role === "ARBITER" && process.env.LUNAVO_LOCAL_AI_ARBITER_URL?.trim())));
 }
 
 export function configuredSelfHostedProfiles(): Array<{ profile: LocalAiProfile; model: string; urlConfigured: boolean }> {
   const profiles: LocalAiProfile[] = ["fast", "general", "reasoning", "coding", "vision", "review"];
   return profiles.map((profile) => {
     const configured = configuredProfileEnv(profile);
-    return { profile, model: configured.model || PROFILE_DEFAULTS[profile].model, urlConfigured: Boolean(configured.url || process.env.LUNAVO_LOCAL_LLM_URL || process.env.LUNAVO_LOCAL_AI_BASE_URL) };
+    const legacyGeneralModel = profile === "general" ? process.env.LUNAVO_LOCAL_LLM_MODEL?.trim() : undefined;
+    return {
+      profile,
+      model: configured.model || legacyGeneralModel || PROFILE_DEFAULTS[profile].model,
+      urlConfigured: Boolean(configured.url || process.env.LUNAVO_LOCAL_LLM_URL || process.env.LUNAVO_LOCAL_AI_BASE_URL),
+    };
   });
 }
 
