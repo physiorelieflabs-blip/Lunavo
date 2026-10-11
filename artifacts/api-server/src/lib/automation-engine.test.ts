@@ -16,6 +16,7 @@ const context = {
 describe("automation policy evaluator", () => {
   it("registers sourcing and fulfillment in the same workflow trigger spine", () => {
     expect(isWorkflowTriggerEvent("sourcing.source_registered")).toBe(true);
+    expect(isWorkflowTriggerEvent("fulfillment.job_created")).toBe(true);
     expect(isWorkflowTriggerEvent("fulfillment.status_changed")).toBe(true);
     expect(isWorkflowTriggerEvent("supplier.order_success_faked")).toBe(false);
   });
