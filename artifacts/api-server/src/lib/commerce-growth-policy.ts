@@ -24,7 +24,7 @@ export function parseStorefrontId(value: unknown): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(raw) ? raw : null;
 }
 
-function minorUnitExponent(currencyValue: string): number {
+export function currencyMinorUnitExponent(currencyValue: string): number {
   const currency = currencyValue.toUpperCase();
   if (/^(BIF|CLP|DJF|GNF|ISK|JPY|KMF|KRW|PYG|RWF|UGX|UYI|VND|VUV|XAF|XOF|XPF)$/.test(currency)) return 0;
   if (/^(BHD|IQD|JOD|KWD|LYD|OMR|TND)$/.test(currency)) return 3;
@@ -52,7 +52,7 @@ export function quoteProductAdvertisingFee(
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Merchant settlement currency is invalid");
   const baseAmountMinor = PRODUCT_ADVERTISING_FEE_USD_MINOR;
   const fx = calculateFxPayload("USD", currency, rates, now);
-  const digits = minorUnitExponent(currency);
+  const digits = currencyMinorUnitExponent(currency);
   const feeMinor = Math.round((baseAmountMinor / 100) * fx.rate * (10 ** digits));
   if (!Number.isSafeInteger(feeMinor) || feeMinor <= 0) throw new Error("Converted advertising fee is outside the supported money range");
   return {
