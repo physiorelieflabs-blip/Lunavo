@@ -14,7 +14,7 @@ export const domainEventTypes = [
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
   "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","account.exported","account.deleted",
-  "sourcing.source_registered", "supplier.product_imported", "supplier.product_refreshed", "supplier.observation_changed", "supplier.sync_failed", "catalog.product_changed", "order.fulfillment_changed", "fulfillment.job_created", "fulfillment.status_changed",
+  "sourcing.source_registered", "supplier.product_imported", "supplier.product_refreshed", "supplier.observation_changed", "supplier.sync_failed", "catalog.product_changed", "discount.redeemed", "order.fulfillment_changed", "fulfillment.job_created", "fulfillment.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -50,6 +50,7 @@ export function safeProjectionError(_error: unknown): { code: string; message: s
 function notificationFor(event: typeof domainEventsTable.$inferSelect) {
   const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", sourcing_source: "/dropshipping", fulfillment_job: "/dropshipping", supplier_product: "/suppliers" };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
+    "discount.redeemed": ["Discount code redeemed", "A verified paid order consumed a discount-code use.", "success"],
     "order.created": ["New order recorded", "An order was created.", "info"], "order.cancelled": ["Order cancelled", "A pending order was cancelled.", "warning"],
     "payment.verified": ["Payment verified", "Verified payment was posted to the authoritative ledger.", "success"], "payment.evidence_submitted": ["Payment evidence submitted", "A customer submitted payment evidence for merchant approval.", "warning"], "refund.processed": ["Refund processed", "A refund was processed against a verified payment.", "warning"],
     "invoice.sent": ["Invoice sent", "An invoice is now available to the customer.", "info"], "invoice.payment_submitted": ["Invoice payment submitted", "Customer payment evidence is awaiting review.", "warning"], "invoice.payment_verified": ["Invoice payment verified", "Invoice payment was verified and posted.", "success"],

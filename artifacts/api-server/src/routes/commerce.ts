@@ -17,6 +17,7 @@ import {
   inArray,
   isNull,
   lt,
+  lte,
   or,
   sql,
 } from "drizzle-orm";
@@ -52,6 +53,8 @@ import {
   supplierImportBatchesTable,
   suppliersTable,
   subscriptionsTable,
+  discountCodesTable,
+  discountCodeReservationsTable,
   withdrawalSecurityTable,
   withdrawalsTable,
   inventoryReservationsTable,
@@ -339,6 +342,7 @@ import {
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
 import { normalizeSupplierStock, supplierSyncCheckoutError } from "../lib/supplier-sync-policy";
+import { evaluateDiscountCode } from "../lib/discount-policy";
 import { calculateSupplierSellingPrice } from "../lib/supplier-pricing";
 import { dropshipStatusTransitionError } from "../lib/dropship-status-policy";
 import { completePrimaryReasoning } from "../lib/ai-provider";
@@ -1905,6 +1909,8 @@ function serializePublicCheckoutOrder(
     orderNumber: order.orderNumber,
     title: product.title,
     subtotal: toNumber(order.subtotal),
+    discountAmount: toNumber(order.discountAmount),
+    discountCode: order.discountCode ?? null,
     tax: toNumber(order.taxAmount),
     shipping: toNumber(order.shippingAmount),
     total: toNumber(order.total),
@@ -8321,6 +8327,11 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
             payload: { orderId: order.id, supplierProductId: reservation.supplierProductId, quantity: reservation.quantity },
           });
         }
+        await tx.update(discountCodeReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(
+          eq(discountCodeReservationsTable.merchantId, merchant.id),
+          eq(discountCodeReservationsTable.orderId, order.id),
+          eq(discountCodeReservationsTable.status, "reserved"),
+        ));
         return { ...existing, order };
       }
 
@@ -9802,6 +9813,7 @@ router.post(
             )
             .limit(1)
         )[0];
+         const requestedDiscountCode = parsed.data.discountCode?.trim().toUpperCase() || null;
          if (existing) {
            const requestedEmail = parsed.data.customerEmail.trim().toLowerCase();
            const existingCustomer = (
@@ -9821,8 +9833,18 @@ router.post(
              || existing.order.quantity !== parsed.data.quantity
              || existing.order.shippingAddress !== parsed.data.shippingAddress.trim()
              || existingCustomer?.email !== requestedEmail
+             || (existing.order.discountCode ?? null) !== requestedDiscountCode
            ) {
              throw new Error("This checkout idempotency key was already used for a different order");
+           }
+           if (existing.order.discountCode && existing.order.status !== "paid") {
+             const couponReservation = (await tx.select().from(discountCodeReservationsTable).where(and(
+               eq(discountCodeReservationsTable.merchantId, merchant.id),
+               eq(discountCodeReservationsTable.orderId, existing.order.id),
+             )).limit(1))[0];
+             if (!couponReservation || couponReservation.status !== "reserved" || couponReservation.expiresAt <= new Date()) {
+               throw new Error("This checkout's discount reservation expired. Restart checkout to reserve the code again.");
+             }
            }
            return existing;
          }
@@ -9906,18 +9928,58 @@ router.post(
             throw new Error("Insufficient inventory");
           }
         }
-         const unitPrice = toNumber(product.sellingPrice);
-        const subtotal = Number((unitPrice * quantity).toFixed(2));
-        const shippingAmount = merchant.freeShippingThreshold !== null
-          && subtotal >= toNumber(merchant.freeShippingThreshold)
-          ? 0
-          : toNumber(merchant.shippingFee);
-        const taxAmount = Number(
-          (subtotal * toNumber(merchant.taxRate) / 100).toFixed(2),
-        );
-        const total = Number(
-          (subtotal + shippingAmount + taxAmount).toFixed(2),
-        );
+        const unitPrice = toNumber(product.sellingPrice);
+        const unitPriceMinor = Math.round(unitPrice * 100);
+        const subtotalMinor = unitPriceMinor * quantity;
+        if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor < 1 || !Number.isSafeInteger(subtotalMinor)) {
+          throw new Error("The product price or quantity exceeds the supported checkout range");
+        }
+        const subtotal = subtotalMinor / 100;
+        let discountRule: typeof discountCodesTable.$inferSelect | null = null;
+        let discountAmountMinor = 0;
+        if (requestedDiscountCode) {
+          if (!/^[A-Z0-9_-]{3,40}$/.test(requestedDiscountCode)) throw new Error("Enter a valid discount code");
+          await tx.execute(sql`SELECT id FROM discount_codes WHERE merchant_id=${merchant.id} AND code=${requestedDiscountCode} FOR UPDATE`);
+          discountRule = (await tx.select().from(discountCodesTable).where(and(
+            eq(discountCodesTable.merchantId, merchant.id),
+            eq(discountCodesTable.code, requestedDiscountCode),
+          )).limit(1))[0] ?? null;
+          if (!discountRule) throw new Error("Discount code is invalid for this store");
+          const discountNow = new Date();
+          await tx.update(discountCodeReservationsTable).set({ status: "expired", updatedAt: discountNow }).where(and(
+            eq(discountCodeReservationsTable.merchantId, merchant.id),
+            eq(discountCodeReservationsTable.discountCodeId, discountRule.id),
+            eq(discountCodeReservationsTable.status, "reserved"),
+            lte(discountCodeReservationsTable.expiresAt, discountNow),
+          ));
+          const [reservedRow] = await tx.select({ count: sql<number>`count(*)::int` }).from(discountCodeReservationsTable).where(and(
+            eq(discountCodeReservationsTable.merchantId, merchant.id),
+            eq(discountCodeReservationsTable.discountCodeId, discountRule.id),
+            eq(discountCodeReservationsTable.status, "reserved"),
+            gte(discountCodeReservationsTable.expiresAt, discountNow),
+          ));
+          discountAmountMinor = evaluateDiscountCode(discountRule, {
+            subtotalMinor,
+            currency: product.currency,
+            reservedUses: Number(reservedRow?.count ?? 0),
+            now: discountNow,
+          }).discountAmountMinor;
+        }
+        const discountAmount = discountAmountMinor / 100;
+        const discountedSubtotalMinor = subtotalMinor - discountAmountMinor;
+        // Free shipping uses pre-discount merchandise subtotal; tax uses discounted merchandise.
+        const shippingAmount = merchant.freeShippingThreshold !== null && subtotal >= toNumber(merchant.freeShippingThreshold)
+          ? 0 : toNumber(merchant.shippingFee);
+        const shippingAmountMinor = Math.round(shippingAmount * 100);
+        const taxRate = toNumber(merchant.taxRate);
+        if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100 || !Number.isSafeInteger(shippingAmountMinor) || shippingAmountMinor < 0) {
+          throw new Error("The store's tax or shipping configuration is invalid");
+        }
+        const taxAmountMinor = Math.round(discountedSubtotalMinor * taxRate / 100);
+        const totalMinor = discountedSubtotalMinor + shippingAmountMinor + taxAmountMinor;
+        if (!Number.isSafeInteger(totalMinor) || totalMinor < 1) throw new Error("The checkout total is outside the supported payment range");
+        const taxAmount = taxAmountMinor / 100;
+        const total = totalMinor / 100;
          const email = parsed.data.customerEmail.trim().toLowerCase();
          const marketingConsent = parsed.data.marketingConsent;
         let customer = (
@@ -9967,6 +10029,8 @@ router.post(
             customerId: customer.id,
             orderNumber: `WEB-${randomUUID().slice(0, 8).toUpperCase()}`,
             subtotal: subtotal.toFixed(2),
+            discountAmount: discountAmount.toFixed(2),
+            discountCode: requestedDiscountCode,
             taxAmount: taxAmount.toFixed(2),
             shippingAmount: shippingAmount.toFixed(2),
             total: total.toFixed(2),
@@ -10004,6 +10068,13 @@ router.post(
           throw new Error("Checkout order could not be created");
         }
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        if (discountRule) {
+          const [couponReservation] = await tx.insert(discountCodeReservationsTable).values({
+            merchantId: merchant.id, discountCodeId: discountRule.id, orderId: order.id,
+            status: "reserved", expiresAt,
+          }).returning({ id: discountCodeReservationsTable.id });
+          if (!couponReservation) throw new Error("Discount usage could not be reserved");
+        }
         const [reservation] = await tx.insert(inventoryReservationsTable).values({
           merchantId: merchant.id,
           locationId: order.locationId,
@@ -10026,7 +10097,7 @@ router.post(
         await emitDomainEvent(tx, {
           merchantId: merchant.id, eventType: "order.created", aggregateType: "order", aggregateId: order.id,
           actorType: "customer", source: "public_checkout", idempotencyKey: `order:${order.id}:created`,
-          payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total },
+          payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total, discountCode: order.discountCode, discountAmount: order.discountAmount },
         });
         await emitDomainEvent(tx, {
           merchantId: merchant.id, eventType: "inventory.reserved", aggregateType: "inventory_reservation", aggregateId: reservation.id,

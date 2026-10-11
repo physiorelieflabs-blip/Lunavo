@@ -17,6 +17,8 @@ import {
   supplierProductsTable,
   autoDsSettingsTable,
   fulfillmentJobsTable,
+  discountCodesTable,
+  discountCodeReservationsTable,
 } from "@workspace/db";
 import {
   calculateMerchantNetMinor,
@@ -435,6 +437,30 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
+    const [redeemedCoupon] = await tx.update(discountCodeReservationsTable).set({
+      status: "redeemed", redeemedAt: new Date(), updatedAt: new Date(),
+    }).where(and(
+      eq(discountCodeReservationsTable.merchantId, merchant.id),
+      eq(discountCodeReservationsTable.orderId, order.id),
+      eq(discountCodeReservationsTable.status, "reserved"),
+    )).returning({ id: discountCodeReservationsTable.id, discountCodeId: discountCodeReservationsTable.discountCodeId });
+    if (redeemedCoupon) {
+      const [codeAfter] = await tx.update(discountCodesTable).set({
+        usageCount: sql`${discountCodesTable.usageCount} + 1`, updatedAt: new Date(),
+      }).where(and(
+        eq(discountCodesTable.id, redeemedCoupon.discountCodeId),
+        eq(discountCodesTable.merchantId, merchant.id),
+      )).returning({ usageCount: discountCodesTable.usageCount, code: discountCodesTable.code });
+      if (!codeAfter) throw new Error("Redeemed discount code could not be updated");
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id, eventType: "discount.redeemed", aggregateType: "discount_code",
+        aggregateId: redeemedCoupon.discountCodeId, actorType: "system", actorId: "flutterwave_webhook",
+        source: "system", idempotencyKey: `discount-redemption:${redeemedCoupon.id}`,
+        payload: { discountCodeId: redeemedCoupon.discountCodeId, discountCode: codeAfter.code, orderId: order.id, discountAmount: order.discountAmount, currency: order.currency, redeemedAt: new Date().toISOString() },
+        before: { usageCount: Math.max(0, codeAfter.usageCount - 1) },
+        after: { usageCount: codeAfter.usageCount },
+      });
+    }
     await emitDomainEvent(tx, {
       merchantId: merchant.id,
       eventType: "payment.verified",
@@ -466,9 +492,16 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
       if (autoDs?.enabled) {
         const sourceCost = supplierProduct.salePrice ?? supplierProduct.price;
+        const paidMerchandiseMinor = Math.max(
+          0,
+          Math.round((Number(order.subtotal) - Number(order.discountAmount ?? "0")) * 100),
+        );
+        const effectiveUnitSellingPrice = order.quantity > 0
+          ? paidMerchandiseMinor / 100 / order.quantity
+          : null;
         const readiness = evaluateFulfillmentReadiness(
           sourceCost,
-          supplierProduct.sellingPrice,
+          effectiveUnitSellingPrice,
           autoDs.minimumMarginPercent,
         );
         const totalCostMinor = readiness.sourceCostAmount === null
