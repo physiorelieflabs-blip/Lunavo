@@ -47,6 +47,8 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Verify migration registry consistency
+        run: pnpm run check:migrations
       - name: Canonical PostgreSQL migration smoke test
         run: pnpm --filter @workspace/db run migrate
       - name: Self-hosted core policy
