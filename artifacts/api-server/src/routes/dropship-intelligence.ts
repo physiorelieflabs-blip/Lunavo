@@ -143,6 +143,9 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
             contributors: list(existing.contributors),
             roles: list(existing.roles),
             consensus: existing.consensus === "full_ensemble" || existing.consensus === "partial_ensemble" ? existing.consensus : existing.consensus === "strong" ? "full_ensemble" : existing.consensus === "mixed" ? "partial_ensemble" : "single",
+            modelDiversity: savedPlan.modelDiversity === "multiple_models" || savedPlan.modelDiversity === "model_reuse_detected" || savedPlan.modelDiversity === "single_model_only"
+              ? savedPlan.modelDiversity
+              : "unknown",
           },
           commandRun: existing,
           persisted: true,
@@ -206,7 +209,14 @@ router.post("/merchant/dropship/intelligence/run", async (req, res, next) => {
       decisionLoop: result.graph.decisionLoop,
       signals: result.graph.summary.automationCandidates,
     };
-    const storedPlan = { content: result.brain.content, graph: result.graph.summary };
+    const storedPlan = {
+      content: result.brain.content,
+      graph: result.graph.summary,
+      modelDiversity: result.brain.modelDiversity,
+      consensus: result.brain.consensus,
+      contributors: result.brain.contributors,
+      roles: result.brain.roles,
+    };
     const saved = await db.execute(sql`
       UPDATE dropship_command_runs
       SET context=${JSON.stringify(commandContext)}::jsonb,
