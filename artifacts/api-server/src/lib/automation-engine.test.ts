@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conditionsPass, safeAction } from "./automation-engine";
+import { conditionsPass, isWorkflowTriggerEvent, safeAction } from "./automation-engine";
 
 const context = {
   eventId: "evt-1",
@@ -14,6 +14,12 @@ const context = {
 };
 
 describe("automation policy evaluator", () => {
+  it("registers sourcing and fulfillment in the same workflow trigger spine", () => {
+    expect(isWorkflowTriggerEvent("sourcing.source_registered")).toBe(true);
+    expect(isWorkflowTriggerEvent("fulfillment.status_changed")).toBe(true);
+    expect(isWorkflowTriggerEvent("supplier.order_success_faked")).toBe(false);
+  });
+
   it("supports exact, numeric and nested any/all conditions", () => {
     expect(conditionsPass(context, [{ path: "payload.status", op: "eq", value: "paid" }])).toBe(true);
     expect(conditionsPass(context, [{ path: "payload.totalMinor", op: "gte", value: 10000 }])).toBe(true);
