@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { and, eq, or, sql } from "drizzle-orm";
 import { db, merchantsTable } from "@workspace/db";
@@ -198,30 +197,34 @@ router.delete("/merchant/dropship/workbench/quotes/:id/portal", async (req, res,
       res.status(400).json({ error: "Invalid supplier quote request id" });
       return;
     }
-    const result = await db.execute(sql`
-      UPDATE dropship_supplier_quote_requests
-      SET portal_token_revoked_at = now(), updated_at = now()
-      WHERE id = ${id}::uuid AND merchant_id = ${ctx.merchantId}
-        AND portal_token_hash IS NOT NULL
-        AND portal_token_used_at IS NULL
-        AND portal_token_revoked_at IS NULL
-      RETURNING id
-    `);
-    if (result.rowCount !== 1) {
+    const revoked = await db.transaction(async (tx) => {
+      const result = await tx.execute(sql`
+        UPDATE dropship_supplier_quote_requests
+        SET portal_token_revoked_at = now(), updated_at = now()
+        WHERE id = ${id}::uuid AND merchant_id = ${ctx.merchantId}
+          AND portal_token_hash IS NOT NULL
+          AND portal_token_used_at IS NULL
+          AND portal_token_revoked_at IS NULL
+        RETURNING id
+      `);
+      if (result.rowCount !== 1) return false;
+      await emitDomainEvent(tx, {
+        merchantId: ctx.merchantId,
+        eventType: "merchant.operation.transitioned",
+        aggregateType: "dropship_supplier_quote_request",
+        aggregateId: id,
+        actorType: "merchant",
+        actorId: ctx.userId,
+        source: "merchant_api",
+        idempotencyKey: "supplier-quote-portal-revoked:" + id,
+        payload: { quoteRequestId: id, action: "portal_link_revoked" },
+      });
+      return true;
+    });
+    if (!revoked) {
       res.status(409).json({ error: "No unused supplier response link is available to revoke" });
       return;
     }
-    await emitDomainEvent(db, {
-      merchantId: ctx.merchantId,
-      eventType: "merchant.operation.transitioned",
-      aggregateType: "dropship_supplier_quote_request",
-      aggregateId: id,
-      actorType: "merchant",
-      actorId: ctx.userId,
-      source: "merchant_api",
-      idempotencyKey: "supplier-quote-portal-revoked:" + id + ":" + randomUUID(),
-      payload: { quoteRequestId: id, action: "portal_link_revoked" },
-    });
     res.json({ revoked: true, quoteRequestId: id });
   } catch (error) {
     next(error);
