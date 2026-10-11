@@ -47,6 +47,38 @@ describe("self-hosted central-bank FX ingestion", () => {
     expect(merged.unitsPerUsd.NGN).toBe(1500);
     expect(merged.unitsPerUsd.KES).toBe(130);
   });
+  it("prefers same-date national central-bank observations over ECB cross-references", () => {
+    const date = "2026-10-10T12:00:00.000Z";
+    const ecb: FxRateSet = {
+      unitsPerUsd: { USD: 1, NGN: 1400, GHS: 10, KES: 129, EUR: 0.92 },
+      asOfByCurrency: { NGN: date, GHS: date, KES: date, EUR: date },
+      sourceByCurrency: { NGN: "European Central Bank reference rates", GHS: "European Central Bank reference rates", KES: "European Central Bank reference rates", EUR: "European Central Bank reference rates" },
+    };
+    const cbn: FxRateSet = {
+      unitsPerUsd: { USD: 1, NGN: 1500 },
+      asOfByCurrency: { NGN: date },
+      sourceByCurrency: { NGN: "Central Bank of Nigeria NFEM" },
+    };
+    const bog: FxRateSet = {
+      unitsPerUsd: { USD: 1, GHS: 11.79, NGN: 1320 },
+      asOfByCurrency: { GHS: date, NGN: date },
+      sourceByCurrency: { GHS: "Bank of Ghana daily interbank rates", NGN: "Bank of Ghana same-date GHS/NGN × USD/GHS cross-rate" },
+    };
+    const cbk: FxRateSet = {
+      unitsPerUsd: { USD: 1, KES: 130 },
+      asOfByCurrency: { KES: date },
+      sourceByCurrency: { KES: "Central Bank of Kenya daily KES exchange rates" },
+    };
+    const merged = mergeFreshFxRateSets(null, [ecb, cbn, bog, cbk], now);
+    expect(merged.unitsPerUsd.NGN).toBe(1500);
+    expect(merged.sourceByCurrency.NGN).toContain("Central Bank of Nigeria");
+    expect(merged.unitsPerUsd.GHS).toBe(11.79);
+    expect(merged.sourceByCurrency.GHS).toContain("Bank of Ghana");
+    expect(merged.unitsPerUsd.KES).toBe(130);
+    expect(merged.sourceByCurrency.KES).toContain("Central Bank of Kenya");
+    expect(merged.unitsPerUsd.EUR).toBe(0.92);
+  });
+
   it("calculates cross-rates and preserves both source labels", () => {
     const rates: FxRateSet = { unitsPerUsd: { USD: 1, EUR: 0.9, NGN: 1500 }, asOfByCurrency: { EUR: "2026-10-10T12:00:00.000Z", NGN: "2026-10-10T12:00:00.000Z" }, sourceByCurrency: { EUR: "ECB", NGN: "CBN NFEM" } };
     const result = calculateFxPayload("EUR", "NGN", rates, now);

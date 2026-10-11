@@ -195,6 +195,24 @@ function freshAsOf(value: string | undefined, now: number, maxAgeMs: number): nu
   if (!Number.isFinite(parsed) || parsed > now + MAX_CLOCK_SKEW_MS || now - parsed > maxAgeMs) return null;
   return parsed;
 }
+function sourcePriority(currency: string, source: string): number {
+  const label = source.toLowerCase();
+  if (currency === "NGN") {
+    if (label.includes("central bank of nigeria") || label.includes("cbn nfem")) return 100;
+    if (label.includes("bank of ghana same-date")) return 80;
+    if (label.includes("european central bank")) return 50;
+  }
+  if (currency === "GHS") {
+    if (label.includes("bank of ghana")) return 100;
+    if (label.includes("european central bank")) return 50;
+  }
+  if (currency === "KES") {
+    if (label.includes("central bank of kenya")) return 100;
+    if (label.includes("european central bank")) return 50;
+  }
+  if (label.includes("european central bank")) return 80;
+  return 10;
+}
 export function mergeFreshFxRateSets(previous: FxRateSet | null, incoming: FxRateSet[], now = Date.now(), maxAgeMs = FX_RATE_MAX_AGE_MS): FxRateSet {
   const merged: FxRateSet = { unitsPerUsd: { USD: 1 }, asOfByCurrency: {}, sourceByCurrency: { USD: "USD numeraire" } };
   for (const set of [...incoming, ...(previous ? [previous] : [])]) {
@@ -205,10 +223,13 @@ export function mergeFreshFxRateSets(previous: FxRateSet | null, incoming: FxRat
       const epoch = freshAsOf(set.asOfByCurrency[currency], now, maxAgeMs);
       if (rate === null || epoch === null) continue;
       const oldEpoch = freshAsOf(merged.asOfByCurrency[currency], now, maxAgeMs);
-      if (oldEpoch !== null && oldEpoch >= epoch) continue;
+      const candidateSource = set.sourceByCurrency[currency] ?? "Unknown source";
+      const currentSource = merged.sourceByCurrency[currency] ?? "Unknown source";
+      if (oldEpoch !== null && oldEpoch > epoch) continue;
+      if (oldEpoch !== null && oldEpoch === epoch && sourcePriority(currency, candidateSource) <= sourcePriority(currency, currentSource)) continue;
       merged.unitsPerUsd[currency] = rate;
       merged.asOfByCurrency[currency] = new Date(epoch).toISOString();
-      merged.sourceByCurrency[currency] = set.sourceByCurrency[currency] ?? "Unknown source";
+      merged.sourceByCurrency[currency] = candidateSource;
     }
   }
   return merged;
