@@ -2414,6 +2414,23 @@ async function verifyPublicFlutterwaveOrder(
     }
     // Provider-confirmed money must be recorded even if cancellation or inventory state changed while checkout was open.
     let inventoryReservationException: string | null = null;
+    // Lock promotion capacity before inventory, matching checkout's lock order
+    // (discount code -> product). This avoids cross-order deadlocks where one
+    // checkout holds the code while a paid order holds the product.
+    const promotionLock = await tx.execute(sql`
+      SELECT discount_code_id
+      FROM discount_code_redemptions
+      WHERE order_id = ${currentOrder.id} AND merchant_id = ${order.merchantId} AND status IN ('reserved', 'released')
+      FOR UPDATE
+    `);
+    const promotionCodeId = (promotionLock.rows[0] as Record<string, unknown> | undefined)?.discount_code_id;
+    if (promotionCodeId !== undefined) {
+      await tx.execute(sql`
+        SELECT id FROM discount_codes
+        WHERE id = ${Number(promotionCodeId)} AND merchant_id = ${order.merchantId}
+        FOR UPDATE
+      `);
+    }
 
     if (currentOrder.supplierProductId) {
       await tx.execute(
