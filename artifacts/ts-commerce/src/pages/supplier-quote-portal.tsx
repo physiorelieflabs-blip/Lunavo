@@ -48,7 +48,7 @@ function amountFromMinor(value: number | null, currency: string, digits: number)
 const inputClass = "mt-1 h-12 w-full rounded-xl border border-[#d7dce3] bg-white px-3 text-sm text-[#14263a] outline-none focus:border-[#3d668b] focus:ring-2 focus:ring-[#3d668b]/10 disabled:bg-[#f3f5f8]";
 
 export default function SupplierQuotePortal() {
-  const [, params] = useRoute("/supplier-quote/:token");
+  const [, params] = useRoute(apiPath("/supplier-quote/:token"));
   const token = params?.token ?? "";
   const [portal, setPortal] = useState<QuotePortal | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,7 +148,7 @@ export default function SupplierQuotePortal() {
   return <main className="min-h-[100dvh] bg-[#f3f5f8] px-4 py-8 text-[#15283b] sm:px-6 sm:py-12">
     <div className="mx-auto max-w-3xl">
       <header className="mb-6 flex items-center justify-between gap-4">
-        <a href="/" className="inline-flex items-center gap-2 text-sm font-black tracking-tight text-[#132b43]" aria-label="Return to Lunavo">
+        <a href={APP_BASE_PATH + "/"} className="inline-flex items-center gap-2 text-sm font-black tracking-tight text-[#132b43]" aria-label="Return to Lunavo">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#132b43] text-sm text-white">L</span>Lunavo
         </a>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-[#d8e2ea] bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-[.12em] text-[#52677a]">
@@ -164,7 +164,7 @@ export default function SupplierQuotePortal() {
         <h1 className="mt-5 text-2xl font-black tracking-tight">This link cannot be used</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[#68788b]">{fatalError || "This supplier response is no longer available."}</p>
         <p className="mt-5 text-xs leading-5 text-[#68788b]">For a new link or help, contact the merchant who shared it. Do not send payment, bank details, passwords, or identity documents through this form.</p>
-        <a href="/" className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#42647f]"><ArrowLeft className="h-4 w-4"/>Return to Lunavo</a>
+        <a href={APP_BASE_PATH + "/"} className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#42647f]"><ArrowLeft className="h-4 w-4"/>Return to Lunavo</a>
       </section> : submitted ? <section className="rounded-2xl border border-[#c6dfd3] bg-white p-7 shadow-sm sm:p-10">
         <div className="grid h-12 w-12 place-items-center rounded-full bg-[#e8f4ed] text-[#2f6958]"><CheckCircle2 className="h-6 w-6"/></div>
         <p className="mt-5 text-[10px] font-black uppercase tracking-[.16em] text-[#2f6958]">Offer submitted</p>
