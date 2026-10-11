@@ -799,19 +799,28 @@ export async function buildMaxConsensusDropshipPlan(
       nextBestAction: customer.nextBestAction,
       marketingEligible: customer.marketingEligible,
     })),
-    marketResearch: graph.summary.researchSignals.slice(0, 12).map((item) => ({
-      sourceKind: String(item.source_kind ?? "unknown").slice(0, 40),
-      sourceUrl: String(item.source_url ?? "").slice(0, 400),
-      sourceStatus: "merchant_supplied_unverified",
-      observedAt: item.observed_at ? new Date(String(item.observed_at)).toISOString() : null,
-      currency: String(item.currency ?? "").slice(0, 3),
-      observedPriceMinor: item.observed_price_minor ?? null,
-      demandScore: item.demand_score ?? null,
-      competitionScore: item.competition_score ?? null,
-      trendScore: item.trend_score ?? null,
-      notes: String(item.notes ?? "").slice(0, 350),
-      model: String(item.model ?? "").slice(0, 120),
-    })),
+    marketResearch: graph.summary.researchSignals.slice(0, 12).map((item) => {
+      const evidence = item.evidence && typeof item.evidence === "object" && !Array.isArray(item.evidence)
+        ? item.evidence as Record<string, unknown>
+        : {};
+      return {
+        sourceKind: String(item.source_kind ?? "unknown").slice(0, 40),
+        sourceUrl: String(item.source_url ?? "").slice(0, 400),
+        sourceStatus: evidence.evidenceStatus === "page_observed_not_checkout_verified"
+          ? "public_page_observed_unverified"
+          : "merchant_supplied_unverified",
+        captureMethod: typeof evidence.captureMethod === "string" ? evidence.captureMethod.slice(0, 80) : "merchant_entered",
+        evidenceStatus: typeof evidence.evidenceStatus === "string" ? evidence.evidenceStatus.slice(0, 80) : "unverified",
+        observedAt: item.observed_at ? new Date(String(item.observed_at)).toISOString() : null,
+        currency: String(item.currency ?? "").slice(0, 3),
+        observedPriceMinor: item.observed_price_minor ?? null,
+        demandScore: item.demand_score ?? null,
+        competitionScore: item.competition_score ?? null,
+        trendScore: item.trend_score ?? null,
+        notes: String(item.notes ?? "").slice(0, 350),
+        model: String(item.model ?? "").slice(0, 120),
+      };
+    }),
     fulfillment: graph.fulfillment.slice(0, 20),
     operatingGraph: graph.graph,
     authorityRules: graph.authorityRules,
@@ -846,35 +855,92 @@ export async function buildMaxConsensusDropshipPlan(
   return { graph, brain, memoryCount: memory.length };
 }
 
-export async function recordMarketResearch(input: {
-  merchantId: number;
-  supplierProductId?: number | null;
-  sourceKind: "competitor" | "ad_spy" | "trend" | "supplier" | "market" | "pricing";
-  sourceUrl?: string | null;
-  currency?: string | null;
-  observedPriceMinor?: number | null;
-  demandScore?: number | null;
-  competitionScore?: number | null;
-  trendScore?: number | null;
-  notes?: string | null;
-  evidence?: Record<string, unknown>;
-  capturedBy: string;
-  model?: string | null;
-}) {
+type MarketResearchExecutor = { execute: (query: any) => Promise<any> };
+
+export async function recordMarketResearch(
+  input: {
+    merchantId: number;
+    supplierProductId?: number | null;
+    sourceKind: "competitor" | "ad_spy" | "trend" | "supplier" | "market" | "pricing";
+    sourceUrl?: string | null;
+    currency?: string | null;
+    observedPriceMinor?: number | null;
+    demandScore?: number | null;
+    competitionScore?: number | null;
+    trendScore?: number | null;
+    notes?: string | null;
+    evidence?: Record<string, unknown>;
+    capturedBy: string;
+    model?: string | null;
+    idempotencyKey?: string | null;
+    requestFingerprint?: string | null;
+  },
+  executor: MarketResearchExecutor = db,
+) {
+  if (!Number.isInteger(input.merchantId) || input.merchantId <= 0) throw new Error("Invalid merchant id");
   if (input.sourceUrl && !/^https?:\/\//i.test(input.sourceUrl)) throw new Error("Research source URL must use HTTP(S)");
-  const result = await db.execute(sql`
+  if ((input.idempotencyKey && !input.requestFingerprint) || (!input.idempotencyKey && input.requestFingerprint)) {
+    throw new Error("Market research idempotency key and request fingerprint must be provided together");
+  }
+
+  const values = {
+    merchantId: input.merchantId,
+    supplierProductId: input.supplierProductId ?? null,
+    sourceKind: input.sourceKind,
+    sourceUrl: input.sourceUrl?.slice(0, 2048) ?? null,
+    currency: input.currency ? input.currency.toUpperCase().slice(0, 3) : null,
+    observedPriceMinor: input.observedPriceMinor ?? null,
+    demandScore: input.demandScore ?? null,
+    competitionScore: input.competitionScore ?? null,
+    trendScore: input.trendScore ?? null,
+    notes: input.notes?.slice(0, 4000) ?? null,
+    evidence: input.evidence ?? {},
+    capturedBy: input.capturedBy,
+    model: input.model ?? null,
+  };
+
+  if (input.idempotencyKey && input.requestFingerprint) {
+    const inserted = await executor.execute(sql`
+      INSERT INTO dropship_market_research (
+        merchant_id,supplier_product_id,source_kind,source_url,currency,observed_price_minor,
+        demand_score,competition_score,trend_score,notes,evidence,captured_by,model,
+        idempotency_key,request_fingerprint
+      ) VALUES (
+        ${values.merchantId},${values.supplierProductId},${values.sourceKind},${values.sourceUrl},
+        ${values.currency},${values.observedPriceMinor},${values.demandScore},${values.competitionScore},
+        ${values.trendScore},${values.notes},${JSON.stringify(values.evidence)}::jsonb,
+        ${values.capturedBy},${values.model},${input.idempotencyKey},${input.requestFingerprint}
+      )
+      ON CONFLICT (merchant_id,idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+      RETURNING id,source_kind,source_url,observed_at,evidence,idempotency_key,request_fingerprint
+    `);
+    const created = inserted.rows[0];
+    if (created) return { ...created, replayed: false };
+
+    const existingResult = await executor.execute(sql`
+      SELECT id,source_kind,source_url,observed_at,evidence,idempotency_key,request_fingerprint
+      FROM dropship_market_research
+      WHERE merchant_id=${input.merchantId} AND idempotency_key=${input.idempotencyKey}
+      LIMIT 1 FOR UPDATE
+    `);
+    const existing = existingResult.rows[0];
+    if (!existing) throw new Error("Market research idempotency conflict could not be resolved");
+    if (existing.request_fingerprint !== input.requestFingerprint) {
+      throw new Error("This idempotency key was already used for a different market research request");
+    }
+    return { ...existing, replayed: true };
+  }
+
+  const result = await executor.execute(sql`
     INSERT INTO dropship_market_research (
       merchant_id,supplier_product_id,source_kind,source_url,currency,observed_price_minor,
       demand_score,competition_score,trend_score,notes,evidence,captured_by,model
     ) VALUES (
-      ${input.merchantId},${input.supplierProductId ?? null},${input.sourceKind},
-      ${input.sourceUrl?.slice(0, 2048) ?? null},
-      ${input.currency ? input.currency.toUpperCase().slice(0, 3) : null},
-      ${input.observedPriceMinor ?? null},
-      ${input.demandScore ?? null},${input.competitionScore ?? null},${input.trendScore ?? null},
-      ${input.notes?.slice(0, 4000) ?? null},
-      ${JSON.stringify(input.evidence ?? {})}::jsonb,${input.capturedBy},${input.model ?? null}
+      ${values.merchantId},${values.supplierProductId},${values.sourceKind},${values.sourceUrl},
+      ${values.currency},${values.observedPriceMinor},${values.demandScore},${values.competitionScore},
+      ${values.trendScore},${values.notes},${JSON.stringify(values.evidence)}::jsonb,
+      ${values.capturedBy},${values.model}
     ) RETURNING id,source_kind,source_url,observed_at,evidence
   `);
-  return result.rows[0];
+  return { ...(result.rows[0] ?? {}), replayed: false };
 }

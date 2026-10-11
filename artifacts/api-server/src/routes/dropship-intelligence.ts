@@ -5,6 +5,8 @@ import { db, merchantsTable, supplierProductsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { emitDomainEvent } from "../lib/domain-events";
 import { requirePermission } from "../lib/tenant-access";
+import { importPublicSupplierProduct } from "../lib/public-supplier";
+import { buildPublicMarketObservation } from "../lib/public-market-observation";
 import {
   buildDropshipOperatingGraph,
   buildMaxConsensusDropshipPlan,
@@ -288,6 +290,162 @@ router.get("/merchant/dropship/forecasts", async (req, res, next) => {
       `,
     );
     res.json({ forecasts: rows.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/merchant/dropship/research/observe-url", async (req, res, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+
+    const sourceUrlInput = text(req.body?.sourceUrl, 2048);
+    const idempotencyKey = text(req.body?.idempotencyKey, 120);
+    const sourceKind = text(req.body?.sourceKind, 20);
+    if (!sourceUrlInput || !idempotencyKey || !/^[A-Za-z0-9:_-]{8,120}$/.test(idempotencyKey)) {
+      res.status(400).json({ error: "A public product URL and valid idempotency key are required." });
+      return;
+    }
+    if (sourceKind !== "competitor" && sourceKind !== "ad_spy") {
+      res.status(400).json({ error: "Choose competitor or ad-spy evidence." });
+      return;
+    }
+
+    let normalizedUrl: string;
+    try {
+      const parsed = new URL(sourceUrlInput);
+      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+        res.status(400).json({ error: "Use a public HTTP(S) product URL without embedded credentials." });
+        return;
+      }
+      normalizedUrl = parsed.toString();
+    } catch {
+      res.status(400).json({ error: "Enter a valid public HTTP(S) product URL." });
+      return;
+    }
+
+    const productRaw = req.body?.supplierProductId;
+    const supplierProductId = productRaw == null || productRaw === "" ? null : Number(productRaw);
+    if (supplierProductId !== null) {
+      if (!Number.isSafeInteger(supplierProductId) || supplierProductId <= 0) {
+        res.status(400).json({ error: "Linked Lunavo product id must be a positive integer." });
+        return;
+      }
+      const [product] = await db.select({ id: supplierProductsTable.id })
+        .from(supplierProductsTable)
+        .where(and(eq(supplierProductsTable.id, supplierProductId), eq(supplierProductsTable.merchantId, ctx.merchantId)))
+        .limit(1);
+      if (!product) {
+        res.status(404).json({ error: "Linked product was not found in this merchant workspace." });
+        return;
+      }
+    }
+
+    const requestFingerprint = createHash("sha256").update(JSON.stringify({
+      sourceUrl: normalizedUrl,
+      sourceKind,
+      supplierProductId,
+    })).digest("hex");
+
+    const priorResult = await db.execute(sql`
+      SELECT id,request_fingerprint,source_kind,source_url,observed_at,evidence,currency,observed_price_minor
+      FROM dropship_market_research
+      WHERE merchant_id=${ctx.merchantId} AND idempotency_key=${idempotencyKey}
+      LIMIT 1
+    `);
+    const prior = priorResult.rows[0] as Record<string, unknown> | undefined;
+    if (prior) {
+      if (prior.request_fingerprint !== requestFingerprint) {
+        res.status(409).json({ error: "This idempotency key was already used for a different observation. Start a new capture." });
+        return;
+      }
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).json({
+        research: prior,
+        replayed: true,
+        capture: {
+          evidenceStatus: "page_observed_not_checkout_verified",
+          sourceKind: prior.source_kind,
+          sourceUrl: prior.source_url,
+          currency: prior.currency,
+          observedPriceMinor: prior.observed_price_minor == null ? null : Number(prior.observed_price_minor),
+        },
+        nextStep: "This observation is already in the operating graph. Run the local dropshipping brain to review it with live supplier, pricing, inventory and growth signals.",
+      });
+      return;
+    }
+
+    let captured: Awaited<ReturnType<typeof importPublicSupplierProduct>>;
+    try {
+      captured = await importPublicSupplierProduct(normalizedUrl);
+    } catch {
+      res.status(422).json({ error: "Lunavo could not safely extract product metadata from that URL. Check that it is a public product page and try again." });
+      return;
+    }
+
+    const observation = buildPublicMarketObservation({
+      sourceKind,
+      requestedUrl: normalizedUrl,
+      captured,
+      capturedAt: new Date(),
+    });
+    const saved = await db.transaction(async (tx) => {
+      const research = await recordMarketResearch({
+        merchantId: ctx.merchantId,
+        supplierProductId,
+        sourceKind,
+        sourceUrl: observation.sourceUrl,
+        currency: observation.currency,
+        observedPriceMinor: observation.observedPriceMinor,
+        notes: observation.notes,
+        evidence: observation.evidence,
+        capturedBy: ctx.userId,
+        idempotencyKey,
+        requestFingerprint,
+      }, tx);
+
+      if (!research.replayed) {
+        await emitDomainEvent(tx, {
+          merchantId: ctx.merchantId,
+          eventType: "dropship.market_research.observed",
+          aggregateType: "dropship_market_research",
+          aggregateId: String(research.id),
+          actorType: "merchant",
+          actorId: ctx.userId,
+          source: "merchant_api",
+          idempotencyKey: `dropship-market-research:${research.id}:observed`,
+          payload: {
+            researchId: String(research.id),
+            sourceKind,
+            sourceDomain: captured.sourceDomain,
+            sourceUrl: observation.sourceUrl,
+            linkedSupplierProductId: supplierProductId,
+            priceObserved: observation.observedPriceMinor !== null,
+            evidenceStatus: "page_observed_not_checkout_verified",
+          },
+        });
+      }
+      return research;
+    });
+
+    res.setHeader("Cache-Control", "no-store");
+    res.status(saved.replayed ? 200 : 201).json({
+      research: saved,
+      replayed: saved.replayed,
+      capture: {
+        title: captured.title,
+        sourceDomain: captured.sourceDomain,
+        sourceUrl: observation.sourceUrl,
+        currency: observation.currency,
+        observedPriceMinor: observation.observedPriceMinor,
+        priceSource: (observation.evidence.extracted as Record<string, unknown>).selectedPriceSource,
+        availability: captured.availability,
+        variantCount: captured.variants.length,
+        evidenceStatus: "page_observed_not_checkout_verified",
+      },
+      nextStep: "This evidence now feeds the connected dropshipping graph and local brain context. Run the brain to compare it with current supplier cost, landed-cost and demand signals; no price or stock was changed.",
+    });
   } catch (error) {
     next(error);
   }

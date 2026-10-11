@@ -27,6 +27,12 @@ export default function DropshipIntelligence(){
   const [recentRuns,setRecentRuns]=useState<CommandHistory[]>([]);
   const [selectedHistory,setSelectedHistory]=useState("");
   const [destinationCountry,setDestinationCountry]=useState("");
+  const [researchUrl,setResearchUrl]=useState("");
+  const [researchKind,setResearchKind]=useState<"competitor"|"ad_spy">("competitor");
+  const [researchProductId,setResearchProductId]=useState("");
+  const [researchBusy,setResearchBusy]=useState(false);
+  const [researchNotice,setResearchNotice]=useState<{error:boolean;text:string}|null>(null);
+  const researchIdempotencyRef=useRef<string|null>(null);
   const idempotencyRef=useRef<string|null>(null);
 
   const load=async()=>{
@@ -75,6 +81,41 @@ export default function DropshipIntelligence(){
       setError(e instanceof Error?e.message:"Local intelligence failed");
     }finally{
       setBusy(false);
+    }
+  };
+
+  const observeCompetitor=async()=>{
+    setResearchBusy(true);
+    setResearchNotice(null);
+    const idempotencyKey=researchIdempotencyRef.current??(researchIdempotencyRef.current=crypto.randomUUID());
+    try{
+      const r=await fetch("/api/merchant/dropship/research/observe-url",{
+        method:"POST",
+        credentials:"same-origin",
+        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({
+          sourceUrl:researchUrl.trim(),
+          sourceKind:researchKind,
+          supplierProductId:researchProductId?Number(researchProductId):null,
+          idempotencyKey,
+        }),
+      });
+      const data=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(data.error||"Could not capture this public product page");
+      const capture=data.capture??{};
+      const title=typeof capture.title==="string"?capture.title:"Public product page";
+      const domain=typeof capture.sourceDomain==="string"?capture.sourceDomain:"source";
+      const currency=typeof capture.currency==="string"?capture.currency:"USD";
+      const price=capture.observedPriceMinor==null?"price not exposed":money(Number(capture.observedPriceMinor),currency);
+      setResearchNotice({error:false,text:(data.replayed?"Reused saved observation":"Captured")+" “"+title+"” from "+domain+"; "+price+". This is page metadata, not a checkout-verified offer. The evidence is now in Lunavo’s operating graph; run the brain to compare it with supplier, landed-cost, demand and growth signals."});
+      setResearchUrl("");
+      setResearchProductId("");
+      researchIdempotencyRef.current=null;
+      void load().catch(()=>undefined);
+    }catch(error){
+      setResearchNotice({error:true,text:error instanceof Error?error.message:"Market evidence capture failed"});
+    }finally{
+      setResearchBusy(false);
     }
   };
 
@@ -139,6 +180,34 @@ export default function DropshipIntelligence(){
     </section>
 
     {error&&<div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{error}</div>}
+
+    <section className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div><p className="text-[10px] font-black uppercase tracking-[.14em] text-muted-foreground">Evidence ingestion</p><h2 className="mt-1 text-xl font-black">Observe a competitor product page</h2></div>
+        <span className="rounded-full border border-border bg-muted px-3 py-1 text-[10px] font-black">Public page only · no purchase action</span>
+      </div>
+      <p className="mt-2 max-w-4xl text-xs leading-5 text-muted-foreground">Lunavo safely fetches a public product URL, extracts page-published title, price, currency, availability and shipping metadata, stores the source and observation time, and emits an event for connected workflows. It will not invent missing prices or change your selling price or stock.</p>
+      <form className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(130px,.75fr)_minmax(170px,1fr)_auto]" onSubmit={event=>{event.preventDefault();void observeCompetitor();}}>
+        <label className="grid gap-1 text-xs font-bold">Public product URL
+          <input type="url" required maxLength={2048} value={researchUrl} onChange={event=>{researchIdempotencyRef.current=null;setResearchUrl(event.target.value);setResearchNotice(null);}} placeholder="https://example.com/products/item" className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium outline-none focus:ring-2 focus:ring-accent/30"/>
+        </label>
+        <label className="grid gap-1 text-xs font-bold">Evidence type
+          <select value={researchKind} onChange={event=>{researchIdempotencyRef.current=null;setResearchKind(event.target.value as "competitor"|"ad_spy");setResearchNotice(null);}} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm">
+            <option value="competitor">Competitor price</option><option value="ad_spy">Ad / product research</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-bold">Link to a Lunavo product (optional)
+          <select value={researchProductId} onChange={event=>{researchIdempotencyRef.current=null;setResearchProductId(event.target.value);setResearchNotice(null);}} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm">
+            <option value="">Unlinked market observation</option>
+            {graph.products.map(product=><option key={product.id} value={String(product.id)}>{(product.title||("Product #"+product.id)).slice(0,100)}</option>)}
+          </select>
+        </label>
+        <button type="submit" disabled={researchBusy||!researchUrl.trim()} className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-[#0c2747] px-4 py-3 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
+          <Sparkles className="h-4 w-4"/>{researchBusy?"Capturing…":"Capture evidence"}
+        </button>
+      </form>
+      {researchNotice&&<p role={researchNotice.error?"alert":"status"} className={"mt-3 rounded-xl px-3 py-3 text-xs leading-5 "+(researchNotice.error?"border border-red-200 bg-red-50 text-red-800":"border border-emerald-200 bg-emerald-50 text-emerald-900")}>{researchNotice.text}</p>}
+    </section>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
       {metricCards.map(([label,value,Icon])=><div key={label} className="rounded-2xl border border-border bg-card p-4">

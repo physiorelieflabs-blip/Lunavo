@@ -100,6 +100,9 @@ async function assertPublicUrl(value: string): Promise<{ url: URL; address: stri
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error("Only public http and https supplier URLs are supported");
   }
+  if (url.username || url.password) {
+    throw new Error("Supplier URLs must not contain embedded credentials");
+  }
   const hostname = url.hostname.toLowerCase();
   if (
     hostname === "localhost" ||
