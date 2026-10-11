@@ -337,6 +337,8 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import { supplierSyncCheckoutError } from "../lib/supplier-sync-policy";
+import { calculateSupplierSellingPrice } from "../lib/supplier-pricing";
 import { dropshipStatusTransitionError } from "../lib/dropship-status-policy";
 import { completePrimaryReasoning } from "../lib/ai-provider";
 import { researchWithLocalSearch } from "../lib/local-search";
@@ -1506,27 +1508,6 @@ async function serializeInvoice(invoice: typeof invoicesTable.$inferSelect) {
   };
 }
 
-function calculateSellingPrice(
-  cost: string | number | null,
-  profitType: string,
-  profitValue: string | number,
-  pricingMode = profitType === "percentage" ? "percentage_markup" : "fixed_markup",
-  customSellingPrice: string | number | null | undefined = null,
-): number | null {
-  if (pricingMode === "custom") {
-    return customSellingPrice === null || customSellingPrice === undefined
-      ? null
-      : Number(toNumber(customSellingPrice).toFixed(2));
-  }
-  if (cost === null) return null;
-  const costAmount = toNumber(cost);
-  if (pricingMode === "same_price") return Number(costAmount.toFixed(2));
-  const profitAmount =
-    pricingMode === "percentage_markup" || profitType === "percentage"
-      ? (costAmount * toNumber(profitValue)) / 100
-      : toNumber(profitValue);
-  return Number((costAmount + profitAmount).toFixed(2));
-}
 
 function jsonArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -1802,7 +1783,7 @@ function importedProductValues(
   const pricingMode =
     options.pricingMode ??
     (profitType === "percentage" ? "percentage_markup" : "fixed_markup");
-  const sellingPrice = calculateSellingPrice(
+  const sellingPrice = calculateSupplierSellingPrice(
     costAmount,
     profitType,
     profitValue,
@@ -7767,6 +7748,8 @@ router.post("/orders", async (req, res): Promise<void> => {
       ) {
         throw new Error("That catalog product is not available for sale");
       }
+      const synchronizedStockError = supplierSyncCheckoutError(supplierProduct);
+      if (synchronizedStockError) throw new Error(synchronizedStockError);
       const unitPrice = Number(supplierProduct.sellingPrice);
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
         throw new Error("That catalog product does not have a valid selling price");
@@ -9455,12 +9438,17 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     storeAddress: merchant.storeAddress,
     storefrontTheme: storefrontTheme(resolved?.publication?.theme ?? storefront?.theme ?? merchant.storefrontTheme),
     storefrontSections: storefrontSections(resolved?.publication?.sections ?? storefront?.sections ?? merchant.storefrontSections),
-    products: products.map((product) => ({
-      id: product.id, title: product.title, description: product.description, imageUrl: product.imageUrl,
-      price: toNumber(product.sellingPrice), salePrice: null, currency: product.currency, sku: product.sku,
-      availability: product.availability, inventoryStatus: product.inventoryStatus, inventoryQuantity: product.availabilityQuantity,
-      variants: Array.isArray(product.variants) ? product.variants : [], category: product.category,
-    })),
+    products: products.map((product) => {
+      const synchronizationBlocked = supplierSyncCheckoutError(product) !== null;
+      return {
+        id: product.id, title: product.title, description: product.description, imageUrl: product.imageUrl,
+        price: toNumber(product.sellingPrice), salePrice: null, currency: product.currency, sku: product.sku,
+        availability: product.availability,
+        inventoryStatus: synchronizationBlocked ? "unknown" : product.inventoryStatus,
+        inventoryQuantity: synchronizationBlocked ? null : product.availabilityQuantity,
+        variants: Array.isArray(product.variants) ? product.variants : [], category: product.category,
+      };
+    }),
   }));
 });
 router.get("/public/store/:merchantKey/payment-destination", async (req, res): Promise<void> => {
@@ -9595,6 +9583,8 @@ router.post(
          ) {
            throw new Error("That product is no longer available");
          }
+         const synchronizedStockError = supplierSyncCheckoutError(product);
+         if (synchronizedStockError) throw new Error(synchronizedStockError);
          if (product.currency !== merchant.currency) {
            throw new Error("This product is not available in the store's settlement currency");
          }

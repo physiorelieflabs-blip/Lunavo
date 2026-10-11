@@ -159,7 +159,7 @@ Treat these as parity targets to audit against existing code, then implement in 
 - Alerts for negative margin, unprofitable ads, supplier price changes and stale cost inputs.
 
 ### Inventory and availability
-- Supplier cost/stock/shipping monitoring with scheduled cadence, source timestamps, throttling, retry and stale-data flags.
+- Supplier cost/stock/shipping monitoring with scheduled cadence, source timestamps, throttling, retry and stale-data flags. Synchronized inventory uses a scheduled local worker, blocks stale/unknown source stock at checkout, records observation-change/failure events, and honors merchant pricing overrides and pricing guardrails.
 - Merchant inventory ledger, locations/warehouses, reservations/expiry, transfers, adjustments and reconciliation.
 - Configurable stock buffer, pause/draft/zero-quantity behavior, low-stock alerts and oversell prevention.
 - Keep supplier observations distinct from owned/committed stock; unknown supplier stock is not available stock.
