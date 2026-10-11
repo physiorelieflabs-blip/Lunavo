@@ -51,4 +51,21 @@ export function supplierQuotePortalUrl(baseUrl: URL, token: string): string {
   return new URL(path, baseUrl.origin).toString();
 }
 
+/**
+ * Exact integer arithmetic for a single supplier offer. Inputs are validated
+ * independently of request parsing so callers/tests cannot accidentally re-use
+ * floating-point currency calculations at this boundary.
+ */
+export function calculateSupplierQuoteTotalMinor(
+  unitPriceMinor: number,
+  quantity: number,
+  shippingMinor: number,
+): number | null {
+  if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0) return null;
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1_000_000) return null;
+  if (!Number.isSafeInteger(shippingMinor) || shippingMinor < 0) return null;
+  const total = BigInt(unitPriceMinor) * BigInt(quantity) + BigInt(shippingMinor);
+  return total > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(total);
+}
+
 export const SUPPLIER_QUOTE_PORTAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
