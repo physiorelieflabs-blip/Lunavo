@@ -286,6 +286,8 @@ const publicSupplier=await read("artifacts/api-server/src/lib/public-supplier.ts
 for(const m of ["isBlockedSupplierAddress","usesStandardHttpPort","MAX_IN_FLIGHT_PAGES","MAX_IMAGE_BYTES","matchesRasterImageSignature","Supplier image redirects cannot downgrade HTTPS to HTTP"])if(!publicSupplier.includes(m))failures.push("Safe supplier/image retrieval invariant missing: "+m);
 const localVision=await read("artifacts/api-server/src/lib/ai-provider.ts");
 for(const m of ["fetchPublicImageDataUrl(imageUrl)","imageDataUrl","completeLocalVisionJson"])if(!localVision.includes(m))failures.push("Vision gateway must proxy validated image bytes to local inference: "+m);
+const adminHealth=await read("artifacts/api-server/src/routes/admin-health.ts");
+for(const m of ["getLocalAiPool","localLlmPoolSize","localLlmRoles","localAiConfigurationValid","localVisionConfigured"])if(!adminHealth.includes(m))failures.push("Admin health must report configured local model pools truthfully: "+m);
 const baseCompose=await read("docker-compose.yml");
 for(const m of ["LUNAVO_LOCAL_LLM_POOL","LUNAVO_LOCAL_EMBEDDINGS_URL","LUNAVO_LOCAL_IMAGE_URL","LUNAVO_LOCAL_IMAGE_MODEL","FLUTTERWAVE_SECRET_KEY","FLUTTERWAVE_WEBHOOK_SECRET"])if(!baseCompose.includes(m))failures.push("Docker Compose does not pass through a required self-hosted/provider setting: "+m);
 const modelCompose=await read("docker-compose.ai.yml");
