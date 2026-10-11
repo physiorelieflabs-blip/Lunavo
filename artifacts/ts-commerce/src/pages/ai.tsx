@@ -181,7 +181,7 @@ export default function AiControlRoom() {
   const [ownedStores, setOwnedStores] = useState<Array<{ id: string; name: string; publicKey: string; published: boolean; url: string }>>([]);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [imageExportMessage, setImageExportMessage] = useState('');
-  const [localRuntime, setLocalRuntime] = useState<{configured:boolean;embeddingsConfigured:boolean;profiles:Array<{profile:string;model:string;urlConfigured:boolean}>;ensemble:{enabledByCall:boolean;defaultProfiles:readonly string[];policy:string}} | null>(null);
+  const [localRuntime, setLocalRuntime] = useState<{configured:boolean;embeddingsConfigured:boolean;profiles:Array<{profile:string;model:string;urlConfigured:boolean}>;brainRoutes?:Array<{role:string;primaryProfile:string;fallbackProfiles:string[];modelOverride:string|null;dedicatedEndpointConfigured:boolean;usesProfileFallback:boolean}>;inferenceCapacity?:{maxParallel:number;inFlight:number;queued:number};ensemble:{enabledByCall:boolean;defaultProfiles:readonly string[];policy:string}} | null>(null);
 
   if (overview.isLoading || settings.isLoading || actions.isLoading) {
     return <AppShell><LoadingState label="Loading AI control room" /></AppShell>;
@@ -445,6 +445,22 @@ export default function AiControlRoom() {
        {localRuntime && <section className="mt-8 rounded-xl border border-[#dfe5ec] bg-white p-6 shadow-sm md:p-7">
          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-[#a2772e]">Local intelligence fabric</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-.04em]">Specialist models working together.</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#697687]">Lunavo routes work to local specialist models and can use a local review pass for high-effort reasoning. No hosted AI API key is required by the core application.</p></div><Badge tone={localRuntime.configured ? 'success' : 'warning'}>{localRuntime.configured ? 'Runtime connected' : 'Runtime not configured'}</Badge></div>
          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{localRuntime.profiles.map((item) => <div key={item.profile} className="rounded-xl border border-[#e3e7ed] bg-[#f8fafc] p-4"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-black uppercase tracking-[.12em] text-[#7b899d]">{item.profile}</span><span className={`h-2 w-2 rounded-full ${item.urlConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} /></div><p className="mt-2 break-all font-mono text-xs font-bold text-[#223149]">{item.model}</p><p className="mt-1 text-[11px] text-[#7b899d]">{item.urlConfigured ? 'Local endpoint configured' : 'Uses shared endpoint'}</p></div>)}</div>
+         {localRuntime.brainRoutes?.length ? <div className="mt-5">
+           <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="font-mono text-[10px] uppercase tracking-[.14em] text-[#a2772e]">Routing map</p><h3 className="mt-1 text-lg font-extrabold text-[#223149]">Which specialist does what?</h3></div><p className="text-[11px] text-[#7b899d]">Private endpoint URLs are never displayed here.</p></div>
+           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{localRuntime.brainRoutes.map((route) => {
+             const profile = localRuntime.profiles.find((item) => item.profile === route.primaryProfile);
+             return <div key={route.role} className="rounded-xl border border-[#e3e7ed] bg-white p-3">
+               <div className="flex items-center justify-between gap-2"><p className="text-xs font-black capitalize text-[#223149]">{route.role.replaceAll("_", " ")}</p><span className={"rounded-full px-2 py-1 text-[9px] font-black uppercase " + (route.dedicatedEndpointConfigured ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")}>{route.dedicatedEndpointConfigured ? "Dedicated local route" : "Shared local profile"}</span></div>
+               <p className="mt-2 break-all font-mono text-[11px] font-bold text-[#52677a]">{route.modelOverride ?? profile?.model ?? route.primaryProfile}</p>
+               <p className="mt-1 text-[10px] leading-4 text-[#7b899d]">Primary: {route.primaryProfile}{route.fallbackProfiles.length ? " · fallback: " + route.fallbackProfiles.join(", ") : ""}</p>
+             </div>;
+           })}</div>
+         </div> : null}
+         {localRuntime.inferenceCapacity ? <div className="mt-4 grid gap-2 sm:grid-cols-3">
+           <div className="rounded-xl border border-[#dfe5ec] bg-[#f8fafc] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[#7b899d]">Inference limit</p><p className="mt-1 text-lg font-black text-[#223149]">{localRuntime.inferenceCapacity.maxParallel} parallel</p></div>
+           <div className="rounded-xl border border-[#dfe5ec] bg-[#f8fafc] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[#7b899d]">Active requests</p><p className="mt-1 text-lg font-black text-[#223149]">{localRuntime.inferenceCapacity.inFlight}</p></div>
+           <div className="rounded-xl border border-[#dfe5ec] bg-[#f8fafc] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[#7b899d]">Waiting in queue</p><p className="mt-1 text-lg font-black text-[#223149]">{localRuntime.inferenceCapacity.queued}</p></div>
+         </div> : null}
          <div className="mt-4 rounded-xl border border-[#dfe5ec] bg-[#f8fafc] px-4 py-3 text-xs leading-5 text-[#697687]"><b>Ensemble:</b> {localRuntime.ensemble.enabledByCall ? 'available' : 'disabled'} · default {localRuntime.ensemble.defaultProfiles.join(' + ')} · {localRuntime.ensemble.policy}. Embeddings: {localRuntime.embeddingsConfigured ? 'connected' : 'not configured'}.</div>
        </section>}
 
