@@ -7,6 +7,7 @@ import { configuredSelfHostedProfiles, selfHostedAiConfigured, selfHostedAiQueue
 import { configuredLunavoBrainRoutes } from "../lib/ai-provider";
 import { embeddingsConfigured } from "../lib/self-hosted-embeddings";
 import { SELF_HOSTED_RUNTIME } from "../lib/self-hosted-runtime";
+import { checkLocalAiHealth } from "../lib/runtime-health";
 
 const router = Router();
 
@@ -28,8 +29,10 @@ async function merchantFor(req: Request, res: Response) {
 
 router.get("/merchant/ai/runtime", async (req, res) => {
   if (!await merchantFor(req, res)) return;
+  const modelHealth = await checkLocalAiHealth();
   res.setHeader("Cache-Control", "no-store");
   res.json({
+    modelHealth,
     selfHosted: true,
     configured: selfHostedAiConfigured(),
     embeddingsConfigured: embeddingsConfigured(),
