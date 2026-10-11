@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Treat this GitHub repository as the source of truth for Lunavo.
-- Work from the branch currently checked out by the user; the primary implementation branch is `feat/lunavo-master-implementation`.
+- Treat the latest GitHub `main` as the canonical integration baseline unless the owner explicitly names another branch. For feature work, inspect current `main`, related branches and open PRs before branching; do not assume an older feature branch contains the latest integration.
 - Inspect the existing codebase before making architectural or feature changes. Do not assume documentation is newer than the implementation.
 
 ## Mission
@@ -44,8 +44,13 @@ Keep these product areas connected end-to-end to the real API/database:
 - admin controls, audit logs, security and reporting
 - responsive mobile/PWA experience
 
+Use `docs/LUNAVO_CONNECTED_COMMERCE_BLUEPRINT.md` alongside the master spec and feature catalog. It defines shared commerce records, end-to-end sourcing-to-fulfillment workflows, the cross-module event spine, local model collaboration, modern dropshipping parity targets and the definition of done. Audit existing implementation before duplicating a capability.
+
 ## AI rules
 - AI must use real configured providers/models or clearly report that a required dependency is unavailable.
+- Keep local model routing role-aware: primary, critic, coding and vision have distinct purposes; never include vision-only endpoints in text ensembles, and prefer a configured critic for ensemble review.
+- Multi-model agreement is not evidence by itself. Cross-check factual claims against tenant-authorized data and deterministic domain calculations.
+- Models propose structured actions; server-side domain services enforce authorization, budgets, margin floors, idempotency and approval requirements before execution.
 - Never substitute hardcoded answers, fake model output, silent mocks, or pretend execution for missing AI infrastructure.
 - AI recommendations must be grounded in actual merchant/store data where claimed.
 - AI must not independently move money, approve payouts, publish, message customers, change permissions, or claim settlement.
