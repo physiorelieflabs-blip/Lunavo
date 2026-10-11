@@ -19,6 +19,10 @@ type QuoteRequest = {
 type QuotePortal = { quoteRequest: QuoteRequest; submission: "one_time_supplier_response" };
 type PortalError = { error?: string };
 
+const APP_BASE_PATH = import.meta.env.BASE_URL.replace(/\/+$/, "");
+function apiPath(path: string): string { return APP_BASE_PATH + (path.startsWith("/") ? path : "/" + path); }
+
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     credentials: "omit",
@@ -68,7 +72,7 @@ export default function SupplierQuotePortal() {
       return;
     }
     try {
-      const data = await requestJson<QuotePortal>("/api/public/supplier-quote/" + encodeURIComponent(token));
+      const data = await requestJson<QuotePortal>(apiPath("/api/public/supplier-quote/" + encodeURIComponent(token)));
       setPortal(data);
       setDeliveryDays(data.quoteRequest.desiredDeliveryDays ? String(data.quoteRequest.desiredDeliveryDays) : "");
     } catch (error) {
@@ -120,7 +124,7 @@ export default function SupplierQuotePortal() {
     }
     setSubmitting(true);
     try {
-      await requestJson("/api/public/supplier-quote/" + encodeURIComponent(token), {
+      await requestJson(apiPath("/api/public/supplier-quote/" + encodeURIComponent(token)), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
