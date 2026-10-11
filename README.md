@@ -20,7 +20,7 @@ docker compose up -d --build
 docker compose logs -f lunavo
 ~~~
 
-6. Wait for database migrations to finish. Confirm http://localhost:5000/healthz and http://localhost:5000/readyz, then bootstrap the first Master Admin. Provide the password only for this command:
+7. Wait for database migrations to finish. Confirm http://localhost:5000/healthz and http://localhost:5000/readyz, then bootstrap the first Master Admin. Provide the password only for this command:
 
 ~~~sh
 export LUNAVO_MASTER_ADMIN_PASSWORD='Use-A-Unique-Long-Password-2026!'
