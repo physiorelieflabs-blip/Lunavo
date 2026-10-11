@@ -18,3 +18,12 @@ export function shouldApplySupplierPriceFields(
   const incoming = typeof incomingCurrency === "string" ? incomingCurrency.trim().toUpperCase() : "";
   return /^[A-Z]{3}$/.test(current) && current === incoming;
 }
+
+/**
+ * A failed or unfamiliar stock extraction is not evidence that stock changed.
+ * Keep the previous observation until a recognized status is present.
+ */
+export function shouldApplySupplierStockFields(syncStockEnabled: boolean, availability: unknown): boolean {
+  if (syncStockEnabled !== true || typeof availability !== "string") return false;
+  return new Set(["in_stock", "out_of_stock", "limited_stock", "preorder"]).has(availability.trim().toLowerCase());
+}
