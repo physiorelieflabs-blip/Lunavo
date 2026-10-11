@@ -336,7 +336,7 @@ export async function synchronizeSupplierProduct(input: {
       reviewReasons.length ? "review_required" : "completed";
 
     await db.transaction(async (tx) => {
-      await tx.execute(sql`
+      const productUpdate = await tx.execute(sql`
         UPDATE supplier_products
         SET
           price=CASE WHEN ${applySourcePriceFields} THEN ${imported.price} ELSE price END,
