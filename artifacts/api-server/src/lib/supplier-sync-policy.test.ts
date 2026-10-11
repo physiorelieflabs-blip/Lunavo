@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldApplySupplierArrayField, shouldApplySupplierPriceFields, shouldApplySupplierStockFields, shouldApplySupplierTextField } from "./supplier-sync-policy";
+import { priceChangeBps, shouldApplySupplierArrayField, shouldApplySupplierPriceFields, shouldApplySupplierStockFields, shouldApplySupplierTextField } from "./supplier-sync-policy";
 
 describe("supplier price synchronization policy", () => {
   it("does not mutate product prices when price sync is disabled", () => {
@@ -52,5 +52,20 @@ describe("supplier optional-field synchronization policy", () => {
     expect(shouldApplySupplierTextField(false, "SKU-7")).toBe(false);
     expect(shouldApplySupplierArrayField(true, [{ name: "Blue" }])).toBe(true);
     expect(shouldApplySupplierArrayField(false, [{ name: "Blue" }])).toBe(false);
+  });
+});
+
+describe("supplier price-change thresholds", () => {
+  it("uses exact basis-point math and rounds upward before enforcing limits", () => {
+    expect(priceChangeBps(10_000, 11_500)).toBe(1500);
+    expect(priceChangeBps(10_000, 11_501)).toBe(1501);
+    expect(priceChangeBps(10_000, 9_999)).toBe(1);
+  });
+
+  it("fails closed on invalid or unsafe amounts", () => {
+    expect(priceChangeBps(0, 100)).toBe(100_000);
+    expect(priceChangeBps(-1, 100)).toBe(100_000);
+    expect(priceChangeBps(100, -1)).toBe(100_000);
+    expect(priceChangeBps(Number.MAX_SAFE_INTEGER + 1, 100)).toBe(100_000);
   });
 });
