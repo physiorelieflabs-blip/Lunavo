@@ -147,7 +147,9 @@ export default function DropshipWorkbench() {
       setCostError(results[0]?.reason instanceof Error ? results[0].reason.message : "Cost scenarios could not load. Finance permission may be required.");
     }
     if (results[1]?.status === "fulfilled") {
-      setQuotes(Array.isArray(results[1].value.quotes) ? results[1].value.quotes : []);
+      const loadedQuotes = Array.isArray(results[1].value.quotes) ? results[1].value.quotes as Quote[] : [];
+      setQuotes(loadedQuotes);
+      setPortalLink(current => current && loadedQuotes.some(item => item.id === current.quoteId && item.status !== "draft") ? null : current);
       setQuoteError("");
     } else {
       setQuoteError(results[1]?.reason instanceof Error ? results[1].reason.message : "Supplier quote requests could not load. Fulfillment permission may be required.");
