@@ -799,19 +799,28 @@ export async function buildMaxConsensusDropshipPlan(
       nextBestAction: customer.nextBestAction,
       marketingEligible: customer.marketingEligible,
     })),
-    marketResearch: graph.summary.researchSignals.slice(0, 12).map((item) => ({
-      sourceKind: String(item.source_kind ?? "unknown").slice(0, 40),
-      sourceUrl: String(item.source_url ?? "").slice(0, 400),
-      sourceStatus: "merchant_supplied_unverified",
-      observedAt: item.observed_at ? new Date(String(item.observed_at)).toISOString() : null,
-      currency: String(item.currency ?? "").slice(0, 3),
-      observedPriceMinor: item.observed_price_minor ?? null,
-      demandScore: item.demand_score ?? null,
-      competitionScore: item.competition_score ?? null,
-      trendScore: item.trend_score ?? null,
-      notes: String(item.notes ?? "").slice(0, 350),
-      model: String(item.model ?? "").slice(0, 120),
-    })),
+    marketResearch: graph.summary.researchSignals.slice(0, 12).map((item) => {
+      const evidence = item.evidence && typeof item.evidence === "object" && !Array.isArray(item.evidence)
+        ? item.evidence as Record<string, unknown>
+        : {};
+      return {
+        sourceKind: String(item.source_kind ?? "unknown").slice(0, 40),
+        sourceUrl: String(item.source_url ?? "").slice(0, 400),
+        sourceStatus: evidence.evidenceStatus === "page_observed_not_checkout_verified"
+          ? "public_page_observed_unverified"
+          : "merchant_supplied_unverified",
+        captureMethod: typeof evidence.captureMethod === "string" ? evidence.captureMethod.slice(0, 80) : "merchant_entered",
+        evidenceStatus: typeof evidence.evidenceStatus === "string" ? evidence.evidenceStatus.slice(0, 80) : "unverified",
+        observedAt: item.observed_at ? new Date(String(item.observed_at)).toISOString() : null,
+        currency: String(item.currency ?? "").slice(0, 3),
+        observedPriceMinor: item.observed_price_minor ?? null,
+        demandScore: item.demand_score ?? null,
+        competitionScore: item.competition_score ?? null,
+        trendScore: item.trend_score ?? null,
+        notes: String(item.notes ?? "").slice(0, 350),
+        model: String(item.model ?? "").slice(0, 120),
+      };
+    }),
     fulfillment: graph.fulfillment.slice(0, 20),
     operatingGraph: graph.graph,
     authorityRules: graph.authorityRules,
