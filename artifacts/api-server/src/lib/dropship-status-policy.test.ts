@@ -7,7 +7,7 @@ describe("order-level dropshipping transition policy", () => {
     expect(dropshipStatusTransitionError("submitted", "accepted", { supplierOrderReference: "SUP-123" })).toBeNull();
   });
   it("requires a supplier reference and tracking number before shipping", () => {
-    expect(dropshipStatusTransitionError("processing", "shipped", { currentSupplierOrderReference: "SUP-123" })).toMatch(/tracking number/);
+    expect(dropshipStatusTransitionError("processing", "shipped", { currentSupplierOrderReference: "SUP-123" })).toMatch(/tracking number/i);
     expect(dropshipStatusTransitionError("processing", "shipped", { currentSupplierOrderReference: "SUP-123", trackingNumber: "TRK-1" })).toBeNull();
   });
   it("does not permit a direct jump from not submitted to delivered", () => {
