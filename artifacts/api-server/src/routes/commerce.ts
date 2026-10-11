@@ -6068,7 +6068,7 @@ router.get("/supplier-products/sync-health", async (req, res): Promise<void> => 
     const successTime = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
     let state: "healthy" | "syncing" | "stale" | "failed" | "needs_review" | "never_synced";
     let issue: string | null = null;
-    if (product.importStatus === "needs_review" || (product.status === "draft" && product.visibility === "hidden" && Boolean(product.importStatus))) {
+    if (product.importStatus === "needs_review") {
       state = "needs_review";
       issue = "Review supplier cost, currency, and pricing before republishing.";
     } else if (sync.state === "failed" || product.importStatus === "source_unavailable") {
@@ -8442,6 +8442,7 @@ router.get("/marketplace/management", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
   let [monthlyRecord] = await db.select().from(marketplaceBillingRecordsTable)
     .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.kind, "monthly")))
     .orderBy(desc(marketplaceBillingRecordsTable.createdAt))
@@ -9246,6 +9247,16 @@ router.post("/auctions/:id/bids", async (req, res): Promise<void> => {
       if (!auction || auction.status !== "active" || auction.startsAt > new Date() || auction.endsAt <= new Date()) {
         throw new Error("This auction is no longer accepting bids");
       }
+      const product = (await tx.select().from(supplierProductsTable)
+        .where(eq(supplierProductsTable.id, auction.supplierProductId))
+        .limit(1))[0];
+      if (!product || product.status !== "active" || product.visibility !== "active" || product.sellingPrice === null) {
+        throw new Error("This auction's product is no longer available for sale");
+      }
+      const stockIssue = supplierSyncCheckoutError(product);
+      if (stockIssue) {
+        throw new Error("This auction is paused until supplier availability is verified: " + stockIssue);
+      }
       const [highest] = await tx
         .select({ amount: auctionBidsTable.amount })
         .from(auctionBidsTable)
@@ -9281,6 +9292,7 @@ router.get("/merchant/auctions", async (req, res): Promise<void> => {
   if (!identity) return;
   try {
     const merchant = await getOrCreateMerchant(identity);
+    if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
     const rows = await db
       .select()
       .from(auctionListingsTable)
