@@ -279,7 +279,7 @@ for(const m of ["startFxRateWorker","stopFxRates","startSupplierSyncWorker","sto
 const fxWorker=await read("artifacts/api-server/src/lib/fx-rate-worker.ts");
 for(const m of ["runFxRateRefresh","market_fx_rate_snapshots","redirect: \"error\"","parseEcbReferenceRates","parseCbnNfemRate","parseBankOfGhanaRates","parseCentralBankOfKenyaRate"])if(!fxWorker.includes(m))failures.push("Official FX snapshot worker invariant missing: "+m);
 const supplierSync=await read("artifacts/api-server/src/lib/supplier-sync-worker.ts");
-for(const m of ["supplier.sync_failed","supplier.observation_changed","merchant_automation_policies","lastObservation","MAX"])if(!supplierSync.includes(m))failures.push("Supplier sync/guardrail invariant missing: "+m);
+for(const m of ["supplier.sync_failed","supplier.observation_changed","merchant_automation_policies","lastObservation","BATCH_SIZE"])if(!supplierSync.includes(m))failures.push("Supplier sync/guardrail invariant missing: "+m);
 const syncPolicy=await read("artifacts/api-server/src/lib/supplier-sync-policy.ts");
 for(const m of ["supplierSyncCheckoutError","source_unavailable","lastSuccessAt","numeric stock quantity"])if(!syncPolicy.includes(m))failures.push("Synchronized inventory checkout guard invariant missing: "+m);
 const publicSupplier=await read("artifacts/api-server/src/lib/public-supplier.ts");
