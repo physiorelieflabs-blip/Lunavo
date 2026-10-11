@@ -123,7 +123,7 @@ export function parseBankOfGhanaRates(html: string): FxRateSet {
   if (html.length > 2_000_000) throw new Error("Bank of Ghana rate page exceeds the size limit");
   const observations: Record<string, { date: string; mid: number }> = {};
   for (const cells of rowsFromHtml(html)) {
-    const pair = cells.find((cell) => ["USDGHS", "GHSNGN"].includes(cell.toUpperCase().replace(/\s+/g, "")));
+    const pair = cells.find((cell) => ["USDGHS", "GHSNGN", "NGNGHS"].includes(cell.toUpperCase().replace(/\s+/g, "")));
     if (!pair) continue;
     const pairIndex = cells.findIndex((cell) => cell.toUpperCase().replace(/\s+/g, "") === pair.toUpperCase().replace(/\s+/g, ""));
     const date = isoFromDateLabel(cells[0] ?? "");
@@ -133,14 +133,14 @@ export function parseBankOfGhanaRates(html: string): FxRateSet {
   if (!observations.USDGHS || !observations.GHSNGN) {
     const text = textFromHtml(html);
     const usd = text.match(/(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+US Dollar\s+USDGHS\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)/i);
-    const ngn = text.match(/(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+Naira\s+GHSNGN\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)/i);
+    const ngn = text.match(/(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+Naira\s+(GHSNGN|NGNGHS)\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)/i);
     if (!observations.USDGHS && usd) {
       const date = isoFromDateLabel(usd[1]), mid = amount(usd[2]);
       if (date && mid !== null) observations.USDGHS = { date, mid };
     }
-    if (!observations.GHSNGN && ngn) {
-      const date = isoFromDateLabel(ngn[1]), mid = amount(ngn[2]);
-      if (date && mid !== null) observations.GHSNGN = { date, mid };
+    if (ngn) {
+      const date = isoFromDateLabel(ngn[1]), pair = ngn[2].toUpperCase(), mid = amount(ngn[3]);
+      if (date && mid !== null) observations[pair] = { date, mid };
     }
   }
   const usdGhs = observations.USDGHS;
@@ -152,12 +152,21 @@ export function parseBankOfGhanaRates(html: string): FxRateSet {
     GHS: "Bank of Ghana daily interbank rates",
   };
   const ghsNgn = observations.GHSNGN;
+  const ngnGhs = observations.NGNGHS;
   if (ghsNgn && ghsNgn.date === usdGhs.date) {
     const ngnPerUsd = usdGhs.mid * ghsNgn.mid;
     if (Number.isFinite(ngnPerUsd) && ngnPerUsd > 0) {
       unitsPerUsd.NGN = ngnPerUsd;
       asOfByCurrency.NGN = usdGhs.date;
       sourceByCurrency.NGN = "Bank of Ghana same-date GHS/NGN × USD/GHS cross-rate";
+    }
+  } else if (ngnGhs && ngnGhs.date === usdGhs.date) {
+    const ghsPerNgn = ngnGhs.mid;
+    const ngnPerUsd = usdGhs.mid / ghsPerNgn;
+    if (Number.isFinite(ngnPerUsd) && ngnPerUsd > 0) {
+      unitsPerUsd.NGN = ngnPerUsd;
+      asOfByCurrency.NGN = usdGhs.date;
+      sourceByCurrency.NGN = "Bank of Ghana same-date USD/GHS ÷ GHS/NGN cross-rate";
     }
   }
   return { unitsPerUsd, asOfByCurrency, sourceByCurrency };

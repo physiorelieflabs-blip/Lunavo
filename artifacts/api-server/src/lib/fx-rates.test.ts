@@ -28,6 +28,12 @@ describe("self-hosted central-bank FX ingestion", () => {
     expect(rates.asOfByCurrency.NGN).toBe("2026-10-09T12:00:00.000Z");
     expect(rates.asOfByCurrency.GHS).toBe("2026-10-09T12:00:00.000Z");
   });
+  it("handles the published inverse NGNGHS pair without inverting it twice", () => {
+    const html = `<table><tr><td>09 Oct 2026</td><td>US Dollar</td><td>USDGHS</td><td>11.78</td><td>11.80</td><td>11.79</td></tr><tr><td>09 Oct 2026</td><td>Naira</td><td>NGNGHS</td><td>0.0088</td><td>0.0090</td><td>0.0089</td></tr></table>`;
+    const rates = parseBankOfGhanaRates(html);
+    expect(rates.unitsPerUsd.NGN).toBeCloseTo(11.79 / 0.0089, 6);
+    expect(rates.sourceByCurrency.NGN).toContain("USD/GHS ÷ GHS/NGN");
+  });
   it("parses Central Bank of Kenya daily USD/KES rate", () => {
     const rates = parseCentralBankOfKenyaRate(`<h3>Daily KES Exchange Rates</h3><p>US DOLLAR | 129.91</p><p>Posted On: 09-10-2026</p>`);
     expect(rates.unitsPerUsd.KES).toBe(129.91);
