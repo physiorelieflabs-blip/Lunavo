@@ -489,6 +489,7 @@ export async function buildDropshipOperatingGraph(
       primaryProductId: product.id,
       sellingPriceMinor: product.sellingPriceMinor,
       sellingCurrency: currency,
+      destinationCountry,
     }),
   })));
   const fallbacks = new Map(fallbackRows.map((row) => [row.productId, row.fallback]));
