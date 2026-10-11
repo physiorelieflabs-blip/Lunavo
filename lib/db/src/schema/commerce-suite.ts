@@ -79,6 +79,8 @@ export const discountCodesTable = pgTable("discount_codes", {
   merchantId: integer("merchant_id").notNull(),
   code: text("code").notNull(),
   kind: text("kind").notNull().default("percentage"),
+  buyQuantity: integer("buy_quantity").notNull().default(1),
+  getQuantity: integer("get_quantity").notNull().default(1),
   value: numeric("value", { precision: 12, scale: 2 }).notNull(),
   minimumSubtotal: numeric("minimum_subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
   currency: text("currency"),
