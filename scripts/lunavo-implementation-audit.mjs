@@ -286,6 +286,7 @@ const imageSafety=await read("artifacts/api-server/src/lib/image-safety.ts");
 for(const m of ["image/jpeg","image/png","image/webp","image/gif","image/avif","matchesRasterImageSignature","validateGeneratedRasterImage"])if(!imageSafety.includes(m))failures.push("Shared raster image validation invariant missing: "+m);
 const imageGeneration=await read("artifacts/api-server/src/lib/pollinations.ts");
 if(!imageGeneration.includes("validateGeneratedRasterImage(bytes, mimeType)"))failures.push("Local image generation must validate output bytes and declared MIME before storage");
+if(!imageGeneration.includes("readBoundedResponseBody(response)"))failures.push("Local image generation must bound response bytes before JSON decoding");
 const publicSupplier=await read("artifacts/api-server/src/lib/public-supplier.ts");
 for(const m of ["isBlockedSupplierAddress","usesStandardHttpPort","MAX_IN_FLIGHT_PAGES","MAX_IMAGE_BYTES","matchesRasterImageSignature","Supplier image redirects cannot downgrade HTTPS to HTTP"])if(!publicSupplier.includes(m))failures.push("Safe supplier/image retrieval invariant missing: "+m);
 const localVision=await read("artifacts/api-server/src/lib/ai-provider.ts");
