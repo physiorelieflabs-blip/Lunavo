@@ -27,3 +27,12 @@ export function shouldApplySupplierStockFields(syncStockEnabled: boolean, availa
   if (syncStockEnabled !== true || typeof availability !== "string") return false;
   return new Set(["in_stock", "out_of_stock", "limited_stock", "preorder"]).has(availability.trim().toLowerCase());
 }
+
+/** Empty extraction results are not proof that a source field was intentionally cleared. */
+export function shouldApplySupplierTextField(syncEnabled: boolean, value: unknown): boolean {
+  return syncEnabled === true && typeof value === "string" && value.trim().length > 0;
+}
+
+export function shouldApplySupplierArrayField(syncEnabled: boolean, value: unknown): boolean {
+  return syncEnabled === true && Array.isArray(value) && value.length > 0;
+}
