@@ -279,6 +279,7 @@ const runtimeIndex=await read("artifacts/api-server/src/index.ts");
 for(const m of ["startFxRateWorker","stopFxRates","startSupplierSyncWorker","stopSupplierSync"])if(!runtimeIndex.includes(m))failures.push("Commerce intelligence worker is not wired into server lifecycle: "+m);
 const fxWorker=await read("artifacts/api-server/src/lib/fx-rate-worker.ts");
 for(const m of ["runFxRateRefresh","market_fx_rate_snapshots","redirect: \"error\"","parseEcbReferenceRates","parseCbnNfemRate","parseBankOfGhanaRates","parseCentralBankOfKenyaRate"])if(!fxWorker.includes(m))failures.push("Official FX snapshot worker invariant missing: "+m);
+const fxRates=await read("artifacts/api-server/src/lib/fx-rates.ts");for(const m of ["function sourcePriority","Central Bank of Nigeria","Bank of Ghana","Central Bank of Kenya"])if(!fxRates.includes(m))failures.push("Same-date FX source priority invariant missing: "+m);
 const fulfillmentReadiness=await read("artifacts/api-server/src/lib/fulfillment-readiness.ts");for(const m of ["marginPercent < minimum","Automatic fulfillment is blocked","status: " + "\"failed\""])if(!fulfillmentReadiness.includes(m))failures.push("Fulfillment must fail closed on missing pricing or margin violations: "+m);
 const supplierSync=await read("artifacts/api-server/src/lib/supplier-sync-worker.ts");
 for(const m of ["supplier.sync_failed","supplier.observation_changed","merchant_automation_policies","lastObservation","BATCH_SIZE"])if(!supplierSync.includes(m))failures.push("Supplier sync/guardrail invariant missing: "+m);
