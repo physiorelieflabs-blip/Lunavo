@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
-  calculateFxPayload,
   mergeFreshFxRateSets,
   parseBankOfGhanaRates,
   parseCbnNfemRate,
