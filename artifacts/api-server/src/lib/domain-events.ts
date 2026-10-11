@@ -14,7 +14,7 @@ export const domainEventTypes = [
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
   "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","account.exported","account.deleted",
-  "sourcing.source_registered", "fulfillment.job_created", "fulfillment.status_changed",
+  "sourcing.source_registered", "supplier.product_imported", "fulfillment.job_created", "fulfillment.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -48,7 +48,7 @@ export function nextEventState(attempt: number, maxAttempts = 8): "retry" | "dea
 export function safeProjectionError(_error: unknown): { code: string; message: string } { return { code: "projection_failed", message: "A notification projection could not be completed." }; }
 
 function notificationFor(event: typeof domainEventsTable.$inferSelect) {
-  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", sourcing_source: "/dropshipping", fulfillment_job: "/dropshipping" };
+  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", sourcing_source: "/dropshipping", fulfillment_job: "/dropshipping", supplier_product: "/suppliers" };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
     "order.created": ["New order recorded", "An order was created.", "info"], "order.cancelled": ["Order cancelled", "A pending order was cancelled.", "warning"],
     "payment.verified": ["Payment verified", "Verified payment was posted to the authoritative ledger.", "success"], "payment.evidence_submitted": ["Payment evidence submitted", "A customer submitted payment evidence for merchant approval.", "warning"], "refund.processed": ["Refund processed", "A refund was processed against a verified payment.", "warning"],
@@ -71,6 +71,7 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "account.exported": ["Account export created", "A privacy data export was generated.", "info"],
     "account.deleted": ["Account disabled", "Merchant account access was disabled.", "warning"],
     "sourcing.source_registered": ["Supplier source registered", "A supplier source was added for evidence-backed product research.", "info"],
+    "supplier.product_imported": ["Supplier product imported", "A supplier product was imported or updated and is available for downstream review.", "info"],
     "fulfillment.job_created": ["Fulfillment task created", "A paid order qualified for a supplier fulfillment task. This does not confirm a supplier order was placed.", "info"],
     "fulfillment.status_changed": ["Fulfillment status updated", "A fulfillment job changed state. Confirm any external supplier action separately.", "info"],
   };
