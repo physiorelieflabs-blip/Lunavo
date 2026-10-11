@@ -2,7 +2,7 @@ import { db } from "@workspace/db";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { emitDomainEvent } from "./domain-events";
 import { toMinorUnits } from "./money";
-import { shouldApplySupplierPriceFields } from "./supplier-sync-policy";
+import { shouldApplySupplierPriceFields, shouldApplySupplierStockFields } from "./supplier-sync-policy";
 import { sql } from "drizzle-orm";
 
 export type SyncPolicy = {
@@ -249,6 +249,7 @@ export async function synchronizeSupplierProduct(input: {
     const reviewReasons: string[] = [];
     const sourceFields: string[] = [];
     const merchantFields: string[] = [];
+    const applySourceStockFields = shouldApplySupplierStockFields(policy.sync_stock, imported.availability);
 
     const incomingSourceMinor = toMinorUnits(imported.salePrice ?? imported.price);
     const currentSourceMinor = toMinorUnits(product.sale_price ?? product.price);
@@ -259,11 +260,20 @@ export async function synchronizeSupplierProduct(input: {
       incomingSourceMinor,
     );
 
+    if (policy.sync_price && incomingSourceMinor === null) {
+      reviewReasons.push("Supplier page did not expose a positive, parseable price. The last known source price was preserved.");
+      changedFields.push("source_price_review");
+    }
     if (policy.sync_price && incomingSourceMinor !== null && currentSourceMinor !== incomingSourceMinor) {
       changedFields.push(applySourcePriceFields ? "source_price" : "source_price_review");
       if (applySourcePriceFields) sourceFields.push("price");
     }
-    if (policy.sync_stock && (imported.availability !== product.availability || imported.availabilityQuantity !== product.availability_quantity)) {
+    if (policy.sync_stock && !applySourceStockFields) {
+      if (product.availability !== null || product.availability_quantity !== null) {
+        reviewReasons.push("Supplier page did not provide a recognized stock status. The last known stock observation was preserved.");
+        changedFields.push("source_availability_review");
+      }
+    } else if (applySourceStockFields && (imported.availability !== product.availability || imported.availabilityQuantity !== product.availability_quantity)) {
       changedFields.push("source_availability");
       sourceFields.push("availability");
     }
@@ -321,7 +331,7 @@ export async function synchronizeSupplierProduct(input: {
       reviewReasons.push("Supplier currency changed or differs from the product selling currency; source pricing and automatic repricing were blocked until the currency is reviewed.");
       if (!changedFields.includes("currency_review")) changedFields.push("currency_review");
     }
-    if (policy.sync_stock && imported.availability === "out_of_stock") {
+    if (applySourceStockFields && imported.availability === "out_of_stock") {
       if (policy.out_of_stock_action === "pause") {
         if (product.visibility !== "hidden") merchantFields.push("visibility");
         if (product.status !== "paused") merchantFields.push("status");
@@ -347,8 +357,8 @@ export async function synchronizeSupplierProduct(input: {
           sale_price=CASE WHEN ${applySourcePriceFields} THEN ${imported.salePrice} ELSE sale_price END,
           currency=CASE WHEN ${applySourcePriceFields} THEN ${imported.currency} ELSE currency END,
           sku=CASE WHEN ${policy.sync_variants} THEN ${imported.sku} ELSE sku END,
-          availability=CASE WHEN ${policy.sync_stock} THEN ${imported.availability} ELSE availability END,
-          availability_quantity=CASE WHEN ${policy.sync_stock} THEN ${imported.availabilityQuantity} ELSE availability_quantity END,
+          availability=CASE WHEN ${applySourceStockFields} THEN ${imported.availability} ELSE availability END,
+          availability_quantity=CASE WHEN ${applySourceStockFields} THEN ${imported.availabilityQuantity} ELSE availability_quantity END,
           image_url=CASE WHEN ${policy.sync_media} THEN ${imported.imageUrl} ELSE image_url END,
           image_urls=CASE WHEN ${policy.sync_media} THEN ${JSON.stringify(imported.imageUrls)}::jsonb ELSE image_urls END,
           video_urls=CASE WHEN ${policy.sync_media} THEN ${JSON.stringify(imported.videoUrls)}::jsonb ELSE video_urls END,
@@ -356,18 +366,18 @@ export async function synchronizeSupplierProduct(input: {
           description=CASE WHEN ${policy.sync_description} AND ${!hasMerchantOverride(merchantOverrides, "description")} THEN ${imported.description} ELSE description END,
           source_metadata=COALESCE(source_metadata,'{}'::jsonb) || ${JSON.stringify(imported.sourceMetadata)}::jsonb,
           inventory_status=CASE
-            WHEN ${policy.sync_stock} AND ${imported.availability}='out_of_stock' THEN 'out_of_stock'
-            WHEN ${policy.sync_stock} AND ${imported.availability}='in_stock' THEN 'in_stock'
+            WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' THEN 'out_of_stock'
+            WHEN ${applySourceStockFields} AND ${imported.availability}='in_stock' THEN 'in_stock'
             ELSE inventory_status
           END,
           visibility=CASE
-            WHEN ${policy.sync_stock} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='pause'} THEN 'hidden'
-            WHEN ${policy.sync_stock} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='draft'} THEN 'draft'
+            WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='pause'} THEN 'hidden'
+            WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='draft'} THEN 'draft'
             ELSE visibility
           END,
           status=CASE
-            WHEN ${policy.sync_stock} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='pause'} THEN 'paused'
-            WHEN ${policy.sync_stock} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='draft'} THEN 'draft'
+            WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='pause'} THEN 'paused'
+            WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='draft'} THEN 'draft'
             ELSE status
           END,
           selling_price=CASE
