@@ -15,6 +15,7 @@ describe("shared evidence-based opportunity pricing", () => {
   it("uses the same deterministic floor and market ceiling as dynamic pricing", () => {
     const result = recommendPrice(base);
     expect(result.pricingStatus).toBe("evidence_backed");
+    if (result.recommendedPriceMinor === null || result.maximumCommercialPriceMinor === null) throw new Error("Expected a price supported by market evidence");
     expect(result.recommendedPriceMinor).toBeGreaterThanOrEqual(result.minimumViablePriceMinor);
     expect(result.recommendedPriceMinor).toBeLessThanOrEqual(result.maximumCommercialPriceMinor);
   });

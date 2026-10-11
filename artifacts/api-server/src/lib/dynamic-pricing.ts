@@ -70,8 +70,9 @@ export function recommendDynamicPrice(input: PricingInputs): PricingResult {
   if (ceiling < floor) {
     return { recommendedPriceMinor: null, maximumCommercialPriceMinor: ceiling, floorPriceMinor: floor, marketReferenceMinor: reference, pricingStatus: "market_below_floor" };
   }
+  const marketReference = Math.round((marketLow + marketHigh) / 2);
   const demand = boundedScore(input.demandScore);
   const competition = boundedScore(input.competitionScore);
-  const recommended = Math.min(ceiling, Math.max(floor, Math.round(reference * (1 + (demand - competition) / 1000))));
-  return { recommendedPriceMinor: recommended, maximumCommercialPriceMinor: ceiling, floorPriceMinor: floor, marketReferenceMinor: reference, pricingStatus: "evidence_backed" };
+  const recommended = Math.min(ceiling, Math.max(floor, Math.round(marketReference * (1 + (demand - competition) / 1000))));
+  return { recommendedPriceMinor: recommended, maximumCommercialPriceMinor: ceiling, floorPriceMinor: floor, marketReferenceMinor: marketReference, pricingStatus: "evidence_backed" };
 }
