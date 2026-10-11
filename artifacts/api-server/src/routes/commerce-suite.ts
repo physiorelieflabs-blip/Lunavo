@@ -134,8 +134,10 @@ router.post("/commerce/discount-codes", async (req, res) => {
     !/^[A-Z0-9_-]{3,40}$/.test(code) ||
     !["fixed", "percentage"].includes(kind) ||
     !Number.isFinite(value) || value <= 0 ||
+    !Number.isSafeInteger(Math.round(value * 100)) || Math.round(value * 100) < 1 ||
     (kind === "percentage" && value > 100) ||
     !Number.isFinite(minimumSubtotal) || minimumSubtotal < 0 ||
+    !Number.isSafeInteger(Math.round(minimumSubtotal * 100)) || Math.round(minimumSubtotal * 100) < 0 ||
     (usageLimit !== null && (!Number.isSafeInteger(usageLimit) || usageLimit < 1 || usageLimit > 1_000_000)) ||
     (startsAt !== null && !Number.isFinite(startsAt.getTime())) ||
     (endsAt !== null && !Number.isFinite(endsAt.getTime())) ||

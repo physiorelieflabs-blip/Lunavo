@@ -9797,6 +9797,9 @@ router.post(
     try {
       const location = await resolveOrderLocation(merchant.id, null, null, true);
       const result = await db.transaction(async (tx) => {
+        // Avoid a race where two identical requests both pass the initial
+        // lookup and one gets a false coupon-capacity error after the other commits.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${merchant.id}, hashtext(${parsed.data.idempotencyKey}))`);
         const existing = (
           await tx
             .select({ order: ordersTable, product: supplierProductsTable })
@@ -10050,21 +10053,29 @@ router.post(
         if (!order) {
           const replay = (
             await tx
-              .select({ order: ordersTable, product: supplierProductsTable })
+              .select({ order: ordersTable, product: supplierProductsTable, customer: customersTable })
               .from(ordersTable)
-              .innerJoin(
-                supplierProductsTable,
-                eq(ordersTable.supplierProductId, supplierProductsTable.id),
-              )
-              .where(
-                and(
-                  eq(ordersTable.merchantId, merchant.id),
-                  eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey),
-                ),
-              )
+              .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+              .innerJoin(supplierProductsTable, eq(ordersTable.supplierProductId, supplierProductsTable.id))
+              .where(and(
+                eq(ordersTable.merchantId, merchant.id),
+                eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey),
+              ))
               .limit(1)
           )[0];
-          if (replay) return replay;
+          if (replay) {
+            if (
+              replay.order.supplierProductId !== product.id ||
+              replay.order.quantity !== quantity ||
+              replay.order.shippingAddress !== parsed.data.shippingAddress.trim() ||
+              replay.customer.email.trim().toLowerCase() !== parsed.data.customerEmail.trim().toLowerCase() ||
+              (replay.order.discountCode ?? null) !== requestedDiscountCode ||
+              Math.round(Number(replay.order.total) * 100) !== totalMinor
+            ) {
+              throw new Error("This checkout idempotency key was already used for a different order");
+            }
+            return replay;
+          }
           throw new Error("Checkout order could not be created");
         }
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
