@@ -227,8 +227,10 @@ async function fetchPublicPage(initialUrl: string): Promise<{ url: URL; html: st
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const pending = inFlightPages.get(cacheKey);
   if (pending) return pending;
+  if (inFlightPages.size >= MAX_IN_FLIGHT_PAGES) {
+    throw new Error("Supplier importer is busy; retry shortly");
+  }
   const request = fetchPublicPageUncached(url, resolved.address);
-  if (inFlightPages.size >= MAX_IN_FLIGHT_PAGES) throw new Error("Supplier importer is busy; retry shortly");
   inFlightPages.set(cacheKey, request);
   try {
     const value = await request;
