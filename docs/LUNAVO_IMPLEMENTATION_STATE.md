@@ -48,6 +48,8 @@ The dropshipping intelligence surface now exposes a connected modern-platform pa
 
 The command plane is not a new authority layer: recommendations feed existing approval, automation, sourcing, inventory, fulfillment, marketing, payment, ledger, and tenant-security boundaries.
 
+Supplier synchronization hardening also now enforces field-level policy toggles: a missing or unparseable supplier price cannot overwrite the last known source price; a currency mismatch blocks price/currency writes and repricing; stock observations must use recognized states; empty SKU/variant/media/description extraction does not erase existing catalog data; the database compare-and-swap guard rejects stale source fetches after concurrent product edits; price-change review thresholds use exact conservative basis-point arithmetic; and failed polling attempts advance the worker cursor to avoid repeatedly starving the same batch. Regression tests cover missing source fields, stock-status validation, currency boundaries, and price threshold math. These are implementation facts, not a claim that release CI has passed.
+
 ## Verification status
 
 The GitHub Actions verification workflow covers migrations, self-hosted policy, repository secret audit, financial-boundary audit, implementation invariants, production configuration shape, payment/subscription security simulation, unit tests, typecheck, and build.
