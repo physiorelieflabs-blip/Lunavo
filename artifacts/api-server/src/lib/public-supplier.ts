@@ -8,6 +8,9 @@ const MAX_IMPORTED_NUMBER = 100_000_000;
 const DNS_LOOKUP_TIMEOUT_MS = 3_000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 2 * 60 * 1000;
+const MAX_PAGE_CACHE_ENTRIES = 500;
+const MAX_IN_FLIGHT_PAGES = 50;
+const MAX_HOST_RATE_ENTRIES = 1_000;
 const MIN_HOST_REQUEST_GAP_MS = 250;
 export const SUPPORTED_SUPPLIER_CURRENCIES = [
   "USD",
@@ -109,6 +112,38 @@ async function resolvePublicAddress(hostname: string): Promise<string> {
   return addresses[0]!;
 }
 
+export function usesStandardHttpPort(value: string | URL): boolean {
+  let url: URL;
+  try { url = value instanceof URL ? value : new URL(value); } catch { return false; }
+  if (url.protocol === "http:") return url.port === "" || url.port === "80";
+  if (url.protocol === "https:") return url.port === "" || url.port === "443";
+  return false;
+}
+
+function noteHostRequest(hostname: string) {
+  lastHostRequest.set(hostname, Date.now());
+  if (lastHostRequest.size > MAX_HOST_RATE_ENTRIES) {
+    const oldest = lastHostRequest.keys().next().value as string | undefined;
+    if (oldest) lastHostRequest.delete(oldest);
+  }
+}
+
+function rememberCachedPage(key: string, value: { url: URL; html: string }) {
+  pageCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  if (pageCache.size > MAX_PAGE_CACHE_ENTRIES) {
+    const now = Date.now();
+    for (const [cachedKey, item] of pageCache) {
+      if (item.expiresAt <= now) pageCache.delete(cachedKey);
+      if (pageCache.size <= MAX_PAGE_CACHE_ENTRIES) break;
+    }
+    while (pageCache.size > MAX_PAGE_CACHE_ENTRIES) {
+      const oldest = pageCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      pageCache.delete(oldest);
+    }
+  }
+}
+
 async function assertPublicUrl(value: string): Promise<{ url: URL; address: string }> {
   let url: URL;
   try {
@@ -118,6 +153,9 @@ async function assertPublicUrl(value: string): Promise<{ url: URL; address: stri
   }
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error("Only public http and https supplier URLs are supported");
+  }
+  if (!usesStandardHttpPort(url)) {
+    throw new Error("Supplier URLs must use standard HTTP or HTTPS ports");
   }
   const hostname = url.hostname.toLowerCase();
   if (url.username || url.password) {
@@ -190,10 +228,11 @@ async function fetchPublicPage(initialUrl: string): Promise<{ url: URL; html: st
   const pending = inFlightPages.get(cacheKey);
   if (pending) return pending;
   const request = fetchPublicPageUncached(url, resolved.address);
+  if (inFlightPages.size >= MAX_IN_FLIGHT_PAGES) throw new Error("Supplier importer is busy; retry shortly");
   inFlightPages.set(cacheKey, request);
   try {
     const value = await request;
-    pageCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+    rememberCachedPage(cacheKey, value);
     return value;
   } finally {
     inFlightPages.delete(cacheKey);
@@ -207,14 +246,16 @@ async function fetchPublicPageUncached(initialUrl: URL, initialAddress: string):
     const previousRequest = lastHostRequest.get(url.hostname) ?? 0;
     const waitMs = MIN_HOST_REQUEST_GAP_MS - (Date.now() - previousRequest);
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
-    lastHostRequest.set(url.hostname, Date.now());
+    noteHostRequest(url.hostname);
     const response = await requestPinnedPage(url, address);
     if (response.statusCode >= 300 && response.statusCode < 400) {
       const location = response.location;
       if (!location || attempt === MAX_REDIRECTS) {
         throw new Error("Supplier page redirected too many times");
       }
-      const next = await assertPublicUrl(new URL(location, url).toString());
+      const nextUrl = new URL(location, url);
+      if (url.protocol === "https:" && nextUrl.protocol === "http:") throw new Error("Supplier redirects cannot downgrade HTTPS to HTTP");
+      const next = await assertPublicUrl(nextUrl.toString());
       url = next.url;
       address = next.address;
       continue;
@@ -325,7 +366,9 @@ export async function fetchPublicImageDataUrl(initialUrl: string): Promise<strin
       if (!response.location || attempt === MAX_REDIRECTS) {
         throw new Error("Supplier image redirected too many times");
       }
-      const next = await assertPublicUrl(new URL(response.location, url).toString());
+      const nextUrl = new URL(response.location, url);
+      if (url.protocol === "https:" && nextUrl.protocol === "http:") throw new Error("Supplier image redirects cannot downgrade HTTPS to HTTP");
+      const next = await assertPublicUrl(nextUrl.toString());
       url = next.url;
       address = next.address;
       continue;
