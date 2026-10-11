@@ -5,6 +5,7 @@ import { resolveAutoFallbackSupplierProduct } from "./supplier-routing";
 import { recallMerchantMemory, rememberMerchantMemory } from "./merchant-ai-memory";
 import { currencyMinorDigits, toMinorUnits } from "./money";
 import { getSupplierScorecards, type SupplierScorecard } from "./supplier-performance";
+import { channelGatewayConfigured } from "./channel-gateway-client";
 
 type Row = Record<string, unknown>;
 type SupplierFallback = Awaited<ReturnType<typeof resolveAutoFallbackSupplierProduct>>;
@@ -589,7 +590,16 @@ export async function buildDropshipOperatingGraph(
       { feature: "Tracking and customer delivery lifecycle", status: "implemented", connectedTo: ["fulfillment", "customer", "support", "retention"] },
       { feature: "Product research / trend / competitor evidence", status: "implemented", connectedTo: ["opportunity", "pricing", "creative", "growth"] },
       { feature: "Landed-cost and margin guardrails", status: "implemented", connectedTo: ["supplier", "tax", "shipping", "fees", "pricing"] },
-      { feature: "Multi-store and multi-channel synchronization", status: "implemented", connectedTo: ["catalog", "inventory", "orders", "fulfillment"] },
+      { feature: "Multi-store and multi-channel synchronization",
+        status: channelGatewayConfigured() ? "gateway_configured_provider_verification_required" : "adapter_gateway_not_configured",
+        detail: channelGatewayConfigured()
+          ? "The self-hosted gateway URL and token are configured; per-connection capability verification and confirmed sync results are still required."
+          : "A durable queue and worker exist, but sync jobs remain held until the private self-hosted channel adapter gateway is configured.",
+        connectedTo: ["catalog", "inventory", "orders", "fulfillment"] },
+      { feature: "Cross-SKU bundles and multi-line cart checkout",
+        status: "not_connected_single_line_order_model",
+        detail: "Orders currently carry one supplierProductId; same-SKU BOGO is supported, but cross-SKU bundles and split fulfillment are not.",
+        connectedTo: ["catalog", "pricing", "checkout", "fulfillment"] },
       { feature: "Branding, creative and lifecycle marketing", status: "implemented", connectedTo: ["catalog", "customers", "ads", "social"] },
       { feature: "Wholesale / purchase-order style procurement", status: "implemented", connectedTo: ["inventory", "supplier", "operations", "finance"] },
       { feature: "POD / external supplier-specific capabilities", status: "adapter_boundary", connectedTo: ["supplier", "catalog", "fulfillment"] },
