@@ -110,28 +110,48 @@ export function parseCbnNfemRate(html: string): FxRateSet {
 /** Bank of Ghana publishes the USDGHS mid-rate in its daily interbank table. */
 export function parseBankOfGhanaRates(html: string): FxRateSet {
   if (html.length > 2_000_000) throw new Error("Bank of Ghana rate page exceeds the size limit");
-  let date: string | null = null;
-  let mid: number | null = null;
+  const observations: Record<string, { date: string; mid: number }> = {};
   for (const cells of rowsFromHtml(html)) {
-    const pairIndex = cells.findIndex((cell) => cell.toUpperCase().replace(/\s+/g, "") === "USDGHS");
-    if (pairIndex < 0) continue;
-    const rowDate = isoFromDateLabel(cells[0] ?? "");
-    const rate = amount(cells[pairIndex + 3]);
-    if (rowDate && rate !== null) { date = rowDate; mid = rate; break; }
+    const pair = cells.find((cell) => ["USDGHS", "GHSNGN"].includes(cell.toUpperCase().replace(/\s+/g, "")));
+    if (!pair) continue;
+    const pairIndex = cells.findIndex((cell) => cell.toUpperCase().replace(/\s+/g, "") === pair.toUpperCase().replace(/\s+/g, ""));
+    const date = isoFromDateLabel(cells[0] ?? "");
+    const mid = amount(cells[pairIndex + 3]);
+    if (date && mid !== null) observations[pair.toUpperCase()] = { date, mid };
   }
-  if (!date || mid === null) {
+  if (!observations.USDGHS || !observations.GHSNGN) {
     const text = textFromHtml(html);
-    const match = text.match(/(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+US Dollar\s+USDGHS\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)/i);
-    date = match ? isoFromDateLabel(match[1]) : null;
-    mid = match ? amount(match[2]) : null;
+    const usd = text.match(/(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+US Dollar\s+USDGHS\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)/i);
+    const ngn = text.match(/(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+Naira\s+GHSNGN\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)/i);
+    if (!observations.USDGHS && usd) {
+      const date = isoFromDateLabel(usd[1]), mid = amount(usd[2]);
+      if (date && mid !== null) observations.USDGHS = { date, mid };
+    }
+    if (!observations.GHSNGN && ngn) {
+      const date = isoFromDateLabel(ngn[1]), mid = amount(ngn[2]);
+      if (date && mid !== null) observations.GHSNGN = { date, mid };
+    }
   }
-  if (!date || mid === null) throw new Error("Could not extract an official Bank of Ghana USD/GHS mid-rate");
-  return {
-    unitsPerUsd: { USD: 1, GHS: mid },
-    asOfByCurrency: { USD: date, GHS: date },
-    sourceByCurrency: { USD: "Bank of Ghana daily interbank rates", GHS: "Bank of Ghana daily interbank rates" },
+  const usdGhs = observations.USDGHS;
+  if (!usdGhs) throw new Error("Could not extract the official Bank of Ghana USD/GHS mid-rate");
+  const unitsPerUsd: Record<string, number> = { USD: 1, GHS: usdGhs.mid };
+  const asOfByCurrency: Record<string, string> = { USD: usdGhs.date, GHS: usdGhs.date };
+  const sourceByCurrency: Record<string, string> = {
+    USD: "Bank of Ghana daily interbank rates",
+    GHS: "Bank of Ghana daily interbank rates",
   };
+  const ghsNgn = observations.GHSNGN;
+  if (ghsNgn && ghsNgn.date === usdGhs.date) {
+    const ngnPerUsd = usdGhs.mid * ghsNgn.mid;
+    if (Number.isFinite(ngnPerUsd) && ngnPerUsd > 0) {
+      unitsPerUsd.NGN = ngnPerUsd;
+      asOfByCurrency.NGN = usdGhs.date;
+      sourceByCurrency.NGN = "Bank of Ghana same-date GHS/NGN × USD/GHS cross-rate";
+    }
+  }
+  return { unitsPerUsd, asOfByCurrency, sourceByCurrency };
 }
+
 /** CBK's daily rates page lists USD/KES plus a posted-on date. */
 export function parseCentralBankOfKenyaRate(html: string): FxRateSet {
   if (html.length > 2_000_000) throw new Error("Central Bank of Kenya rate page exceeds the size limit");

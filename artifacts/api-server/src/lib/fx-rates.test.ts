@@ -20,9 +20,12 @@ describe("self-hosted central-bank FX ingestion", () => {
     expect(rates.asOfByCurrency.NGN).toBe("2026-10-09T12:00:00.000Z");
   });
   it("parses Bank of Ghana USDGHS mid-rate", () => {
-    const html = `<table><tr><th>Date</th><th>Currency</th><th>Currency Pair</th><th>Buying</th><th>Selling</th><th>Mid Rate</th></tr><tr><td>09 Oct 2026</td><td>US Dollar</td><td>USDGHS</td><td>11.7841</td><td>11.7959</td><td>11.7900</td></tr></table>`;
+    const html = `<table><tr><th>Date</th><th>Currency</th><th>Currency Pair</th><th>Buying</th><th>Selling</th><th>Mid Rate</th></tr><tr><td>09 Oct 2026</td><td>US Dollar</td><td>USDGHS</td><td>11.7841</td><td>11.7959</td><td>11.7900</td></tr><tr><td>09 Oct 2026</td><td>Naira</td><td>GHSNGN</td><td>112.8634</td><td>112.9975</td><td>112.9305</td></tr></table>`;
     const rates = parseBankOfGhanaRates(html);
     expect(rates.unitsPerUsd.GHS).toBe(11.79);
+    expect(rates.unitsPerUsd.NGN).toBeCloseTo(11.79 * 112.9305, 6);
+    expect(rates.sourceByCurrency.NGN).toContain("same-date GHS/NGN");
+    expect(rates.asOfByCurrency.NGN).toBe("2026-10-09T12:00:00.000Z");
     expect(rates.asOfByCurrency.GHS).toBe("2026-10-09T12:00:00.000Z");
   });
   it("parses Central Bank of Kenya daily USD/KES rate", () => {
@@ -54,7 +57,7 @@ describe("self-hosted central-bank FX ingestion", () => {
   it("blocks stale rates and cross-rates with materially different source dates", () => {
     const stale: FxRateSet = { unitsPerUsd: { USD: 1, NGN: 1500 }, asOfByCurrency: { NGN: "2026-09-01T12:00:00.000Z" }, sourceByCurrency: { NGN: "CBN NFEM" } };
     expect(mergeFreshFxRateSets(null, [stale], now).unitsPerUsd.NGN).toBeUndefined();
-    const mixedDates: FxRateSet = { unitsPerUsd: { USD: 1, EUR: 0.9, NGN: 1500 }, asOfByCurrency: { EUR: "2026-10-10T12:00:00.000Z", NGN: "2026-10-01T12:00:00.000Z" }, sourceByCurrency: { EUR: "ECB", NGN: "CBN" } };
+    const mixedDates: FxRateSet = { unitsPerUsd: { USD: 1, EUR: 0.9, NGN: 1500 }, asOfByCurrency: { EUR: "2026-10-10T12:00:00.000Z", NGN: "2026-10-06T12:00:00.000Z" }, sourceByCurrency: { EUR: "ECB", NGN: "CBN" } };
     expect(() => calculateFxPayload("EUR", "NGN", mixedDates, now)).toThrow(/materially different dates/);
   });
 });
