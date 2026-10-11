@@ -26,6 +26,7 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Consent-gated next-best-action recommendations | Implemented |
 | Abandoned cart recovery | Implemented |
 | Reviews/Q&A/wishlist/price watch/back-in-stock | Implemented |
+| Same-SKU Buy-X-Get-Y-free promotions | Implemented; integer minor-unit pricing, bounded terms, usage-limit locking, redemption reservations and immutable term snapshots |
 | Advertising planning/rendering/measurement | Implemented |
 | Social publishing architecture | Implemented |
 | Marketplace, auctions and advanced operations | Implemented |
@@ -76,7 +77,7 @@ These must remain real provider adapters rather than fake in-app completion:
 
 ### Next capability closure targets
 These should be implemented only through the same connected operating graph and checkout/inventory authority, not as isolated tables:
-- Multi-line virtual bundles, mix-and-match bundles and BOGO promotions with cart-level pricing snapshots.
+- Multi-line virtual bundles, mix-and-match bundles, and cross-SKU BOGO with cart-level pricing snapshots. Same-SKU Buy-X-Get-Y-Free is implemented in the current single-line checkout; multi-line bundle support remains open until order-item and split-fulfillment support can preserve stock/payment truth.
 - Branded tracking/returns portal backed by merchant fulfillment state.
 - Channel-level catalog/inventory/order sync state machine with retry-safe jobs.
 - 3PL split-shipment routing and SLA-aware fulfillment selection.
