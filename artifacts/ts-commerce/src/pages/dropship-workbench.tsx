@@ -46,6 +46,7 @@ type QuoteForm = {
   currency: string; quantity: string; targetPrice: string; desiredDays: string; requestNotes: string;
 };
 type QuoteEntryForm = { unitPrice: string; shipping: string; deliveryDays: string; expiresAt: string; notes: string; evidenceUrl: string };
+type SupplierPortalLink = { quoteId: string; shareUrl: string; expiresAt: string };
 type ProductOption = { id: number; title: string; sourceCurrency: string; sourceCostMinor: number | null; sellingPriceMinor: number | null };
 
 const initialCost: CostForm = {
@@ -114,6 +115,8 @@ export default function DropshipWorkbench() {
   const [quoteForm, setQuoteForm] = useState<QuoteForm>(initialQuote);
   const [costs, setCosts] = useState<CostResult[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [portalLink, setPortalLink] = useState<SupplierPortalLink | null>(null);
+  const [portalBusy, setPortalBusy] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [merchantCurrency, setMerchantCurrency] = useState("USD");
   const [lastCalculation, setLastCalculation] = useState<Record<string, unknown> | null>(null);
@@ -300,6 +303,53 @@ export default function DropshipWorkbench() {
     } catch (error) { setQuoteError(error instanceof Error ? error.message : "Quote status could not be updated."); }
   };
 
+  const createSupplierPortalLink = async (quoteId: string) => {
+    setQuoteError("");
+    setNotice("");
+    setPortalBusy(quoteId);
+    try {
+      const result = await api("/api/merchant/dropship/workbench/quotes/" + encodeURIComponent(quoteId) + "/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }) as { shareUrl: string; expiresAt: string; externalMessageSent: boolean };
+      if (typeof result.shareUrl !== "string" || !/^https?:\/\//i.test(result.shareUrl) || typeof result.expiresAt !== "string") {
+        throw new Error("The supplier link response was incomplete. Check the quote before sharing.");
+      }
+      setPortalLink({ quoteId, shareUrl: result.shareUrl, expiresAt: result.expiresAt });
+      setNotice("A one-time supplier response link is ready. Lunavo has not emailed or messaged the supplier.");
+    } catch (error) {
+      setQuoteError(error instanceof Error ? error.message : "A supplier response link could not be created.");
+    } finally {
+      setPortalBusy(null);
+    }
+  };
+
+  const revokeSupplierPortalLink = async (quoteId: string) => {
+    setQuoteError("");
+    setNotice("");
+    setPortalBusy(quoteId);
+    try {
+      await api("/api/merchant/dropship/workbench/quotes/" + encodeURIComponent(quoteId) + "/portal", { method: "DELETE" });
+      setPortalLink(current => current?.quoteId === quoteId ? null : current);
+      setNotice("The supplier response link was revoked.");
+    } catch (error) {
+      setQuoteError(error instanceof Error ? error.message : "The supplier response link could not be revoked.");
+    } finally {
+      setPortalBusy(null);
+    }
+  };
+
+  const copySupplierPortalLink = async (shareUrl: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard is unavailable");
+      await navigator.clipboard.writeText(shareUrl);
+      setNotice("Supplier link copied. Send it to the supplier yourself; Lunavo has not sent a message.");
+    } catch {
+      setNotice("Select and copy the supplier link from the field below. Lunavo has not sent a message.");
+    }
+  };
+
   const modelQuoteCosts = (item: Quote) => {
     const currency = String(item.currency || "USD").toUpperCase();
     const quantity = Number(item.quantity);
@@ -443,6 +493,12 @@ export default function DropshipWorkbench() {
           {item.status==="quoted" || item.status==="accepted" ? <div className="mt-3 grid gap-2 sm:grid-cols-3"><div><p className="text-[10px] text-muted-foreground">Quoted / unit</p><p className="font-black">{money(item.quoted_unit_price_minor,item.currency)}</p></div><div><p className="text-[10px] text-muted-foreground">Shipping</p><p className="font-black">{money(item.quoted_shipping_minor,item.currency)}</p></div><div><p className="text-[10px] text-muted-foreground">Quoted total</p><p className="font-black">{money(item.quoted_total_minor,item.currency)}</p></div><div><p className="text-[10px] text-muted-foreground">Lead time</p><p className="font-black">{item.quoted_delivery_days ?? "—"} days</p></div></div> : null}
           {item.request_notes && <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.request_notes}</p>}
           {item.source_url && <a className="mt-2 inline-block break-all text-xs font-bold text-accent underline" href={item.source_url} target="_blank" rel="noreferrer">Open supplier source</a>}
+          {portalLink?.quoteId===item.id && <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sky-950">
+            <p className="text-xs font-extrabold">Private supplier response link · shown once</p>
+            <p className="mt-1 text-[11px] leading-5">Expires {new Date(portalLink.expiresAt).toLocaleString()}. The token is stored as a digest, and no email or message has been sent.</p>
+            <input aria-label="Supplier response link" readOnly value={portalLink.shareUrl} onFocus={event=>event.currentTarget.select()} className="mt-2 h-10 w-full rounded-lg border border-sky-200 bg-white px-3 text-xs text-sky-950"/>
+            <div className="mt-2 flex flex-wrap gap-2"><button type="button" className={secondaryClass} onClick={()=>void copySupplierPortalLink(portalLink.shareUrl)}>Copy link</button><a className={secondaryClass+" inline-flex items-center"} href={portalLink.shareUrl} target="_blank" rel="noreferrer">Preview form</a><button type="button" className={secondaryClass} disabled={portalBusy===item.id} onClick={()=>void revokeSupplierPortalLink(item.id)}>Revoke link</button></div>
+          </div>}
           {activeQuote===item.id && item.status==="draft" && <form onSubmit={recordQuote} className="mt-4 space-y-3 rounded-xl bg-muted/50 p-3">
             <p className="text-xs font-extrabold">Record supplier response manually</p>
             <div className="grid gap-2 sm:grid-cols-2"><Field label="Unit price" value={quoteEntry.unitPrice} onChange={v=>setQuoteEntry(s=>({...s,unitPrice:v}))} placeholder="10.00" required/><Field label="Shipping total" value={quoteEntry.shipping} onChange={v=>setQuoteEntry(s=>({...s,shipping:v}))} placeholder="0.00" required/><Field label="Delivery days" value={quoteEntry.deliveryDays} onChange={v=>setQuoteEntry(s=>({...s,deliveryDays:v}))} type="number" required/><Field label="Quote expiry (optional)" value={quoteEntry.expiresAt} onChange={v=>setQuoteEntry(s=>({...s,expiresAt:v}))} type="datetime-local"/></div>
@@ -453,6 +509,7 @@ export default function DropshipWorkbench() {
           <div className="mt-3 flex flex-wrap gap-2">
             {(item.status==="quoted" || item.status==="accepted") && <button className={secondaryClass} onClick={()=>modelQuoteCosts(item)}><Plus className="h-3.5 w-3.5"/>Model this quote in landed cost</button>}
             {item.status==="draft" && <button className={secondaryClass} onClick={()=>{setActiveQuote(item.id);setQuoteError("");}}>Enter supplier quote</button>}
+            {item.status==="draft" && <button type="button" className={secondaryClass} disabled={portalBusy===item.id} onClick={()=>void createSupplierPortalLink(item.id)}><ShieldCheck className="h-3.5 w-3.5"/>{portalBusy===item.id ? "Creating link…" : portalLink?.quoteId===item.id ? "Replace response link" : "Create supplier response link"}</button>}
             {item.status==="quoted" && <button className={secondaryClass} onClick={() => { if (window.confirm("Record this supplier quote as accepted? This does not create a purchase order or send money.")) { void transitionQuote(item.id, "accept"); } }}>Record acceptance</button>}
             {item.status==="quoted" && <button className={secondaryClass} onClick={() => { void transitionQuote(item.id, "reject"); }}>Reject quote</button>}
             {item.status==="quoted" && item.quote_expires_at && new Date(item.quote_expires_at).getTime() <= Date.now() && <button className={secondaryClass} onClick={() => { void transitionQuote(item.id, "expire"); }}>Mark expired</button>}
