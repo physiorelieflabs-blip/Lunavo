@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveLunavoBrainRoute, runWithLocalProfileFallback, selectLunavoBrainRoles, selectSafeBrainFallback } from "./ai-provider";
+import { classifyLunavoModelDiversity, configuredLunavoBrainRoutes, resolveLunavoBrainRoute, runWithLocalProfileFallback, selectLunavoBrainRoles, selectSafeBrainFallback } from "./ai-provider";
 
 const routeEnvKeys = [
   "LUNAVO_LOCAL_AI_ROLE_FINANCE_MODEL",
@@ -17,6 +17,21 @@ afterEach(() => {
 });
 
 describe("Lunavo specialist orchestration", () => {
+  it("detects when the configured brain reuses one model for multiple specialties", () => {
+    expect(classifyLunavoModelDiversity([])).toBe("single_model_only");
+    expect(classifyLunavoModelDiversity(["qwen3:14b"])).toBe("single_model_only");
+    expect(classifyLunavoModelDiversity(["qwen3:14b", "deepseek-r1:14b", "gemma3:12b"])).toBe("multiple_models");
+    expect(classifyLunavoModelDiversity(["qwen3:14b", "Qwen3:14b", "gemma3:12b"])).toBe("model_reuse_detected");
+  });
+
+  it("describes the local specialist map without exposing endpoint URLs", () => {
+    const routes = configuredLunavoBrainRoutes();
+    expect(routes.map((route) => route.role)).toContain("finance");
+    expect(routes.map((route) => route.role)).toContain("arbiter");
+    expect(routes.find((route) => route.role === "arbiter")?.primaryProfile).toBe("review");
+    expect(routes.every((route) => !("endpoint" in route))).toBe(true);
+  });
+
   it("allows a finance specialist to use a separately hosted private model endpoint", () => {
     process.env.LUNAVO_LOCAL_AI_ROLE_FINANCE_MODEL = "qwen3:14b-finance";
     process.env.LUNAVO_LOCAL_AI_ROLE_FINANCE_URL = "http://finance-llm:11434/v1";
