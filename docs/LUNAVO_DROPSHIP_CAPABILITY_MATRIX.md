@@ -30,9 +30,10 @@ This document is the practical capability audit for Lunavo's dropshipping operat
 | Advertising planning/rendering/measurement | Implemented |
 | Social publishing architecture | Implemented |
 | Marketplace, auctions and advanced operations | Implemented |
-| Returns/exchanges/chargeback/dispute operation records | Implemented; branded customer-facing portal remains a closure target |
+| Returns/exchanges + branded tracking/returns portal | Implemented; customer requests are records for merchant review, not automatic refund authority |
 | B2B/company/price-list operation primitives | Implemented; full catalog and order UX remains a closure target |
 | Invoices/payment links/subscriptions | Implemented |
+| Server-enforced discount codes | Percentage/fixed plus same-SKU Buy-X-Get-Y-free; minor-unit calculations, usage capacity reservations and redemption snapshots |
 | Internal automation engine | Implemented |
 | Durable domain-event outbox | Implemented |
 | Master Admin/security/audit | Implemented |
@@ -61,7 +62,8 @@ Current commercial platforms increasingly combine supplier discovery/import, aut
 - Order -> customer spend/LTV -> lifecycle segment -> consent eligibility -> retention/cross-sell recommendation.
 - Ad performance -> winner/decline signal -> sourcing/pricing/growth recommendation.
 - Intelligence refresh -> durable domain event -> Automation Studio.
-- Supplier quote draft -> manually recorded offer -> accepted/rejected/expired negotiation record -> quote-to-cost prefill -> landed-cost scenario -> contribution margin -> the same cross-domain intelligence graph and local reviewer.
+- Supplier quote draft -> manually recorded or supplier-portal offer -> accepted/rejected/expired negotiation record -> quote-to-cost prefill -> landed-cost scenario -> contribution margin -> the same cross-domain intelligence graph and local reviewer.
+- Single-SKU checkout -> percentage/fixed/BOGO rules -> bounded redemption reservation -> inventory reservation -> provider-verified payment -> redemption settlement/release; discount terms and amounts are snapshotted for audit.
 - Supplier quote draft -> expiring seven-day one-use share link -> supplier response page -> atomic quote recording and token consumption -> domain event/merchant notification -> quote review and acceptance/rejection -> landed-cost model. Only a SHA-256 token digest is stored; the merchant manually shares the link. The link does not imply supplier identity verification, an external message, a purchase order, or a payment.
 - Cost scenarios and quote records are tenant-scoped, idempotency-protected and auditable; they do not create a purchase order, payment, ledger entry or inventory movement.
 - External research -> evidence ledger -> local model synthesis; research is never treated as authoritative payment, stock or customer-consent truth.
@@ -79,7 +81,6 @@ These must remain real provider adapters rather than fake in-app completion:
 ### Next capability closure targets
 These should be implemented only through the same connected operating graph and checkout/inventory authority, not as isolated tables:
 - Multi-line virtual bundles, mix-and-match bundles, and cross-SKU BOGO with cart-level pricing snapshots. Same-SKU Buy-X-Get-Y-Free is implemented in the current single-line checkout; multi-line bundle support remains open until order-item and split-fulfillment support can preserve stock/payment truth.
-- Branded tracking/returns portal backed by merchant fulfillment state.
 - Channel-level catalog/inventory/order sync state machine with retry-safe jobs.
 - 3PL split-shipment routing and SLA-aware fulfillment selection.
 - POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
@@ -88,7 +89,7 @@ These should be implemented only through the same connected operating graph and 
 - Automated email/SMS lifecycle campaigns with consent, suppression, delivery status and provider verification.
 - Competitor/ad-spy ingestion connectors with source URL, observation time and evidence provenance.
 - A consuming worker plus real provider adapters for channel catalog/inventory/order sync; the existing control plane can queue and track jobs but must never claim external sync succeeded without an adapter result.
-- Multi-line virtual bundles, mix-and-match bundles and BOGO promotions with cart-level pricing snapshots.
+- Cross-SKU virtual bundles, mix-and-match bundles and multi-line cart-level promotion snapshots. BOGO is currently safe only for same-SKU checkout because the order model is still single-line.
 - Branded tracking/returns portal backed by authoritative merchant fulfillment state.
 - 3PL split-shipment routing and SLA-aware fulfillment selection.
 - POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
