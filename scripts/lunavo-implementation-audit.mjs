@@ -272,5 +272,21 @@ const customerSubApp=await read("artifacts/ts-commerce/src/App.tsx");
 for(const m of ['path="/customer-subscriptions"','path="/subscribe/:id"','path="/subscription-portal"','path="/subscribe/return"'])if(!customerSubApp.includes(m))failures.push("Customer subscription UI route invariant missing: "+m);
 const customerSubUi=await read("artifacts/ts-commerce/src/pages/customer-subscriptions.tsx");
 for(const m of ["Create a recurring plan","Published subscription plans","Customer subscriptions","Server verified billing"])if(!customerSubUi.includes(m))failures.push("Merchant subscription UI invariant missing: "+m);
+
+// Supplier sync, official FX and vision fetches are real workers/services, not dormant files or hosted fallbacks.
+const runtimeIndex=await read("artifacts/api-server/src/index.ts");
+for(const m of ["startFxRateWorker","stopFxRates","startSupplierSyncWorker","stopSupplierSync"])if(!runtimeIndex.includes(m))failures.push("Commerce intelligence worker is not wired into server lifecycle: "+m);
+const fxWorker=await read("artifacts/api-server/src/lib/fx-rate-worker.ts");
+for(const m of ["runFxRateRefresh","market_fx_rate_snapshots","redirect: \"error\"","European Central Bank","central-bank"])if(!fxWorker.includes(m))failures.push("Official FX snapshot worker invariant missing: "+m);
+const supplierSync=await read("artifacts/api-server/src/lib/supplier-sync-worker.ts");
+for(const m of ["supplier.sync_failed","supplier.observation_changed","merchant_automation_policies","lastObservation","MAX"])if(!supplierSync.includes(m))failures.push("Supplier sync/guardrail invariant missing: "+m);
+const syncPolicy=await read("artifacts/api-server/src/lib/supplier-sync-policy.ts");
+for(const m of ["supplierSyncCheckoutError","source_unavailable","lastSuccessAt","numeric stock quantity"])if(!syncPolicy.includes(m))failures.push("Synchronized inventory checkout guard invariant missing: "+m);
+const publicSupplier=await read("artifacts/api-server/src/lib/public-supplier.ts");
+for(const m of ["isBlockedSupplierAddress","usesStandardHttpPort","MAX_IN_FLIGHT_PAGES","MAX_IMAGE_BYTES","matchesRasterImageSignature","Supplier image redirects cannot downgrade HTTPS to HTTP"])if(!publicSupplier.includes(m))failures.push("Safe supplier/image retrieval invariant missing: "+m);
+const localVision=await read("artifacts/api-server/src/lib/ai-provider.ts");
+for(const m of ["fetchPublicImageDataUrl(imageUrl)","imageDataUrl","completeLocalVisionJson"])if(!localVision.includes(m))failures.push("Vision gateway must proxy validated image bytes to local inference: "+m);
+const workflowUi=await read("artifacts/ts-commerce/src/pages/automations.tsx");
+for(const m of ["supplier.observation_changed","supplier.sync_failed","catalog.product_changed","order.fulfillment_changed","fulfillment.job_created"])if(!workflowUi.includes(m))failures.push("Connected commerce event is missing from Automation Studio: "+m);
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
