@@ -2601,7 +2601,7 @@ async function verifyPublicFlutterwaveOrder(
     }
     const [updatedOrder] = await tx
       .update(ordersTable)
-      .set({ status: "paid" })
+      .set({ status: "paid", ...(inventoryReservationException ? { fulfillmentStatus: "review_required" } : {}) })
       .where(
         and(
           eq(ordersTable.id, currentOrder.id),
@@ -2610,6 +2610,50 @@ async function verifyPublicFlutterwaveOrder(
       )
       .returning();
     if (!updatedOrder) throw new Error("Order changed while payment was processing");
+    let discountCodeRedeemed = false;
+    let promotionReservationExpired = false;
+    const redemptionResult = await tx.execute(sql`
+      UPDATE discount_code_redemptions
+      SET status = 'redeemed', redeemed_at = now(), released_at = NULL
+      WHERE order_id = ${currentOrder.id} AND merchant_id = ${order.merchantId} AND status = 'reserved'
+      RETURNING discount_code_id, reserved_until, code_snapshot
+    `);
+    const redemption = (redemptionResult.rows[0] as Record<string, unknown> | undefined) ?? null;
+    if (redemption) {
+      const reservedUntil = new Date(String(redemption.reserved_until)).getTime();
+      promotionReservationExpired = Number.isFinite(reservedUntil) && reservedUntil <= Date.now();
+      const codeResult = await tx.execute(sql`
+        UPDATE discount_codes
+        SET usage_count = COALESCE(usage_count, 0) + 1
+        WHERE id = ${Number(redemption.discount_code_id)} AND merchant_id = ${order.merchantId}
+        RETURNING id, usage_count, usage_limit
+      `);
+      const updatedCode = (codeResult.rows[0] as Record<string, unknown> | undefined) ?? null;
+      if (!updatedCode) throw new Error("Discount redemption could not update its source code");
+      discountCodeRedeemed = true;
+      const usageLimit = updatedCode.usage_limit === null || updatedCode.usage_limit === undefined ? null : Number(updatedCode.usage_limit);
+      if (promotionReservationExpired && usageLimit !== null && Number(updatedCode.usage_count) > usageLimit) {
+        await emitDomainEvent(tx, {
+          merchantId: order.merchantId, eventType: "order.promotion_limit_exception", aggregateType: "order", aggregateId: String(updatedOrder.id),
+          actorType: "system", actorId: "flutterwave", source: "public_checkout",
+          idempotencyKey: `order:${updatedOrder.id}:promotion-limit-exception`,
+          payload: { orderId: updatedOrder.id, codeSnapshot: String(redemption.code_snapshot), usageCount: Number(updatedCode.usage_count), usageLimit, reason: "provider payment verified after the redemption reservation expired" },
+        });
+      }
+    }
+    if (inventoryReservationException) {
+      await tx.insert(activityTable).values({
+        merchantId: order.merchantId, type: "order_inventory_exception",
+        title: `Payment received; review stock for ${updatedOrder.orderNumber}`,
+        description: inventoryReservationException, amount: updatedOrder.total, currency: updatedOrder.currency, tone: "warning",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: order.merchantId, eventType: "order.inventory_exception", aggregateType: "order", aggregateId: String(updatedOrder.id),
+        actorType: "system", actorId: "flutterwave", source: "public_checkout",
+        idempotencyKey: `order:${updatedOrder.id}:inventory-exception`,
+        payload: { orderId: updatedOrder.id, orderNumber: updatedOrder.orderNumber, paymentIntentId: currentIntent.id, reason: inventoryReservationException },
+      });
+    }
     await tx.insert(activityTable).values({
       merchantId: order.merchantId,
       type: "order_payment_confirmed",
@@ -2633,19 +2677,22 @@ async function verifyPublicFlutterwaveOrder(
         amountMinor: currentIntent.amountMinor,
         currency: currentIntent.currency,
         providerPaymentId: provider.providerPaymentId,
+        discountCodeRedeemed,
+        promotionReservationExpired,
+        inventoryException: Boolean(inventoryReservationException),
       },
       before: { status: currentIntent.status },
       after: { status: "verified" },
     });
-    return updatedOrder;
+    return { order: updatedOrder, inventoryReservationException, discountCodeRedeemed, promotionReservationExpired };
   });
-  if ("expired" in settled) {
-    throw new Error("Inventory reservation has expired");
-  }
   return {
-    order: settled,
+    order: settled.order,
     status: "paid" as const,
     providerPaymentId: provider.providerPaymentId ?? null,
+    inventoryException: settled.inventoryReservationException,
+    discountCodeRedeemed: settled.discountCodeRedeemed,
+    promotionReservationExpired: settled.promotionReservationExpired,
   };
 }
 
