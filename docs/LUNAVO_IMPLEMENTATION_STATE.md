@@ -48,6 +48,10 @@ The dropshipping intelligence surface now exposes a connected modern-platform pa
 
 The command plane is not a new authority layer: recommendations feed existing approval, automation, sourcing, inventory, fulfillment, marketing, payment, ledger, and tenant-security boundaries.
 
+Supplier quote negotiation now supports a seven-day, one-use response link. It stores only a SHA-256 token digest, consumes the token atomically with the offer, records provenance, and emits domain events for the merchant workflow. The merchant must share the link manually; automated email/SMS dispatch, external supplier identity proofing, and automatic purchase-order/payment execution are explicitly not claimed. Migration 0124 adds the portal state and is registered in both canonical and clean-database migration sequences. A CI registry guard now checks migration files, list consistency, duplicates, explicit legacy exceptions and bootstrap coverage.
+
+The self-hosted endpoint boundary now normalizes bracketed IPv6 literals before private-network classification, preventing public IPv6 services from being accepted as local inference endpoints. Regression coverage includes private IPv6 acceptance and public IPv6 rejection.
+
 Supplier synchronization hardening also now enforces field-level policy toggles: a missing or unparseable supplier price cannot overwrite the last known source price; a currency mismatch blocks price/currency writes and repricing; stock observations must use recognized states; empty SKU/variant/media/description extraction does not erase existing catalog data; the database compare-and-swap guard rejects stale source fetches after concurrent product edits; price-change review thresholds use exact conservative basis-point arithmetic; and failed polling attempts advance the worker cursor to avoid repeatedly starving the same batch. Regression tests cover missing source fields, stock-status validation, currency boundaries, and price threshold math. These are implementation facts, not a claim that release CI has passed.
 
 ## Verification status
