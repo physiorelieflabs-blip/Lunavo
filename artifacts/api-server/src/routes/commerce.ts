@@ -6055,6 +6055,7 @@ router.get("/supplier-products", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
   const products = await db
     .select()
     .from(supplierProductsTable)
@@ -6116,6 +6117,8 @@ router.get("/supplier-import-history", async (req, res): Promise<void> => {
 router.post("/supplier-products", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
     res.status(429).json({ error: "Supplier import limit reached. Try again later." });
     return;
@@ -6125,7 +6128,6 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter a public supplier product URL" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
   try {
     const imported = await enrichSupplierProduct(await importPublicSupplierProduct(parsed.data.sourceUrl));
     const supplierUrl = normalizedSupplierUrl(
@@ -6240,6 +6242,8 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
 router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
   if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
     res.status(429).json({ error: "Supplier import limit reached. Try again later." });
     return;
@@ -6249,7 +6253,6 @@ router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter a public supplier product URL" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
   try {
     const imported = await enrichSupplierProduct(await importPublicSupplierProduct(parsed.data.sourceUrl));
     const duplicateConditions = [eq(supplierProductsTable.sourceUrl, imported.sourceUrl)];
@@ -6306,6 +6309,7 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   const [batch] = await db
     .insert(supplierImportBatchesTable)
     .values({
@@ -6501,6 +6505,7 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   try {
     if (parsed.data.currency.toUpperCase() !== merchant.currency) {
       throw new Error("Active products must use the merchant settlement currency");
@@ -6567,6 +6572,7 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
          let product = (
     await db
       .select()
@@ -6764,6 +6770,7 @@ router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> =>
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
          let product = (
       await db
         .select()
@@ -6830,6 +6837,7 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   const product = (
     await db
       .select()
@@ -6954,6 +6962,7 @@ router.get("/suppliers", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
   const suppliers = await db
     .select({
       supplier: suppliersTable,
@@ -6986,6 +6995,7 @@ router.patch("/suppliers/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "fulfillment.manage", res))) return;
   const existing = (
     await db
       .select()
@@ -10531,7 +10541,7 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
       actorType: "merchant",
       actorId: identity.clerkUserId,
       source: "merchant_api",
-      idempotencyKey: `order-fulfillment:${order.id}:${fulfillmentUpdatedAt.getTime()}`,
+      idempotencyKey: `order-fulfillment:${order.id}:${currentStatus}:${nextStatus}:${fulfillmentUpdatedAt.getTime()}`,
       payload: {
         orderId: order.id,
         orderNumber: order.orderNumber,
