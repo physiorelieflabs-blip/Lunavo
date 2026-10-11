@@ -1,4 +1,4 @@
-import { and, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, supplierImportAttemptsTable, supplierProductsTable } from "@workspace/db";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { calculateSupplierSellingPrice } from "./supplier-pricing";
