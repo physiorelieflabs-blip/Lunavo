@@ -30,9 +30,10 @@ if (!/^[a-z0-9_.-]{3,64}$/.test(username)) throw new Error("LUNAVO_MASTER_ADMIN_
 assertPassword(password);
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const client = await pool.connect();
 try {
   const hash = await hashPassword(password);
-  await pool.query("BEGIN");
+  await client.query("BEGIN");
   try {
     const existing = await pool.query<{ id: string }>(
       "SELECT id FROM local_auth_users WHERE lower(email)=lower($1) OR lower(username)=lower($2) LIMIT 1 FOR UPDATE",
@@ -42,14 +43,14 @@ try {
     let id: string;
     if (existing.rowCount) {
       id = existing.rows[0]!.id;
-      await pool.query(
+      await client.query(
         "UPDATE local_auth_users SET email=$1, username=$2, password_hash=$3, email_verified=true, role='master_admin', updated_at=now() WHERE id=$4",
         [email, username, hash, id],
       );
       console.log("Master Admin updated:", username);
     } else {
       id = randomUUID();
-      await pool.query(
+      await client.query(
         "INSERT INTO local_auth_users (id,email,username,first_name,last_name,password_hash,email_verified,role) VALUES ($1,$2,$3,$4,$5,$6,true,'master_admin')",
         [id, email, username, "TS", "Admin", hash],
       );
@@ -69,15 +70,16 @@ try {
       merchant.rowCount = created.rowCount;
     }
 
-    await pool.query(
+    await client.query(
       "INSERT INTO subscriptions (merchant_id,amount_due,amount_paid,earnings_held,status,payment_method) VALUES ($1,0,0,0,'active',NULL) ON CONFLICT DO NOTHING",
       [merchant.rows[0]!.id],
     );
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
   } catch (error) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw error;
   }
 } finally {
+  client.release();
   await pool.end();
 }
