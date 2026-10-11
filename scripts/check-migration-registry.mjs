@@ -40,10 +40,10 @@ function duplicates(values) {
 }
 
 const source = await readFile(runnerPath, "utf8");
-const main = readRegistry(source, /const\\s+migrations\\s*=\\s*\\[([\\s\\S]*?)\\];/, "canonical migrations");
+const main = readRegistry(source, /const\s+migrations\s*=\s*\[([\s\S]*?)\];/, "canonical migrations");
 const bootstrap = readRegistry(
   source,
-  /const\\s+BOOTSTRAP_RUNTIME_MIGRATIONS\\s*=\\s*\\[([\\s\\S]*?)\\]\\s+as\\s+const/,
+  /const\s+BOOTSTRAP_RUNTIME_MIGRATIONS\s*=\s*\[([\s\S]*?)\]\s+as\s+const/,
   "clean-database bootstrap migrations",
 );
 const disk = (await readdir(migrationDirectory))
