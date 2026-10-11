@@ -1,3 +1,5 @@
+import { recommendDynamicPrice } from "./dynamic-pricing";
+
 export type OpportunityEvidence = {
   demand: number;
   competition: number;
@@ -28,23 +30,52 @@ export function scoreOpportunity(e: OpportunityEvidence) {
   return { score, label: score >= 80 ? "excellent" : score >= 65 ? "strong" : score >= 45 ? "watch" : "avoid" } as const;
 }
 
-/** Legacy compatibility wrapper. Pricing is now evidence-only: no fabricated
- * market-high fallback or arbitrary multiplier is permitted. */
+/** Legacy result shape backed by the canonical deterministic pricing engine. */
 export function recommendPrice(input: PriceInputs) {
-  const cost = Math.max(0, Math.trunc(input.supplierCostMinor));
-  if (cost <= 0) throw new Error("Supplier cost must be positive");
-  const overhead = Math.max(0, Math.trunc(input.shippingMinor ?? 0)) + Math.max(0, Math.trunc(input.taxMinor ?? 0)) + Math.max(0, Math.trunc(input.feeMinor ?? 0));
-  const landed = cost + overhead;
-  const margin = clamp(input.minimumMarginPercent, 0, 95);
-  const floor = Math.ceil(landed / Math.max(0.01, 1 - margin / 100));
-  const marketLow = input.marketLowMinor && input.marketLowMinor > 0 ? Math.trunc(input.marketLowMinor) : null;
-  const marketHigh = input.marketHighMinor && input.marketHighMinor >= (marketLow ?? 0) ? Math.trunc(input.marketHighMinor) : null;
-  if (marketLow == null || marketHigh == null) {
-    return { landedCostMinor: landed, minimumViablePriceMinor: floor, recommendedPriceMinor: null, maximumCommercialPriceMinor: null, pricingStatus: "insufficient_market_evidence" as const };
+  const supplierCost = input.supplierCostMinor;
+  if (!Number.isSafeInteger(supplierCost) || supplierCost <= 0) throw new Error("Supplier cost must be a positive safe integer");
+  for (const [label, value] of [
+    ["Shipping", input.shippingMinor],
+    ["Tax", input.taxMinor],
+    ["Fee", input.feeMinor],
+  ] as const) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+      throw new Error(label + " must be a non-negative integer in minor units");
+    }
   }
-  const demand = clamp(input.demandScore ?? 50);
-  const competition = clamp(input.competitionScore ?? 50);
-  const marketTarget = marketLow + Math.round((marketHigh - marketLow) * (0.35 + demand / 400 + (100 - competition) / 500));
-  const recommended = Math.max(floor, Math.min(marketHigh, marketTarget));
-  return { landedCostMinor: landed, minimumViablePriceMinor: floor, recommendedPriceMinor: recommended, maximumCommercialPriceMinor: marketHigh, pricingStatus: "evidence_backed" as const };
+  if (!Number.isFinite(input.minimumMarginPercent) || input.minimumMarginPercent < 0 || input.minimumMarginPercent >= 100) {
+    throw new Error("Minimum margin must be between 0 and 100 percent");
+  }
+  let maxPriceMinor: number | undefined;
+  if (input.maxPriceMultiplier !== undefined) {
+    if (!Number.isFinite(input.maxPriceMultiplier) || input.maxPriceMultiplier <= 0) {
+      throw new Error("Maximum price multiplier must be positive");
+    }
+    const cap = Math.floor(supplierCost * input.maxPriceMultiplier);
+    if (!Number.isSafeInteger(cap) || cap <= 0) throw new Error("Maximum price cap exceeds the safe monetary range");
+    maxPriceMinor = cap;
+  }
+
+  const overhead = (input.shippingMinor ?? 0) + (input.taxMinor ?? 0) + (input.feeMinor ?? 0);
+  const landedCostMinor = supplierCost + overhead;
+  if (!Number.isSafeInteger(landedCostMinor)) throw new Error("Landed cost exceeds the safe monetary range");
+  const result = recommendDynamicPrice({
+    supplierCostMinor: supplierCost,
+    shippingMinor: input.shippingMinor,
+    taxMinor: input.taxMinor,
+    fixedFeesMinor: input.feeMinor,
+    targetMarginPercent: input.minimumMarginPercent,
+    marketLowMinor: input.marketLowMinor,
+    marketHighMinor: input.marketHighMinor,
+    demandScore: input.demandScore,
+    competitionScore: input.competitionScore,
+    maxPriceMinor,
+  });
+  return {
+    landedCostMinor,
+    minimumViablePriceMinor: result.floorPriceMinor,
+    recommendedPriceMinor: result.recommendedPriceMinor,
+    maximumCommercialPriceMinor: result.maximumCommercialPriceMinor,
+    pricingStatus: result.pricingStatus,
+  };
 }
