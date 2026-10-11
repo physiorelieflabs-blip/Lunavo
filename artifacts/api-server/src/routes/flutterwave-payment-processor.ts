@@ -482,7 +482,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
           aggregateId: String(settledOrder.id),
           actorType: "system",
           actorId: "flutterwave_webhook",
-          source: "flutterwave_webhook",
+          source: "system",
           idempotencyKey: `order:${settledOrder.id}:promotion-limit-exception`,
           payload: { orderId: settledOrder.id, codeSnapshot: String(redemption.code_snapshot), usageCount: Number(code.usage_count), usageLimit, reason: "provider payment verified after the redemption reservation expired or was released" },
         });
@@ -517,7 +517,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
         aggregateId: String(settledOrder.id),
         actorType: "system",
         actorId: "flutterwave_webhook",
-        source: "flutterwave_webhook",
+        source: "system",
         idempotencyKey: `order:${settledOrder.id}:late-payment-exception`,
         payload: { orderId: settledOrder.id, orderNumber: settledOrder.orderNumber, paymentIntentId: currentIntent.id, providerTransactionId: providerId, actionRequired: "manual_fulfillment_or_refund_review" },
       });
