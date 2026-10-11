@@ -2,7 +2,7 @@ import { db } from "@workspace/db";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { emitDomainEvent } from "./domain-events";
 import { toMinorUnits } from "./money";
-import { shouldApplySupplierPriceFields, shouldApplySupplierStockFields } from "./supplier-sync-policy";
+import { shouldApplySupplierArrayField, shouldApplySupplierPriceFields, shouldApplySupplierStockFields, shouldApplySupplierTextField } from "./supplier-sync-policy";
 import { sql } from "drizzle-orm";
 
 export type SyncPolicy = {
@@ -250,6 +250,11 @@ export async function synchronizeSupplierProduct(input: {
     const sourceFields: string[] = [];
     const merchantFields: string[] = [];
     const applySourceStockFields = shouldApplySupplierStockFields(policy.sync_stock, imported.availability);
+    const applySourceSku = shouldApplySupplierTextField(policy.sync_variants, imported.sku);
+    const applySourceVariants = shouldApplySupplierArrayField(policy.sync_variants, imported.variants);
+    const applySourceImages = shouldApplySupplierArrayField(policy.sync_media, imported.imageUrls);
+    const applySourceVideos = shouldApplySupplierArrayField(policy.sync_media, imported.videoUrls);
+    const applySourceDescription = shouldApplySupplierTextField(policy.sync_description, imported.description);
 
     const incomingSourceMinor = toMinorUnits(imported.salePrice ?? imported.price);
     const currentSourceMinor = toMinorUnits(product.sale_price ?? product.price);
@@ -277,21 +282,38 @@ export async function synchronizeSupplierProduct(input: {
       changedFields.push("source_availability");
       sourceFields.push("availability");
     }
-    if (policy.sync_variants && imported.sku !== product.sku) {
+    if (applySourceSku && imported.sku !== product.sku) {
       changedFields.push("sku");
       sourceFields.push("sku");
+    } else if (policy.sync_variants && !applySourceSku && product.sku) {
+      reviewReasons.push("Supplier page did not expose a usable SKU. The last known SKU was preserved.");
+      changedFields.push("sku_review");
     }
-    if (policy.sync_variants && !sameJson(imported.variants, product.variants)) {
+    if (applySourceVariants && !sameJson(imported.variants, product.variants)) {
       changedFields.push("variants");
       sourceFields.push("variants");
+    } else if (policy.sync_variants && !applySourceVariants && Array.isArray(product.variants) && product.variants.length > 0) {
+      reviewReasons.push("Supplier page did not expose variants. The last known variants were preserved.");
+      changedFields.push("variants_review");
     }
-    if (policy.sync_media && (!sameJson(imported.imageUrls, product.image_urls) || !sameJson(imported.videoUrls, product.video_urls))) {
+    if ((applySourceImages && !sameJson(imported.imageUrls, product.image_urls)) || (applySourceVideos && !sameJson(imported.videoUrls, product.video_urls))) {
       changedFields.push("media");
       sourceFields.push("media");
     }
-    if (policy.sync_description && imported.description && imported.description !== product.description) {
+    if (policy.sync_media && !applySourceImages && (product.image_url || (Array.isArray(product.image_urls) && product.image_urls.length > 0))) {
+      reviewReasons.push("Supplier page did not expose product images. The last known image assets were preserved.");
+      changedFields.push("images_review");
+    }
+    if (policy.sync_media && !applySourceVideos && Array.isArray(product.video_urls) && product.video_urls.length > 0) {
+      reviewReasons.push("Supplier page did not expose product videos. The last known video assets were preserved.");
+      changedFields.push("videos_review");
+    }
+    if (applySourceDescription && imported.description !== product.description) {
       changedFields.push("description");
       sourceFields.push("description");
+    } else if (policy.sync_description && !applySourceDescription && product.description && !hasMerchantOverride(json(product.merchant_overrides, {}), "description")) {
+      reviewReasons.push("Supplier page did not expose a usable description. The last known description was preserved.");
+      changedFields.push("description_review");
     }
 
     const merchantOverrides = json(product.merchant_overrides, {});
@@ -356,14 +378,14 @@ export async function synchronizeSupplierProduct(input: {
           price=CASE WHEN ${applySourcePriceFields} THEN ${imported.price} ELSE price END,
           sale_price=CASE WHEN ${applySourcePriceFields} THEN ${imported.salePrice} ELSE sale_price END,
           currency=CASE WHEN ${applySourcePriceFields} THEN ${imported.currency} ELSE currency END,
-          sku=CASE WHEN ${policy.sync_variants} THEN ${imported.sku} ELSE sku END,
+          sku=CASE WHEN ${applySourceSku} THEN ${imported.sku} ELSE sku END,
           availability=CASE WHEN ${applySourceStockFields} THEN ${imported.availability} ELSE availability END,
           availability_quantity=CASE WHEN ${applySourceStockFields} THEN ${imported.availabilityQuantity} ELSE availability_quantity END,
-          image_url=CASE WHEN ${policy.sync_media} THEN ${imported.imageUrl} ELSE image_url END,
-          image_urls=CASE WHEN ${policy.sync_media} THEN ${JSON.stringify(imported.imageUrls)}::jsonb ELSE image_urls END,
-          video_urls=CASE WHEN ${policy.sync_media} THEN ${JSON.stringify(imported.videoUrls)}::jsonb ELSE video_urls END,
-          variants=CASE WHEN ${policy.sync_variants} THEN ${JSON.stringify(imported.variants)}::jsonb ELSE variants END,
-          description=CASE WHEN ${policy.sync_description} AND ${!hasMerchantOverride(merchantOverrides, "description")} THEN ${imported.description} ELSE description END,
+          image_url=CASE WHEN ${applySourceImages} THEN ${imported.imageUrl} ELSE image_url END,
+          image_urls=CASE WHEN ${applySourceImages} THEN ${JSON.stringify(imported.imageUrls)}::jsonb ELSE image_urls END,
+          video_urls=CASE WHEN ${applySourceVideos} THEN ${JSON.stringify(imported.videoUrls)}::jsonb ELSE video_urls END,
+          variants=CASE WHEN ${applySourceVariants} THEN ${JSON.stringify(imported.variants)}::jsonb ELSE variants END,
+          description=CASE WHEN ${applySourceDescription} AND ${!hasMerchantOverride(merchantOverrides, "description")} THEN ${imported.description} ELSE description END,
           source_metadata=COALESCE(source_metadata,'{}'::jsonb) || ${JSON.stringify(imported.sourceMetadata)}::jsonb,
           inventory_status=CASE
             WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' THEN 'out_of_stock'
