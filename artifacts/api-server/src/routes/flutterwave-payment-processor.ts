@@ -34,6 +34,7 @@ import {
 } from "../lib/referrals";
 import { multiplyMinorUnits, toMinorUnits } from "../lib/money";
 import { resolveAutoFallbackSupplierProduct } from "../lib/supplier-routing";
+import { emitDomainEvent } from "../lib/domain-events";
 
 type ProviderTransaction = Record<string, unknown>;
 function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
@@ -404,6 +405,11 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const currentIntent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1))[0];
     const currentRecord = (await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1))[0];
     if (!currentIntent || !currentRecord) throw new Error("TS Pay payment records are unavailable");
+    await tx.execute(sql`SELECT id FROM orders WHERE id=${order.id} AND merchant_id=${merchant.id} FOR UPDATE`);
+    const currentOrder = (await tx.select().from(ordersTable).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id))).limit(1))[0];
+    if (!currentOrder) throw new Error("The order disappeared during payment settlement");
+    const latePaymentAfterCancellation = currentOrder.status === "cancelled";
+    if (!["pending", "cancelled", "paid"].includes(currentOrder.status)) throw new Error("The order is not in a payable settlement state");
     if (["successful", "verified"].includes(currentIntent.status)) return "duplicate" as const;
 
     const duplicateProvider = providerId
@@ -430,19 +436,92 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     }
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-    await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
-      // A promo code is redeemed only alongside provider-verified payment. The state transition
-      // prevents duplicate webhooks/retries from incrementing usage more than once.
-      await tx.execute(sql`WITH redeemed AS (
-        UPDATE discount_code_redemptions
-        SET status='redeemed', redeemed_at=now()
-        WHERE order_id=${order.id} AND merchant_id=${merchant.id} AND status='reserved'
-        RETURNING discount_code_id, merchant_id
+    const [settledOrder] = await tx.update(ordersTable)
+      .set({ status: "paid", ...(latePaymentAfterCancellation ? { fulfillmentStatus: "review_required" } : {}) })
+      .where(and(
+        eq(ordersTable.id, currentOrder.id),
+        eq(ordersTable.merchantId, merchant.id),
+        eq(ordersTable.status, currentOrder.status),
+      ))
+      .returning();
+    if (!settledOrder) throw new Error("Order changed while the verified payment was being reconciled");
+
+    // A verified payment redeems a reserved or already-released promotion once.
+    // The released case covers provider confirmation that arrives after cancellation.
+    const redemptionResult = await tx.execute(sql`
+      WITH candidate AS (
+        SELECT id, status AS prior_status
+        FROM discount_code_redemptions
+        WHERE order_id=${settledOrder.id} AND merchant_id=${merchant.id} AND status IN ('reserved','released')
+        FOR UPDATE
       )
-      UPDATE discount_codes AS code
-      SET usage_count=code.usage_count + 1, updated_at=now()
-      FROM redeemed
-      WHERE code.id=redeemed.discount_code_id AND code.merchant_id=redeemed.merchant_id`);
+      UPDATE discount_code_redemptions AS redemption
+      SET status='redeemed', redeemed_at=now(), released_at=NULL
+      FROM candidate
+      WHERE redemption.id=candidate.id
+      RETURNING redemption.discount_code_id, redemption.merchant_id, redemption.reserved_until, redemption.code_snapshot, candidate.prior_status
+    `);
+    const redemption = (redemptionResult.rows[0] as Record<string, unknown> | undefined) ?? null;
+    if (redemption) {
+      const codeResult = await tx.execute(sql`
+        UPDATE discount_codes
+        SET usage_count=COALESCE(usage_count, 0) + 1, updated_at=now()
+        WHERE id=${Number(redemption.discount_code_id)} AND merchant_id=${merchant.id}
+        RETURNING id, usage_count, usage_limit
+      `);
+      const code = (codeResult.rows[0] as Record<string, unknown> | undefined) ?? null;
+      if (!code) throw new Error("Discount redemption source code is missing during verified payment reconciliation");
+      const expiry = new Date(String(redemption.reserved_until)).getTime();
+      const promotionReservationExpired = String(redemption.prior_status) === "released" || (Number.isFinite(expiry) && expiry <= Date.now());
+      const usageLimit = code.usage_limit === null || code.usage_limit === undefined ? null : Number(code.usage_limit);
+      if (promotionReservationExpired && usageLimit !== null && Number(code.usage_count) > usageLimit) {
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "order.promotion_limit_exception",
+          aggregateType: "order",
+          aggregateId: String(settledOrder.id),
+          actorType: "system",
+          actorId: "flutterwave_webhook",
+          source: "flutterwave_webhook",
+          idempotencyKey: `order:${settledOrder.id}:promotion-limit-exception`,
+          payload: { orderId: settledOrder.id, codeSnapshot: String(redemption.code_snapshot), usageCount: Number(code.usage_count), usageLimit, reason: "provider payment verified after the redemption reservation expired or was released" },
+        });
+      }
+    }
+
+    if (latePaymentAfterCancellation) {
+      const reason = "Flutterwave confirmed payment after the order was cancelled. Automatic fulfilment is blocked; manually review the payment and decide fulfilment or refund.";
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "order_late_payment_exception",
+        title: `Late payment needs review for ${settledOrder.orderNumber}`,
+        description: reason,
+        amount: (intent.amountMinor / 100).toFixed(2),
+        currency,
+        tone: "warning",
+      });
+      await tx.insert(commerceTransitionHistoryTable).values({
+        merchantId: merchant.id,
+        orderId: settledOrder.id,
+        paymentIntentId: currentIntent.id,
+        entityType: "order",
+        fromStatus: "cancelled",
+        toStatus: "paid",
+        actorId: "flutterwave_webhook",
+        note: reason,
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "order.late_payment_exception",
+        aggregateType: "order",
+        aggregateId: String(settledOrder.id),
+        actorType: "system",
+        actorId: "flutterwave_webhook",
+        source: "flutterwave_webhook",
+        idempotencyKey: `order:${settledOrder.id}:late-payment-exception`,
+        payload: { orderId: settledOrder.id, orderNumber: settledOrder.orderNumber, paymentIntentId: currentIntent.id, providerTransactionId: providerId, actionRequired: "manual_fulfillment_or_refund_review" },
+      });
+    }
     if (order.supplierProductId) {
       await tx.insert(marketplaceDiscoveryEventsTable).values({
         productId: String(order.supplierProductId),
@@ -489,12 +568,13 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
 
         const totalCostMinor = routedCostMinorPerUnit === null ? null : multiplyMinorUnits(routedCostMinorPerUnit, order.quantity);
         const blockedBySupplierState = fallbackMappingId === null && (!primaryInStock || !primaryEconomicallyEligible);
+        const fulfillmentMustWaitForReview = latePaymentAfterCancellation;
         await tx.insert(fulfillmentJobsTable).values({
           merchantId: merchant.id,
           orderId: order.id,
           supplierProductId: routedProductId,
           mode: autoDs.mode,
-          status: blockedBySupplierState ? "failed" : "ready",
+          status: blockedBySupplierState || fulfillmentMustWaitForReview ? "failed" : "ready",
           supplierCheckoutUrl: routedSupplierUrl,
           customerSnapshot: {
             name: customer.name,
@@ -504,11 +584,13 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
           },
           costMinor: totalCostMinor,
           currency: order.currency,
-          lastError: blockedBySupplierState
-            ? "Supplier routing could not safely identify an in-stock source meeting the configured margin threshold. Select or configure a fallback supplier before retrying."
-            : fallbackMappingId
-              ? "Automatic fallback supplier selected because the primary source was unavailable or below the configured margin. External supplier checkout remains approval-gated."
-              : null,
+          lastError: fulfillmentMustWaitForReview
+            ? "Payment arrived after the order was cancelled. Automatic supplier checkout is blocked pending merchant fulfilment/refund review."
+            : blockedBySupplierState
+              ? "Supplier routing could not safely identify an in-stock source meeting the configured margin threshold. Select or configure a fallback supplier before retrying."
+              : fallbackMappingId
+                ? "Automatic fallback supplier selected because the primary source was unavailable or below the configured margin. External supplier checkout remains approval-gated."
+                : null,
           attempts: 0,
           idempotencyKey: "autods:order:" + order.id,
         }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
