@@ -32,6 +32,7 @@ import {
   qualifyReferralForPayment,
   reverseReferralReward,
 } from "../lib/referrals";
+import { emitDomainEvent } from "../lib/domain-events";
 
 type ProviderTransaction = Record<string, unknown>;
 function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
@@ -433,6 +434,24 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
+    await emitDomainEvent(tx, {
+      merchantId: merchant.id,
+      eventType: "payment.verified",
+      aggregateType: "payment_intent",
+      aggregateId: String(currentIntent.id),
+      actorType: "system",
+      actorId: "flutterwave",
+      source: "public_checkout",
+      idempotencyKey: `payment-intent:${currentIntent.id}:verified`,
+      payload: {
+        orderId: order.id,
+        amountMinor: currentIntent.amountMinor,
+        currency: currentIntent.currency,
+        providerPaymentId: providerId,
+      },
+      before: { status: currentIntent.status },
+      after: { status: "successful" },
+    });
     if (order.supplierProductId) {
       await tx.insert(marketplaceDiscoveryEventsTable).values({
         productId: String(order.supplierProductId),
@@ -453,7 +472,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
           ? ((sellNumber - costNumber) / sellNumber) * 100
           : null;
         if (marginPercent === null || marginPercent >= Number(autoDs.minimumMarginPercent)) {
-          await tx.insert(fulfillmentJobsTable).values({
+          const [createdJob] = await tx.insert(fulfillmentJobsTable).values({
             merchantId: merchant.id,
             orderId: order.id,
             supplierProductId: order.supplierProductId,
@@ -470,7 +489,28 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
             currency: order.currency,
             attempts: 0,
             idempotencyKey: `autods:order:${order.id}`,
-          }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+          }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId })
+            .returning({ id: fulfillmentJobsTable.id, mode: fulfillmentJobsTable.mode, status: fulfillmentJobsTable.status });
+          if (createdJob) {
+            await emitDomainEvent(tx, {
+              merchantId: merchant.id,
+              eventType: "fulfillment.job_created",
+              aggregateType: "fulfillment_job",
+              aggregateId: createdJob.id,
+              actorType: "system",
+              actorId: "flutterwave_webhook",
+              source: "system",
+              idempotencyKey: `fulfillment-job:${createdJob.id}:created`,
+              payload: {
+                jobId: createdJob.id,
+                orderId: order.id,
+                supplierProductId: order.supplierProductId,
+                mode: createdJob.mode,
+                status: createdJob.status,
+              },
+              after: { status: createdJob.status, mode: createdJob.mode, orderId: order.id },
+            });
+          }
         }
       }
     }
