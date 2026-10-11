@@ -387,11 +387,7 @@ export async function synchronizeSupplierProduct(input: {
           variants=CASE WHEN ${applySourceVariants} THEN ${JSON.stringify(imported.variants)}::jsonb ELSE variants END,
           description=CASE WHEN ${applySourceDescription} AND ${!hasMerchantOverride(merchantOverrides, "description")} THEN ${imported.description} ELSE description END,
           source_metadata=COALESCE(source_metadata,'{}'::jsonb) || ${JSON.stringify(imported.sourceMetadata)}::jsonb,
-          inventory_status=CASE
-            WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' THEN 'out_of_stock'
-            WHEN ${applySourceStockFields} AND ${imported.availability}='in_stock' THEN 'in_stock'
-            ELSE inventory_status
-          END,
+          inventory_status=CASE WHEN ${applySourceStockFields} THEN ${imported.availability} ELSE inventory_status END,
           visibility=CASE
             WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='pause'} THEN 'hidden'
             WHEN ${applySourceStockFields} AND ${imported.availability}='out_of_stock' AND ${policy.out_of_stock_action='draft'} THEN 'draft'
