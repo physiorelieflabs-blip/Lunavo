@@ -17,6 +17,8 @@ import {
   supplierProductsTable,
   autoDsSettingsTable,
   fulfillmentJobsTable,
+  inventoryReservationsTable,
+  inventoryMovementsTable,
 } from "@workspace/db";
 import {
   calculateMerchantNetMinor,
@@ -417,6 +419,84 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       : null;
     if (duplicateProvider?.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Pay payment");
 
+    let inventoryReservationException: string | null = null;
+    // Follow checkout's capacity-first lock order, then lock the stock row.
+    const promotionLock = await tx.execute(sql`
+      SELECT discount_code_id
+      FROM discount_code_redemptions
+      WHERE order_id=${currentOrder.id} AND merchant_id=${merchant.id} AND status IN ('reserved','released')
+      FOR UPDATE
+    `);
+    const promotionCodeId = (promotionLock.rows[0] as Record<string, unknown> | undefined)?.discount_code_id;
+    if (promotionCodeId !== undefined) {
+      await tx.execute(sql`SELECT id FROM discount_codes WHERE id=${Number(promotionCodeId)} AND merchant_id=${merchant.id} FOR UPDATE`);
+    }
+
+    // A late payment for a cancelled order must never consume inventory again.
+    if (currentOrder.supplierProductId && !latePaymentAfterCancellation) {
+      await tx.execute(sql`SELECT id FROM supplier_products WHERE id=${currentOrder.supplierProductId} AND merchant_id=${merchant.id} FOR UPDATE`);
+      const [reservation] = await tx.select().from(inventoryReservationsTable).where(and(
+        eq(inventoryReservationsTable.orderId, currentOrder.id),
+        eq(inventoryReservationsTable.merchantId, merchant.id),
+        eq(inventoryReservationsTable.supplierProductId, currentOrder.supplierProductId),
+      )).limit(1);
+      const [inventoryProduct] = await tx.select().from(supplierProductsTable).where(and(
+        eq(supplierProductsTable.id, currentOrder.supplierProductId),
+        eq(supplierProductsTable.merchantId, merchant.id),
+      )).limit(1);
+
+      if (!reservation || reservation.status !== "reserved") {
+        inventoryReservationException = "Payment was verified but the inventory reservation is missing or no longer active. Review stock before fulfilment.";
+      } else if (reservation.expiresAt <= new Date()) {
+        await tx.update(inventoryReservationsTable).set({ status: "expired", updatedAt: new Date() }).where(and(
+          eq(inventoryReservationsTable.id, reservation.id),
+          eq(inventoryReservationsTable.status, "reserved"),
+        ));
+        inventoryReservationException = "Payment was verified after the inventory reservation expired. Review stock before fulfilment.";
+      } else if (!inventoryProduct) {
+        await tx.update(inventoryReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(
+          eq(inventoryReservationsTable.id, reservation.id),
+          eq(inventoryReservationsTable.status, "reserved"),
+        ));
+        inventoryReservationException = "Payment was verified but the reserved product record is missing. Review stock and fulfilment.";
+      } else {
+        let stockConsumed = true;
+        if (inventoryProduct.inventoryStrategy !== "source_based" && inventoryProduct.availabilityQuantity !== null) {
+          const [updatedProduct] = await tx.update(supplierProductsTable).set({
+            availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} - ${reservation.quantity}`,
+          }).where(and(
+            eq(supplierProductsTable.id, inventoryProduct.id),
+            eq(supplierProductsTable.merchantId, merchant.id),
+            sql`${supplierProductsTable.availabilityQuantity} >= ${reservation.quantity}`,
+          )).returning();
+          if (!updatedProduct) {
+            stockConsumed = false;
+            inventoryReservationException = "Payment was verified but stock changed after reservation. Review stock and fulfilment.";
+            await tx.update(inventoryReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(
+              eq(inventoryReservationsTable.id, reservation.id),
+              eq(inventoryReservationsTable.status, "reserved"),
+            ));
+          }
+        }
+        if (stockConsumed) {
+          await tx.update(inventoryReservationsTable).set({ status: "consumed", updatedAt: new Date() }).where(and(
+            eq(inventoryReservationsTable.id, reservation.id),
+            eq(inventoryReservationsTable.status, "reserved"),
+          ));
+          await tx.insert(inventoryMovementsTable).values({
+            merchantId: merchant.id,
+            locationId: currentOrder.locationId,
+            supplierProductId: reservation.supplierProductId,
+            orderId: currentOrder.id,
+            quantityDelta: -reservation.quantity,
+            reason: "sale",
+            referenceKey: `sale:${currentIntent.id}`,
+          }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey });
+        }
+      }
+    }
+
+
     await tx.update(paymentIntentsTable).set({
       status: "successful",
       evidenceReference: providerId,
@@ -437,7 +517,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     const [settledOrder] = await tx.update(ordersTable)
-      .set({ status: "paid", ...(latePaymentAfterCancellation ? { fulfillmentStatus: "review_required" } : {}) })
+      .set({ status: "paid", ...((latePaymentAfterCancellation || inventoryReservationException) ? { fulfillmentStatus: "review_required" } : {}) })
       .where(and(
         eq(ordersTable.id, currentOrder.id),
         eq(ordersTable.merchantId, merchant.id),
@@ -487,6 +567,29 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
           payload: { orderId: settledOrder.id, codeSnapshot: String(redemption.code_snapshot), usageCount: Number(code.usage_count), usageLimit, reason: "provider payment verified after the redemption reservation expired or was released" },
         });
       }
+    }
+
+    if (inventoryReservationException) {
+      await tx.insert(activityTable).values({
+        merchantId: merchant.id,
+        type: "order_inventory_exception",
+        title: `Payment received; review stock for ${settledOrder.orderNumber}`,
+        description: inventoryReservationException,
+        amount: (intent.amountMinor / 100).toFixed(2),
+        currency,
+        tone: "warning",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "order.inventory_exception",
+        aggregateType: "order",
+        aggregateId: String(settledOrder.id),
+        actorType: "system",
+        actorId: "flutterwave_webhook",
+        source: "system",
+        idempotencyKey: `order:${settledOrder.id}:inventory-exception`,
+        payload: { orderId: settledOrder.id, orderNumber: settledOrder.orderNumber, paymentIntentId: currentIntent.id, reason: inventoryReservationException },
+      });
     }
 
     if (latePaymentAfterCancellation) {
@@ -568,7 +671,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
 
         const totalCostMinor = routedCostMinorPerUnit === null ? null : multiplyMinorUnits(routedCostMinorPerUnit, order.quantity);
         const blockedBySupplierState = fallbackMappingId === null && (!primaryInStock || !primaryEconomicallyEligible);
-        const fulfillmentMustWaitForReview = latePaymentAfterCancellation;
+        const fulfillmentMustWaitForReview = latePaymentAfterCancellation || inventoryReservationException !== null;
         await tx.insert(fulfillmentJobsTable).values({
           merchantId: merchant.id,
           orderId: order.id,
@@ -584,9 +687,11 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
           },
           costMinor: totalCostMinor,
           currency: order.currency,
-          lastError: fulfillmentMustWaitForReview
+          lastError: latePaymentAfterCancellation
             ? "Payment arrived after the order was cancelled. Automatic supplier checkout is blocked pending merchant fulfilment/refund review."
-            : blockedBySupplierState
+            : inventoryReservationException
+              ? inventoryReservationException
+              : blockedBySupplierState
               ? "Supplier routing could not safely identify an in-stock source meeting the configured margin threshold. Select or configure a fallback supplier before retrying."
               : fallbackMappingId
                 ? "Automatic fallback supplier selected because the primary source was unavailable or below the configured margin. External supplier checkout remains approval-gated."
