@@ -46,7 +46,7 @@ export function supplierQuotePortalUrl(baseUrl: URL, token: string): string {
   // Preserve an optional deployment path prefix from APP_BASE_URL. Starting with
   // "/supplier-quote" would discard that prefix and produce broken share links
   // for intentionally subpath-mounted self-hosted installations.
-  const basePath = baseUrl.pathname.replace(/\\/+$/, "");
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
   const path = basePath + "/supplier-quote/" + token;
   return new URL(path, baseUrl.origin).toString();
 }
