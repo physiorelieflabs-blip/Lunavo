@@ -9545,11 +9545,18 @@ router.post(
           if (lockedCode.usageLimit !== null && lockedCode.usageCount + inFlightRedemptions >= lockedCode.usageLimit) {
             throw new Error("This discount code has reached its usage limit");
           }
+          if (lockedCode.kind === "bogo" && quantity < lockedCode.buyQuantity + lockedCode.getQuantity) {
+            throw new Error(`This BOGO promotion requires at least ${lockedCode.buyQuantity + lockedCode.getQuantity} of this product`);
+          }
           const calculatedDiscount = calculateDiscountMinorUnits({
             subtotalMinor,
             kind: lockedCode.kind,
             value: lockedCode.value,
             currencyMinorDigits: currencyDigits,
+            quantity,
+            unitPriceMinor: unitPriceMinor ?? undefined,
+            buyQuantity: lockedCode.buyQuantity,
+            getQuantity: lockedCode.getQuantity,
           });
           if (calculatedDiscount === null || calculatedDiscount <= 0) {
             throw new Error("This discount code has an invalid value or does not reduce the order total");
@@ -9697,8 +9704,14 @@ router.post(
         }).returning();
         if (!reservation) throw new Error("Inventory reservation could not be created");
         if (appliedDiscountCode) {
-          await tx.execute(sql`INSERT INTO discount_code_redemptions (merchant_id, discount_code_id, order_id, code_snapshot, discount_amount_minor, currency, status, reserved_until)
-            VALUES (${merchant.id}, ${appliedDiscountCode.id}, ${order.id}, ${appliedDiscountCode.code}, ${discountMinor}, ${product.currency}, 'reserved', ${expiresAt})
+          await tx.execute(sql`INSERT INTO discount_code_redemptions (
+              merchant_id, discount_code_id, order_id, code_snapshot, discount_amount_minor, currency,
+              buy_quantity_snapshot, get_quantity_snapshot, status, reserved_until
+            )
+            VALUES (
+              ${merchant.id}, ${appliedDiscountCode.id}, ${order.id}, ${appliedDiscountCode.code}, ${discountMinor}, ${product.currency},
+              ${appliedDiscountCode.buyQuantity}, ${appliedDiscountCode.getQuantity}, 'reserved', ${expiresAt}
+            )
             ON CONFLICT (order_id) DO NOTHING`);
         }
         await tx.insert(activityTable).values({
