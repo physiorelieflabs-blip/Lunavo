@@ -36,3 +36,14 @@ export function shouldApplySupplierTextField(syncEnabled: boolean, value: unknow
 export function shouldApplySupplierArrayField(syncEnabled: boolean, value: unknown): boolean {
   return syncEnabled === true && Array.isArray(value) && value.length > 0;
 }
+
+/** Conservative, exact relative price-change calculation for review thresholds. */
+export function priceChangeBps(oldMinor: number, nextMinor: number): number {
+  if (!Number.isSafeInteger(oldMinor) || oldMinor <= 0 ||
+      !Number.isSafeInteger(nextMinor) || nextMinor < 0) return 100_000;
+  const oldValue = BigInt(oldMinor);
+  const difference = BigInt(nextMinor) - oldValue;
+  const absoluteDifference = difference < 0n ? -difference : difference;
+  const roundedUp = (absoluteDifference * 10_000n + oldValue - 1n) / oldValue;
+  return roundedUp > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(roundedUp);
+}
