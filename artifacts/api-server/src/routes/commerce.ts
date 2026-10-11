@@ -338,7 +338,7 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
-import { supplierSyncCheckoutError } from "../lib/supplier-sync-policy";
+import { normalizeSupplierStock, supplierSyncCheckoutError } from "../lib/supplier-sync-policy";
 import { calculateSupplierSellingPrice } from "../lib/supplier-pricing";
 import { dropshipStatusTransitionError } from "../lib/dropship-status-policy";
 import { completePrimaryReasoning } from "../lib/ai-provider";
@@ -6910,59 +6910,183 @@ router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> =>
   }
   const merchant = await getOrCreateMerchant(identity);
   if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
-         let product = (
-      await db
-        .select()
-        .from(supplierProductsTable)
-        .where(
-          and(
-            eq(supplierProductsTable.merchantId, merchant.id),
-            eq(supplierProductsTable.id, params.data.id),
-          ),
-        )
-        .limit(1)
-    )[0];
+
+  const product = (
+    await db.select().from(supplierProductsTable).where(and(
+      eq(supplierProductsTable.merchantId, merchant.id),
+      eq(supplierProductsTable.id, params.data.id),
+    )).limit(1)
+  )[0];
   if (!product) {
     res.status(404).json({ error: "Supplier product not found" });
     return;
   }
+
+  const attemptedAt = new Date();
+  let imported: ImportedSupplierProduct;
   try {
-    const imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
-    const source = serializeSupplierPreview(imported);
-    const current = serializeSupplierProduct(product);
-    const fields = ["title", "description", "imageUrl", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
-    const changes = fields
-      .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(source[field]))
-      .map((field) => ({
-        field,
-        current: current[field],
-        incoming: source[field],
-        customized: Boolean(jsonRecord(product.merchantOverrides)[field]),
-      }));
-    await db
-      .update(supplierProductsTable)
-      .set({ lastAttemptedSync: new Date(), importStatus: changes.length ? "needs_review" : "imported" })
-      .where(eq(supplierProductsTable.id, product.id));
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: product.sourceUrl,
-      status: changes.length ? "needs_review" : "imported",
-      changes,
-    });
-    res.json(
-      RefreshSupplierProductResponse.parse({
-        product: serializeSupplierProduct(product),
-        changes,
-        message: changes.length ? "Review source changes before accepting them." : "Source is unchanged.",
-      }),
-    );
+    imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
+    validateSupplierImportSnapshot(imported);
   } catch (error) {
-    await db
-      .update(supplierProductsTable)
-      .set({ lastAttemptedSync: new Date(), importStatus: "source_unavailable", importError: error instanceof Error ? error.message : "Source unavailable" })
-      .where(eq(supplierProductsTable.id, product.id));
-    res.status(422).json({ error: error instanceof Error ? error.message : "Supplier source could not be refreshed" });
+    const message = "Supplier source refresh failed. Check the public source URL and try again.";
+    const errorCode = error instanceof Error ? error.name.slice(0, 60) : "UnknownError";
+    try {
+      await db.transaction(async (tx) => {
+        const metadata = jsonRecord(product.sourceMetadata);
+        const sync = jsonRecord(metadata.supplierSync);
+        const [updated] = await tx.update(supplierProductsTable).set({
+          lastAttemptedSync: attemptedAt,
+          importStatus: "source_unavailable",
+          importError: message,
+          sourceMetadata: {
+            ...metadata,
+            supplierSync: {
+              ...sync,
+              state: "failed",
+              lastAttemptAt: attemptedAt.toISOString(),
+              lastError: message,
+            },
+          },
+        }).where(and(
+          eq(supplierProductsTable.id, product.id),
+          eq(supplierProductsTable.merchantId, merchant.id),
+        )).returning({ id: supplierProductsTable.id });
+        if (!updated) throw new Error("Supplier source product was not available to record the failed refresh");
+        await tx.insert(supplierImportAttemptsTable).values({
+          merchantId: merchant.id,
+          supplierProductId: product.id,
+          sourceUrl: product.sourceUrl,
+          status: "failed",
+          message,
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.sync_failed",
+          aggregateType: "supplier_product",
+          aggregateId: product.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-sync-failed:${product.id}:${attemptedAt.getTime()}`,
+          payload: {
+            supplierProductId: product.id,
+            sourceDomain: product.sourceDomain,
+            errorCode,
+            message,
+            synchronizedInventory: product.inventoryStrategy === "synchronized",
+          },
+          before: { importStatus: product.importStatus },
+          after: { importStatus: "source_unavailable", syncState: "failed" },
+        });
+      });
+    } catch (persistError) {
+      req.log.error({ err: persistError, merchantId: merchant.id, supplierProductId: product.id }, "Could not record failed supplier refresh");
+      res.status(500).json({ error: "Supplier refresh failed and its status could not be saved. Retry the operation." });
+      return;
+    }
+    req.log.warn({ merchantId: merchant.id, supplierProductId: product.id, errorCode }, "Supplier source refresh failed");
+    res.status(422).json({ error: message });
+    return;
+  }
+
+  const source = serializeSupplierPreview(imported);
+  const current = serializeSupplierProduct(product);
+  const fields = ["title", "description", "imageUrl", "imageUrls", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
+  const changes = fields
+    .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(source[field]))
+    .map((field) => ({
+      field,
+      current: current[field],
+      incoming: source[field],
+      customized: Boolean(jsonRecord(product.merchantOverrides)[field]),
+    }));
+  const changedFields = changes.map((change) => change.field);
+  const stockChanged = changedFields.some((field) => field === "availability" || field === "availabilityQuantity");
+  const metadata = jsonRecord(product.sourceMetadata);
+  const sync = jsonRecord(metadata.supplierSync);
+  const nextSourceMetadata = {
+    ...metadata,
+    supplierSync: {
+      ...sync,
+      state: stockChanged ? "needs_review" : "ready",
+      lastAttemptAt: attemptedAt.toISOString(),
+      ...(stockChanged ? {} : { lastSuccessAt: attemptedAt.toISOString(), lastError: null }),
+    },
+  };
+
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx.update(supplierProductsTable).set({
+        lastAttemptedSync: attemptedAt,
+        importStatus: changes.length ? "needs_review" : "imported",
+        importError: null,
+        sourceMetadata: nextSourceMetadata,
+      }).where(and(
+        eq(supplierProductsTable.id, product.id),
+        eq(supplierProductsTable.merchantId, merchant.id),
+      )).returning();
+      if (!saved) throw new Error("Supplier product could not be updated after source refresh");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: product.id,
+        sourceUrl: product.sourceUrl,
+        status: changes.length ? "needs_review" : "imported",
+        message: changes.length ? "Source changes captured for merchant review" : "Supplier source refresh completed; no differences found",
+        changes,
+      });
+      if (changes.length) {
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.observation_changed",
+          aggregateType: "supplier_product",
+          aggregateId: saved.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-observation:${saved.id}:${attemptedAt.getTime()}`,
+          payload: {
+            supplierProductId: saved.id,
+            sourceDomain: saved.sourceDomain,
+            changedFields,
+            sourceCostBefore: product.salePrice ?? product.price,
+            observedSourceCost: imported.salePrice ?? imported.price,
+            currencyBefore: product.currency,
+            observedCurrency: imported.currency,
+            availabilityBefore: product.availability,
+            observedAvailability: imported.availability,
+            availabilityQuantityBefore: product.availabilityQuantity,
+            observedAvailabilityQuantity: imported.availabilityQuantity,
+            stockObservationChanged: stockChanged,
+            requiresReview: true,
+            observedAt: attemptedAt.toISOString(),
+          },
+          before: {
+            sourceCost: product.salePrice ?? product.price,
+            currency: product.currency,
+            availability: product.availability,
+            availabilityQuantity: product.availabilityQuantity,
+          },
+          after: {
+            observedSourceCost: imported.salePrice ?? imported.price,
+            currency: imported.currency,
+            availability: imported.availability,
+            availabilityQuantity: imported.availabilityQuantity,
+            requiresReview: true,
+          },
+        });
+      }
+      return saved;
+    });
+    res.json(RefreshSupplierProductResponse.parse({
+      product: serializeSupplierProduct(updated),
+      changes,
+      message: changes.length
+        ? "Source observations were recorded. Review changed fields before they affect the live catalog."
+        : "Source is unchanged and its observation was refreshed successfully.",
+    }));
+  } catch (error) {
+    req.log.error({ err: error, merchantId: merchant.id, supplierProductId: product.id }, "Could not persist supplier refresh");
+    res.status(500).json({ error: "Supplier data was fetched, but the refresh record could not be saved. Retry the operation." });
   }
 });
 
