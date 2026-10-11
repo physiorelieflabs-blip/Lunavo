@@ -2353,7 +2353,6 @@ async function verifyPublicFlutterwaveOrder(
       .limit(1)
   )[0];
   if (!order) throw new Error("Payment session not found");
-  if (order.status !== "pending" && order.status !== "cancelled") throw new Error("Order is not awaiting payment");
   const intent = (
     await db
       .select()
@@ -2362,9 +2361,12 @@ async function verifyPublicFlutterwaveOrder(
       .limit(1)
   )[0];
   if (!intent) throw new Error("Payment session is not ready");
-  if (intent.status === "verified") {
-    return { order, status: "paid" as const, providerPaymentId: null };
+  if (["verified", "successful"].includes(intent.status) && order.status !== "cancelled") {
+    const [latestOrder] = await db.select().from(ordersTable)
+      .where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, order.merchantId))).limit(1);
+    return { order: latestOrder ?? order, status: "paid" as const, providerPaymentId: intent.providerTransactionId ?? null };
   }
+  if (order.status !== "pending" && order.status !== "cancelled") throw new Error("Order is not awaiting payment");
   const provider = await findFlutterwaveCustomerPayment(intent, order, transactionId);
   if (provider.status === "failed") {
     await db
@@ -2404,12 +2406,14 @@ async function verifyPublicFlutterwaveOrder(
         .limit(1)
     )[0];
     if (!currentIntent || !currentOrder) throw new Error("Payment session is no longer available");
-    if (currentIntent.status === "verified") {
+    const latePaymentAfterCancellation = currentOrder.status === "cancelled";
+    if (["verified", "successful"].includes(currentIntent.status) && !latePaymentAfterCancellation) {
       return {
         order: currentOrder,
-        inventoryReservationException: null,
+        inventoryReservationException: currentOrder.fulfillmentStatus === "review_required" ? "Order is marked for manual fulfilment review." : null,
         discountCodeRedeemed: false,
         promotionReservationExpired: false,
+        latePaymentAfterCancellation: false,
       };
     }
     // Provider-confirmed money must be recorded even if cancellation or inventory state changed while checkout was open.
@@ -2432,7 +2436,7 @@ async function verifyPublicFlutterwaveOrder(
       `);
     }
 
-    if (currentOrder.supplierProductId) {
+    if (currentOrder.supplierProductId && !latePaymentAfterCancellation) {
       await tx.execute(
         sql`select id from ${supplierProductsTable} where id=${currentOrder.supplierProductId} and merchant_id=${order.merchantId} for update`,
       );
@@ -2615,15 +2619,9 @@ async function verifyPublicFlutterwaveOrder(
           .where(eq(subscriptionsTable.id, subscription.id));
       }
     }
-    if (currentOrder.status === "cancelled") {
-      inventoryReservationException = [
-        "Provider confirmed payment after the order was cancelled. Do not fulfil automatically; review the payment and arrange fulfilment or refund.",
-        inventoryReservationException,
-      ].filter(Boolean).join(" ");
-    }
     const [updatedOrder] = await tx
       .update(ordersTable)
-      .set({ status: "paid", ...(inventoryReservationException ? { fulfillmentStatus: "review_required" } : {}) })
+      .set({ status: "paid", ...((latePaymentAfterCancellation || inventoryReservationException) ? { fulfillmentStatus: "review_required" } : {}) })
       .where(
         and(
           eq(ordersTable.id, currentOrder.id),
@@ -2670,6 +2668,40 @@ async function verifyPublicFlutterwaveOrder(
         });
       }
     }
+    if (latePaymentAfterCancellation) {
+      const reason = "Flutterwave confirmed payment after the order was cancelled. Automatic fulfilment is blocked; manually review the payment and decide fulfilment or refund.";
+      await tx.insert(activityTable).values({
+        merchantId: order.merchantId,
+        type: "order_late_payment_exception",
+        title: `Late payment needs review for ${updatedOrder.orderNumber}`,
+        description: reason,
+        amount: updatedOrder.total,
+        currency: updatedOrder.currency,
+        tone: "warning",
+      });
+      await tx.insert(commerceTransitionHistoryTable).values({
+        merchantId: order.merchantId,
+        orderId: updatedOrder.id,
+        paymentIntentId: currentIntent.id,
+        entityType: "order",
+        fromStatus: "cancelled",
+        toStatus: "paid",
+        actorId: "flutterwave",
+        note: reason,
+      });
+      await emitDomainEvent(tx, {
+        merchantId: order.merchantId,
+        eventType: "order.late_payment_exception",
+        aggregateType: "order",
+        aggregateId: String(updatedOrder.id),
+        actorType: "system",
+        actorId: "flutterwave",
+        source: "public_checkout",
+        idempotencyKey: `order:${updatedOrder.id}:late-payment-exception`,
+        payload: { orderId: updatedOrder.id, orderNumber: updatedOrder.orderNumber, paymentIntentId: currentIntent.id, providerPaymentId: provider.providerPaymentId, actionRequired: "manual_fulfillment_or_refund_review" },
+      });
+    }
+
     if (inventoryReservationException) {
       await tx.insert(activityTable).values({
         merchantId: order.merchantId, type: "order_inventory_exception",
@@ -2709,11 +2741,12 @@ async function verifyPublicFlutterwaveOrder(
         discountCodeRedeemed,
         promotionReservationExpired,
         inventoryException: Boolean(inventoryReservationException),
+        latePaymentAfterCancellation,
       },
       before: { status: currentIntent.status },
       after: { status: "verified" },
     });
-    return { order: updatedOrder, inventoryReservationException, discountCodeRedeemed, promotionReservationExpired };
+    return { order: updatedOrder, inventoryReservationException, discountCodeRedeemed, promotionReservationExpired, latePaymentAfterCancellation };
   });
   return {
     order: settled.order,
@@ -2722,6 +2755,7 @@ async function verifyPublicFlutterwaveOrder(
     inventoryException: settled.inventoryReservationException,
     discountCodeRedeemed: settled.discountCodeRedeemed,
     promotionReservationExpired: settled.promotionReservationExpired,
+    latePaymentAfterCancellation: settled.latePaymentAfterCancellation,
   };
 }
 
