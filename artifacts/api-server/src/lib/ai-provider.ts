@@ -52,6 +52,33 @@ const ROLE_INSTRUCTIONS: Record<LunavoBrainRole, string> = {
 const MAX_BRAIN_SPECIALISTS = 7;
 const REQUIRED_SPECIALISTS: readonly LunavoBrainRole[] = ["finance", "reviewer"];
 
+export type LunavoBrainRouteRole = LunavoBrainRole | "arbiter";
+export type LunavoBrainRoute = {
+  profile: LocalAiProfile;
+  model?: string;
+  endpoint?: string;
+};
+
+/**
+ * Give each specialist an independent, locally hosted model route when configured.
+ * A role may use a dedicated Ollama/LocalAI/vLLM endpoint, while an unset route
+ * safely inherits that specialist's profile endpoint. Model overrides apply to the
+ * primary profile only so profile fallback can genuinely try another model.
+ */
+export function resolveLunavoBrainRoute(role: LunavoBrainRouteRole, profile: LocalAiProfile): LunavoBrainRoute {
+  const envPrefix = role === "arbiter" ? "LUNAVO_LOCAL_AI_ARBITER" : `LUNAVO_LOCAL_AI_ROLE_${role.toUpperCase()}`;
+  const rawModel = process.env[`${envPrefix}_MODEL`]?.trim();
+  const rawEndpoint = process.env[`${envPrefix}_URL`]?.trim();
+  if (rawModel && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(rawModel)) {
+    throw new Error(`Invalid self-hosted model identifier configured for ${role}`);
+  }
+  return {
+    profile,
+    ...(rawModel ? { model: rawModel } : {}),
+    ...(rawEndpoint ? { endpoint: rawEndpoint } : {}),
+  };
+}
+
 export function selectLunavoBrainRoles(input: LunavoBrainRole[]): LunavoBrainRole[] {
   const requested = unique(input.filter((role) => Object.prototype.hasOwnProperty.call(ROLE_PROFILES, role)));
   const bounded = requested.slice(0, MAX_BRAIN_SPECIALISTS);
@@ -183,12 +210,18 @@ export async function completeLunavoBrain(
         { role: "system" as const, content: prompt },
         { role: "user" as const, content: safeTask },
       ];
-      const attempt = await runWithLocalProfileFallback(ROLE_PROFILES[role], (profile) => completeLocalChat(messages, {
-        profile,
-        json: options.json,
-        maxTokens: Math.min(options.reasoningEffort === "max" ? 3000 : 6000, options.maxTokens ?? 3200),
-        reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
-      }));
+      const primaryProfile = ROLE_PROFILES[role][0]!;
+      const attempt = await runWithLocalProfileFallback(ROLE_PROFILES[role], (profile) => {
+        const route = resolveLunavoBrainRoute(role, primaryProfile);
+        return completeLocalChat(messages, {
+          profile,
+          ...(profile === primaryProfile && route.model ? { model: route.model } : {}),
+          ...(route.endpoint ? { endpoint: route.endpoint } : {}),
+          json: options.json,
+          maxTokens: Math.min(options.reasoningEffort === "max" ? 3000 : 6000, options.maxTokens ?? 3200),
+          reasoningEffort: role === "reviewer" ? "high" : options.reasoningEffort ?? "high",
+        });
+      });
       return { role, response: attempt.value };
     },
   );
@@ -229,15 +262,19 @@ export async function completeLunavoBrain(
           content: "Task:\n" + safeTask + "\n\nSpecialist outputs:\n" + candidateEvidence,
         },
       ];
-    const arbiterAttempt = await runWithLocalProfileFallback(["reasoning", "general", "review"], (profile) => completeLocalChat(
-      arbiterMessages,
-      {
+    const arbiterProfiles: LocalAiProfile[] = ["reasoning", "general", "review"];
+    const primaryArbiterProfile = arbiterProfiles[0]!;
+    const arbiterAttempt = await runWithLocalProfileFallback(arbiterProfiles, (profile) => {
+      const route = resolveLunavoBrainRoute("arbiter", primaryArbiterProfile);
+      return completeLocalChat(arbiterMessages, {
         profile,
+        ...(profile === primaryArbiterProfile && route.model ? { model: route.model } : {}),
+        ...(route.endpoint ? { endpoint: route.endpoint } : {}),
         json: options.json,
         maxTokens: Math.min(7_000, options.maxTokens ?? 4_000),
         reasoningEffort: "high",
-      },
-    ));
+      });
+    });
     const arbiter = arbiterAttempt.value;
     return {
       model: "brain:[" + successes.map((item) => item.response.model).join(",") + "]->" + arbiter.model,
