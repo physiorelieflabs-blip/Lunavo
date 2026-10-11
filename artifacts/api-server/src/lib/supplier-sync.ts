@@ -2,7 +2,7 @@ import { db } from "@workspace/db";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { emitDomainEvent } from "./domain-events";
 import { toMinorUnits } from "./money";
-import { shouldApplySupplierArrayField, shouldApplySupplierPriceFields, shouldApplySupplierStockFields, shouldApplySupplierTextField } from "./supplier-sync-policy";
+import { priceChangeBps, shouldApplySupplierArrayField, shouldApplySupplierPriceFields, shouldApplySupplierStockFields, shouldApplySupplierTextField } from "./supplier-sync-policy";
 import { sql } from "drizzle-orm";
 
 export type SyncPolicy = {
@@ -85,11 +85,6 @@ function json(value: unknown, fallback: unknown = {}) {
 
 function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-}
-
-function bpsChange(oldMinor: number, nextMinor: number): number {
-  if (!Number.isSafeInteger(oldMinor) || oldMinor <= 0) return 100_000;
-  return Math.abs(nextMinor - oldMinor) * 10_000 / oldMinor;
 }
 
 function percentageOfMinor(minor: number, bps: number): number {
@@ -331,7 +326,7 @@ export async function synchronizeSupplierProduct(input: {
         reviewReasons.push("Proposed selling price would fall below the configured minimum margin.");
         changedFields.push("selling_price_margin_review");
       } else if (currentSellingMinor !== null && currentSellingMinor !== targetSellingMinor) {
-        const deltaBps = bpsChange(currentSellingMinor, targetSellingMinor);
+        const deltaBps = priceChangeBps(currentSellingMinor, targetSellingMinor);
         if (deltaBps > policy.max_price_change_bps || policy.require_price_review || !policy.auto_apply) {
           const reasons: string[] = [];
           if (deltaBps > policy.max_price_change_bps) reasons.push("change exceeds configured threshold");
