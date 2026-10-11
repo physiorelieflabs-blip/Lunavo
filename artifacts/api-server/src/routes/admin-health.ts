@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requireMasterAdmin } from "../lib/master-admin";
 import { getStoredFlutterwaveCredentials } from "../lib/flutterwave-runtime";
+import { getLocalAiPool } from "../lib/ai-provider";
 
 const router = Router();
 
@@ -46,7 +47,12 @@ router.get("/admin/system/health", async (req, res, next) => {
     const schema = schemaResult.rows[0] as Record<string, string | null> | undefined;
     const number = (result: { rows: unknown[] }) => Number((result.rows[0] as { count?: number } | undefined)?.count ?? 0);
     const requiredSchema = [schema?.merchants, schema?.local_auth_users, schema?.ledger_entries, schema?.dashboard_transactions, schema?.domain_events, schema?.social_publish_jobs, schema?.admin_ai_store_jobs, schema?.merchant_automation_workflows, schema?.merchant_automation_runs, schema?.customer_subscriptions].every(Boolean);
-    const aiConfigured = Boolean(process.env.LUNAVO_LOCAL_LLM_URL?.trim());
+    let localAiPool: Awaited<ReturnType<typeof getLocalAiPool>> = [];
+    let localAiConfigurationValid = true;
+    try { localAiPool = await getLocalAiPool(); }
+    catch { localAiConfigurationValid = false; }
+    const aiConfigured = localAiPool.length > 0;
+    const localVisionConfigured = localAiPool.some((item) => item.role === "vision" || item.role === undefined);
     res.setHeader("Cache-Control", "no-store");
     res.json({
       checkedAt: new Date().toISOString(), checkedBy: userId,
@@ -54,7 +60,7 @@ router.get("/admin/system/health", async (req, res, next) => {
       schema: { complete: requiredSchema },
       migrations: { applied: number(migrationsResult) },
       payments: { provider: "flutterwave", configured: Boolean(flutterwave.secretKey && flutterwave.webhookSecret), mode: flutterwave.mode, checkoutAvailable: Boolean(flutterwave.secretKey && flutterwave.webhookSecret) },
-      ai: { providerConfigured: aiConfigured, localLlmConfigured: aiConfigured, localImageConfigured: Boolean(process.env.LUNAVO_LOCAL_IMAGE_URL?.trim()) },
+      ai: { providerConfigured: aiConfigured, localLlmConfigured: aiConfigured, localLlmPoolSize: localAiPool.length, localLlmRoles: [...new Set(localAiPool.map((item) => item.role ?? "general"))], localAiConfigurationValid, localVisionConfigured, localImageConfigured: Boolean(process.env.LUNAVO_LOCAL_IMAGE_URL?.trim()) },
       reconciliation: { openOrInvestigating: number(reconciliationResult) },
       workers: {
         socialPublishing: { queuedOrProcessing: number(socialQueuedResult), failed: number(socialFailedResult) },
