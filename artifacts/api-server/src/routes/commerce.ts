@@ -9178,14 +9178,22 @@ router.get("/auctions", async (req, res): Promise<void> => {
     .select({
       auction: auctionListingsTable,
       merchantName: merchantsTable.storeName,
+      product: supplierProductsTable,
     })
     .from(auctionListingsTable)
     .innerJoin(merchantsTable, eq(auctionListingsTable.merchantId, merchantsTable.id))
-    .where(and(...filters))
+    .innerJoin(supplierProductsTable, eq(auctionListingsTable.supplierProductId, supplierProductsTable.id))
+    .where(and(
+      ...filters,
+      eq(supplierProductsTable.status, "active"),
+      eq(supplierProductsTable.visibility, "active"),
+      sql`${supplierProductsTable.sellingPrice} is not null`,
+    ))
     .orderBy(asc(auctionListingsTable.endsAt))
     .limit(100);
   const result = await Promise.all(
-    rows.map(async ({ auction, merchantName }) => {
+    rows.filter(({ product }) => supplierSyncCheckoutError(product) === null)
+      .map(async ({ auction, merchantName }) => {
       const bids = await db
         .select()
         .from(auctionBidsTable)
@@ -9399,6 +9407,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
   const filters = [
     eq(merchantsTable.status, "active"),
     eq(supplierProductsTable.status, "active"),
+    eq(supplierProductsTable.visibility, "active"),
     eq(marketplaceListingsTable.status, "approved"),
     eq(marketplaceListingsTable.listingFeeStatus, "paid"),
     exists(
@@ -9430,7 +9439,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     desc(supplierProductsTable.importedAt),
   )
     .limit(100);
-   res.json(ListMarketplaceProductsResponse.parse(rows.map(({ product, merchantKey, merchantName }) => ({
+   res.json(ListMarketplaceProductsResponse.parse(rows.filter(({ product }) => supplierSyncCheckoutError(product) === null).map(({ product, merchantKey, merchantName }) => ({
     id: product.id,
     merchantKey,
     merchantName: merchantName || "Independent merchant",
