@@ -335,7 +335,7 @@ export function selfHostedAiConfigured(): boolean {
     "ORCHESTRATOR", "RESEARCHER", "MERCHANDISER", "GROWTH", "OPERATIONS",
     "CUSTOMER", "FINANCE", "CREATIVE", "REVIEWER", "CODER", "ARBITER",
   ];
-  return roles.some((role) => Boolean(process.env[`LUNAVO_LOCAL_AI_ROLE_${role}_URL]?.trim() ||
+  return roles.some((role) => Boolean(process.env[`LUNAVO_LOCAL_AI_ROLE_${role}_URL`]?.trim() ||
     (role === "ARBITER" && process.env.LUNAVO_LOCAL_AI_ARBITER_URL?.trim())));
 }
 
