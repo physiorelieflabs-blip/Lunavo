@@ -21,7 +21,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 5000
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5000}
       LUNAVO_MASTER_ADMIN_EMAIL: ${LUNAVO_MASTER_ADMIN_EMAIL:-}

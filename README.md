@@ -10,7 +10,10 @@ Prerequisites: Docker Engine with the Docker Compose v2 plugin, Git, and enough 
 
 1. Clone the repository and enter its directory.
 2. Copy .env.example to .env.
-3. Set a unique POSTGRES_PASSWORD and SESSION_SECRET. For local HTTP development, set NODE_ENV=development and APP_BASE_URL=http://localhost:5000. For production, use NODE_ENV=production, set APP_BASE_URL to the real public HTTPS URL, and terminate TLS through a reverse proxy or load balancer.
+3. Generate two separate secrets (for example, run openssl rand -hex 32 twice), then put the results into POSTGRES_PASSWORD and SESSION_SECRET in .env. Keep them private.
+4. For a local HTTP test, set NODE_ENV=development and APP_BASE_URL=http://localhost:5000. For production, use NODE_ENV=production, set APP_BASE_URL to the real public HTTPS URL, and terminate TLS through a reverse proxy or load balancer.
+5. Set LUNAVO_MASTER_ADMIN_EMAIL and LUNAVO_MASTER_ADMIN_USERNAME. Do not save the one-time Master Admin password in .env or in Git.
+6. Start the app: For local HTTP development, set NODE_ENV=development and APP_BASE_URL=http://localhost:5000. For production, use NODE_ENV=production, set APP_BASE_URL to the real public HTTPS URL, and terminate TLS through a reverse proxy or load balancer.
 4. Set LUNAVO_MASTER_ADMIN_EMAIL and LUNAVO_MASTER_ADMIN_USERNAME. Do not save the one-time Master Admin password in .env or in Git.
 5. Start the app:
 

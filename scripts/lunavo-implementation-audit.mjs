@@ -297,6 +297,7 @@ for(const m of ["getLocalAiPool","localLlmPoolSize","localLlmRoles","localAiConf
 const baseCompose=await read("docker-compose.yml");
 for(const m of ["LUNAVO_LOCAL_LLM_POOL","LUNAVO_LOCAL_EMBEDDINGS_URL","LUNAVO_LOCAL_IMAGE_URL","LUNAVO_LOCAL_IMAGE_MODEL","FLUTTERWAVE_SECRET_KEY","FLUTTERWAVE_WEBHOOK_SECRET"])if(!baseCompose.includes(m))failures.push("Docker Compose does not pass through a required self-hosted/provider setting: "+m);
 for(const m of ["LUNAVO_MASTER_ADMIN_EMAIL","LUNAVO_MASTER_ADMIN_USERNAME"])if(!baseCompose.includes(m))failures.push("Docker Compose is missing the Master Admin bootstrap identity setting: "+m);
+if(!baseCompose.includes("NODE_ENV: ${NODE_ENV:-production}"))failures.push("Docker Compose must allow local development mode so secure cookies work over local HTTP");
 const modelCompose=await read("docker-compose.ai.yml");
 for(const m of ["ollama/ollama:0.40.3","qwen2.5:7b","mistral:7b","qwen2.5-coder:7b","qwen2.5vl:3b","LUNAVO_LOCAL_LLM_POOL","service_completed_successfully","lunavo_ollama_models"])if(!modelCompose.includes(m))failures.push("Self-hosted model bundle invariant missing: "+m);
 if(/^[ \t]*ports:[ \t]*$/m.test(modelCompose)&&/11434/m.test(modelCompose))failures.push("Ollama endpoint should stay on the private Compose network by default");
