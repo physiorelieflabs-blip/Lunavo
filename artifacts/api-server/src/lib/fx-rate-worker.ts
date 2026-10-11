@@ -97,7 +97,7 @@ async function refreshOne(feed: (typeof FEEDS)[number]): Promise<FxRateSet> {
   const body = await fetchSource(feed.url);
   return feed.parse(body);
 }
-async function latestStoredSnapshot(): Promise<FxRateSet | null> {
+export async function readLatestStoredFxRateSet(): Promise<FxRateSet | null> {
   const result = await db.execute(sql`
     SELECT rates_per_usd, as_of_by_currency, source_by_currency
     FROM market_fx_rate_snapshots
@@ -126,7 +126,7 @@ export async function runFxRateRefresh(): Promise<number> {
     logger.warn({ attempted: FEEDS.length, succeeded: successes }, "FX refresh found no fresh official currency rates; keeping last snapshot");
     return 0;
   }
-  const previous = await latestStoredSnapshot().catch((error) => {
+  const previous = await readLatestStoredFxRateSet().catch((error) => {
     logger.error({ err: error }, "Could not read existing local FX snapshot");
     return null;
   });
