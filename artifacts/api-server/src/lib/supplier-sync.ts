@@ -539,6 +539,13 @@ export async function synchronizeSupplierProduct(input: {
       SET status='failed',error_message=${String(error instanceof Error ? error.message : error).slice(0,2000)},completed_at=now()
       WHERE id=${runId}::uuid AND merchant_id=${input.merchantId}
     `);
+    // A failed poll must still advance the worker cursor; otherwise the same
+    // broken supplier can occupy every batch and starve all later policies.
+    await db.execute(sql`
+      UPDATE supplier_sync_policies
+      SET last_run_at=now(),updated_at=now()
+      WHERE id=${policy.id} AND merchant_id=${input.merchantId} AND supplier_product_id=${input.productId}
+    `);
     throw error;
   }
 }
