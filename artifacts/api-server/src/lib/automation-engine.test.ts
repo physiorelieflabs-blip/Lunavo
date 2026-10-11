@@ -18,6 +18,7 @@ describe("automation policy evaluator", () => {
     expect(isWorkflowTriggerEvent("sourcing.source_registered")).toBe(true);
     expect(isWorkflowTriggerEvent("supplier.product_imported")).toBe(true);
     expect(isWorkflowTriggerEvent("supplier.product_refreshed")).toBe(true);
+    expect(isWorkflowTriggerEvent("order.fulfillment_changed")).toBe(true);
     expect(isWorkflowTriggerEvent("fulfillment.job_created")).toBe(true);
     expect(isWorkflowTriggerEvent("fulfillment.status_changed")).toBe(true);
     expect(isWorkflowTriggerEvent("supplier.order_success_faked")).toBe(false);

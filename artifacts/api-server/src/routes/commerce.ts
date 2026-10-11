@@ -337,6 +337,7 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import { dropshipStatusTransitionError } from "../lib/dropship-status-policy";
 import { completePrimaryReasoning } from "../lib/ai-provider";
 import { researchWithLocalSearch } from "../lib/local-search";
 import { DASHBOARD_EARNING_WINDOW_DAYS, calculateDashboardWindow } from "../lib/critical-payment-rules";
@@ -10485,25 +10486,17 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
       }
     }
     const currentStatus = existing.order.fulfillmentStatus;
-    const allowedTransitions: Record<string, string[]> = {
-      not_submitted: ["not_submitted", "submitted", "canceled", "failed"],
-      submitted: ["submitted", "accepted", "processing", "canceled", "failed"],
-      accepted: ["accepted", "processing", "canceled", "failed"],
-      processing: ["processing", "shipped", "canceled", "failed"],
-      shipped: ["shipped", "in_transit", "delivered", "failed"],
-      in_transit: ["in_transit", "delivered", "failed"],
-      delivered: ["delivered"],
-      canceled: ["canceled"],
-      failed: ["failed", "submitted"],
-    };
-    if (!(allowedTransitions[currentStatus] ?? []).includes(nextStatus)) {
-      throw new Error(
-        `Cannot move supplier fulfillment from ${currentStatus.replaceAll("_", " ")} to ${nextStatus.replaceAll("_", " ")}`,
-      );
-    }
+    const transitionError = dropshipStatusTransitionError(currentStatus, nextStatus, {
+      supplierOrderReference: parsed.data.supplierOrderReference,
+      trackingNumber: parsed.data.trackingNumber,
+      currentSupplierOrderReference: existing.order.supplierOrderReference,
+      currentTrackingNumber: existing.order.trackingNumber,
+    });
+    if (transitionError) throw new Error(transitionError);
     const fulfillmentStarted =
       existing.order.fulfillmentSubmittedAt ??
       (nextStatus !== "not_submitted" ? new Date() : null);
+    const fulfillmentUpdatedAt = new Date();
     const [order] = await tx
       .update(ordersTable)
       .set({
@@ -10522,11 +10515,31 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
             ? existing.order.fulfillmentNote
             : parsed.data.fulfillmentNote,
         fulfillmentSubmittedAt: fulfillmentStarted,
-        fulfillmentUpdatedAt: new Date(),
+        fulfillmentUpdatedAt,
       })
-      .where(eq(ordersTable.id, existing.order.id))
+      .where(and(eq(ordersTable.id, existing.order.id), eq(ordersTable.merchantId, merchant.id)))
       .returning();
     if (!order) throw new Error("Dropshipping status could not be updated");
+    await emitDomainEvent(tx, {
+      merchantId: merchant.id,
+      eventType: "order.fulfillment_changed",
+      aggregateType: "order",
+      aggregateId: order.id,
+      actorType: "merchant",
+      actorId: identity.clerkUserId,
+      source: "merchant_api",
+      idempotencyKey: `order-fulfillment:${order.id}:${fulfillmentUpdatedAt.getTime()}`,
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        fromStatus: currentStatus,
+        toStatus: nextStatus,
+        supplierOrderReferencePresent: Boolean(order.supplierOrderReference),
+        trackingNumberPresent: Boolean(order.trackingNumber),
+      },
+      before: { fulfillmentStatus: currentStatus },
+      after: { fulfillmentStatus: nextStatus, orderStatus: order.status },
+    });
     await tx.insert(activityTable).values({
       merchantId: merchant.id,
       type: "dropship_status_updated",

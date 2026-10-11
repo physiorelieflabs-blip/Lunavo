@@ -14,7 +14,7 @@ export const domainEventTypes = [
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
   "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","account.exported","account.deleted",
-  "sourcing.source_registered", "supplier.product_imported", "supplier.product_refreshed", "fulfillment.job_created", "fulfillment.status_changed",
+  "sourcing.source_registered", "supplier.product_imported", "supplier.product_refreshed", "order.fulfillment_changed", "fulfillment.job_created", "fulfillment.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -75,6 +75,7 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "supplier.product_refreshed": ["Supplier changes accepted", "Reviewed supplier facts were accepted; connected workflows can reassess cost and availability.", "info"],
     "fulfillment.job_created": ["Fulfillment task created", "A paid order qualified for a supplier fulfillment task. This does not confirm a supplier order was placed.", "info"],
     "fulfillment.status_changed": ["Fulfillment status updated", "A fulfillment job changed state. Confirm any external supplier action separately.", "info"],
+    "order.fulfillment_changed": ["Supplier fulfillment updated", "An order moved through the supplier fulfillment workflow.", "info"],
   };
   const label = labels[event.eventType as DomainEventType]; if (!label) return null;
   return { title: label[0], body: label[1], severity: label[2], deepLink: links[event.aggregateType] ?? null };

@@ -231,7 +231,7 @@ Initial event families to trace/standardize include:
 - sourcing: source registered, supplier product imported/updated, accepted refresh, source fetched, observation changed, candidate scored, listing draft created, listing approved/published;
 - catalog/inventory: product or variant changed, cost/FX stale, source stock changed, stock reserved/released/committed, product paused;
 - checkout/payment: checkout created, provider event received/verified/rejected, payment posted, refund requested/verified, dispute opened, reconciliation mismatch;
-- order/fulfillment: paid order eligible, supplier task queued, supplier order confirmed/ambiguous/failed, shipment added, tracking changed, delivery exception, return opened/resolved;
+- order/fulfillment: paid order eligible, supplier task queued, supplier order confirmed/ambiguous/failed, supplier fulfillment state changed, shipment added, tracking changed, delivery exception, return opened/resolved;
 - growth: campaign drafted/approved/published/paused, creative tested, spend threshold reached, conversion attributed, opt-out recorded;
 - autonomy: task planned, approval requested/granted/rejected, action executed/failed/rolled back, safety stop activated;
 - support: case opened/escalated/resolved, notification queued/sent/failed.
