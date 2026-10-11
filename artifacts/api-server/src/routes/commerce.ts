@@ -10280,6 +10280,7 @@ router.get("/dropship/queue", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "fulfillment.manage", res))) return;
   const queue = await db
     .select({
       order: ordersTable,
@@ -10319,6 +10320,7 @@ router.post("/dropship/queue/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "finance.manage", res))) return;
   try {
     const result = await db.transaction(async (tx) => {
       // Serialize all supplier-fund debits for this merchant. Checking the
@@ -10436,6 +10438,7 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "fulfillment.manage", res))) return;
   const nextStatus = parsed.data.fulfillmentStatus;
   const result = await db.transaction(async (tx) => {
     await tx.execute(
