@@ -4,6 +4,7 @@ import { db, merchantsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
 import { configuredSelfHostedProfiles, selfHostedAiConfigured, selfHostedAiQueueState } from "../lib/self-hosted-ai";
+import { configuredLunavoBrainRoutes } from "../lib/ai-provider";
 import { embeddingsConfigured } from "../lib/self-hosted-embeddings";
 import { SELF_HOSTED_RUNTIME } from "../lib/self-hosted-runtime";
 
@@ -33,6 +34,7 @@ router.get("/merchant/ai/runtime", async (req, res) => {
     configured: selfHostedAiConfigured(),
     embeddingsConfigured: embeddingsConfigured(),
     profiles: configuredSelfHostedProfiles(),
+    brainRoutes: configuredLunavoBrainRoutes(),
     inferenceCapacity: selfHostedAiQueueState(),
     ensemble: SELF_HOSTED_RUNTIME.intelligence.ensemble,
     policy: {
