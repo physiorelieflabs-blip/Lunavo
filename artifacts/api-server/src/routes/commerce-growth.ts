@@ -125,43 +125,14 @@ router.post("/growth/advertising/campaigns", async (req, res, next) => {
     const currency = String(merchant?.currency ?? "").trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) { res.status(409).json({ error: "Set a valid merchant settlement currency before advertising" }); return; }
 
-    let rates;
+    let quote: ReturnType<typeof quoteProductAdvertisingFee>;
     try {
-      rates = currency === "USD" ? null : await readLatestStoredFxRateSet();
-      const quote = quoteProductAdvertisingFee(currency, rates ?? {
+      const rates = currency === "USD" ? null : await readLatestStoredFxRateSet();
+      quote = quoteProductAdvertisingFee(currency, rates ?? {
         unitsPerUsd: { USD: 1 },
         asOfByCurrency: {},
         sourceByCurrency: { USD: "USD numeraire" },
       });
-      const requestedStoreId = req.body?.storeId;
-      let storeId: string | null = null;
-      if (requestedStoreId !== undefined && requestedStoreId !== null && requestedStoreId !== "") {
-        storeId = parseStorefrontId(requestedStoreId);
-        if (!storeId) { res.status(400).json({ error: "A valid storefront ID is required" }); return; }
-        const store = (await db.select({ id: merchantStorefrontsTable.id }).from(merchantStorefrontsTable)
-          .where(and(eq(merchantStorefrontsTable.id, storeId), eq(merchantStorefrontsTable.merchantId, merchantId))).limit(1))[0];
-        if (!store) { res.status(404).json({ error: "Storefront not found in this merchant workspace" }); return; }
-      }
-
-      const [campaign] = await db.insert(productAdvertisingCampaignsTable).values({
-        merchantId,
-        productId: String(product.id),
-        storeId,
-        feeMinor: quote.feeMinor,
-        currency: quote.currency,
-        status: "awaiting_payment",
-        paymentStatus: "pending",
-      }).returning();
-      res.status(201).json({
-        campaign,
-        payableAmountMinor: quote.feeMinor,
-        currency: quote.currency,
-        baseAmountMinor: quote.baseAmountMinor,
-        baseCurrency: quote.baseCurrency,
-        fx: { rate: quote.fxRate, source: quote.fxSource, asOf: quote.fxAsOf, fetchedAt: quote.fxFetchedAt },
-        paymentRequired: true,
-        message: `Campaign created. Verify payment of the USD 5 equivalent in ${quote.currency} before placement can activate.`,
-      }); return;
     } catch (error) {
       const message = error instanceof Error ? error.message : "A fresh local FX quote is unavailable";
       if (currency !== "USD") {
@@ -171,6 +142,36 @@ router.post("/growth/advertising/campaigns", async (req, res, next) => {
       res.status(503).json({ error: "Campaign fee could not be quoted safely", detail: message });
       return;
     }
+
+    const requestedStoreId = req.body?.storeId;
+    let storeId: string | null = null;
+    if (requestedStoreId !== undefined && requestedStoreId !== null && requestedStoreId !== "") {
+      storeId = parseStorefrontId(requestedStoreId);
+      if (!storeId) { res.status(400).json({ error: "A valid storefront ID is required" }); return; }
+      const store = (await db.select({ id: merchantStorefrontsTable.id }).from(merchantStorefrontsTable)
+        .where(and(eq(merchantStorefrontsTable.id, storeId), eq(merchantStorefrontsTable.merchantId, merchantId))).limit(1))[0];
+      if (!store) { res.status(404).json({ error: "Storefront not found in this merchant workspace" }); return; }
+    }
+
+    const [campaign] = await db.insert(productAdvertisingCampaignsTable).values({
+      merchantId,
+      productId: String(product.id),
+      storeId,
+      feeMinor: quote.feeMinor,
+      currency: quote.currency,
+      status: "awaiting_payment",
+      paymentStatus: "pending",
+    }).returning();
+    res.status(201).json({
+      campaign,
+      payableAmountMinor: quote.feeMinor,
+      currency: quote.currency,
+      baseAmountMinor: quote.baseAmountMinor,
+      baseCurrency: quote.baseCurrency,
+      fx: { rate: quote.fxRate, source: quote.fxSource, asOf: quote.fxAsOf, fetchedAt: quote.fxFetchedAt },
+      paymentRequired: true,
+      message: `Campaign created. Verify payment of the USD 5 equivalent in ${quote.currency} before placement can activate.`,
+    }); return;
   } catch (error) { next(error); }
 });
 
