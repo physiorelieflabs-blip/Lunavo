@@ -28,7 +28,7 @@ describe("Lunavo specialist orchestration", () => {
     const routes = configuredLunavoBrainRoutes();
     expect(routes.map((route) => route.role)).toContain("finance");
     expect(routes.map((route) => route.role)).toContain("arbiter");
-    expect(routes.find((route) => route.role === "arbiter")?.primaryProfile).toBe("review");
+    expect(routes.find((route) => route.role === "arbiter")?.primaryProfile).toBe("fast");
     expect(routes.every((route) => !("endpoint" in route))).toBe(true);
   });
 
