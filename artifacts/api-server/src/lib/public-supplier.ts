@@ -76,7 +76,10 @@ export function isBlockedSupplierAddress(address: string): boolean {
   if (/^f[cd]/i.test(normalized)) return true;
   if (/^fe[89ab]/i.test(normalized)) return true;
   if (/^ff/i.test(normalized)) return true;
-  if (/^2001:(?:0{0,3}0|0db8|0002|0010|0020):/i.test(normalized)) return true;
+  if (normalized.startsWith("2001:")) {
+    const secondHextet = Number.parseInt(normalized.split(":")[1] ?? "", 16);
+    if (secondHextet === 0 || secondHextet === 2 || secondHextet === 0xdb8 || (secondHextet >= 0x10 && secondHextet <= 0x2f)) return true;
+  }
   const firstHextet = Number.parseInt(normalized.split(":")[0] ?? "", 16);
   // Only global-unicast 2000::/3 is eligible for public supplier fetching.
   return !Number.isFinite(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff;

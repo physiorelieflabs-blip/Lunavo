@@ -11,7 +11,7 @@ const transitions: Record<string, readonly string[]> = {
   shipped: ["delivered", "failed"], delivered: [], failed: ["ready"],
 };
 function boundedText(value: unknown, max: number): string | null {
-  return typeof value === "string" && value.trim() && value.trim().length <= max ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0 && value.trim().length <= max ? value.trim() : null;
 }
 /** Returns a safe input/state error; the mutation still uses tenant scope and compare-and-set. */
 export function fulfillmentTransitionError(currentStatus: string, input: FulfillmentTransitionInput): string | null {
