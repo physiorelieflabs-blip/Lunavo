@@ -11,6 +11,7 @@ import { startSocialPublishingWorker } from "./lib/social-publishing-worker";
 import { startScheduledWorkflowWorker } from "./lib/automation-engine";
 import { startCustomerSubscriptionWorker } from "./lib/customer-subscription-worker";
 import { startSupplierSyncWorker } from "./lib/supplier-sync-worker";
+import { startFxRateWorker } from "./lib/fx-rate-worker";
 
 await runMigrations();
 const rawPort=process.env["PORT"];
@@ -26,6 +27,7 @@ const stopSocialPublishing=startSocialPublishingWorker();
 const stopScheduledWorkflows=startScheduledWorkflowWorker();
 const stopCustomerSubscriptions=startCustomerSubscriptionWorker();
 const stopSupplierSync=startSupplierSyncWorker();
+const stopFxRates=startFxRateWorker();
 let shuttingDown=false;
 const server=app.listen(port,(err)=>{if(err){logger.error({err},"Error listening on port");process.exit(1);}logger.info({port},"Server listening");});
 server.requestTimeout=120000;
@@ -35,7 +37,7 @@ const shutdown=async(signal:string)=>{
   if(shuttingDown)return;
   shuttingDown=true;
   logger.info({signal},"Graceful shutdown started");
-  stopOutbox(); stopFlutterwaveReconciliation(); stopDailyAiAdvertising(); stopAdminAiStore(); stopSocialPublishing(); stopScheduledWorkflows(); stopCustomerSubscriptions(); stopSupplierSync();
+  stopOutbox(); stopFlutterwaveReconciliation(); stopDailyAiAdvertising(); stopAdminAiStore(); stopSocialPublishing(); stopScheduledWorkflows(); stopCustomerSubscriptions(); stopSupplierSync(); stopFxRates();
   const forceTimer=setTimeout(()=>{logger.error("Graceful shutdown timeout");process.exit(1);},10000);
   forceTimer.unref();
   await new Promise<void>(resolve=>server.close(()=>resolve()));

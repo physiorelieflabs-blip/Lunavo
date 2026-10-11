@@ -58,3 +58,7 @@ The platform-core provider policy and production preflight reject third-party AI
 ## 7. Quality bar
 
 A feature is not complete when its screen exists. It is complete only when its server-side workflow, persistence, authorization, error states, idempotency, auditability and self-hosted fallback are implemented and verified.
+
+## 8. Local FX rate collection
+
+Currency conversion uses a Lunavo-owned worker and PostgreSQL snapshots, not a vendor exchange-rate API. The worker retrieves fixed public reference pages from the ECB and central banks, records an as-of date and source per currency, and discards rates that are stale, malformed, or inconsistent. ECB rates are indicative reference rates only; they are not guaranteed executable quotes or settlement prices. Payments and settlements remain tied to provider-verified transaction amounts/currencies. If a required currency pair lacks fresh official observations, conversion fails closed instead of falling back to a third-party FX API or a hard-coded value.

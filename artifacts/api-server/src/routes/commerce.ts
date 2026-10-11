@@ -23,6 +23,7 @@ import {
 import { getAuth } from "../lib/auth-compat";
 import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
+import { calculateFxPayload, FX_RATE_MAX_AGE_MS, type FxRateSet } from "../lib/fx-rates";
 import {
   activityTable,
   aiActionsTable,
@@ -799,53 +800,52 @@ function isSupportedCurrency(value: string): boolean {
   );
 }
 
-async function getMarketExchangeRate(base: string, quote: string): Promise<FxPayload> {
-  if (base === quote) {
-    const now = new Date().toISOString();
-    return {
-      base,
-      quote,
-      rate: 1,
-      source: "Identity rate",
-      fetchedAt: now,
-      asOf: now,
-    };
+function fxJsonObject(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; }
+    catch { return {}; }
   }
-  const cacheKey = `${base}:${quote}`;
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+function fxRateSetFromSnapshot(row: Record<string, unknown>): FxRateSet {
+  const unitsPerUsd: Record<string, number> = {};
+  for (const [currency, raw] of Object.entries(fxJsonObject(row.rates_per_usd))) {
+    const rate = Number(raw);
+    if (/^[A-Z]{3}$/.test(currency) && Number.isFinite(rate) && rate > 0) unitsPerUsd[currency] = rate;
+  }
+  const stringMap = (value: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [key, item] of Object.entries(fxJsonObject(value))) if (typeof item === "string") out[key] = item;
+    return out;
+  };
+  return { unitsPerUsd, asOfByCurrency: stringMap(row.as_of_by_currency), sourceByCurrency: stringMap(row.source_by_currency) };
+}
+async function getMarketExchangeRate(base: string, quote: string): Promise<FxPayload> {
+  const normalizedBase = base.trim().toUpperCase();
+  const normalizedQuote = quote.trim().toUpperCase();
+  if (normalizedBase === normalizedQuote) {
+    return { base: normalizedBase, quote: normalizedQuote, rate: 1, source: "Identity rate", fetchedAt: new Date().toISOString(), asOf: null };
+  }
+  const cacheKey = `${normalizedBase}:${normalizedQuote}`;
   const cached = fxCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
-  const response = await fetch(
-    `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`,
-    { signal: AbortSignal.timeout(8_000) },
-  );
-  if (!response.ok) throw new Error(`FX provider returned ${response.status}`);
-  const body = (await response.json()) as {
-    rates?: Record<string, number>;
-    time_last_update_utc?: string;
-  };
-  const rate = Number(body.rates?.[quote]);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error("The selected currency pair is not available");
-  }
-  const fetchedAt = new Date().toISOString();
-  const asOfDate = body.time_last_update_utc
-    ? new Date(body.time_last_update_utc)
-    : null;
-  const payload = {
-    base,
-    quote,
-    rate,
-    source: "ExchangeRate-API Open Access",
-    fetchedAt,
-    asOf:
-      asOfDate && !Number.isNaN(asOfDate.getTime())
-        ? asOfDate.toISOString()
-        : null,
-  };
-  fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, payload });
+
+  const result = await db.execute(sql`
+    SELECT fetched_at, source_summary, rates_per_usd, as_of_by_currency, source_by_currency
+    FROM market_fx_rate_snapshots
+    ORDER BY fetched_at DESC, id DESC
+    LIMIT 1
+  `);
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  if (!row) throw new Error("Local FX rate snapshots are not available yet; the official-rate worker has not stored a fresh observation.");
+  const rateSet = fxRateSetFromSnapshot(row);
+  const calculated = calculateFxPayload(normalizedBase, normalizedQuote, rateSet, Date.now(), FX_RATE_MAX_AGE_MS);
+  const snapshotDate = new Date(row.fetched_at as string | number | Date);
+  if (Number.isNaN(snapshotDate.getTime())) throw new Error("Stored FX snapshot has an invalid fetch timestamp");
+  const payload: FxPayload = { ...calculated, fetchedAt: snapshotDate.toISOString() };
+  fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, payload });
   return payload;
 }
-
 async function getSubscriptionQuote(currency: string) {
   const fx = await getMarketExchangeRate("USD", currency);
   return {
@@ -13550,6 +13550,46 @@ router.patch("/reconciliation/:id", async (req, res): Promise<void> => {
    });
   if (!record) { res.status(404).json({ error: "Reconciliation record not found" }); return; }
   res.json(UpdateReconciliationResponse.parse(record));
+});
+
+router.get("/admin/fx-rates/status", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const result = await db.execute(sql`
+    SELECT fetched_at, source_summary, rates_per_usd, as_of_by_currency, source_by_currency
+    FROM market_fx_rate_snapshots ORDER BY fetched_at DESC, id DESC LIMIT 1
+  `);
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  if (!row) {
+    res.json({ available: false, refreshedAt: null, sourceSummary: null, currencies: [], message: "No locally collected official FX rates are available yet." });
+    return;
+  }
+  const rates = fxJsonObject(row.rates_per_usd);
+  const dates = fxJsonObject(row.as_of_by_currency);
+  const sources = fxJsonObject(row.source_by_currency);
+  const now = Date.now();
+  const currencies = Object.entries(rates).map(([currency, value]) => {
+    const asOf = typeof dates[currency] === "string" ? String(dates[currency]) : null;
+    const epoch = asOf ? Date.parse(asOf) : NaN;
+    const isIdentity = currency === "USD";
+    const fresh = isIdentity || (Number.isFinite(epoch) && epoch <= now + 60 * 60_000 && now - epoch <= FX_RATE_MAX_AGE_MS);
+    return {
+      currency,
+      unitsPerUsd: Number(value),
+      asOf,
+      source: typeof sources[currency] === "string" ? sources[currency] : (isIdentity ? "USD numeraire" : "unknown"),
+      status: isIdentity ? "identity" : (fresh ? "fresh" : "stale"),
+    };
+  }).sort((a, b) => a.currency.localeCompare(b.currency));
+  const fetchedAt = new Date(row.fetched_at as string | number | Date);
+  res.json({
+    available: currencies.some((item) => item.currency !== "USD" && item.status === "fresh"),
+    refreshedAt: Number.isNaN(fetchedAt.getTime()) ? null : fetchedAt.toISOString(),
+    sourceSummary: typeof row.source_summary === "string" ? row.source_summary : null,
+    freshnessWindowHours: FX_RATE_MAX_AGE_MS / 3_600_000,
+    currencies,
+    note: "Rates are source-labelled reference observations, not a guarantee of provider settlement or a promise of a tradable quote. Missing or stale currency pairs are rejected.",
+  });
 });
 
 export default router
