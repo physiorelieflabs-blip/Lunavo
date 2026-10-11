@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { fetchPublicImageDataUrl } from "./public-supplier";
 type ReasoningRole = "primary" | "critic" | "vision" | "coding";
 type ReasoningMessage = { role: "system" | "user" | "assistant"; content: string };
 type VisionMessageContent = string | Array<
@@ -155,7 +156,8 @@ export async function completeLocalVisionJson(
   try { const parsed = new URL(imageUrl); if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(); } catch { throw new Error("Vision input must be a valid HTTP(S) image URL"); }
   const pool = endpointsFor({ reasoningEffort: "high", role: "vision" });
   if (!pool.length) throw new Error("No self-hosted vision model is configured");
-  const result = await completeEndpoint(pool[0]!, [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageUrl, detail: options.detail || "low" } }] }], { json: true, maxTokens: options.maxTokens || 2500, reasoningEffort: "high" });
+  const imageDataUrl = await fetchPublicImageDataUrl(imageUrl);
+  const result = await completeEndpoint(pool[0]!, [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageDataUrl, detail: options.detail || "low" } }] }], { json: true, maxTokens: options.maxTokens || 2500, reasoningEffort: "high" });
   return result;
 }
 export function localAiConfigured(): boolean { return parsePool().length > 0; }
