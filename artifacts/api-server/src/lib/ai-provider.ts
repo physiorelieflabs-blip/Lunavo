@@ -53,12 +53,48 @@ function parsePool(): LocalLlmEndpoint[] {
   return [{ id: "default", url: endpointUrl(endpoint, "LUNAVO_LOCAL_LLM_URL"), model: process.env.LUNAVO_LOCAL_LLM_MODEL?.trim() || "local-model", weight: 1 }];
 }
 
+function rolePriority(role: ReasoningRole | undefined): number {
+  // A general text-reasoning ensemble should be diverse, but must never send text-only work to a vision-only model.
+  if (role === "primary") return 0;
+  if (role === "critic") return 1;
+  if (role === "coding") return 2;
+  if (role === undefined) return 3;
+  return 4;
+}
+
 function endpointsFor(options: { reasoningEffort?: "low" | "high" | "max"; role?: ReasoningRole }) {
   const pool = parsePool();
-  const compatible = options.role ? pool.filter((item) => !item.role || item.role === options.role) : pool;
-  const ordered = (compatible.length ? compatible : pool).slice().sort((a, b) => b.weight - a.weight);
-  const fanout = options.reasoningEffort === "max" ? 4 : options.reasoningEffort === "high" ? 3 : 1;
-  return ordered.slice(0, fanout);
+  let compatible: LocalLlmEndpoint[];
+
+  if (options.role === "vision") {
+    // A tagged pool is an explicit capability declaration. Do not silently route image work to an incompatible model.
+    const vision = pool.filter((item) => item.role === "vision").sort((a, b) => b.weight - a.weight);
+    const unassigned = pool.filter((item) => item.role === undefined).sort((a, b) => b.weight - a.weight);
+    compatible = [...vision, ...unassigned];
+    if (!compatible.length) {
+      throw new Error("No compatible self-hosted vision model is configured; add a vision endpoint to LUNAVO_LOCAL_LLM_POOL");
+    }
+  } else if (options.role) {
+    compatible = pool
+      .filter((item) => item.role === options.role || item.role === undefined)
+      .sort((a, b) => {
+        const aSpecialist = a.role === options.role ? 0 : 1;
+        const bSpecialist = b.role === options.role ? 0 : 1;
+        return aSpecialist - bSpecialist || b.weight - a.weight;
+      });
+    if (!compatible.length && pool.length) {
+      throw new Error("No compatible self-hosted " + options.role + " model is configured; add that role or an unassigned endpoint");
+    }
+  } else {
+    // Fan out over text-capable specialists in a stable order. Vision stays on its own task lane.
+    compatible = pool
+      .filter((item) => item.role !== "vision")
+      .slice()
+      .sort((a, b) => rolePriority(a.role) - rolePriority(b.role) || b.weight - a.weight);
+  }
+
+  const fanout = options.role === "vision" ? 1 : options.reasoningEffort === "max" ? 4 : options.reasoningEffort === "high" ? 3 : 1;
+  return compatible.slice(0, fanout);
 }
 
 async function completeEndpoint(endpoint: LocalLlmEndpoint, messages: Array<{ role: "system" | "user" | "assistant"; content: VisionMessageContent }>, options: { json?: boolean; maxTokens?: number; reasoningEffort?: "low" | "high" | "max" } = {}) {
@@ -97,7 +133,13 @@ export async function completePrimaryReasoning(
   if (!candidates.length) throw new Error("All self-hosted Lunavo LLM candidates failed");
   if (candidates.length === 1) return candidates[0]!;
   try {
-    const judged = await completeEndpoint(endpoints[0]!, consensusMessages(messages, candidates), { json: options.json, maxTokens: options.maxTokens || 5000, reasoningEffort: "high" });
+    const configuredCritic = parsePool().find((endpoint) => endpoint.role === "critic");
+    const judgeEndpoint =
+      configuredCritic ??
+      endpoints.find((endpoint) => endpoint.role === "coding") ??
+      endpoints.find((endpoint) => endpoint.role === undefined) ??
+      endpoints[0]!;
+    const judged = await completeEndpoint(judgeEndpoint, consensusMessages(messages, candidates), { json: options.json, maxTokens: options.maxTokens || 5000, reasoningEffort: "high" });
     return { model: judged.model + " (local consensus)", content: judged.content };
   } catch {
     return { model: candidates[0]!.model + " (local ensemble)", content: candidates[0]!.content };
