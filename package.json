@@ -9,7 +9,8 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "check:self-hosted": "node scripts/self-hosted-policy-check.mjs",
     "preflight:production": "node scripts/production-preflight.mjs --strict",
-    "test": "pnpm --filter @workspace/api-server exec vitest run"
+    "test": "pnpm --filter @workspace/api-server exec vitest run",
+    "check:migrations": "node scripts/check-migration-registry.mjs"
   },
   "private": true,
   "devDependencies": {
