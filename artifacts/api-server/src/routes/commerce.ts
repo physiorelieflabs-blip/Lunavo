@@ -7102,44 +7102,35 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
   const merchant = await getOrCreateMerchant(identity);
   if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   const product = (
-    await db
-      .select()
-      .from(supplierProductsTable)
-      .where(
-        and(
-          eq(supplierProductsTable.id, params.data.id),
-          eq(supplierProductsTable.merchantId, merchant.id),
-        ),
-      )
-      .limit(1)
+    await db.select().from(supplierProductsTable).where(and(
+      eq(supplierProductsTable.id, params.data.id),
+      eq(supplierProductsTable.merchantId, merchant.id),
+    )).limit(1)
   )[0];
   if (!product) {
     res.status(404).json({ error: "Supplier product not found" });
     return;
   }
+
   try {
     const imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
     validateSupplierImportSnapshot(imported);
-    const accepted = new Set(parsed.data.fields);
-    const updates: Record<string, unknown> = {
-      importStatus: "imported",
-      importError: null,
-      lastAttemptedSync: new Date(),
-    };
-    const sourceFields = {
+    const accepted = new Set<string>(parsed.data.fields);
+    const acceptedAt = new Date();
+    const sourceFields: Record<string, unknown> = {
       title: imported.title,
       description: imported.description,
       imageUrl: imported.imageUrl,
       imageUrls: imported.imageUrls,
-       price: (() => {
-         const value = validateSupplierPrice(imported.price, "Supplier price");
-         return value === null ? null : value.toFixed(2);
-       })(),
-       salePrice: (() => {
-         const value = validateSupplierPrice(imported.salePrice, "Supplier sale price");
-         return value === null ? null : value.toFixed(2);
-       })(),
-       currency: validateSupplierCurrency(imported.currency),
+      price: (() => {
+        const value = validateSupplierPrice(imported.price, "Supplier price");
+        return value === null ? null : value.toFixed(2);
+      })(),
+      salePrice: (() => {
+        const value = validateSupplierPrice(imported.salePrice, "Supplier sale price");
+        return value === null ? null : value.toFixed(2);
+      })(),
+      currency: validateSupplierCurrency(imported.currency),
       sku: imported.sku,
       sourceProductId: imported.sourceProductId,
       variants: imported.variants,
@@ -7151,25 +7142,68 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
       brand: imported.brand,
       shippingInformation: imported.shippingInformation,
     };
+    const comparisonFields = ["title", "description", "imageUrl", "imageUrls", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
+    const currentView = serializeSupplierProduct(product);
+    const sourceView = serializeSupplierPreview(imported);
+    const overrides = jsonRecord(product.merchantOverrides);
+    const changedFields = comparisonFields.filter((field) =>
+      JSON.stringify(currentView[field]) !== JSON.stringify(sourceView[field]),
+    );
+    const stockFields = new Set(["availability", "availabilityQuantity"]);
+    const unresolvedFields = changedFields.filter((field) => {
+      if (accepted.has(field)) return false;
+      // Text/price fields intentionally overridden by the merchant do not need
+      // acceptance. Synchronized inventory cannot use an override to bypass a stock hold.
+      const overrideKey = field === "price" ? "costPrice" : field === "availabilityQuantity" ? "inventoryQuantity" : field;
+      const customized = Boolean(overrides[overrideKey] ?? overrides[field]);
+      return !customized || (product.inventoryStrategy === "synchronized" && stockFields.has(field));
+    });
+    const changedStockFields = changedFields.filter((field) => stockFields.has(field));
+    const stockObservationReady = changedStockFields.every((field) => accepted.has(field));
+    const updates: Record<string, unknown> = {
+      importStatus: unresolvedFields.length ? "needs_review" : "imported",
+      importError: null,
+      lastAttemptedSync: acceptedAt,
+    };
     for (const [field, value] of Object.entries(sourceFields)) {
-      if ((parsed.data.fields as readonly string[]).includes(field)) {
-        updates[field] = value;
-      }
+      if (accepted.has(field)) updates[field] = value;
     }
+
+    if (stockObservationReady) {
+      const normalizedStock = normalizeSupplierStock(imported.availability, imported.availabilityQuantity);
+      // Store a consistent observation pair even when only one of the two fields changed.
+      updates.availability = imported.availability;
+      updates.availabilityQuantity = normalizedStock.availabilityQuantity;
+      updates.inventoryStatus = normalizedStock.inventoryStatus;
+    }
+
+    const metadata = jsonRecord(product.sourceMetadata);
+    const previousSync = jsonRecord(metadata.supplierSync);
+    updates.sourceMetadata = {
+      ...metadata,
+      supplierSync: {
+        ...previousSync,
+        state: stockObservationReady ? "ready" : "needs_review",
+        lastAttemptAt: acceptedAt.toISOString(),
+        ...(stockObservationReady ? { lastSuccessAt: acceptedAt.toISOString(), lastError: null } : {}),
+      },
+    };
+
     const updated = await db.transaction(async (tx) => {
-      const [saved] = await tx
-        .update(supplierProductsTable)
-        .set(updates)
-        .where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)))
-        .returning();
+      const [saved] = await tx.update(supplierProductsTable).set(updates).where(and(
+        eq(supplierProductsTable.id, product.id),
+        eq(supplierProductsTable.merchantId, merchant.id),
+      )).returning();
       if (!saved) throw new Error("Supplier product could not be updated");
       await tx.insert(supplierImportAttemptsTable).values({
         merchantId: merchant.id,
         supplierProductId: saved.id,
         sourceUrl: product.sourceUrl,
-        status: "imported",
-        message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
-        changes: parsed.data.fields,
+        status: unresolvedFields.length ? "needs_review" : "imported",
+        message: unresolvedFields.length
+          ? `Accepted selected source fields; review remains for: ${unresolvedFields.join(", ")}`
+          : `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
+        changes: { acceptedFields: parsed.data.fields, unresolvedFields },
       });
       await emitDomainEvent(tx, {
         merchantId: merchant.id,
@@ -7183,6 +7217,8 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
         payload: {
           supplierProductId: saved.id,
           acceptedFields: parsed.data.fields,
+          unresolvedFields,
+          stockRevalidated: stockObservationReady,
           sourceDomain: saved.sourceDomain,
           previousSourcePrice: product.salePrice ?? product.price,
           sourcePrice: saved.salePrice ?? saved.price,
@@ -7191,30 +7227,37 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
           availability: saved.availability,
           previousAvailabilityQuantity: product.availabilityQuantity,
           availabilityQuantity: saved.availabilityQuantity,
+          importStatus: saved.importStatus,
+          observedAt: acceptedAt.toISOString(),
         },
         before: {
           sourcePrice: product.salePrice ?? product.price,
           currency: product.currency,
           availability: product.availability,
           availabilityQuantity: product.availabilityQuantity,
+          importStatus: product.importStatus,
         },
         after: {
           sourcePrice: saved.salePrice ?? saved.price,
           currency: saved.currency,
           availability: saved.availability,
           availabilityQuantity: saved.availabilityQuantity,
+          inventoryStatus: saved.inventoryStatus,
+          importStatus: saved.importStatus,
         },
       });
       return saved;
     });
-    res.json(
-      AcceptSupplierRefreshResponse.parse({
-        product: serializeSupplierProduct(updated),
-        acceptedFields: parsed.data.fields,
-        message: "Selected source changes were accepted.",
-      }),
-    );
+
+    res.json(AcceptSupplierRefreshResponse.parse({
+      product: serializeSupplierProduct(updated),
+      acceptedFields: parsed.data.fields,
+      message: unresolvedFields.length
+        ? "Selected source changes were accepted, but remaining changes still require review."
+        : "Selected source changes were accepted and the refreshed state was saved.",
+    }));
   } catch (error) {
+    req.log.error({ err: error, merchantId: merchant.id, supplierProductId: product.id }, "Supplier refresh acceptance failed");
     res.status(422).json({
       error: error instanceof Error ? error.message : "Source refresh could not be accepted",
     });
