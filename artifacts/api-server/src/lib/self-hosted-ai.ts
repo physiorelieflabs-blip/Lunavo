@@ -51,15 +51,26 @@ export function assertSelfHostedEndpoint(value: string): string {
     throw new Error("Self-hosted AI endpoint must not contain credentials, query parameters, or fragments");
   }
   const hostname = url.hostname.toLowerCase();
-  const ipVersion = isIP(hostname);
+  // WHATWG URL leaves IPv6 literals bracketed in .hostname. Strip those brackets
+  // before isIP() so public IPv6 cannot fall through as a single-label local host.
+  const address = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+  const ipVersion = isIP(address);
   const privateIpv4 =
     ipVersion === 4 &&
     (() => {
-      const [a, b] = hostname.split(".").map(Number);
+      const [a, b] = address.split(".").map(Number);
       return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
     })();
-  const privateIpv6 = ipVersion === 6 && (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:"));
-  const localHostname = hostname === "localhost" || hostname === "host.docker.internal" || hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.endsWith(".lan") || !hostname.includes(".");
+  const privateIpv6 =
+    ipVersion === 6 &&
+    (address === "::1" || /^[fcfd]/i.test(address) || /^fe[89ab][0-9a-f]:/i.test(address));
+  const localHostname =
+    ipVersion === 0 &&
+    (hostname === "localhost" || hostname === "host.docker.internal" ||
+      hostname.endsWith(".local") || hostname.endsWith(".internal") ||
+      hostname.endsWith(".lan") || (!hostname.includes(".") && !hostname.includes(":")));
   if (ipVersion && !privateIpv4 && !privateIpv6) throw new Error("Self-hosted AI endpoints must use a private/local network address");
   if (!ipVersion && !localHostname) throw new Error("Self-hosted AI endpoints must use a private/local hostname");
   return value.replace(/\/$/, "");
