@@ -19,6 +19,6 @@ describe("order-level dropshipping transition policy", () => {
   });
   it("rejects oversized or non-text evidence", () => {
     expect(dropshipStatusTransitionError("submitted", "accepted", { supplierOrderReference: "x".repeat(241) })).toMatch(/reference/);
-    expect(dropshipStatusTransitionError("processing", "shipped", { currentSupplierOrderReference: "SUP-1", trackingNumber: 101 })).toMatch(/tracking number/);
+    expect(dropshipStatusTransitionError("processing", "shipped", { currentSupplierOrderReference: "SUP-1", trackingNumber: 101 })).toMatch(/tracking number/i);
   });
 });
