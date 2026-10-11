@@ -2,6 +2,8 @@
 
 This is the canonical rebuild checklist. A feature is not considered complete merely because a route, button, or placeholder exists: it must have working UI, server authorization, persistence, validation, error handling, tests, and real provider integration where applicable.
 
+For cross-module lifecycle design, multi-model role routing, end-to-end dropshipping parity targets and implementation order, also follow [Lunavo Connected Commerce OS & Self-Hosted Intelligence Blueprint](LUNAVO_CONNECTED_COMMERCE_BLUEPRINT.md). Use it to connect existing features, not to create duplicate modules.
+
 ## 1. Platform & accounts
 - Global multi-merchant commerce SaaS
 - Multi-vendor architecture
