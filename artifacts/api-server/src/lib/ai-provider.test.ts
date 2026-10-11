@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "vitest";
-import { getLocalAiPool, localAiConfigured, localAiPoolSummary } from "./ai-provider";
+import { afterEach, test, vi } from "vitest";
+import {
+  completeLocalVisionJson,
+  completePrimaryReasoning,
+  getLocalAiPool,
+  localAiConfigured,
+  localAiPoolSummary,
+} from "./ai-provider";
 
 const originalUrl = process.env.LUNAVO_LOCAL_LLM_URL;
 const originalPool = process.env.LUNAVO_LOCAL_LLM_POOL;
 const originalModel = process.env.LUNAVO_LOCAL_LLM_MODEL;
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   if (originalUrl === undefined) delete process.env.LUNAVO_LOCAL_LLM_URL;
   else process.env.LUNAVO_LOCAL_LLM_URL = originalUrl;
   if (originalPool === undefined) delete process.env.LUNAVO_LOCAL_LLM_POOL;
@@ -46,4 +53,55 @@ test("rejects malformed or oversized local pools", async () => {
     { url: "http://d:8000" }, { url: "http://e:8000" },
   ]);
   await assert.rejects(() => getLocalAiPool(), /1 to 4/);
+});
+
+
+test("uses distinct text specialists for an ensemble and a configured critic for judgment", async () => {
+  delete process.env.LUNAVO_LOCAL_LLM_URL;
+  delete process.env.LUNAVO_LOCAL_LLM_MODEL;
+  process.env.LUNAVO_LOCAL_LLM_POOL = JSON.stringify([
+    { id: "vision", url: "http://vision:8000/v1/chat/completions", model: "vision-model", role: "vision", weight: 100 },
+    { id: "coding", url: "http://coding:8000/v1/chat/completions", model: "coding-model", role: "coding", weight: 1 },
+    { id: "critic", url: "http://critic:8000/v1/chat/completions", model: "critic-model", role: "critic", weight: 1 },
+    { id: "primary", url: "http://primary:8000/v1/chat/completions", model: "primary-model", role: "primary", weight: 1 },
+  ]);
+  const seenModels: string[] = [];
+  vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const request = JSON.parse(String(init?.body)) as {
+      model: string;
+      messages?: Array<{ content?: string }>;
+    };
+    seenModels.push(request.model);
+    const isJudge = request.messages?.some((message) => message.content?.includes("LOCAL CANDIDATES")) ?? false;
+    const content = isJudge ? '{"result":"critic-reviewed"}' : '{"result":"candidate"}';
+    return new Response(JSON.stringify({
+      model: request.model,
+      choices: [{ message: { content } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const result = await completePrimaryReasoning(
+    [{ role: "user", content: "Recommend evidence-backed product opportunities." }],
+    { json: true, reasoningEffort: "high" },
+  );
+
+  assert.ok(seenModels.includes("primary-model"));
+  assert.ok(seenModels.includes("critic-model"));
+  assert.ok(seenModels.includes("coding-model"));
+  assert.ok(!seenModels.includes("vision-model"));
+  assert.match(result.model, /local consensus/);
+  assert.equal(result.content, '{"result":"critic-reviewed"}');
+});
+
+test("does not silently route image understanding to a tagged text-only pool", async () => {
+  delete process.env.LUNAVO_LOCAL_LLM_URL;
+  process.env.LUNAVO_LOCAL_LLM_POOL = JSON.stringify([
+    { id: "primary", url: "http://primary:8000/v1/chat/completions", model: "primary-model", role: "primary", weight: 2 },
+    { id: "critic", url: "http://critic:8000/v1/chat/completions", model: "critic-model", role: "critic", weight: 1 },
+  ]);
+
+  await assert.rejects(
+    () => completeLocalVisionJson("Describe only visible product attributes.", "https://images.example/product.png"),
+    /No compatible self-hosted vision model is configured/,
+  );
 });
