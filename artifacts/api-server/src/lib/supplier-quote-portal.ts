@@ -43,7 +43,12 @@ export function resolveSupplierQuotePortalBaseUrl(
 
 export function supplierQuotePortalUrl(baseUrl: URL, token: string): string {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error("Invalid supplier quote portal token shape");
-  return new URL("/supplier-quote/" + token, baseUrl).toString();
+  // Preserve an optional deployment path prefix from APP_BASE_URL. Starting with
+  // "/supplier-quote" would discard that prefix and produce broken share links
+  // for intentionally subpath-mounted self-hosted installations.
+  const basePath = baseUrl.pathname.replace(/\\/+$/, "");
+  const path = basePath + "/supplier-quote/" + token;
+  return new URL(path, baseUrl.origin).toString();
 }
 
 export const SUPPLIER_QUOTE_PORTAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
