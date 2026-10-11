@@ -8488,6 +8488,7 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
   const product = (await db.select().from(supplierProductsTable)
     .where(and(
       eq(supplierProductsTable.id, parsed.data.supplierProductId),
@@ -8498,6 +8499,11 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
     )).limit(1))[0];
   if (!product) {
     res.status(409).json({ error: "Only published, priced products can enter the marketplace" });
+    return;
+  }
+  const synchronizedStockError = supplierSyncCheckoutError(product);
+  if (synchronizedStockError) {
+    res.status(409).json({ error: "This synchronized product cannot be listed until its supplier availability is verified.", details: synchronizedStockError });
     return;
   }
   const adFx = await getMarketExchangeRate("USD", merchant.currency);
@@ -9308,6 +9314,7 @@ router.post("/auctions", async (req, res): Promise<void> => {
   }
   try {
     const merchant = await getOrCreateMerchant(identity);
+    if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
     const product = (
       await db
         .select()
@@ -9324,6 +9331,11 @@ router.post("/auctions", async (req, res): Promise<void> => {
     )[0];
     if (!product || product.sellingPrice === null) {
       res.status(422).json({ error: "Only an active, published product with a selling price can be auctioned" });
+      return;
+    }
+    const synchronizedStockError = supplierSyncCheckoutError(product);
+    if (synchronizedStockError) {
+      res.status(409).json({ error: "This synchronized product cannot be auctioned until its supplier availability is verified.", details: synchronizedStockError });
       return;
     }
     if (parsed.data.endsAt <= new Date(Date.now() + 5 * 60 * 1000)) {
