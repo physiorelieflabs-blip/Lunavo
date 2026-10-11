@@ -43,6 +43,42 @@ function rateSetFromRow(row: Record<string, unknown>): FxRateSet {
     sourceByCurrency: stringMap(row.source_by_currency),
   };
 }
+export async function readBoundedFxResponse(
+  response: Response,
+  maxBytes = MAX_RESPONSE_CHARS * 4,
+  maxChars = MAX_RESPONSE_CHARS,
+): Promise<string> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(maxChars) || maxChars < 1) {
+    throw new Error("FX source size limit is invalid");
+  }
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("official rate source exceeded the byte size limit");
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("official rate source returned an empty response body");
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      totalBytes += part.value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("official rate source exceeded the byte size limit");
+      }
+      chunks.push(part.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const text = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), totalBytes).toString("utf8");
+  if (text.length > maxChars) throw new Error("official rate source exceeded the character size limit");
+  return text;
+}
+
 async function fetchSource(url: string): Promise<string> {
   const response = await fetch(url, {
     headers: { Accept: "text/html,application/xml,text/xml;q=0.9,*/*;q=0.1", "User-Agent": "Lunavo-Local-FX-Snapshot/1.0" },
@@ -50,13 +86,12 @@ async function fetchSource(url: string): Promise<string> {
     redirect: "error",
   });
   if (!response.ok) throw new Error(`official rate source returned HTTP ${response.status}`);
-  const body = await response.text();
-  if (body.length > MAX_RESPONSE_CHARS) throw new Error("official rate source exceeded the size limit");
   const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
   if (!contentType.includes("text/html") && !contentType.includes("xml") && !contentType.includes("text/plain")) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error("official rate source returned an unsupported content type");
   }
-  return body;
+  return readBoundedFxResponse(response);
 }
 async function refreshOne(feed: (typeof FEEDS)[number]): Promise<FxRateSet> {
   const body = await fetchSource(feed.url);
