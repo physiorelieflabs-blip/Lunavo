@@ -286,6 +286,13 @@ const publicSupplier=await read("artifacts/api-server/src/lib/public-supplier.ts
 for(const m of ["isBlockedSupplierAddress","usesStandardHttpPort","MAX_IN_FLIGHT_PAGES","MAX_IMAGE_BYTES","matchesRasterImageSignature","Supplier image redirects cannot downgrade HTTPS to HTTP"])if(!publicSupplier.includes(m))failures.push("Safe supplier/image retrieval invariant missing: "+m);
 const localVision=await read("artifacts/api-server/src/lib/ai-provider.ts");
 for(const m of ["fetchPublicImageDataUrl(imageUrl)","imageDataUrl","completeLocalVisionJson"])if(!localVision.includes(m))failures.push("Vision gateway must proxy validated image bytes to local inference: "+m);
+const baseCompose=await read("docker-compose.yml");
+for(const m of ["LUNAVO_LOCAL_LLM_POOL","LUNAVO_LOCAL_EMBEDDINGS_URL","LUNAVO_LOCAL_IMAGE_URL","LUNAVO_LOCAL_IMAGE_MODEL","FLUTTERWAVE_SECRET_KEY","FLUTTERWAVE_WEBHOOK_SECRET"])if(!baseCompose.includes(m))failures.push("Docker Compose does not pass through a required self-hosted/provider setting: "+m);
+const modelCompose=await read("docker-compose.ai.yml");
+for(const m of ["ollama/ollama:0.40.3","qwen2.5:7b","mistral:7b","qwen2.5-coder:7b","qwen2.5vl:3b","LUNAVO_LOCAL_LLM_POOL","service_completed_successfully","lunavo_ollama_models"])if(!modelCompose.includes(m))failures.push("Self-hosted model bundle invariant missing: "+m);
+if(/^[ \t]*ports:[ \t]*$/m.test(modelCompose)&&/11434/m.test(modelCompose))failures.push("Ollama endpoint should stay on the private Compose network by default");
+const aiDoc=await read("docs/SELF-HOSTED-AI.md");
+for(const m of ["docker-compose.ai.yml","qwen2.5vl:3b","17 GB","LUNAVO_LOCAL_IMAGE_URL"])if(!aiDoc.includes(m))failures.push("Self-hosted AI deployment documentation invariant missing: "+m);
 const workflowUi=await read("artifacts/ts-commerce/src/pages/automations.tsx");
 for(const m of ["supplier.observation_changed","supplier.sync_failed","catalog.product_changed","order.fulfillment_changed","fulfillment.job_created"])if(!workflowUi.includes(m))failures.push("Connected commerce event is missing from Automation Studio: "+m);
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
