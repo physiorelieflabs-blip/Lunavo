@@ -394,7 +394,7 @@ export default function Suppliers() {
             <Badge tone={item.state === 'failed' || item.state === 'stale' ? 'danger' : 'warning'}>{item.state.replaceAll('_', ' ')}</Badge>
           </div>)}
           {syncHealth.data.items.filter((item) => item.issue && item.state !== 'healthy').length > 5 && <p className="text-xs text-[#697687]">Showing five items; open the catalog cards below for individual source review.</p>}
-        </div>
+        </div>}
         <p className="mt-3 text-[11px] text-[#697687]">Last checked {timeAgo(syncHealth.data.checkedAt)}. Source health is evidence, not a supplier guarantee.</p>
       </section>}
       {syncHealth.isError && <div className="mt-4"><Notice tone="warning" title="Sync health unavailable">The product workspace is still available, but supplier synchronization health could not be loaded.</Notice></div>}
