@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isBlockedSupplierAddress, isSafeRasterImageType, matchesRasterImageSignature } from "./public-supplier";
+import { isBlockedSupplierAddress, isSafeRasterImageType, matchesRasterImageSignature, usesStandardHttpPort } from "./public-supplier";
 describe("public supplier address policy", () => {
   it.each([
     "0.0.0.0","10.0.0.1","100.64.0.1","100.127.255.254","127.0.0.1","169.254.169.254",
@@ -35,5 +35,21 @@ describe("safe image inputs for self-hosted vision", () => {
     expect(matchesRasterImageSignature("image/png", Buffer.from("not a png"))).toBe(false);
     expect(matchesRasterImageSignature("image/webp", Buffer.from("RIFFxxxxWAVE"))).toBe(false);
     expect(matchesRasterImageSignature("image/webp", Buffer.from("RIFFxxxxWEBP"))).toBe(true);
+  });
+});
+
+
+describe("public supplier URL transport policy", () => {
+  it.each([
+    ["https://shop.example/product/1", true],
+    ["https://shop.example:443/product/1", true],
+    ["http://shop.example/product/1", true],
+    ["http://shop.example:80/product/1", true],
+    ["http://shop.example:8080/product/1", false],
+    ["https://shop.example:8443/product/1", false],
+    ["ftp://shop.example/product/1", false],
+    ["not a URL", false],
+  ])("applies standard HTTP port policy to %s", (url, expected) => {
+    expect(usesStandardHttpPort(url)).toBe(expected);
   });
 });
