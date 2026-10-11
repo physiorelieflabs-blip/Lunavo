@@ -27,6 +27,12 @@ describe("supplier quote portal capability links", () => {
     expect(supplierQuotePortalUrl(base, token)).toBe("https://shop.example.test/supplier-quote/" + token);
   });
 
+  it("preserves an explicit self-hosted deployment path prefix", () => {
+    const base = resolveSupplierQuotePortalBaseUrl("https://shop.example.test/commerce/", "production");
+    const token = issueSupplierQuotePortalToken().token;
+    expect(supplierQuotePortalUrl(base, token)).toBe("https://shop.example.test/commerce/supplier-quote/" + token);
+  });
+
   it("rejects unsafe, malformed or untrusted base URLs", () => {
     for (const value of ["", "not a URL", "javascript:alert(1)", "https://user:secret@example.test", "https://example.test/?token=x", "https://example.test/#fragment"]) {
       expect(() => resolveSupplierQuotePortalBaseUrl(value, "production")).toThrow();
