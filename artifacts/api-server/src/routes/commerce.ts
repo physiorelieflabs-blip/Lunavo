@@ -6518,41 +6518,77 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
       ? await ensureSupplierRecord(merchant.id, supplierUrl.url, parsed.data.supplierName)
       : null;
     const sourceUrl = parsed.data.supplierUrl ?? `https://manual.invalid/product/${randomUUID()}`;
-    const [product] = await db
-      .insert(supplierProductsTable)
-      .values({
+    const product = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(supplierProductsTable)
+        .values({
+          merchantId: merchant.id,
+          supplierId: supplier?.id ?? null,
+          sourceUrl,
+          supplierUrl: supplier?.website ?? "https://manual.invalid",
+          sourceDomain: supplier?.domain ?? "manual",
+          title: parsed.data.title,
+          description: parsed.data.description ?? null,
+          imageUrl: parsed.data.imageUrl ?? null,
+          price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
+          salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
+          currency: parsed.data.currency.toUpperCase(),
+          sku: parsed.data.sku ?? null,
+          category: parsed.data.category ?? null,
+          tags: parsed.data.tags ?? [],
+          sellingPrice: parsed.data.sellingPrice.toFixed(2),
+          inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
+          inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
+          availabilityQuantity: parsed.data.inventoryQuantity ?? null,
+          status: "active",
+          visibility: "active",
+          importStatus: "manual_import_required",
+          importedAt: new Date(),
+          publishedAt: new Date(),
+        })
+        .returning();
+      if (!created) throw new Error("Manual product could not be saved");
+      await tx.insert(supplierImportAttemptsTable).values({
         merchantId: merchant.id,
-        supplierId: supplier?.id ?? null,
+        supplierProductId: created.id,
         sourceUrl,
-        supplierUrl: supplier?.website ?? "https://manual.invalid",
-        sourceDomain: supplier?.domain ?? "manual",
-        title: parsed.data.title,
-        description: parsed.data.description ?? null,
-        imageUrl: parsed.data.imageUrl ?? null,
-        price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
-        salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
-        currency: parsed.data.currency.toUpperCase(),
-        sku: parsed.data.sku ?? null,
-        category: parsed.data.category ?? null,
-        tags: parsed.data.tags ?? [],
-        sellingPrice: parsed.data.sellingPrice.toFixed(2),
-        inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
-        inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
-        availabilityQuantity: parsed.data.inventoryQuantity ?? null,
-        status: "active",
-        visibility: "active",
-        importStatus: "manual_import_required",
-        importedAt: new Date(),
-        publishedAt: new Date(),
-      })
-      .returning();
-    if (!product) throw new Error("Manual product could not be saved");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl,
-      status: "manual_import_required",
-      message: "Created with merchant-supplied product details",
+        status: "manual_import_required",
+        message: "Created with merchant-supplied product details",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: created.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product:${created.id}:created`,
+        payload: {
+          productId: created.id,
+          operation: "created",
+          title: created.title,
+          sourceDomain: created.sourceDomain,
+          sourceCost: created.salePrice ?? created.price,
+          sellingPrice: created.sellingPrice,
+          currency: created.currency,
+          status: created.status,
+          visibility: created.visibility,
+          availability: created.availability,
+          availabilityQuantity: created.availabilityQuantity,
+        },
+        before: null,
+        after: {
+          status: created.status,
+          visibility: created.visibility,
+          sourceCost: created.salePrice ?? created.price,
+          sellingPrice: created.sellingPrice,
+          currency: created.currency,
+          availability: created.availability,
+          availabilityQuantity: created.availabilityQuantity,
+        },
+      });
+      return created;
     });
     res.status(201).json(CreateManualSupplierProductResponse.parse(serializeSupplierProduct(product)));
   } catch (error) {
@@ -6730,24 +6766,64 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
       if (has(key as keyof typeof input)) currentOverrides[key] = true;
     }
     updates.merchantOverrides = currentOverrides;
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(
-        and(
-          eq(supplierProductsTable.id, product.id),
-          eq(supplierProductsTable.merchantId, merchant.id),
-        ),
-      )
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: updated.id,
-      sourceUrl: updated.sourceUrl,
-      status: nextVisibility === "active" ? "published" : "edited",
-      message: "Merchant-edited product fields saved",
-      changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .update(supplierProductsTable)
+        .set(updates)
+        .where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)))
+        .returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: saved.sourceUrl,
+        status: nextVisibility === "active" ? "published" : "edited",
+        message: "Merchant-edited product fields saved",
+        changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product:${saved.id}:updated:${saved.updatedAt.getTime()}`,
+        payload: {
+          productId: saved.id,
+          operation: product.visibility !== saved.visibility ? "visibility_changed" : "updated",
+          title: saved.title,
+          sourceDomain: saved.sourceDomain,
+          sourceCost: saved.salePrice ?? saved.price,
+          sellingPrice: saved.sellingPrice,
+          currency: saved.currency,
+          status: saved.status,
+          visibility: saved.visibility,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+          changedFields: Object.keys(updates).filter((key) => key !== "updatedAt"),
+        },
+        before: {
+          status: product.status,
+          visibility: product.visibility,
+          sourceCost: product.salePrice ?? product.price,
+          sellingPrice: product.sellingPrice,
+          currency: product.currency,
+          availability: product.availability,
+          availabilityQuantity: product.availabilityQuantity,
+        },
+        after: {
+          status: saved.status,
+          visibility: saved.visibility,
+          sourceCost: saved.salePrice ?? saved.price,
+          sellingPrice: saved.sellingPrice,
+          currency: saved.currency,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+        },
+      });
+      return saved;
     });
     res.json(UpdateSupplierProductResponse.parse(serializeSupplierProduct(updated)));
   } catch (error) {
