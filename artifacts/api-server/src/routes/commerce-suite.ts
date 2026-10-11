@@ -74,13 +74,20 @@ router.post("/commerce/discount-codes", async (req, res) => {
 
   const code = typeof req.body?.code === "string" ? req.body.code.trim().toUpperCase() : "";
   const kind = req.body?.kind;
-  if (!/^[A-Z0-9_-]{3,40}$/.test(code) || (kind !== "fixed" && kind !== "percentage")) {
-    return fail(res, 400, "Enter a valid code and choose percentage or fixed amount");
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code) || (kind !== "fixed" && kind !== "percentage" && kind !== "bogo")) {
+    return fail(res, 400, "Enter a valid code and choose percentage, fixed amount, or same-product BOGO");
   }
 
-  const valueMinor = toMinorUnits(req.body?.value, 2);
+  const buyQuantity = kind === "bogo" ? Number(req.body?.buyQuantity ?? 1) : 1;
+  const getQuantity = kind === "bogo" ? Number(req.body?.getQuantity ?? 1) : 1;
+  if (!Number.isSafeInteger(buyQuantity) || buyQuantity < 1 || buyQuantity > 100
+    || !Number.isSafeInteger(getQuantity) || getQuantity < 1 || getQuantity > 100) {
+    return fail(res, 400, "BOGO buy/get quantities must be whole numbers between 1 and 100");
+  }
+  // BOGO has its own buy/get rule and therefore stores zero in the legacy value column.
+  const valueMinor = kind === "bogo" ? 0 : toMinorUnits(req.body?.value, 2);
   const minimumMinor = toMinorUnits(req.body?.minimumSubtotal ?? "0", 2);
-  if (valueMinor === null || valueMinor <= 0 || minimumMinor === null || minimumMinor < 0
+  if (valueMinor === null || (kind !== "bogo" && valueMinor <= 0) || minimumMinor === null || minimumMinor < 0
     || (kind === "percentage" && valueMinor > 10_000)) {
     return fail(res, 400, "Enter a positive discount value; percentage discounts cannot exceed 100%");
   }
@@ -112,6 +119,8 @@ router.post("/commerce/discount-codes", async (req, res) => {
     merchantId: m.id,
     code,
     kind,
+    buyQuantity,
+    getQuantity,
     value: decimal(valueMinor),
     minimumSubtotal: decimal(minimumMinor),
     currency: m.currency,
