@@ -7203,7 +7203,10 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
         message: unresolvedFields.length
           ? `Accepted selected source fields; review remains for: ${unresolvedFields.join(", ")}`
           : `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
-        changes: { acceptedFields: parsed.data.fields, unresolvedFields },
+        changes: [
+          ...parsed.data.fields.map((field) => ({ field, state: "accepted" })),
+          ...unresolvedFields.map((field) => ({ field, state: "needs_review" })),
+        ],
       });
       await emitDomainEvent(tx, {
         merchantId: merchant.id,
