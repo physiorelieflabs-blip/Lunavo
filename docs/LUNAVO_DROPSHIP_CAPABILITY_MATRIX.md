@@ -61,6 +61,7 @@ Current commercial platforms increasingly combine supplier discovery/import, aut
 - Ad performance -> winner/decline signal -> sourcing/pricing/growth recommendation.
 - Intelligence refresh -> durable domain event -> Automation Studio.
 - Supplier quote draft -> manually recorded offer -> accepted/rejected/expired negotiation record -> quote-to-cost prefill -> landed-cost scenario -> contribution margin -> the same cross-domain intelligence graph and local reviewer.
+- Supplier quote draft -> expiring seven-day one-use share link -> supplier response page -> atomic quote recording and token consumption -> domain event/merchant notification -> quote review and acceptance/rejection -> landed-cost model. Only a SHA-256 token digest is stored; the merchant manually shares the link. The link does not imply supplier identity verification, an external message, a purchase order, or a payment.
 - Cost scenarios and quote records are tenant-scoped, idempotency-protected and auditable; they do not create a purchase order, payment, ledger entry or inventory movement.
 - External research -> evidence ledger -> local model synthesis; research is never treated as authoritative payment, stock or customer-consent truth.
 
@@ -81,7 +82,7 @@ These should be implemented only through the same connected operating graph and 
 - Channel-level catalog/inventory/order sync state machine with retry-safe jobs.
 - 3PL split-shipment routing and SLA-aware fulfillment selection.
 - POD/private-label/custom-packaging sourcing and cost/lead-time comparison.
-- Private supplier portal and authenticated quote-dispatch/inbound-response adapters. The current quote workbench records drafts and manually entered offers; it does not contact suppliers.
+- Automated supplier delivery adapters, supplier identity verification, and provider-side message/reply integrations. The one-time supplier response portal handles inbound offers after a merchant manually shares its link; outbound email, SMS or supplier-platform messaging is not yet connected.
 - Evidence-backed duty/import/tariff rates from authoritative, jurisdiction-specific sources. Current landed-cost scenarios clearly label operator-entered rates and require explicit currency normalization evidence when source and calculation currencies differ.
 - Automated email/SMS lifecycle campaigns with consent, suppression, delivery status and provider verification.
 - Competitor/ad-spy ingestion connectors with source URL, observation time and evidence provenance.
@@ -113,4 +114,4 @@ These should be implemented only through the same connected operating graph and 
 - Syncee: product import, automated order/tracking sync, pricing controls, supplier marketplace, cross-selling/upselling and wholesale/dropshipping workflows.
 - Shopify B2B/Enterprise: companies and locations, catalogs, quantity/payment terms, supplier/marketplace/channel connectivity and enterprise workflows.
 
-Last audited: 2026-10-09.
+Last audited: 2026-10-11.
