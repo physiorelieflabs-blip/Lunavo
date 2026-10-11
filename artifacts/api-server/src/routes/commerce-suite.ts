@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, or } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
+import { emitDomainEvent } from "../lib/domain-events";
+import { fulfillmentTransitionError } from "../lib/fulfillment-policy";
 import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
 
 const router = Router();
@@ -38,18 +41,19 @@ router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
   const m=await merchantFor(req, "fulfillment.manage"); if(!m) return fail(res,401,"Authentication required");
   const jobId=String(req.params.id ?? "").trim(); if(!/^[0-9a-fA-F-]{36}$/.test(jobId)) return fail(res,400,"Invalid fulfillment job id");
   const nextStatus=typeof req.body?.status==="string"?req.body.status.trim():"";
-  const allowed:Record<string,string[]>={
-    ready:["approved","failed"],
-    approved:["ordered","failed"],
-    ordered:["shipped","failed"],
-    shipped:["delivered","failed"],
-    delivered:[],
-    failed:["ready"],
-  };
   const current=(await db.select().from(fulfillmentJobsTable).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id))).limit(1))[0];
   if(!current) return fail(res,404,"Fulfillment job not found");
-  if(!allowed[String(current.status)]?.includes(nextStatus)) return fail(res,409,"Invalid fulfillment transition from "+String(current.status)+" to "+nextStatus);
+  const transitionError=fulfillmentTransitionError(String(current.status),{
+    status: nextStatus,
+    supplierOrderReference: req.body?.supplierOrderReference,
+    carrier: req.body?.carrier,
+    trackingNumber: req.body?.trackingNumber,
+    trackingUrl: req.body?.trackingUrl,
+    reason: req.body?.reason,
+  });
+  if(transitionError) return fail(res,transitionError.startsWith("Invalid fulfillment transition")?409:400,transitionError);
   const patch:any={status:nextStatus,updatedAt:new Date()};
+  if(nextStatus==="ready") patch.lastError=null;
   if(nextStatus==="ordered" && typeof req.body?.supplierOrderReference==="string") patch.supplierOrderReference=req.body.supplierOrderReference.trim().slice(0,160);
   if(nextStatus==="shipped"){
     patch.carrier=typeof req.body?.carrier==="string"?req.body.carrier.trim().slice(0,120):null;
@@ -59,16 +63,104 @@ router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
   }
   if(nextStatus==="delivered") patch.deliveredAt=new Date();
   if(nextStatus==="failed") patch.lastError=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"Fulfillment failed";
-  const [job]=await db.update(fulfillmentJobsTable).set(patch).where(and(eq(fulfillmentJobsTable.id,current.id),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,current.status))).returning();
+  const actorId = getAuth(req).userId;
+  const job = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(fulfillmentJobsTable).set(patch)
+      .where(and(eq(fulfillmentJobsTable.id,current.id),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,current.status)))
+      .returning();
+    if (!updated) return null;
+    await emitDomainEvent(tx, {
+      merchantId: m.id,
+      eventType: "fulfillment.status_changed",
+      aggregateType: "fulfillment_job",
+      aggregateId: updated.id,
+      actorType: "merchant",
+      actorId: actorId ?? null,
+      source: "merchant_api",
+      idempotencyKey: "fulfillment-status:" + updated.id + ":" + randomUUID(),
+      payload: { jobId: updated.id, fromStatus: current.status, toStatus: updated.status, hasTracking: Boolean(updated.trackingNumber) },
+      before: { status: current.status },
+      after: { status: updated.status },
+    });
+    return updated;
+  });
   if(!job) return fail(res,409,"Fulfillment job changed concurrently; reload and retry");
   res.json({job});
 });
 
-router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{const m=await merchantFor(req, "fulfillment.manage");if(!m)return fail(res,401,"Authentication required");const jobId=String(req.params.id ?? "").trim();if(!/^[0-9a-fA-F-]{36}$/.test(jobId))return fail(res,400,"Invalid fulfillment job id");const[j]=await db.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0}).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();if(!j)return fail(res,404,"Ready fulfillment job not found");res.json({job:j,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});});
+router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{
+  const m=await merchantFor(req, "fulfillment.manage"); if(!m) return fail(res,401,"Authentication required");
+  const jobId=String(req.params.id ?? "").trim(); if(!/^[0-9a-fA-F-]{36}$/.test(jobId)) return fail(res,400,"Invalid fulfillment job id");
+  const actorId = getAuth(req).userId;
+  const job = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0})
+      .where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();
+    if (!updated) return null;
+    await emitDomainEvent(tx, {
+      merchantId: m.id,
+      eventType: "fulfillment.status_changed",
+      aggregateType: "fulfillment_job",
+      aggregateId: updated.id,
+      actorType: "merchant",
+      actorId: actorId ?? null,
+      source: "merchant_api",
+      idempotencyKey: "fulfillment-status:" + updated.id + ":" + randomUUID(),
+      payload: { jobId: updated.id, fromStatus: "ready", toStatus: "approved", hasTracking: Boolean(updated.trackingNumber) },
+      before: { status: "ready" },
+      after: { status: "approved" },
+    });
+    return updated;
+  });
+  if(!job) return fail(res,404,"Ready fulfillment job not found");
+  res.json({job,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});
+});
 
-router.get("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");res.json({codes:await db.select().from(discountCodesTable).where(eq(discountCodesTable.merchantId,m.id)).orderBy(desc(discountCodesTable.createdAt))});});
-router.post("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const code=typeof req.body?.code==="string"?req.body.code.trim().toUpperCase():"";const kind=req.body?.kind==="fixed"?"fixed":"percentage";const value=Number(req.body?.value);if(!/^[A-Z0-9_-]{3,40}$/.test(code)||!Number.isFinite(value)||value<=0||(kind==="percentage"&&value>100))return fail(res,400,"Enter a valid discount code and value");const[c]=await db.insert(discountCodesTable).values({merchantId:m.id,code,kind,value:value.toFixed(2),minimumSubtotal:Number(req.body?.minimumSubtotal??0).toFixed(2),currency:m.currency,active:true}).returning();if(!c)return fail(res,409,"Discount code already exists or could not be created");res.status(201).json({code:c});});
-router.post("/commerce/discount-codes/:id/deactivate", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const[c]=await db.update(discountCodesTable).set({active:false,updatedAt:new Date()}).where(and(eq(discountCodesTable.id,Number(req.params.id)),eq(discountCodesTable.merchantId,m.id))).returning();if(!c)return fail(res,404,"Discount code not found");res.json({code:c});});
+router.get("/commerce/discount-codes", async (req, res) => {
+  const m = await merchantFor(req, "team.manage");
+  if (!m) return fail(res, 401, "Authentication required");
+  res.json({ codes: await db.select().from(discountCodesTable).where(eq(discountCodesTable.merchantId, m.id)).orderBy(desc(discountCodesTable.createdAt)) });
+});
+router.post("/commerce/discount-codes", async (req, res) => {
+  const m = await merchantFor(req, "team.manage");
+  if (!m) return fail(res, 401, "Authentication required");
+  const code = typeof req.body?.code === "string" ? req.body.code.trim().toUpperCase() : "";
+  const kind = req.body?.kind;
+  const value = Number(req.body?.value);
+  const minimumSubtotal = Number(req.body?.minimumSubtotal ?? 0);
+  const usageLimit = req.body?.usageLimit == null || req.body.usageLimit === "" ? null : Number(req.body.usageLimit);
+  const startsAt = req.body?.startsAt == null || req.body.startsAt === "" ? null : new Date(String(req.body.startsAt));
+  const endsAt = req.body?.endsAt == null || req.body.endsAt === "" ? null : new Date(String(req.body.endsAt));
+  if (
+    !/^[A-Z0-9_-]{3,40}$/.test(code) ||
+    !["fixed", "percentage"].includes(kind) ||
+    !Number.isFinite(value) || value <= 0 ||
+    !Number.isSafeInteger(Math.round(value * 100)) || Math.round(value * 100) < 1 ||
+    (kind === "percentage" && value > 100) ||
+    !Number.isFinite(minimumSubtotal) || minimumSubtotal < 0 ||
+    !Number.isSafeInteger(Math.round(minimumSubtotal * 100)) || Math.round(minimumSubtotal * 100) < 0 ||
+    (usageLimit !== null && (!Number.isSafeInteger(usageLimit) || usageLimit < 1 || usageLimit > 1_000_000)) ||
+    (startsAt !== null && !Number.isFinite(startsAt.getTime())) ||
+    (endsAt !== null && !Number.isFinite(endsAt.getTime())) ||
+    (startsAt !== null && endsAt !== null && endsAt <= startsAt)
+  ) return fail(res, 400, "Enter a valid discount type, value, minimum subtotal, usage limit, and active period");
+  const [created] = await db.insert(discountCodesTable).values({
+    merchantId: m.id, code, kind, value: value.toFixed(2),
+    minimumSubtotal: minimumSubtotal.toFixed(2), currency: m.currency,
+    usageLimit, usageCount: 0, startsAt, endsAt, active: true,
+  }).returning();
+  if (!created) return fail(res, 409, "Discount code already exists or could not be created");
+  res.status(201).json({ code: created });
+});
+router.post("/commerce/discount-codes/:id/deactivate", async (req, res) => {
+  const m = await merchantFor(req, "team.manage");
+  if (!m) return fail(res, 401, "Authentication required");
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return fail(res, 400, "Invalid discount code");
+  const [code] = await db.update(discountCodesTable).set({ active: false, updatedAt: new Date() })
+    .where(and(eq(discountCodesTable.id, id), eq(discountCodesTable.merchantId, m.id))).returning();
+  if (!code) return fail(res, 404, "Discount code not found");
+  res.json({ code });
+});
 
 router.get("/commerce/loyalty", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");const accounts=await db.select({id:loyaltyAccountsTable.id,customerId:loyaltyAccountsTable.customerId,pointsBalance:loyaltyAccountsTable.pointsBalance,lifetimePoints:loyaltyAccountsTable.lifetimePoints,tier:loyaltyAccountsTable.tier,customerName:customersTable.name,customerEmail:customersTable.email}).from(loyaltyAccountsTable).innerJoin(customersTable,eq(loyaltyAccountsTable.customerId,customersTable.id)).where(eq(loyaltyAccountsTable.merchantId,m.id)).orderBy(desc(loyaltyAccountsTable.pointsBalance)).limit(200);res.json({accounts});});
 

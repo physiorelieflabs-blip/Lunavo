@@ -10,7 +10,7 @@ type AutoDsResponse = {
   jobs: Array<{ id:string; orderId:number; status:string; mode:string; currency:string|null; createdAt:string; lastError:string|null }>;
 };
 
-type Discount = { id:number; code:string; kind:string; value:string; active:boolean; usageCount:number; usageLimit:number|null; currency:string|null };
+type Discount = { id:number; code:string; kind:string; value:string; minimumSubtotal:string; active:boolean; usageCount:number; usageLimit:number|null; currency:string|null; startsAt:string|null; endsAt:string|null };
 
 export default function CommerceSuite() {
   const [data,setData]=useState<AutoDsResponse|null>(null);
@@ -24,6 +24,10 @@ export default function CommerceSuite() {
   const [code,setCode]=useState('');
   const [value,setValue]=useState('10');
   const [kind,setKind]=useState<'percentage'|'fixed'>('percentage');
+  const [minimumSubtotal,setMinimumSubtotal]=useState('0');
+  const [usageLimit,setUsageLimit]=useState('');
+  const [startsAt,setStartsAt]=useState('');
+  const [endsAt,setEndsAt]=useState('');
   const [message,setMessage]=useState('');
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
@@ -55,8 +59,14 @@ export default function CommerceSuite() {
 
   const createDiscount=async()=>{
     try{
-      await customFetch('/api/commerce/discount-codes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,value:Number(value),kind})});
-      setCode(''); setMessage('Discount code created.'); await load();
+      await customFetch('/api/commerce/discount-codes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+        code,value:Number(value),kind,minimumSubtotal:Number(minimumSubtotal),
+        usageLimit:usageLimit.trim()?Number(usageLimit):null,
+        startsAt:startsAt?new Date(startsAt).toISOString():null,
+        endsAt:endsAt?new Date(endsAt).toISOString():null
+      })});
+      setCode(''); setMinimumSubtotal('0'); setUsageLimit(''); setStartsAt(''); setEndsAt('');
+      setMessage('Discount code created.'); await load();
     }catch(e){setMessage(e instanceof Error?e.message:'Discount code could not be created.');}
   };
 
@@ -80,7 +90,16 @@ export default function CommerceSuite() {
       </section>
 
       <section className="mt-8 grid gap-5 md:grid-cols-2">
-        <div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Promotions" title="Discount codes" description="Create reusable percentage or fixed-value codes for your promotion strategy." /><div className="mt-5 grid gap-3 sm:grid-cols-[1fr_120px_140px_auto]"><input value={code} onChange={e=>setCode(e.target.value)} placeholder="WELCOME10" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><select value={kind} onChange={e=>setKind(e.target.value as 'percentage'|'fixed')} className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"><option value="percentage">%</option><option value="fixed">Fixed</option></select><input value={value} onChange={e=>setValue(e.target.value)} type="number" min="0.01" className="h-10 rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/><Button onClick={createDiscount} disabled={!code.trim()}>Create</Button></div><div className="mt-5 space-y-2">{discounts.length?discounts.map(d=><div key={d.id} className="flex items-center justify-between rounded-xl border border-[#d9d2c4] p-3"><div><p className="text-sm font-extrabold">{d.code}</p><p className="text-xs text-[#697687]">{d.kind==='percentage'?d.value+'%':d.value+' '+(d.currency??'')} · {d.usageCount} uses</p></div><Badge tone={d.active?'success':'neutral'}>{d.active?'Active':'Inactive'}</Badge></div>):<p className="text-sm text-[#697687]">No discount codes yet.</p>}</div></div>
+        <div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Promotions" title="Discount codes" description="Create reusable percentage or fixed-value codes for your promotion strategy." /><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="text-xs font-bold text-[#697687]">Code<input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} maxLength={40} placeholder="WELCOME10" className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/></label>
+          <label className="text-xs font-bold text-[#697687]">Type<select value={kind} onChange={e=>setKind(e.target.value as 'percentage'|'fixed')} className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label>
+          <label className="text-xs font-bold text-[#697687]">Value<input value={value} onChange={e=>setValue(e.target.value)} type="number" min="0.01" step="0.01" className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/></label>
+          <label className="text-xs font-bold text-[#697687]">Minimum subtotal<input value={minimumSubtotal} onChange={e=>setMinimumSubtotal(e.target.value)} type="number" min="0" step="0.01" className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/></label>
+          <label className="text-xs font-bold text-[#697687]">Maximum redemptions<input value={usageLimit} onChange={e=>setUsageLimit(e.target.value)} type="number" min="1" step="1" placeholder="Unlimited" className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/></label>
+          <label className="text-xs font-bold text-[#697687]">Starts at<input value={startsAt} onChange={e=>setStartsAt(e.target.value)} type="datetime-local" className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/></label>
+          <label className="text-xs font-bold text-[#697687]">Ends at<input value={endsAt} onChange={e=>setEndsAt(e.target.value)} type="datetime-local" className="mt-1 h-10 w-full rounded-lg border border-[#d9d2c4] bg-white px-3 text-sm"/></label>
+          <div className="flex items-end"><Button onClick={createDiscount} disabled={!code.trim()||code.trim().length<3}>Create code</Button></div>
+        </div><div className="mt-5 space-y-2">{discounts.length?discounts.map(d=><div key={d.id} className="flex items-center justify-between rounded-xl border border-[#d9d2c4] p-3"><div><p className="text-sm font-extrabold">{d.code}</p><p className="text-xs text-[#697687]">{d.kind==='percentage'?d.value+'%':d.value+' '+(d.currency??'')} · {d.usageCount}{d.usageLimit===null?'':`/${d.usageLimit}`} uses</p><p className="mt-1 text-xs text-[#697687]">Minimum {d.minimumSubtotal} {d.currency??''}{d.startsAt||d.endsAt? ` · ${d.startsAt?new Date(d.startsAt).toLocaleString():'Starts now'}${d.endsAt?' – '+new Date(d.endsAt).toLocaleString():' – no expiry'}` : ''}</p></div><Badge tone={d.active?'success':'neutral'}>{d.active?'Active':'Inactive'}</Badge></div>):<p className="text-sm text-[#697687]">No discount codes yet.</p>}</div></div>
 
         <div className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-6"><SectionHeading eyebrow="Creator commerce" title="Digital products & courses" description="Selar-style digital delivery foundations: digital products, courses, memberships, files, curriculum, drip access and certificates." /><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-xl bg-[#f7f4ed] p-4"><BookOpen className="h-5 w-5 text-[#315e6c]"/><p className="mt-2 text-sm font-extrabold">Courses</p><p className="mt-1 text-xs text-[#697687]">Sections, lessons, video links, previews and certificates.</p></div><div className="rounded-xl bg-[#f7f4ed] p-4"><Gift className="h-5 w-5 text-[#a2772e]"/><p className="mt-2 text-sm font-extrabold">Digital delivery</p><p className="mt-1 text-xs text-[#697687]">Downloadable assets and customer entitlements.</p></div><div className="rounded-xl bg-[#f7f4ed] p-4"><UsersRound className="h-5 w-5 text-[#8a6826]"/><p className="mt-2 text-sm font-extrabold">Memberships</p><p className="mt-1 text-xs text-[#697687]">Membership-style access is modeled for the commerce engine.</p></div><div className="rounded-xl bg-[#f7f4ed] p-4"><Layers3 className="h-5 w-5 text-[#315e6c]"/><p className="mt-2 text-sm font-extrabold">Creator catalog</p><p className="mt-1 text-xs text-[#697687]">Products can be classified as digital, course, membership or service.</p></div></div></div>
 

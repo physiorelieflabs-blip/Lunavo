@@ -14,6 +14,9 @@ export interface PublicCheckoutOrder {
   orderNumber: string;
   title: string;
   subtotal: number;
+  discountAmount: number;
+  /** @nullable */
+  discountCode: string | null;
   tax: number;
   shipping: number;
   total: number;

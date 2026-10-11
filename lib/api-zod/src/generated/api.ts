@@ -2568,6 +2568,7 @@ export const CreatePublicCheckoutBody = zod.object({
   "shippingAddress": zod.string().min(createPublicCheckoutBodyShippingAddressMin).max(createPublicCheckoutBodyShippingAddressMax),
   "quantity": zod.int().min(1).max(createPublicCheckoutBodyQuantityMax),
   "paymentCurrency": zod.string().min(createPublicCheckoutBodyPaymentCurrencyMin).max(createPublicCheckoutBodyPaymentCurrencyMax).optional(),
+  "discountCode": zod.string().min(3).max(40).optional(),
   "marketingConsent": zod.boolean().optional(),
   "idempotencyKey": zod.string().min(createPublicCheckoutBodyIdempotencyKeyMin).max(createPublicCheckoutBodyIdempotencyKeyMax)
 })
@@ -2576,6 +2577,8 @@ export const CreatePublicCheckoutResponse = zod.object({
   "orderNumber": zod.string(),
   "title": zod.string(),
   "subtotal": zod.number(),
+  "discountAmount": zod.number(),
+  "discountCode": zod.string().nullable(),
   "tax": zod.number(),
   "shipping": zod.number(),
   "total": zod.number(),

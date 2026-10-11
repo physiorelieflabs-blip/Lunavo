@@ -47,6 +47,14 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Validate deployment Compose configurations
+        env:
+          POSTGRES_PASSWORD: ci-compose-password
+          SESSION_SECRET: ci-only-compose-session-secret
+          APP_BASE_URL: https://ci.invalid
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.ai.yml config -q
       - name: Canonical PostgreSQL migration smoke test
         run: pnpm --filter @workspace/db run migrate
       - name: Self-hosted core policy

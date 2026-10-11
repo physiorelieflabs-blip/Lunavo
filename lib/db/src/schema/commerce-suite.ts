@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { merchantsTable, ordersTable } from "./commerce";
 
 export const autoDsSettingsTable = pgTable("auto_ds_settings", {
   id: serial("id").primaryKey(),
@@ -76,7 +77,7 @@ export const customerSavedCartsTable = pgTable("customer_saved_carts", {
 
 export const discountCodesTable = pgTable("discount_codes", {
   id: serial("id").primaryKey(),
-  merchantId: integer("merchant_id").notNull(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
   code: text("code").notNull(),
   kind: text("kind").notNull().default("percentage"),
   value: numeric("value", { precision: 12, scale: 2 }).notNull(),
@@ -91,6 +92,23 @@ export const discountCodesTable = pgTable("discount_codes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   uniqueIndex("discount_codes_merchant_code_unique").on(table.merchantId, table.code),
+]);
+
+/** A coupon usage slot is reserved at checkout and redeemed only after payment verification. */
+export const discountCodeReservationsTable = pgTable("discount_code_reservations", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").notNull().references(() => merchantsTable.id, { onDelete: "cascade" }),
+  discountCodeId: integer("discount_code_id").notNull().references(() => discountCodesTable.id, { onDelete: "cascade" }),
+  orderId: integer("order_id").notNull().references(() => ordersTable.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("reserved"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("discount_code_reservations_order_unique").on(table.orderId),
+  uniqueIndex("discount_code_reservations_merchant_order_code_unique").on(table.merchantId, table.orderId, table.discountCodeId),
+  index("discount_code_reservations_capacity_idx").on(table.merchantId, table.discountCodeId, table.status, table.expiresAt),
 ]);
 
 export const giftCardsTable = pgTable("gift_cards", {

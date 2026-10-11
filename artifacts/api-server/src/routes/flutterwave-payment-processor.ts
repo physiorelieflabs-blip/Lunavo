@@ -17,6 +17,8 @@ import {
   supplierProductsTable,
   autoDsSettingsTable,
   fulfillmentJobsTable,
+  discountCodesTable,
+  discountCodeReservationsTable,
 } from "@workspace/db";
 import {
   calculateMerchantNetMinor,
@@ -32,6 +34,9 @@ import {
   qualifyReferralForPayment,
   reverseReferralReward,
 } from "../lib/referrals";
+import { mayPostProviderSale } from "../lib/order-payment-policy";
+import { emitDomainEvent } from "../lib/domain-events";
+import { evaluateFulfillmentReadiness } from "../lib/fulfillment-readiness";
 
 type ProviderTransaction = Record<string, unknown>;
 function executeQuery(executor: { execute: (query: unknown) => Promise<any> }, query: { sql: string; values: unknown[] }) {
@@ -400,6 +405,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
   const providerFee = providerFeeMinor(transaction);
   const settlementMinor = providerSettlementMinor(transaction);
   const settlementCurrency = providerSettlementCurrency(transaction, currency);
+  let exceptionOrderStatus: string | null = null;
   const result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${intent.id} AND merchant_id=${merchant.id} FOR UPDATE`);
     await tx.execute(sql`SELECT id FROM payment_records WHERE intent_id=${intent.id} AND merchant_id=${merchant.id} FOR UPDATE`);
@@ -412,6 +418,35 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       ? await tx.execute(sql`SELECT id FROM payment_intents WHERE provider_transaction_id=${providerId} AND id <> ${currentIntent.id} LIMIT 1`)
       : null;
     if (duplicateProvider?.rows.length) throw new Error("This Flutterwave transaction is already linked to another TS Pay payment");
+
+    // Order cancellation and provider settlement can race. Lock the order and
+    // refuse the normal sale/fulfillment path unless it is still pending.
+    await tx.execute(sql`SELECT id FROM orders WHERE id=${order.id} AND merchant_id=${merchant.id} FOR UPDATE`);
+    const currentOrder = (await tx.select().from(ordersTable).where(and(
+      eq(ordersTable.id, order.id),
+      eq(ordersTable.merchantId, merchant.id),
+    )).limit(1))[0];
+    if (!currentOrder || !mayPostProviderSale(currentOrder.status)) {
+      exceptionOrderStatus = currentOrder?.status ?? "missing";
+      await tx.update(paymentIntentsTable).set({
+        status: "reconciliation_required",
+        evidenceReference: providerId,
+        providerTransactionId: providerId,
+        providerEventId: eventId,
+        providerFeeMinor: providerFee,
+        tsCommerceFeeMinor: calculateTsCommerceFeeMinor(intent.amountMinor),
+        merchantNetMinor: calculateMerchantNetMinor(intent.amountMinor, providerFee),
+        settlementAmountMinor: settlementMinor,
+        settlementCurrency: settlementMinor === null ? null : settlementCurrency,
+      }).where(eq(paymentIntentsTable.id, currentIntent.id));
+      await tx.update(paymentRecordsTable).set({
+        status: "reconciliation_required",
+        evidenceReference: providerId ?? reference,
+        verifiedBy: "flutterwave_webhook",
+        verifiedAt: new Date(),
+      }).where(eq(paymentRecordsTable.id, currentRecord.id));
+      return "order_state_exception" as const;
+    }
 
     await tx.update(paymentIntentsTable).set({
       status: "successful",
@@ -433,6 +468,48 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
     await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
     await tx.update(ordersTable).set({ status: "paid" }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.merchantId, merchant.id), eq(ordersTable.status, "pending")));
+    const [redeemedCoupon] = await tx.update(discountCodeReservationsTable).set({
+      status: "redeemed", redeemedAt: new Date(), updatedAt: new Date(),
+    }).where(and(
+      eq(discountCodeReservationsTable.merchantId, merchant.id),
+      eq(discountCodeReservationsTable.orderId, order.id),
+      eq(discountCodeReservationsTable.status, "reserved"),
+    )).returning({ id: discountCodeReservationsTable.id, discountCodeId: discountCodeReservationsTable.discountCodeId });
+    if (redeemedCoupon) {
+      const [codeAfter] = await tx.update(discountCodesTable).set({
+        usageCount: sql`${discountCodesTable.usageCount} + 1`, updatedAt: new Date(),
+      }).where(and(
+        eq(discountCodesTable.id, redeemedCoupon.discountCodeId),
+        eq(discountCodesTable.merchantId, merchant.id),
+      )).returning({ usageCount: discountCodesTable.usageCount, code: discountCodesTable.code });
+      if (!codeAfter) throw new Error("Redeemed discount code could not be updated");
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id, eventType: "discount.redeemed", aggregateType: "discount_code",
+        aggregateId: redeemedCoupon.discountCodeId, actorType: "system", actorId: "flutterwave_webhook",
+        source: "system", idempotencyKey: `discount-redemption:${redeemedCoupon.id}`,
+        payload: { discountCodeId: redeemedCoupon.discountCodeId, discountCode: codeAfter.code, orderId: order.id, discountAmount: order.discountAmount, currency: order.currency, redeemedAt: new Date().toISOString() },
+        before: { usageCount: Math.max(0, codeAfter.usageCount - 1) },
+        after: { usageCount: codeAfter.usageCount },
+      });
+    }
+    await emitDomainEvent(tx, {
+      merchantId: merchant.id,
+      eventType: "payment.verified",
+      aggregateType: "payment_intent",
+      aggregateId: String(currentIntent.id),
+      actorType: "system",
+      actorId: "flutterwave",
+      source: "public_checkout",
+      idempotencyKey: `payment-intent:${currentIntent.id}:verified`,
+      payload: {
+        orderId: order.id,
+        amountMinor: currentIntent.amountMinor,
+        currency: currentIntent.currency,
+        providerPaymentId: providerId,
+      },
+      before: { status: currentIntent.status },
+      after: { status: "successful" },
+    });
     if (order.supplierProductId) {
       await tx.insert(marketplaceDiscoveryEventsTable).values({
         productId: String(order.supplierProductId),
@@ -446,31 +523,80 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       const autoDs = (await tx.select().from(autoDsSettingsTable).where(eq(autoDsSettingsTable.merchantId, merchant.id)).limit(1))[0];
       if (autoDs?.enabled) {
         const sourceCost = supplierProduct.salePrice ?? supplierProduct.price;
-        const selling = supplierProduct.sellingPrice;
-        const costNumber = sourceCost === null ? null : Number(sourceCost);
-        const sellNumber = selling === null ? null : Number(selling);
-        const marginPercent = costNumber !== null && sellNumber !== null && sellNumber > 0
-          ? ((sellNumber - costNumber) / sellNumber) * 100
+        const paidMerchandiseMinor = Math.max(
+          0,
+          Math.round((Number(order.subtotal) - Number(order.discountAmount ?? "0")) * 100),
+        );
+        const effectiveUnitSellingPrice = order.quantity > 0
+          ? paidMerchandiseMinor / 100 / order.quantity
           : null;
-        if (marginPercent === null || marginPercent >= Number(autoDs.minimumMarginPercent)) {
-          await tx.insert(fulfillmentJobsTable).values({
+        const readiness = evaluateFulfillmentReadiness(
+          sourceCost,
+          effectiveUnitSellingPrice,
+          autoDs.minimumMarginPercent,
+        );
+        const totalCostMinor = readiness.sourceCostAmount === null
+          ? null
+          : Math.round(readiness.sourceCostAmount * 100) * order.quantity;
+        const safeCostMinor = totalCostMinor !== null && Number.isSafeInteger(totalCostMinor) ? totalCostMinor : null;
+        const finalReadiness = totalCostMinor !== null && safeCostMinor === null
+          ? {
+              ...readiness,
+              eligible: false,
+              status: "failed" as const,
+              reason: "Automatic fulfillment is blocked because the total supplier cost exceeds the supported money range.",
+            }
+          : readiness;
+        const [createdJob] = await tx.insert(fulfillmentJobsTable).values({
+          merchantId: merchant.id,
+          orderId: order.id,
+          supplierProductId: order.supplierProductId,
+          mode: autoDs.mode,
+          status: finalReadiness.status,
+          lastError: finalReadiness.reason,
+          supplierCheckoutUrl: supplierProduct.supplierUrl || supplierProduct.sourceUrl,
+          customerSnapshot: {
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone,
+            shippingAddress: order.shippingAddress,
+          },
+          costMinor: safeCostMinor,
+          currency: order.currency,
+          attempts: 0,
+          idempotencyKey: `autods:order:${order.id}`,
+        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId })
+          .returning({ id: fulfillmentJobsTable.id, mode: fulfillmentJobsTable.mode, status: fulfillmentJobsTable.status });
+        if (createdJob) {
+          await emitDomainEvent(tx, {
             merchantId: merchant.id,
-            orderId: order.id,
-            supplierProductId: order.supplierProductId,
-            mode: autoDs.mode,
-            status: "ready",
-            supplierCheckoutUrl: supplierProduct.supplierUrl || supplierProduct.sourceUrl,
-            customerSnapshot: {
-              name: customer.name,
-              email: customer.email,
-              phone: customer.phone,
-              shippingAddress: order.shippingAddress,
+            eventType: "fulfillment.job_created",
+            aggregateType: "fulfillment_job",
+            aggregateId: createdJob.id,
+            actorType: "system",
+            actorId: "flutterwave_webhook",
+            source: "system",
+            idempotencyKey: `fulfillment-job:${createdJob.id}:created`,
+            payload: {
+              jobId: createdJob.id,
+              orderId: order.id,
+              supplierProductId: order.supplierProductId,
+              mode: createdJob.mode,
+              status: createdJob.status,
+              routingEligible: finalReadiness.eligible,
+              marginPercent: finalReadiness.marginPercent,
+              minimumMarginPercent: finalReadiness.minimumMarginPercent,
+              holdReason: finalReadiness.reason,
             },
-            costMinor: costNumber === null ? null : Math.round(costNumber * 100) * order.quantity,
-            currency: order.currency,
-            attempts: 0,
-            idempotencyKey: `autods:order:${order.id}`,
-          }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+            before: null,
+            after: {
+              status: createdJob.status,
+              mode: createdJob.mode,
+              orderId: order.id,
+              routingEligible: finalReadiness.eligible,
+              holdReason: finalReadiness.reason,
+            },
+          });
         }
       }
     }
@@ -478,6 +604,23 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     await tx.insert(activityTable).values({ merchantId: merchant.id, type: "payment_verified", title: "Payment verified", description: "Flutterwave payment was re-queried and verified server-side. Gross sale, actual provider fee (when returned), and TS Commerce 1% fee were recorded separately.", amount: (intent.amountMinor / 100).toFixed(2), currency, tone: "positive" });
     return "successful" as const;
   });
+  if (result === "order_state_exception") {
+    await recordReconciliationException({
+      eventId,
+      providerTransactionId: providerId,
+      paymentReference: reference || null,
+      merchantId: merchant.id,
+      orderId: order.id,
+      paymentIntentId: intent.id,
+      expectedAmountMinor: intent.amountMinor,
+      observedAmountMinor: observedMinor,
+      expectedCurrency: intent.currency,
+      observedCurrency: currency || null,
+      reason: `Flutterwave payment was confirmed after the order became '${exceptionOrderStatus ?? "unknown"}'. No sale ledger entry or fulfillment task was created; reconcile the captured funds.`,
+      payload: rawPayload,
+    });
+    return "reconciliation_required" as const;
+  }
   return result;
 }
 

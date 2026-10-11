@@ -2,12 +2,17 @@ import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { isSafeRasterImageType, matchesRasterImageSignature } from "./image-safety";
+export { isSafeRasterImageType, matchesRasterImageSignature } from "./image-safety";
 
 const MAX_HTML_BYTES = 1_000_000;
 const MAX_IMPORTED_NUMBER = 100_000_000;
 const DNS_LOOKUP_TIMEOUT_MS = 3_000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 2 * 60 * 1000;
+const MAX_PAGE_CACHE_ENTRIES = 500;
+const MAX_IN_FLIGHT_PAGES = 50;
+const MAX_HOST_RATE_ENTRIES = 1_000;
 const MIN_HOST_REQUEST_GAP_MS = 250;
 export const SUPPORTED_SUPPLIER_CURRENCIES = [
   "USD",
@@ -48,28 +53,41 @@ export type ImportedSupplierProduct = {
   sourceMetadata: Record<string, unknown>;
 };
 
-function blockedAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
+/** Fail closed for special-use, private, malformed, and ambiguous address literals. */
+export function isBlockedSupplierAddress(address: string): boolean {
+  const normalized = address.toLowerCase().split("%", 1)[0] ?? "";
+  const version = isIP(normalized);
+  if (version === 4) {
+    const octets = normalized.split(".").map(Number);
+    const [a, b, c] = octets;
+    if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
     return (
-      a === 10 ||
-      a === 127 ||
+      a === 0 || a === 10 || a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+      (a === 192 && b === 88 && c === 99) ||
       (a === 192 && b === 168) ||
-      a === 0
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113) ||
+      a >= 224
     );
   }
-  const normalized = address.toLowerCase();
-  if (normalized.startsWith("::ffff:")) {
-    return blockedAddress(normalized.slice("::ffff:".length));
+  if (version !== 6) return true;
+  // Reject mapped/compatible forms to avoid disagreements between URL, DNS and socket parsers.
+  if (normalized.startsWith("::")) return true;
+  if (/^f[cd]/i.test(normalized)) return true;
+  if (/^fe[89ab]/i.test(normalized)) return true;
+  if (/^ff/i.test(normalized)) return true;
+  if (normalized.startsWith("2001:")) {
+    const secondHextet = Number.parseInt(normalized.split(":")[1] ?? "", 16);
+    if (secondHextet === 0 || secondHextet === 2 || secondHextet === 0xdb8 || (secondHextet >= 0x10 && secondHextet <= 0x2f)) return true;
   }
-  return (
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe80:")
-  );
+  const firstHextet = Number.parseInt(normalized.split(":")[0] ?? "", 16);
+  // Only global-unicast 2000::/3 is eligible for public supplier fetching.
+  return !Number.isFinite(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff;
 }
 
 async function resolvePublicAddress(hostname: string): Promise<string> {
@@ -78,16 +96,54 @@ async function resolvePublicAddress(hostname: string): Promise<string> {
     : lookup(hostname, { all: true, verbatim: true }).then((entries) =>
         entries.map((entry) => entry.address),
       );
-  const addresses = await Promise.race([
-    resolution,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS),
-    ),
-  ]);
-  if (!addresses.length || addresses.some(blockedAddress)) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let addresses: string[];
+  try {
+    addresses = await Promise.race([
+      resolution,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+  if (!addresses.length || addresses.some(isBlockedSupplierAddress)) {
     throw new Error("Private and internal supplier addresses are not allowed");
   }
   return addresses[0]!;
+}
+
+export function usesStandardHttpPort(value: string | URL): boolean {
+  let url: URL;
+  try { url = value instanceof URL ? value : new URL(value); } catch { return false; }
+  if (url.protocol === "http:") return url.port === "" || url.port === "80";
+  if (url.protocol === "https:") return url.port === "" || url.port === "443";
+  return false;
+}
+
+function noteHostRequest(hostname: string) {
+  lastHostRequest.set(hostname, Date.now());
+  if (lastHostRequest.size > MAX_HOST_RATE_ENTRIES) {
+    const oldest = lastHostRequest.keys().next().value as string | undefined;
+    if (oldest) lastHostRequest.delete(oldest);
+  }
+}
+
+function rememberCachedPage(key: string, value: { url: URL; html: string }) {
+  pageCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  if (pageCache.size > MAX_PAGE_CACHE_ENTRIES) {
+    const now = Date.now();
+    for (const [cachedKey, item] of pageCache) {
+      if (item.expiresAt <= now) pageCache.delete(cachedKey);
+      if (pageCache.size <= MAX_PAGE_CACHE_ENTRIES) break;
+    }
+    while (pageCache.size > MAX_PAGE_CACHE_ENTRIES) {
+      const oldest = pageCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      pageCache.delete(oldest);
+    }
+  }
 }
 
 async function assertPublicUrl(value: string): Promise<{ url: URL; address: string }> {
@@ -100,7 +156,13 @@ async function assertPublicUrl(value: string): Promise<{ url: URL; address: stri
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error("Only public http and https supplier URLs are supported");
   }
+  if (!usesStandardHttpPort(url)) {
+    throw new Error("Supplier URLs must use standard HTTP or HTTPS ports");
+  }
   const hostname = url.hostname.toLowerCase();
+  if (url.username || url.password) {
+    throw new Error("Supplier URLs must not contain embedded credentials");
+  }
   if (
     hostname === "localhost" ||
     hostname.endsWith(".local") ||
@@ -167,11 +229,14 @@ async function fetchPublicPage(initialUrl: string): Promise<{ url: URL; html: st
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const pending = inFlightPages.get(cacheKey);
   if (pending) return pending;
+  if (inFlightPages.size >= MAX_IN_FLIGHT_PAGES) {
+    throw new Error("Supplier importer is busy; retry shortly");
+  }
   const request = fetchPublicPageUncached(url, resolved.address);
   inFlightPages.set(cacheKey, request);
   try {
     const value = await request;
-    pageCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+    rememberCachedPage(cacheKey, value);
     return value;
   } finally {
     inFlightPages.delete(cacheKey);
@@ -185,14 +250,16 @@ async function fetchPublicPageUncached(initialUrl: URL, initialAddress: string):
     const previousRequest = lastHostRequest.get(url.hostname) ?? 0;
     const waitMs = MIN_HOST_REQUEST_GAP_MS - (Date.now() - previousRequest);
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
-    lastHostRequest.set(url.hostname, Date.now());
+    noteHostRequest(url.hostname);
     const response = await requestPinnedPage(url, address);
     if (response.statusCode >= 300 && response.statusCode < 400) {
       const location = response.location;
       if (!location || attempt === MAX_REDIRECTS) {
         throw new Error("Supplier page redirected too many times");
       }
-      const next = await assertPublicUrl(new URL(location, url).toString());
+      const nextUrl = new URL(location, url);
+      if (url.protocol === "https:" && nextUrl.protocol === "http:") throw new Error("Supplier redirects cannot downgrade HTTPS to HTTP");
+      const next = await assertPublicUrl(nextUrl.toString());
       url = next.url;
       address = next.address;
       continue;
@@ -200,13 +267,111 @@ async function fetchPublicPageUncached(initialUrl: URL, initialAddress: string):
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`Supplier page could not be read (HTTP ${response.statusCode})`);
     }
-    const contentType = response.contentType;
+    const contentType = response.contentType.toLowerCase();
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
       throw new Error("Supplier link must point to a public HTML product page");
     }
     return { url, html: response.html };
   }
   throw new Error("Supplier page could not be read");
+}
+
+
+// Only passive raster formats are forwarded to a self-hosted vision server. SVG/HTML are intentionally excluded.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+async function requestPinnedImage(
+  url: URL,
+  address: string,
+): Promise<{ statusCode: number; location: string | null; contentType: string; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finishError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)({
+      hostname: address,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      servername: isIP(url.hostname) ? undefined : url.hostname,
+      rejectUnauthorized: true,
+      headers: {
+        accept: "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9",
+        host: url.host,
+        "user-agent": "Lunavo-Self-Hosted-Vision/1.0",
+      },
+      timeout: 8_000,
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      response.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > MAX_IMAGE_BYTES) {
+          request.destroy(new Error("Supplier image exceeds the safe size limit"));
+          finishError(new Error("Supplier image exceeds the safe size limit"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on("end", () => {
+        if (settled) return;
+        settled = true;
+        resolve({
+          statusCode: response.statusCode ?? 0,
+          location: headerValue(response.headers, "location"),
+          contentType: headerValue(response.headers, "content-type") ?? "",
+          body: Buffer.concat(chunks),
+        });
+      });
+      response.on("error", finishError);
+    });
+    request.on("timeout", () => request.destroy(new Error("Supplier image request timed out")));
+    request.on("error", finishError);
+    request.end();
+  });
+}
+
+/**
+ * Securely retrieves an image on the API server, pins DNS to a vetted public address,
+ * validates every redirect, and returns raster bytes as a data URL. The local model
+ * server therefore never has to dereference an untrusted supplier URL itself.
+ */
+export async function fetchPublicImageDataUrl(initialUrl: string): Promise<string> {
+  const first = await assertPublicUrl(initialUrl);
+  let url = first.url;
+  let address = first.address;
+
+  for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
+    const previousRequest = lastHostRequest.get(url.hostname) ?? 0;
+    const waitMs = MIN_HOST_REQUEST_GAP_MS - (Date.now() - previousRequest);
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    lastHostRequest.set(url.hostname, Date.now());
+
+    const response = await requestPinnedImage(url, address);
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      if (!response.location || attempt === MAX_REDIRECTS) {
+        throw new Error("Supplier image redirected too many times");
+      }
+      const nextUrl = new URL(response.location, url);
+      if (url.protocol === "https:" && nextUrl.protocol === "http:") throw new Error("Supplier image redirects cannot downgrade HTTPS to HTTP");
+      const next = await assertPublicUrl(nextUrl.toString());
+      url = next.url;
+      address = next.address;
+      continue;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`Supplier image could not be read (HTTP ${response.statusCode})`);
+    }
+    const mimeType = response.contentType.split(";", 1)[0]!.trim().toLowerCase();
+    if (!isSafeRasterImageType(mimeType) || !matchesRasterImageSignature(mimeType, response.body)) {
+      throw new Error("Supplier image must be a supported raster image with a matching content signature");
+    }
+    return `data:${mimeType};base64,${response.body.toString("base64")}`;
+  }
+  throw new Error("Supplier image could not be read");
 }
 
 function decodeHtml(value: string): string {

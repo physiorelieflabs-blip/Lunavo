@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 const env=await readFile('.env.example','utf8');
+const commerceRoutes=await readFile('artifacts/api-server/src/routes/commerce.ts','utf8');
+const forbiddenHostedFx=['open.er-api.com','api.exchangerate-api.com','api.frankfurter.app'];
+const hostedFxViolations=forbiddenHostedFx.filter(host=>commerceRoutes.includes(host));
+if(hostedFxViolations.length){console.error('Lunavo self-hosted FX policy: FAIL');for(const host of hostedFxViolations)console.error(`- Hosted FX dependency found: ${host}`);process.exit(1)}
 const forbidden=['OPENAI_API_KEY','GEMINI_API_KEY','ANTHROPIC_API_KEY','DEEPSEEK_API_KEY','GOOGLE_MAPS_API_KEY','MAPBOX_ACCESS_TOKEN','TWILIO_AUTH_TOKEN','SENDGRID_API_KEY','MAILGUN_API_KEY','RESEND_API_KEY','ALGOLIA_API_KEY','PINECONE_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','CLERK_SECRET_KEY','CLERK_PUBLISHABLE_KEY'];
 const violations=forbidden.filter(name=>new RegExp(`^${name}=`,`m`).test(env));
 const flutterwaveKeys=['FLUTTERWAVE_SECRET_KEY','FLUTTERWAVE_WEBHOOK_SECRET'];

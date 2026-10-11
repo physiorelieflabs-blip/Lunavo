@@ -3887,6 +3887,7 @@ components:
         shippingAddress: { type: string, minLength: 8, maxLength: 500 }
         quantity: { type: integer, minimum: 1, maximum: 100 }
         paymentCurrency: { type: string, minLength: 3, maxLength: 3 }
+        discountCode: { type: string, minLength: 3, maxLength: 40 }
         marketingConsent: { type: boolean }
         idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
       required: [supplierProductId, customerName, customerEmail, shippingAddress, quantity, idempotencyKey]
@@ -3908,6 +3909,8 @@ components:
         orderNumber: { type: string }
         title: { type: string }
         subtotal: { type: number }
+        discountAmount: { type: number }
+        discountCode: { type: ["string", "null"] }
         tax: { type: number }
         shipping: { type: number }
         total: { type: number }
@@ -3923,7 +3926,7 @@ components:
             - $ref: "#/components/schemas/PublicPaymentDestination"
             - type: "null"
         paymentStatus: { type: string, enum: [created, submitted, verified, failed, manual] }
-      required: [orderNumber, title, subtotal, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentDestination, paymentStatus]
+      required: [orderNumber, title, subtotal, discountAmount, discountCode, tax, shipping, total, currency, status, paymentMessage, paymentToken, paymentIntentId, paymentProvider, paymentUrl, paymentDestination, paymentStatus]
     PaymentLinkInput:
       type: object
       properties:

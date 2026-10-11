@@ -17,12 +17,14 @@ import {
   inArray,
   isNull,
   lt,
+  lte,
   or,
   sql,
 } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
+import { calculateFxPayload, FX_RATE_MAX_AGE_MS, type FxRateSet } from "../lib/fx-rates";
 import {
   activityTable,
   aiActionsTable,
@@ -51,6 +53,8 @@ import {
   supplierImportBatchesTable,
   suppliersTable,
   subscriptionsTable,
+  discountCodesTable,
+  discountCodeReservationsTable,
   withdrawalSecurityTable,
   withdrawalsTable,
   inventoryReservationsTable,
@@ -337,6 +341,10 @@ import {
   verifyTotp,
 } from "../lib/withdrawal-security";
 import { emitDomainEvent } from "../lib/domain-events";
+import { normalizeSupplierStock, supplierSyncCheckoutError } from "../lib/supplier-sync-policy";
+import { evaluateDiscountCode } from "../lib/discount-policy";
+import { calculateSupplierSellingPrice } from "../lib/supplier-pricing";
+import { dropshipStatusTransitionError } from "../lib/dropship-status-policy";
 import { completePrimaryReasoning } from "../lib/ai-provider";
 import { researchWithLocalSearch } from "../lib/local-search";
 import { DASHBOARD_EARNING_WINDOW_DAYS, calculateDashboardWindow } from "../lib/critical-payment-rules";
@@ -796,53 +804,52 @@ function isSupportedCurrency(value: string): boolean {
   );
 }
 
-async function getMarketExchangeRate(base: string, quote: string): Promise<FxPayload> {
-  if (base === quote) {
-    const now = new Date().toISOString();
-    return {
-      base,
-      quote,
-      rate: 1,
-      source: "Identity rate",
-      fetchedAt: now,
-      asOf: now,
-    };
+function fxJsonObject(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; }
+    catch { return {}; }
   }
-  const cacheKey = `${base}:${quote}`;
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+function fxRateSetFromSnapshot(row: Record<string, unknown>): FxRateSet {
+  const unitsPerUsd: Record<string, number> = {};
+  for (const [currency, raw] of Object.entries(fxJsonObject(row.rates_per_usd))) {
+    const rate = Number(raw);
+    if (/^[A-Z]{3}$/.test(currency) && Number.isFinite(rate) && rate > 0) unitsPerUsd[currency] = rate;
+  }
+  const stringMap = (value: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [key, item] of Object.entries(fxJsonObject(value))) if (typeof item === "string") out[key] = item;
+    return out;
+  };
+  return { unitsPerUsd, asOfByCurrency: stringMap(row.as_of_by_currency), sourceByCurrency: stringMap(row.source_by_currency) };
+}
+async function getMarketExchangeRate(base: string, quote: string): Promise<FxPayload> {
+  const normalizedBase = base.trim().toUpperCase();
+  const normalizedQuote = quote.trim().toUpperCase();
+  if (normalizedBase === normalizedQuote) {
+    return { base: normalizedBase, quote: normalizedQuote, rate: 1, source: "Identity rate", fetchedAt: new Date().toISOString(), asOf: null };
+  }
+  const cacheKey = `${normalizedBase}:${normalizedQuote}`;
   const cached = fxCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
-  const response = await fetch(
-    `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`,
-    { signal: AbortSignal.timeout(8_000) },
-  );
-  if (!response.ok) throw new Error(`FX provider returned ${response.status}`);
-  const body = (await response.json()) as {
-    rates?: Record<string, number>;
-    time_last_update_utc?: string;
-  };
-  const rate = Number(body.rates?.[quote]);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error("The selected currency pair is not available");
-  }
-  const fetchedAt = new Date().toISOString();
-  const asOfDate = body.time_last_update_utc
-    ? new Date(body.time_last_update_utc)
-    : null;
-  const payload = {
-    base,
-    quote,
-    rate,
-    source: "ExchangeRate-API Open Access",
-    fetchedAt,
-    asOf:
-      asOfDate && !Number.isNaN(asOfDate.getTime())
-        ? asOfDate.toISOString()
-        : null,
-  };
-  fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60 * 1000, payload });
+
+  const result = await db.execute(sql`
+    SELECT fetched_at, source_summary, rates_per_usd, as_of_by_currency, source_by_currency
+    FROM market_fx_rate_snapshots
+    ORDER BY fetched_at DESC, id DESC
+    LIMIT 1
+  `);
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  if (!row) throw new Error("Local FX rate snapshots are not available yet; the official-rate worker has not stored a fresh observation.");
+  const rateSet = fxRateSetFromSnapshot(row);
+  const calculated = calculateFxPayload(normalizedBase, normalizedQuote, rateSet, Date.now(), FX_RATE_MAX_AGE_MS);
+  const snapshotDate = new Date(row.fetched_at as string | number | Date);
+  if (Number.isNaN(snapshotDate.getTime())) throw new Error("Stored FX snapshot has an invalid fetch timestamp");
+  const payload: FxPayload = { ...calculated, fetchedAt: snapshotDate.toISOString() };
+  fxCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, payload });
   return payload;
 }
-
 async function getSubscriptionQuote(currency: string) {
   const fx = await getMarketExchangeRate("USD", currency);
   return {
@@ -1505,27 +1512,6 @@ async function serializeInvoice(invoice: typeof invoicesTable.$inferSelect) {
   };
 }
 
-function calculateSellingPrice(
-  cost: string | number | null,
-  profitType: string,
-  profitValue: string | number,
-  pricingMode = profitType === "percentage" ? "percentage_markup" : "fixed_markup",
-  customSellingPrice: string | number | null | undefined = null,
-): number | null {
-  if (pricingMode === "custom") {
-    return customSellingPrice === null || customSellingPrice === undefined
-      ? null
-      : Number(toNumber(customSellingPrice).toFixed(2));
-  }
-  if (cost === null) return null;
-  const costAmount = toNumber(cost);
-  if (pricingMode === "same_price") return Number(costAmount.toFixed(2));
-  const profitAmount =
-    pricingMode === "percentage_markup" || profitType === "percentage"
-      ? (costAmount * toNumber(profitValue)) / 100
-      : toNumber(profitValue);
-  return Number((costAmount + profitAmount).toFixed(2));
-}
 
 function jsonArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -1801,7 +1787,7 @@ function importedProductValues(
   const pricingMode =
     options.pricingMode ??
     (profitType === "percentage" ? "percentage_markup" : "fixed_markup");
-  const sellingPrice = calculateSellingPrice(
+  const sellingPrice = calculateSupplierSellingPrice(
     costAmount,
     profitType,
     profitValue,
@@ -1923,6 +1909,8 @@ function serializePublicCheckoutOrder(
     orderNumber: order.orderNumber,
     title: product.title,
     subtotal: toNumber(order.subtotal),
+    discountAmount: toNumber(order.discountAmount),
+    discountCode: order.discountCode ?? null,
     tax: toNumber(order.taxAmount),
     shipping: toNumber(order.shippingAmount),
     total: toNumber(order.total),
@@ -6050,10 +6038,93 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/supplier-products/sync-health", async (req, res): Promise<void> => {
+  const identity = await requireIdentity(req, res);
+  if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
+
+  const products = await db
+    .select({
+      id: supplierProductsTable.id,
+      title: supplierProductsTable.title,
+      status: supplierProductsTable.status,
+      visibility: supplierProductsTable.visibility,
+      importStatus: supplierProductsTable.importStatus,
+      inventoryStatus: supplierProductsTable.inventoryStatus,
+      availabilityQuantity: supplierProductsTable.availabilityQuantity,
+      lastAttemptedSync: supplierProductsTable.lastAttemptedSync,
+      importedAt: supplierProductsTable.importedAt,
+      sourceMetadata: supplierProductsTable.sourceMetadata,
+    })
+    .from(supplierProductsTable)
+    .where(and(
+      eq(supplierProductsTable.merchantId, merchant.id),
+      eq(supplierProductsTable.inventoryStrategy, "synchronized"),
+    ))
+    .orderBy(desc(supplierProductsTable.lastAttemptedSync), desc(supplierProductsTable.importedAt))
+    .limit(500);
+
+  const now = Date.now();
+  const freshnessMs = 45 * 60_000;
+  const items = products.map((product) => {
+    const metadata = jsonRecord(product.sourceMetadata);
+    const sync = jsonRecord(metadata.supplierSync);
+    const lastSuccessAt = typeof sync.lastSuccessAt === "string" ? sync.lastSuccessAt : null;
+    const successTime = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
+    let state: "healthy" | "syncing" | "stale" | "failed" | "needs_review" | "never_synced";
+    let issue: string | null = null;
+    if (product.importStatus === "needs_review") {
+      state = "needs_review";
+      issue = "Review supplier cost, currency, and pricing before republishing.";
+    } else if (sync.state === "failed" || product.importStatus === "source_unavailable") {
+      state = "failed";
+      issue = "The last supplier refresh failed. Checkout is blocked until fresh stock is verified.";
+    } else if (sync.state === "syncing") {
+      state = "syncing";
+      issue = "Supplier source refresh is running.";
+    } else if (!Number.isFinite(successTime)) {
+      state = "never_synced";
+      issue = "No successful scheduled supplier refresh has been recorded yet.";
+    } else if (successTime > now + 60_000 || now - successTime > freshnessMs) {
+      state = "stale";
+      issue = "The last successful source observation is older than 45 minutes.";
+    } else {
+      state = "healthy";
+    }
+    return {
+      id: product.id,
+      title: product.title,
+      status: product.status,
+      visibility: product.visibility,
+      importStatus: product.importStatus,
+      inventoryStatus: product.inventoryStatus,
+      availabilityQuantity: product.availabilityQuantity,
+      lastAttemptedSync: product.lastAttemptedSync?.toISOString() ?? null,
+      lastSuccessAt,
+      state,
+      issue,
+    };
+  });
+  res.json({
+    checkedAt: new Date(now).toISOString(),
+    freshnessWindowMinutes: 45,
+    tracked: items.length,
+    healthy: items.filter((item) => item.state === "healthy").length,
+    syncing: items.filter((item) => item.state === "syncing").length,
+    stale: items.filter((item) => item.state === "stale").length,
+    failed: items.filter((item) => item.state === "failed").length,
+    needsReview: items.filter((item) => item.state === "needs_review").length,
+    neverSynced: items.filter((item) => item.state === "never_synced").length,
+    items: items.slice(0, 100),
+  });
+});
+
 router.get("/supplier-products", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
   const products = await db
     .select()
     .from(supplierProductsTable)
@@ -6115,6 +6186,8 @@ router.get("/supplier-import-history", async (req, res): Promise<void> => {
 router.post("/supplier-products", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
     res.status(429).json({ error: "Supplier import limit reached. Try again later." });
     return;
@@ -6124,7 +6197,6 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter a public supplier product URL" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
   try {
     const imported = await enrichSupplierProduct(await importPublicSupplierProduct(parsed.data.sourceUrl));
     const supplierUrl = normalizedSupplierUrl(
@@ -6173,23 +6245,58 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
     const existing =
       duplicateAction === "create_new" ? undefined : duplicates[0];
     const values = importedProductValues(imported, parsed.data, supplier.id);
-    const [product] = existing
-      ? await db
-          .update(supplierProductsTable)
-          .set(values)
-          .where(eq(supplierProductsTable.id, existing.id))
-          .returning()
-      : await db
-          .insert(supplierProductsTable)
-          .values({ merchantId: merchant.id, ...values })
-          .returning();
-    if (!product) throw new Error("Supplier product could not be saved");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: imported.sourceUrl,
-      status: product.importStatus,
-      message: existing ? "Product updated from source" : "Product imported from source",
+    const product = await db.transaction(async (tx) => {
+      const [saved] = existing
+        ? await tx
+            .update(supplierProductsTable)
+            .set(values)
+            .where(eq(supplierProductsTable.id, existing.id))
+            .returning()
+        : await tx
+            .insert(supplierProductsTable)
+            .values({ merchantId: merchant.id, ...values })
+            .returning();
+      if (!saved) throw new Error("Supplier product could not be saved");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: imported.sourceUrl,
+        status: saved.importStatus,
+        message: existing ? "Product updated from source" : "Product imported from source",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "supplier.product_imported",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `supplier-product-import:${saved.id}:${randomUUID()}`,
+        payload: {
+          supplierProductId: saved.id,
+          operation: existing ? "updated" : "created",
+          title: saved.title,
+          sourceDomain: saved.sourceDomain,
+          sourcePrice: saved.salePrice ?? saved.price,
+          currency: saved.currency,
+          status: saved.status,
+          visibility: saved.visibility,
+        },
+        before: existing ? {
+          status: existing.status,
+          visibility: existing.visibility,
+          sourcePrice: existing.salePrice ?? existing.price,
+          currency: existing.currency,
+        } : null,
+        after: {
+          status: saved.status,
+          visibility: saved.visibility,
+          sourcePrice: saved.salePrice ?? saved.price,
+          currency: saved.currency,
+        },
+      });
+      return saved;
     });
     res.status(existing ? 200 : 201).json(
       ImportSupplierProductResponse.parse(serializeSupplierProduct(product)),
@@ -6204,6 +6311,8 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
 router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
+  const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
   if (!consumeSupplierImportQuota(identity.clerkUserId, 1)) {
     res.status(429).json({ error: "Supplier import limit reached. Try again later." });
     return;
@@ -6213,7 +6322,6 @@ router.post("/supplier-products/analyze", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Enter a public supplier product URL" });
     return;
   }
-  const merchant = await getOrCreateMerchant(identity);
   try {
     const imported = await enrichSupplierProduct(await importPublicSupplierProduct(parsed.data.sourceUrl));
     const duplicateConditions = [eq(supplierProductsTable.sourceUrl, imported.sourceUrl)];
@@ -6270,6 +6378,7 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   const [batch] = await db
     .insert(supplierImportBatchesTable)
     .values({
@@ -6365,24 +6474,60 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
       }, supplier.id);
       const existing =
         duplicateAction === "create_new" ? undefined : duplicates[0];
-      const [product] = existing
-        ? await db
-            .update(supplierProductsTable)
-            .set(values)
-            .where(eq(supplierProductsTable.id, existing.id))
-            .returning()
-        : await db
-            .insert(supplierProductsTable)
-            .values({ merchantId: merchant.id, ...values })
-            .returning();
-      if (!product) throw new Error("Product could not be saved");
-      await db.insert(supplierImportAttemptsTable).values({
-        merchantId: merchant.id,
-        supplierProductId: product.id,
-        batchId: batch.id,
-        sourceUrl: imported.sourceUrl,
-        status: existing ? "updated" : "imported",
-        message: existing ? "Updated from batch source" : "Imported from batch source",
+      const product = await db.transaction(async (tx) => {
+        const [saved] = existing
+          ? await tx
+              .update(supplierProductsTable)
+              .set(values)
+              .where(eq(supplierProductsTable.id, existing.id))
+              .returning()
+          : await tx
+              .insert(supplierProductsTable)
+              .values({ merchantId: merchant.id, ...values })
+              .returning();
+        if (!saved) throw new Error("Product could not be saved");
+        await tx.insert(supplierImportAttemptsTable).values({
+          merchantId: merchant.id,
+          supplierProductId: saved.id,
+          batchId: batch.id,
+          sourceUrl: imported.sourceUrl,
+          status: existing ? "updated" : "imported",
+          message: existing ? "Updated from batch source" : "Imported from batch source",
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.product_imported",
+          aggregateType: "supplier_product",
+          aggregateId: saved.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-product-import:${saved.id}:${randomUUID()}`,
+          payload: {
+            supplierProductId: saved.id,
+            batchId: batch.id,
+            operation: existing ? "updated" : "created",
+            title: saved.title,
+            sourceDomain: saved.sourceDomain,
+            sourcePrice: saved.salePrice ?? saved.price,
+            currency: saved.currency,
+            status: saved.status,
+            visibility: saved.visibility,
+          },
+          before: existing ? {
+            status: existing.status,
+            visibility: existing.visibility,
+            sourcePrice: existing.salePrice ?? existing.price,
+            currency: existing.currency,
+          } : null,
+          after: {
+            status: saved.status,
+            visibility: saved.visibility,
+            sourcePrice: saved.salePrice ?? saved.price,
+            currency: saved.currency,
+          },
+        });
+        return saved;
       });
       completedCount += 1;
       results.push({ sourceUrl, status: "imported", product: serializeSupplierProduct(product) });
@@ -6429,6 +6574,7 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   try {
     if (parsed.data.currency.toUpperCase() !== merchant.currency) {
       throw new Error("Active products must use the merchant settlement currency");
@@ -6441,41 +6587,77 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
       ? await ensureSupplierRecord(merchant.id, supplierUrl.url, parsed.data.supplierName)
       : null;
     const sourceUrl = parsed.data.supplierUrl ?? `https://manual.invalid/product/${randomUUID()}`;
-    const [product] = await db
-      .insert(supplierProductsTable)
-      .values({
+    const product = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(supplierProductsTable)
+        .values({
+          merchantId: merchant.id,
+          supplierId: supplier?.id ?? null,
+          sourceUrl,
+          supplierUrl: supplier?.website ?? "https://manual.invalid",
+          sourceDomain: supplier?.domain ?? "manual",
+          title: parsed.data.title,
+          description: parsed.data.description ?? null,
+          imageUrl: parsed.data.imageUrl ?? null,
+          price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
+          salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
+          currency: parsed.data.currency.toUpperCase(),
+          sku: parsed.data.sku ?? null,
+          category: parsed.data.category ?? null,
+          tags: parsed.data.tags ?? [],
+          sellingPrice: parsed.data.sellingPrice.toFixed(2),
+          inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
+          inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
+          availabilityQuantity: parsed.data.inventoryQuantity ?? null,
+          status: "active",
+          visibility: "active",
+          importStatus: "manual_import_required",
+          importedAt: new Date(),
+          publishedAt: new Date(),
+        })
+        .returning();
+      if (!created) throw new Error("Manual product could not be saved");
+      await tx.insert(supplierImportAttemptsTable).values({
         merchantId: merchant.id,
-        supplierId: supplier?.id ?? null,
+        supplierProductId: created.id,
         sourceUrl,
-        supplierUrl: supplier?.website ?? "https://manual.invalid",
-        sourceDomain: supplier?.domain ?? "manual",
-        title: parsed.data.title,
-        description: parsed.data.description ?? null,
-        imageUrl: parsed.data.imageUrl ?? null,
-        price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
-        salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
-        currency: parsed.data.currency.toUpperCase(),
-        sku: parsed.data.sku ?? null,
-        category: parsed.data.category ?? null,
-        tags: parsed.data.tags ?? [],
-        sellingPrice: parsed.data.sellingPrice.toFixed(2),
-        inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
-        inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
-        availabilityQuantity: parsed.data.inventoryQuantity ?? null,
-        status: "active",
-        visibility: "active",
-        importStatus: "manual_import_required",
-        importedAt: new Date(),
-        publishedAt: new Date(),
-      })
-      .returning();
-    if (!product) throw new Error("Manual product could not be saved");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl,
-      status: "manual_import_required",
-      message: "Created with merchant-supplied product details",
+        status: "manual_import_required",
+        message: "Created with merchant-supplied product details",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: created.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product:${created.id}:created`,
+        payload: {
+          productId: created.id,
+          operation: "created",
+          title: created.title,
+          sourceDomain: created.sourceDomain,
+          sourceCost: created.salePrice ?? created.price,
+          sellingPrice: created.sellingPrice,
+          currency: created.currency,
+          status: created.status,
+          visibility: created.visibility,
+          availability: created.availability,
+          availabilityQuantity: created.availabilityQuantity,
+        },
+        before: null,
+        after: {
+          status: created.status,
+          visibility: created.visibility,
+          sourceCost: created.salePrice ?? created.price,
+          sellingPrice: created.sellingPrice,
+          currency: created.currency,
+          availability: created.availability,
+          availabilityQuantity: created.availabilityQuantity,
+        },
+      });
+      return created;
     });
     res.status(201).json(CreateManualSupplierProductResponse.parse(serializeSupplierProduct(product)));
   } catch (error) {
@@ -6495,6 +6677,7 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
          let product = (
     await db
       .select()
@@ -6652,24 +6835,64 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
       if (has(key as keyof typeof input)) currentOverrides[key] = true;
     }
     updates.merchantOverrides = currentOverrides;
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(
-        and(
-          eq(supplierProductsTable.id, product.id),
-          eq(supplierProductsTable.merchantId, merchant.id),
-        ),
-      )
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: updated.id,
-      sourceUrl: updated.sourceUrl,
-      status: nextVisibility === "active" ? "published" : "edited",
-      message: "Merchant-edited product fields saved",
-      changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .update(supplierProductsTable)
+        .set(updates)
+        .where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)))
+        .returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: saved.sourceUrl,
+        status: nextVisibility === "active" ? "published" : "edited",
+        message: "Merchant-edited product fields saved",
+        changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product:${saved.id}:updated:${saved.updatedAt.getTime()}`,
+        payload: {
+          productId: saved.id,
+          operation: product.visibility !== saved.visibility ? "visibility_changed" : "updated",
+          title: saved.title,
+          sourceDomain: saved.sourceDomain,
+          sourceCost: saved.salePrice ?? saved.price,
+          sellingPrice: saved.sellingPrice,
+          currency: saved.currency,
+          status: saved.status,
+          visibility: saved.visibility,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+          changedFields: Object.keys(updates).filter((key) => key !== "updatedAt"),
+        },
+        before: {
+          status: product.status,
+          visibility: product.visibility,
+          sourceCost: product.salePrice ?? product.price,
+          sellingPrice: product.sellingPrice,
+          currency: product.currency,
+          availability: product.availability,
+          availabilityQuantity: product.availabilityQuantity,
+        },
+        after: {
+          status: saved.status,
+          visibility: saved.visibility,
+          sourceCost: saved.salePrice ?? saved.price,
+          sellingPrice: saved.sellingPrice,
+          currency: saved.currency,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+        },
+      });
+      return saved;
     });
     res.json(UpdateSupplierProductResponse.parse(serializeSupplierProduct(updated)));
   } catch (error) {
@@ -6692,59 +6915,184 @@ router.post("/supplier-products/:id/refresh", async (req, res): Promise<void> =>
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
-         let product = (
-      await db
-        .select()
-        .from(supplierProductsTable)
-        .where(
-          and(
-            eq(supplierProductsTable.merchantId, merchant.id),
-            eq(supplierProductsTable.id, params.data.id),
-          ),
-        )
-        .limit(1)
-    )[0];
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
+
+  const product = (
+    await db.select().from(supplierProductsTable).where(and(
+      eq(supplierProductsTable.merchantId, merchant.id),
+      eq(supplierProductsTable.id, params.data.id),
+    )).limit(1)
+  )[0];
   if (!product) {
     res.status(404).json({ error: "Supplier product not found" });
     return;
   }
+
+  const attemptedAt = new Date();
+  let imported: ImportedSupplierProduct;
   try {
-    const imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
-    const source = serializeSupplierPreview(imported);
-    const current = serializeSupplierProduct(product);
-    const fields = ["title", "description", "imageUrl", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
-    const changes = fields
-      .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(source[field]))
-      .map((field) => ({
-        field,
-        current: current[field],
-        incoming: source[field],
-        customized: Boolean(jsonRecord(product.merchantOverrides)[field]),
-      }));
-    await db
-      .update(supplierProductsTable)
-      .set({ lastAttemptedSync: new Date(), importStatus: changes.length ? "needs_review" : "imported" })
-      .where(eq(supplierProductsTable.id, product.id));
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: product.sourceUrl,
-      status: changes.length ? "needs_review" : "imported",
-      changes,
-    });
-    res.json(
-      RefreshSupplierProductResponse.parse({
-        product: serializeSupplierProduct(product),
-        changes,
-        message: changes.length ? "Review source changes before accepting them." : "Source is unchanged.",
-      }),
-    );
+    imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
+    validateSupplierImportSnapshot(imported);
   } catch (error) {
-    await db
-      .update(supplierProductsTable)
-      .set({ lastAttemptedSync: new Date(), importStatus: "source_unavailable", importError: error instanceof Error ? error.message : "Source unavailable" })
-      .where(eq(supplierProductsTable.id, product.id));
-    res.status(422).json({ error: error instanceof Error ? error.message : "Supplier source could not be refreshed" });
+    const message = "Supplier source refresh failed. Check the public source URL and try again.";
+    const errorCode = error instanceof Error ? error.name.slice(0, 60) : "UnknownError";
+    try {
+      await db.transaction(async (tx) => {
+        const metadata = jsonRecord(product.sourceMetadata);
+        const sync = jsonRecord(metadata.supplierSync);
+        const [updated] = await tx.update(supplierProductsTable).set({
+          lastAttemptedSync: attemptedAt,
+          importStatus: "source_unavailable",
+          importError: message,
+          sourceMetadata: {
+            ...metadata,
+            supplierSync: {
+              ...sync,
+              state: "failed",
+              lastAttemptAt: attemptedAt.toISOString(),
+              lastError: message,
+            },
+          },
+        }).where(and(
+          eq(supplierProductsTable.id, product.id),
+          eq(supplierProductsTable.merchantId, merchant.id),
+        )).returning({ id: supplierProductsTable.id });
+        if (!updated) throw new Error("Supplier source product was not available to record the failed refresh");
+        await tx.insert(supplierImportAttemptsTable).values({
+          merchantId: merchant.id,
+          supplierProductId: product.id,
+          sourceUrl: product.sourceUrl,
+          status: "failed",
+          message,
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.sync_failed",
+          aggregateType: "supplier_product",
+          aggregateId: product.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-sync-failed:${product.id}:${attemptedAt.getTime()}`,
+          payload: {
+            supplierProductId: product.id,
+            sourceDomain: product.sourceDomain,
+            errorCode,
+            message,
+            synchronizedInventory: product.inventoryStrategy === "synchronized",
+          },
+          before: { importStatus: product.importStatus },
+          after: { importStatus: "source_unavailable", syncState: "failed" },
+        });
+      });
+    } catch (persistError) {
+      req.log.error({ err: persistError, merchantId: merchant.id, supplierProductId: product.id }, "Could not record failed supplier refresh");
+      res.status(500).json({ error: "Supplier refresh failed and its status could not be saved. Retry the operation." });
+      return;
+    }
+    req.log.warn({ merchantId: merchant.id, supplierProductId: product.id, errorCode }, "Supplier source refresh failed");
+    res.status(422).json({ error: message });
+    return;
+  }
+
+  const source = serializeSupplierPreview(imported);
+  const current = serializeSupplierProduct(product);
+  const fields = ["title", "description", "imageUrl", "imageUrls", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
+  const changes = fields
+    .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(source[field]))
+    .map((field) => ({
+      field,
+      current: current[field],
+      incoming: source[field],
+      customized: Boolean(jsonRecord(product.merchantOverrides)[field]),
+    }));
+  const changedFields = changes.map((change) => change.field);
+  const stockChanged = changedFields.some((field) => field === "availability" || field === "availabilityQuantity");
+  const metadata = jsonRecord(product.sourceMetadata);
+  const sync = jsonRecord(metadata.supplierSync);
+  const nextSourceMetadata = {
+    ...metadata,
+    supplierSync: {
+      ...sync,
+      state: stockChanged ? "needs_review" : "ready",
+      lastAttemptAt: attemptedAt.toISOString(),
+      ...(stockChanged ? {} : { lastSuccessAt: attemptedAt.toISOString(), lastError: null }),
+    },
+  };
+
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx.update(supplierProductsTable).set({
+        lastAttemptedSync: attemptedAt,
+        importStatus: changes.length ? "needs_review" : "imported",
+        importError: null,
+        sourceMetadata: nextSourceMetadata,
+      }).where(and(
+        eq(supplierProductsTable.id, product.id),
+        eq(supplierProductsTable.merchantId, merchant.id),
+      )).returning();
+      if (!saved) throw new Error("Supplier product could not be updated after source refresh");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: product.id,
+        sourceUrl: product.sourceUrl,
+        status: changes.length ? "needs_review" : "imported",
+        message: changes.length ? "Source changes captured for merchant review" : "Supplier source refresh completed; no differences found",
+        changes,
+      });
+      if (changes.length) {
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.observation_changed",
+          aggregateType: "supplier_product",
+          aggregateId: saved.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-observation:${saved.id}:${attemptedAt.getTime()}`,
+          payload: {
+            supplierProductId: saved.id,
+            sourceDomain: saved.sourceDomain,
+            changedFields,
+            sourceCostBefore: product.salePrice ?? product.price,
+            observedSourceCost: imported.salePrice ?? imported.price,
+            currencyBefore: product.currency,
+            observedCurrency: imported.currency,
+            availabilityBefore: product.availability,
+            observedAvailability: imported.availability,
+            availabilityQuantityBefore: product.availabilityQuantity,
+            observedAvailabilityQuantity: imported.availabilityQuantity,
+            stockObservationChanged: stockChanged,
+            requiresReview: true,
+            observedAt: attemptedAt.toISOString(),
+          },
+          before: {
+            sourceCost: product.salePrice ?? product.price,
+            currency: product.currency,
+            availability: product.availability,
+            availabilityQuantity: product.availabilityQuantity,
+          },
+          after: {
+            observedSourceCost: imported.salePrice ?? imported.price,
+            currency: imported.currency,
+            availability: imported.availability,
+            availabilityQuantity: imported.availabilityQuantity,
+            requiresReview: true,
+          },
+        });
+      }
+      return saved;
+    });
+    res.json(RefreshSupplierProductResponse.parse({
+      product: serializeSupplierProduct(updated),
+      changes,
+      message: changes.length
+        ? "Source observations were recorded. Review changed fields before they affect the live catalog."
+        : "Source is unchanged and its observation was refreshed successfully.",
+    }));
+  } catch (error) {
+    req.log.error({ err: error, merchantId: merchant.id, supplierProductId: product.id }, "Could not persist supplier refresh");
+    res.status(500).json({ error: "Supplier data was fetched, but the refresh record could not be saved. Retry the operation." });
   }
 });
 
@@ -6758,45 +7106,37 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.adjust", res))) return;
   const product = (
-    await db
-      .select()
-      .from(supplierProductsTable)
-      .where(
-        and(
-          eq(supplierProductsTable.id, params.data.id),
-          eq(supplierProductsTable.merchantId, merchant.id),
-        ),
-      )
-      .limit(1)
+    await db.select().from(supplierProductsTable).where(and(
+      eq(supplierProductsTable.id, params.data.id),
+      eq(supplierProductsTable.merchantId, merchant.id),
+    )).limit(1)
   )[0];
   if (!product) {
     res.status(404).json({ error: "Supplier product not found" });
     return;
   }
+
   try {
     const imported = await enrichSupplierProduct(await importPublicSupplierProduct(product.sourceUrl));
     validateSupplierImportSnapshot(imported);
-    const accepted = new Set(parsed.data.fields);
-    const updates: Record<string, unknown> = {
-      importStatus: "imported",
-      importError: null,
-      lastAttemptedSync: new Date(),
-    };
-    const sourceFields = {
+    const accepted = new Set<string>(parsed.data.fields);
+    const acceptedAt = new Date();
+    const sourceFields: Record<string, unknown> = {
       title: imported.title,
       description: imported.description,
       imageUrl: imported.imageUrl,
       imageUrls: imported.imageUrls,
-       price: (() => {
-         const value = validateSupplierPrice(imported.price, "Supplier price");
-         return value === null ? null : value.toFixed(2);
-       })(),
-       salePrice: (() => {
-         const value = validateSupplierPrice(imported.salePrice, "Supplier sale price");
-         return value === null ? null : value.toFixed(2);
-       })(),
-       currency: validateSupplierCurrency(imported.currency),
+      price: (() => {
+        const value = validateSupplierPrice(imported.price, "Supplier price");
+        return value === null ? null : value.toFixed(2);
+      })(),
+      salePrice: (() => {
+        const value = validateSupplierPrice(imported.salePrice, "Supplier sale price");
+        return value === null ? null : value.toFixed(2);
+      })(),
+      currency: validateSupplierCurrency(imported.currency),
       sku: imported.sku,
       sourceProductId: imported.sourceProductId,
       variants: imported.variants,
@@ -6808,33 +7148,125 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
       brand: imported.brand,
       shippingInformation: imported.shippingInformation,
     };
-    for (const [field, value] of Object.entries(sourceFields)) {
-      if ((parsed.data.fields as readonly string[]).includes(field)) {
-        updates[field] = value;
-      }
-    }
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(eq(supplierProductsTable.id, product.id))
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: product.sourceUrl,
-      status: "imported",
-      message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
-      changes: parsed.data.fields,
-    });
-    res.json(
-      AcceptSupplierRefreshResponse.parse({
-        product: serializeSupplierProduct(updated),
-        acceptedFields: parsed.data.fields,
-        message: "Selected source changes were accepted.",
-      }),
+    const comparisonFields = ["title", "description", "imageUrl", "imageUrls", "price", "salePrice", "currency", "sku", "sourceProductId", "variants", "attributes", "availability", "availabilityQuantity", "category", "specifications", "brand", "shippingInformation"] as const;
+    const currentView = serializeSupplierProduct(product);
+    const sourceView = serializeSupplierPreview(imported);
+    const overrides = jsonRecord(product.merchantOverrides);
+    const changedFields = comparisonFields.filter((field) =>
+      JSON.stringify(currentView[field]) !== JSON.stringify(sourceView[field]),
     );
+    const stockFields = new Set(["availability", "availabilityQuantity"]);
+    const unresolvedFields = changedFields.filter((field) => {
+      if (accepted.has(field)) return false;
+      // Text/price fields intentionally overridden by the merchant do not need
+      // acceptance. Synchronized inventory cannot use an override to bypass a stock hold.
+      const overrideKey = field === "price" ? "costPrice" : field === "availabilityQuantity" ? "inventoryQuantity" : field;
+      const customized = Boolean(overrides[overrideKey] ?? overrides[field]);
+      return !customized || (product.inventoryStrategy === "synchronized" && stockFields.has(field));
+    });
+    const changedStockFields = changedFields.filter((field) => stockFields.has(field));
+    const stockObservationReady = changedStockFields.every((field) => accepted.has(field));
+    const updates: Record<string, unknown> = {
+      importStatus: unresolvedFields.length ? "needs_review" : "imported",
+      importError: null,
+      lastAttemptedSync: acceptedAt,
+    };
+    for (const [field, value] of Object.entries(sourceFields)) {
+      if (accepted.has(field)) updates[field] = value;
+    }
+
+    if (stockObservationReady) {
+      const normalizedStock = normalizeSupplierStock(imported.availability, imported.availabilityQuantity);
+      // Store a consistent observation pair even when only one of the two fields changed.
+      updates.availability = imported.availability;
+      updates.availabilityQuantity = normalizedStock.availabilityQuantity;
+      updates.inventoryStatus = normalizedStock.inventoryStatus;
+    }
+
+    const metadata = jsonRecord(product.sourceMetadata);
+    const previousSync = jsonRecord(metadata.supplierSync);
+    updates.sourceMetadata = {
+      ...metadata,
+      supplierSync: {
+        ...previousSync,
+        state: stockObservationReady ? "ready" : "needs_review",
+        lastAttemptAt: acceptedAt.toISOString(),
+        ...(stockObservationReady ? { lastSuccessAt: acceptedAt.toISOString(), lastError: null } : {}),
+      },
+    };
+
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx.update(supplierProductsTable).set(updates).where(and(
+        eq(supplierProductsTable.id, product.id),
+        eq(supplierProductsTable.merchantId, merchant.id),
+      )).returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: product.sourceUrl,
+        status: unresolvedFields.length ? "needs_review" : "imported",
+        message: unresolvedFields.length
+          ? `Accepted selected source fields; review remains for: ${unresolvedFields.join(", ")}`
+          : `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
+        changes: [
+          ...parsed.data.fields.map((field) => ({ field, state: "accepted" })),
+          ...unresolvedFields.map((field) => ({ field, state: "needs_review" })),
+        ],
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "supplier.product_refreshed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `supplier-product-refresh:${saved.id}:${randomUUID()}`,
+        payload: {
+          supplierProductId: saved.id,
+          acceptedFields: parsed.data.fields,
+          unresolvedFields,
+          stockRevalidated: stockObservationReady,
+          sourceDomain: saved.sourceDomain,
+          previousSourcePrice: product.salePrice ?? product.price,
+          sourcePrice: saved.salePrice ?? saved.price,
+          currency: saved.currency,
+          previousAvailability: product.availability,
+          availability: saved.availability,
+          previousAvailabilityQuantity: product.availabilityQuantity,
+          availabilityQuantity: saved.availabilityQuantity,
+          importStatus: saved.importStatus,
+          observedAt: acceptedAt.toISOString(),
+        },
+        before: {
+          sourcePrice: product.salePrice ?? product.price,
+          currency: product.currency,
+          availability: product.availability,
+          availabilityQuantity: product.availabilityQuantity,
+          importStatus: product.importStatus,
+        },
+        after: {
+          sourcePrice: saved.salePrice ?? saved.price,
+          currency: saved.currency,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+          inventoryStatus: saved.inventoryStatus,
+          importStatus: saved.importStatus,
+        },
+      });
+      return saved;
+    });
+
+    res.json(AcceptSupplierRefreshResponse.parse({
+      product: serializeSupplierProduct(updated),
+      acceptedFields: parsed.data.fields,
+      message: unresolvedFields.length
+        ? "Selected source changes were accepted, but remaining changes still require review."
+        : "Selected source changes were accepted and the refreshed state was saved.",
+    }));
   } catch (error) {
+    req.log.error({ err: error, merchantId: merchant.id, supplierProductId: product.id }, "Supplier refresh acceptance failed");
     res.status(422).json({
       error: error instanceof Error ? error.message : "Source refresh could not be accepted",
     });
@@ -6845,6 +7277,7 @@ router.get("/suppliers", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "inventory.read", res))) return;
   const suppliers = await db
     .select({
       supplier: suppliersTable,
@@ -6877,6 +7310,7 @@ router.patch("/suppliers/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "fulfillment.manage", res))) return;
   const existing = (
     await db
       .select()
@@ -7572,6 +8006,8 @@ router.post("/orders", async (req, res): Promise<void> => {
       ) {
         throw new Error("That catalog product is not available for sale");
       }
+      const synchronizedStockError = supplierSyncCheckoutError(supplierProduct);
+      if (synchronizedStockError) throw new Error(synchronizedStockError);
       const unitPrice = Number(supplierProduct.sellingPrice);
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
         throw new Error("That catalog product does not have a valid selling price");
@@ -7891,6 +8327,11 @@ router.patch("/orders/:id/status", async (req, res): Promise<void> => {
             payload: { orderId: order.id, supplierProductId: reservation.supplierProductId, quantity: reservation.quantity },
           });
         }
+        await tx.update(discountCodeReservationsTable).set({ status: "released", updatedAt: new Date() }).where(and(
+          eq(discountCodeReservationsTable.merchantId, merchant.id),
+          eq(discountCodeReservationsTable.orderId, order.id),
+          eq(discountCodeReservationsTable.status, "reserved"),
+        ));
         return { ...existing, order };
       }
 
@@ -8182,6 +8623,7 @@ router.get("/marketplace/management", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
   let [monthlyRecord] = await db.select().from(marketplaceBillingRecordsTable)
     .where(and(eq(marketplaceBillingRecordsTable.merchantId, merchant.id), eq(marketplaceBillingRecordsTable.kind, "monthly")))
     .orderBy(desc(marketplaceBillingRecordsTable.createdAt))
@@ -8228,6 +8670,7 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
   const product = (await db.select().from(supplierProductsTable)
     .where(and(
       eq(supplierProductsTable.id, parsed.data.supplierProductId),
@@ -8238,6 +8681,11 @@ router.post("/marketplace/listings", async (req, res): Promise<void> => {
     )).limit(1))[0];
   if (!product) {
     res.status(409).json({ error: "Only published, priced products can enter the marketplace" });
+    return;
+  }
+  const synchronizedStockError = supplierSyncCheckoutError(product);
+  if (synchronizedStockError) {
+    res.status(409).json({ error: "This synchronized product cannot be listed until its supplier availability is verified.", details: synchronizedStockError });
     return;
   }
   const adFx = await getMarketExchangeRate("USD", merchant.currency);
@@ -8911,14 +9359,22 @@ router.get("/auctions", async (req, res): Promise<void> => {
     .select({
       auction: auctionListingsTable,
       merchantName: merchantsTable.storeName,
+      product: supplierProductsTable,
     })
     .from(auctionListingsTable)
     .innerJoin(merchantsTable, eq(auctionListingsTable.merchantId, merchantsTable.id))
-    .where(and(...filters))
+    .innerJoin(supplierProductsTable, eq(auctionListingsTable.supplierProductId, supplierProductsTable.id))
+    .where(and(
+      ...filters,
+      eq(supplierProductsTable.status, "active"),
+      eq(supplierProductsTable.visibility, "active"),
+      sql`${supplierProductsTable.sellingPrice} is not null`,
+    ))
     .orderBy(asc(auctionListingsTable.endsAt))
     .limit(100);
   const result = await Promise.all(
-    rows.map(async ({ auction, merchantName }) => {
+    rows.filter(({ product }) => supplierSyncCheckoutError(product) === null)
+      .map(async ({ auction, merchantName }) => {
       const bids = await db
         .select()
         .from(auctionBidsTable)
@@ -8980,6 +9436,16 @@ router.post("/auctions/:id/bids", async (req, res): Promise<void> => {
       if (!auction || auction.status !== "active" || auction.startsAt > new Date() || auction.endsAt <= new Date()) {
         throw new Error("This auction is no longer accepting bids");
       }
+      const product = (await tx.select().from(supplierProductsTable)
+        .where(eq(supplierProductsTable.id, auction.supplierProductId))
+        .limit(1))[0];
+      if (!product || product.status !== "active" || product.visibility !== "active" || product.sellingPrice === null) {
+        throw new Error("This auction's product is no longer available for sale");
+      }
+      const stockIssue = supplierSyncCheckoutError(product);
+      if (stockIssue) {
+        throw new Error("This auction is paused until supplier availability is verified: " + stockIssue);
+      }
       const [highest] = await tx
         .select({ amount: auctionBidsTable.amount })
         .from(auctionBidsTable)
@@ -9015,6 +9481,7 @@ router.get("/merchant/auctions", async (req, res): Promise<void> => {
   if (!identity) return;
   try {
     const merchant = await getOrCreateMerchant(identity);
+    if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
     const rows = await db
       .select()
       .from(auctionListingsTable)
@@ -9048,6 +9515,7 @@ router.post("/auctions", async (req, res): Promise<void> => {
   }
   try {
     const merchant = await getOrCreateMerchant(identity);
+    if (!(await requireTenantPermission(identity, merchant.id, "marketplace.manage", res))) return;
     const product = (
       await db
         .select()
@@ -9064,6 +9532,11 @@ router.post("/auctions", async (req, res): Promise<void> => {
     )[0];
     if (!product || product.sellingPrice === null) {
       res.status(422).json({ error: "Only an active, published product with a selling price can be auctioned" });
+      return;
+    }
+    const synchronizedStockError = supplierSyncCheckoutError(product);
+    if (synchronizedStockError) {
+      res.status(409).json({ error: "This synchronized product cannot be auctioned until its supplier availability is verified.", details: synchronizedStockError });
       return;
     }
     if (parsed.data.endsAt <= new Date(Date.now() + 5 * 60 * 1000)) {
@@ -9115,6 +9588,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
   const filters = [
     eq(merchantsTable.status, "active"),
     eq(supplierProductsTable.status, "active"),
+    eq(supplierProductsTable.visibility, "active"),
     eq(marketplaceListingsTable.status, "approved"),
     eq(marketplaceListingsTable.listingFeeStatus, "paid"),
     exists(
@@ -9146,7 +9620,7 @@ router.get("/marketplace/products", async (req, res): Promise<void> => {
     desc(supplierProductsTable.importedAt),
   )
     .limit(100);
-   res.json(ListMarketplaceProductsResponse.parse(rows.map(({ product, merchantKey, merchantName }) => ({
+   res.json(ListMarketplaceProductsResponse.parse(rows.filter(({ product }) => supplierSyncCheckoutError(product) === null).map(({ product, merchantKey, merchantName }) => ({
     id: product.id,
     merchantKey,
     merchantName: merchantName || "Independent merchant",
@@ -9260,12 +9734,17 @@ router.get("/public/store/:merchantKey", async (req, res): Promise<void> => {
     storeAddress: merchant.storeAddress,
     storefrontTheme: storefrontTheme(resolved?.publication?.theme ?? storefront?.theme ?? merchant.storefrontTheme),
     storefrontSections: storefrontSections(resolved?.publication?.sections ?? storefront?.sections ?? merchant.storefrontSections),
-    products: products.map((product) => ({
-      id: product.id, title: product.title, description: product.description, imageUrl: product.imageUrl,
-      price: toNumber(product.sellingPrice), salePrice: null, currency: product.currency, sku: product.sku,
-      availability: product.availability, inventoryStatus: product.inventoryStatus, inventoryQuantity: product.availabilityQuantity,
-      variants: Array.isArray(product.variants) ? product.variants : [], category: product.category,
-    })),
+    products: products.map((product) => {
+      const synchronizationBlocked = supplierSyncCheckoutError(product) !== null;
+      return {
+        id: product.id, title: product.title, description: product.description, imageUrl: product.imageUrl,
+        price: toNumber(product.sellingPrice), salePrice: null, currency: product.currency, sku: product.sku,
+        availability: product.availability,
+        inventoryStatus: synchronizationBlocked ? "unknown" : product.inventoryStatus,
+        inventoryQuantity: synchronizationBlocked ? null : product.availabilityQuantity,
+        variants: Array.isArray(product.variants) ? product.variants : [], category: product.category,
+      };
+    }),
   }));
 });
 router.get("/public/store/:merchantKey/payment-destination", async (req, res): Promise<void> => {
@@ -9318,6 +9797,9 @@ router.post(
     try {
       const location = await resolveOrderLocation(merchant.id, null, null, true);
       const result = await db.transaction(async (tx) => {
+        // Avoid a race where two identical requests both pass the initial
+        // lookup and one gets a false coupon-capacity error after the other commits.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${merchant.id}, hashtext(${parsed.data.idempotencyKey}))`);
         const existing = (
           await tx
             .select({ order: ordersTable, product: supplierProductsTable })
@@ -9334,6 +9816,7 @@ router.post(
             )
             .limit(1)
         )[0];
+         const requestedDiscountCode = parsed.data.discountCode?.trim().toUpperCase() || null;
          if (existing) {
            const requestedEmail = parsed.data.customerEmail.trim().toLowerCase();
            const existingCustomer = (
@@ -9353,8 +9836,18 @@ router.post(
              || existing.order.quantity !== parsed.data.quantity
              || existing.order.shippingAddress !== parsed.data.shippingAddress.trim()
              || existingCustomer?.email !== requestedEmail
+             || (existing.order.discountCode ?? null) !== requestedDiscountCode
            ) {
              throw new Error("This checkout idempotency key was already used for a different order");
+           }
+           if (existing.order.discountCode && existing.order.status !== "paid") {
+             const couponReservation = (await tx.select().from(discountCodeReservationsTable).where(and(
+               eq(discountCodeReservationsTable.merchantId, merchant.id),
+               eq(discountCodeReservationsTable.orderId, existing.order.id),
+             )).limit(1))[0];
+             if (!couponReservation || couponReservation.status !== "reserved" || couponReservation.expiresAt <= new Date()) {
+               throw new Error("This checkout's discount reservation expired. Restart checkout to reserve the code again.");
+             }
            }
            return existing;
          }
@@ -9400,6 +9893,8 @@ router.post(
          ) {
            throw new Error("That product is no longer available");
          }
+         const synchronizedStockError = supplierSyncCheckoutError(product);
+         if (synchronizedStockError) throw new Error(synchronizedStockError);
          if (product.currency !== merchant.currency) {
            throw new Error("This product is not available in the store's settlement currency");
          }
@@ -9436,18 +9931,58 @@ router.post(
             throw new Error("Insufficient inventory");
           }
         }
-         const unitPrice = toNumber(product.sellingPrice);
-        const subtotal = Number((unitPrice * quantity).toFixed(2));
-        const shippingAmount = merchant.freeShippingThreshold !== null
-          && subtotal >= toNumber(merchant.freeShippingThreshold)
-          ? 0
-          : toNumber(merchant.shippingFee);
-        const taxAmount = Number(
-          (subtotal * toNumber(merchant.taxRate) / 100).toFixed(2),
-        );
-        const total = Number(
-          (subtotal + shippingAmount + taxAmount).toFixed(2),
-        );
+        const unitPrice = toNumber(product.sellingPrice);
+        const unitPriceMinor = Math.round(unitPrice * 100);
+        const subtotalMinor = unitPriceMinor * quantity;
+        if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor < 1 || !Number.isSafeInteger(subtotalMinor)) {
+          throw new Error("The product price or quantity exceeds the supported checkout range");
+        }
+        const subtotal = subtotalMinor / 100;
+        let discountRule: typeof discountCodesTable.$inferSelect | null = null;
+        let discountAmountMinor = 0;
+        if (requestedDiscountCode) {
+          if (!/^[A-Z0-9_-]{3,40}$/.test(requestedDiscountCode)) throw new Error("Enter a valid discount code");
+          await tx.execute(sql`SELECT id FROM discount_codes WHERE merchant_id=${merchant.id} AND code=${requestedDiscountCode} FOR UPDATE`);
+          discountRule = (await tx.select().from(discountCodesTable).where(and(
+            eq(discountCodesTable.merchantId, merchant.id),
+            eq(discountCodesTable.code, requestedDiscountCode),
+          )).limit(1))[0] ?? null;
+          if (!discountRule) throw new Error("Discount code is invalid for this store");
+          const discountNow = new Date();
+          await tx.update(discountCodeReservationsTable).set({ status: "expired", updatedAt: discountNow }).where(and(
+            eq(discountCodeReservationsTable.merchantId, merchant.id),
+            eq(discountCodeReservationsTable.discountCodeId, discountRule.id),
+            eq(discountCodeReservationsTable.status, "reserved"),
+            lte(discountCodeReservationsTable.expiresAt, discountNow),
+          ));
+          const [reservedRow] = await tx.select({ count: sql<number>`count(*)::int` }).from(discountCodeReservationsTable).where(and(
+            eq(discountCodeReservationsTable.merchantId, merchant.id),
+            eq(discountCodeReservationsTable.discountCodeId, discountRule.id),
+            eq(discountCodeReservationsTable.status, "reserved"),
+            gte(discountCodeReservationsTable.expiresAt, discountNow),
+          ));
+          discountAmountMinor = evaluateDiscountCode(discountRule, {
+            subtotalMinor,
+            currency: product.currency,
+            reservedUses: Number(reservedRow?.count ?? 0),
+            now: discountNow,
+          }).discountAmountMinor;
+        }
+        const discountAmount = discountAmountMinor / 100;
+        const discountedSubtotalMinor = subtotalMinor - discountAmountMinor;
+        // Free shipping uses pre-discount merchandise subtotal; tax uses discounted merchandise.
+        const shippingAmount = merchant.freeShippingThreshold !== null && subtotal >= toNumber(merchant.freeShippingThreshold)
+          ? 0 : toNumber(merchant.shippingFee);
+        const shippingAmountMinor = Math.round(shippingAmount * 100);
+        const taxRate = toNumber(merchant.taxRate);
+        if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100 || !Number.isSafeInteger(shippingAmountMinor) || shippingAmountMinor < 0) {
+          throw new Error("The store's tax or shipping configuration is invalid");
+        }
+        const taxAmountMinor = Math.round(discountedSubtotalMinor * taxRate / 100);
+        const totalMinor = discountedSubtotalMinor + shippingAmountMinor + taxAmountMinor;
+        if (!Number.isSafeInteger(totalMinor) || totalMinor < 1) throw new Error("The checkout total is outside the supported payment range");
+        const taxAmount = taxAmountMinor / 100;
+        const total = totalMinor / 100;
          const email = parsed.data.customerEmail.trim().toLowerCase();
          const marketingConsent = parsed.data.marketingConsent;
         let customer = (
@@ -9497,6 +10032,8 @@ router.post(
             customerId: customer.id,
             orderNumber: `WEB-${randomUUID().slice(0, 8).toUpperCase()}`,
             subtotal: subtotal.toFixed(2),
+            discountAmount: discountAmount.toFixed(2),
+            discountCode: requestedDiscountCode,
             taxAmount: taxAmount.toFixed(2),
             shippingAmount: shippingAmount.toFixed(2),
             total: total.toFixed(2),
@@ -9516,24 +10053,39 @@ router.post(
         if (!order) {
           const replay = (
             await tx
-              .select({ order: ordersTable, product: supplierProductsTable })
+              .select({ order: ordersTable, product: supplierProductsTable, customer: customersTable })
               .from(ordersTable)
-              .innerJoin(
-                supplierProductsTable,
-                eq(ordersTable.supplierProductId, supplierProductsTable.id),
-              )
-              .where(
-                and(
-                  eq(ordersTable.merchantId, merchant.id),
-                  eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey),
-                ),
-              )
+              .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
+              .innerJoin(supplierProductsTable, eq(ordersTable.supplierProductId, supplierProductsTable.id))
+              .where(and(
+                eq(ordersTable.merchantId, merchant.id),
+                eq(ordersTable.idempotencyKey, parsed.data.idempotencyKey),
+              ))
               .limit(1)
           )[0];
-          if (replay) return replay;
+          if (replay) {
+            if (
+              replay.order.supplierProductId !== product.id ||
+              replay.order.quantity !== quantity ||
+              replay.order.shippingAddress !== parsed.data.shippingAddress.trim() ||
+              replay.customer.email.trim().toLowerCase() !== parsed.data.customerEmail.trim().toLowerCase() ||
+              (replay.order.discountCode ?? null) !== requestedDiscountCode ||
+              Math.round(Number(replay.order.total) * 100) !== totalMinor
+            ) {
+              throw new Error("This checkout idempotency key was already used for a different order");
+            }
+            return replay;
+          }
           throw new Error("Checkout order could not be created");
         }
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        if (discountRule) {
+          const [couponReservation] = await tx.insert(discountCodeReservationsTable).values({
+            merchantId: merchant.id, discountCodeId: discountRule.id, orderId: order.id,
+            status: "reserved", expiresAt,
+          }).returning({ id: discountCodeReservationsTable.id });
+          if (!couponReservation) throw new Error("Discount usage could not be reserved");
+        }
         const [reservation] = await tx.insert(inventoryReservationsTable).values({
           merchantId: merchant.id,
           locationId: order.locationId,
@@ -9556,7 +10108,7 @@ router.post(
         await emitDomainEvent(tx, {
           merchantId: merchant.id, eventType: "order.created", aggregateType: "order", aggregateId: order.id,
           actorType: "customer", source: "public_checkout", idempotencyKey: `order:${order.id}:created`,
-          payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total },
+          payload: { orderNumber: order.orderNumber, status: order.status, currency: order.currency, total: order.total, discountCode: order.discountCode, discountAmount: order.discountAmount },
         });
         await emitDomainEvent(tx, {
           merchantId: merchant.id, eventType: "inventory.reserved", aggregateType: "inventory_reservation", aggregateId: reservation.id,
@@ -10171,6 +10723,7 @@ router.get("/dropship/queue", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res);
   if (!identity) return;
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "fulfillment.manage", res))) return;
   const queue = await db
     .select({
       order: ordersTable,
@@ -10210,6 +10763,7 @@ router.post("/dropship/queue/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "finance.manage", res))) return;
   try {
     const result = await db.transaction(async (tx) => {
       // Serialize all supplier-fund debits for this merchant. Checking the
@@ -10327,6 +10881,7 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
     return;
   }
   const merchant = await getOrCreateMerchant(identity);
+  if (!(await requireTenantPermission(identity, merchant.id, "fulfillment.manage", res))) return;
   const nextStatus = parsed.data.fulfillmentStatus;
   const result = await db.transaction(async (tx) => {
     await tx.execute(
@@ -10377,25 +10932,17 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
       }
     }
     const currentStatus = existing.order.fulfillmentStatus;
-    const allowedTransitions: Record<string, string[]> = {
-      not_submitted: ["not_submitted", "submitted", "canceled", "failed"],
-      submitted: ["submitted", "accepted", "processing", "canceled", "failed"],
-      accepted: ["accepted", "processing", "canceled", "failed"],
-      processing: ["processing", "shipped", "canceled", "failed"],
-      shipped: ["shipped", "in_transit", "delivered", "failed"],
-      in_transit: ["in_transit", "delivered", "failed"],
-      delivered: ["delivered"],
-      canceled: ["canceled"],
-      failed: ["failed", "submitted"],
-    };
-    if (!(allowedTransitions[currentStatus] ?? []).includes(nextStatus)) {
-      throw new Error(
-        `Cannot move supplier fulfillment from ${currentStatus.replaceAll("_", " ")} to ${nextStatus.replaceAll("_", " ")}`,
-      );
-    }
+    const transitionError = dropshipStatusTransitionError(currentStatus, nextStatus, {
+      supplierOrderReference: parsed.data.supplierOrderReference,
+      trackingNumber: parsed.data.trackingNumber,
+      currentSupplierOrderReference: existing.order.supplierOrderReference,
+      currentTrackingNumber: existing.order.trackingNumber,
+    });
+    if (transitionError) throw new Error(transitionError);
     const fulfillmentStarted =
       existing.order.fulfillmentSubmittedAt ??
       (nextStatus !== "not_submitted" ? new Date() : null);
+    const fulfillmentUpdatedAt = new Date();
     const [order] = await tx
       .update(ordersTable)
       .set({
@@ -10414,11 +10961,31 @@ router.patch("/dropship/queue/:id", async (req, res): Promise<void> => {
             ? existing.order.fulfillmentNote
             : parsed.data.fulfillmentNote,
         fulfillmentSubmittedAt: fulfillmentStarted,
-        fulfillmentUpdatedAt: new Date(),
+        fulfillmentUpdatedAt,
       })
-      .where(eq(ordersTable.id, existing.order.id))
+      .where(and(eq(ordersTable.id, existing.order.id), eq(ordersTable.merchantId, merchant.id)))
       .returning();
     if (!order) throw new Error("Dropshipping status could not be updated");
+    await emitDomainEvent(tx, {
+      merchantId: merchant.id,
+      eventType: "order.fulfillment_changed",
+      aggregateType: "order",
+      aggregateId: order.id,
+      actorType: "merchant",
+      actorId: identity.clerkUserId,
+      source: "merchant_api",
+      idempotencyKey: `order-fulfillment:${order.id}:${currentStatus}:${nextStatus}:${fulfillmentUpdatedAt.getTime()}`,
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        fromStatus: currentStatus,
+        toStatus: nextStatus,
+        supplierOrderReferencePresent: Boolean(order.supplierOrderReference),
+        trackingNumberPresent: Boolean(order.trackingNumber),
+      },
+      before: { fulfillmentStatus: currentStatus },
+      after: { fulfillmentStatus: nextStatus, orderStatus: order.status },
+    });
     await tx.insert(activityTable).values({
       merchantId: merchant.id,
       type: "dropship_status_updated",
@@ -13235,6 +13802,46 @@ router.patch("/reconciliation/:id", async (req, res): Promise<void> => {
    });
   if (!record) { res.status(404).json({ error: "Reconciliation record not found" }); return; }
   res.json(UpdateReconciliationResponse.parse(record));
+});
+
+router.get("/admin/fx-rates/status", async (req, res): Promise<void> => {
+  const identity = await requireAdmin(req, res);
+  if (!identity) return;
+  const result = await db.execute(sql`
+    SELECT fetched_at, source_summary, rates_per_usd, as_of_by_currency, source_by_currency
+    FROM market_fx_rate_snapshots ORDER BY fetched_at DESC, id DESC LIMIT 1
+  `);
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  if (!row) {
+    res.json({ available: false, refreshedAt: null, sourceSummary: null, currencies: [], message: "No locally collected official FX rates are available yet." });
+    return;
+  }
+  const rates = fxJsonObject(row.rates_per_usd);
+  const dates = fxJsonObject(row.as_of_by_currency);
+  const sources = fxJsonObject(row.source_by_currency);
+  const now = Date.now();
+  const currencies = Object.entries(rates).map(([currency, value]) => {
+    const asOf = typeof dates[currency] === "string" ? String(dates[currency]) : null;
+    const epoch = asOf ? Date.parse(asOf) : NaN;
+    const isIdentity = currency === "USD";
+    const fresh = isIdentity || (Number.isFinite(epoch) && epoch <= now + 60 * 60_000 && now - epoch <= FX_RATE_MAX_AGE_MS);
+    return {
+      currency,
+      unitsPerUsd: Number(value),
+      asOf,
+      source: typeof sources[currency] === "string" ? sources[currency] : (isIdentity ? "USD numeraire" : "unknown"),
+      status: isIdentity ? "identity" : (fresh ? "fresh" : "stale"),
+    };
+  }).sort((a, b) => a.currency.localeCompare(b.currency));
+  const fetchedAt = new Date(row.fetched_at as string | number | Date);
+  res.json({
+    available: currencies.some((item) => item.currency !== "USD" && item.status === "fresh"),
+    refreshedAt: Number.isNaN(fetchedAt.getTime()) ? null : fetchedAt.toISOString(),
+    sourceSummary: typeof row.source_summary === "string" ? row.source_summary : null,
+    freshnessWindowHours: FX_RATE_MAX_AGE_MS / 3_600_000,
+    currencies,
+    note: "Rates are source-labelled reference observations, not a guarantee of provider settlement or a promise of a tradable quote. Missing or stale currency pairs are rejected.",
+  });
 });
 
 export default router

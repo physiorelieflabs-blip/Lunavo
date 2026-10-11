@@ -1,10 +1,46 @@
 import { isIP } from "node:net";
+import { validateGeneratedRasterImage } from "./image-safety";
 type GeneratedImage = {
   model: string;
   mimeType: string;
   data: string;
   bytes: Buffer;
 };
+
+const MAX_IMAGE_RESPONSE_BYTES = 36 * 1024 * 1024;
+
+export async function readBoundedResponseBody(
+  response: Response,
+  maxBytes = MAX_IMAGE_RESPONSE_BYTES,
+): Promise<Buffer> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new Error("Image response size limit is invalid");
+  }
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Self-hosted image response exceeds the safe response-size limit");
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Self-hosted image endpoint returned an empty response body");
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      totalBytes += part.value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Self-hosted image response exceeds the safe response-size limit");
+      }
+      chunks.push(part.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), totalBytes);
+}
 
 type LocalImagePayload = {
   data?: Array<{ b64_json?: string; mime_type?: string }>;
@@ -38,11 +74,10 @@ function localImageEndpoint(): string {
   return endpoint.replace(/\/$/, "");
 }
 
-function imageResult(bytes: Buffer, mimeType: string, model: string): GeneratedImage {
-  if (!mimeType.startsWith("image/")) throw new Error("Self-hosted image endpoint returned a non-image MIME type");
-  if (!bytes.length || bytes.length > 25 * 1024 * 1024) throw new Error("Self-hosted image endpoint returned an invalid image size");
+export function imageResult(bytes: Buffer, mimeType: string, model: string): GeneratedImage {
+  const safeMimeType = validateGeneratedRasterImage(bytes, mimeType);
   const encoded = bytes.toString("base64");
-  return { model, mimeType, data: `data:${mimeType};base64,${encoded}`, bytes };
+  return { model, mimeType: safeMimeType, data: `data:${safeMimeType};base64,${encoded}`, bytes };
 }
 
 async function generateLocalImage(prompt: string): Promise<GeneratedImage> {
@@ -60,15 +95,18 @@ async function generateLocalImage(prompt: string): Promise<GeneratedImage> {
   });
 
   const contentType = response.headers.get("content-type")?.split(";")[0].trim() || "";
+  const responseBody = await readBoundedResponseBody(response);
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as LocalImagePayload;
+    let payload: LocalImagePayload = {};
+    try { payload = JSON.parse(responseBody.toString("utf8")) as LocalImagePayload; } catch { /* Use the status fallback. */ }
     throw new Error(payload.error?.message || `Self-hosted image endpoint returned HTTP ${response.status}`);
   }
   if (contentType.startsWith("image/")) {
-    return imageResult(Buffer.from(await response.arrayBuffer()), contentType, process.env.LUNAVO_LOCAL_IMAGE_MODEL?.trim() || "local-image-model");
+    return imageResult(responseBody, contentType, process.env.LUNAVO_LOCAL_IMAGE_MODEL?.trim() || "local-image-model");
   }
 
-  const payload = (await response.json().catch(() => ({}))) as LocalImagePayload;
+  let payload: LocalImagePayload = {};
+  try { payload = JSON.parse(responseBody.toString("utf8")) as LocalImagePayload; } catch { /* Reject below as missing embedded image. */ }
   const first = payload.data?.[0];
   const encoded = first?.b64_json || payload.image_base64 || payload.image || payload.images?.[0];
   if (typeof encoded !== "string" || !encoded.trim()) throw new Error("Self-hosted image endpoint returned no embedded image");
