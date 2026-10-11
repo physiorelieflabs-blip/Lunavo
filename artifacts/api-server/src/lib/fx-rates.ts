@@ -24,6 +24,17 @@ function isoFromDateLabel(label: string): string | null {
     if (d.getUTCFullYear() !== Number(dayFirst[3]) || d.getUTCMonth() !== Number(dayFirst[2]) - 1 || d.getUTCDate() !== Number(dayFirst[1])) return null;
     return d.toISOString();
   }
+  const monthFirst = value.match(/^([A-Za-z]+)[ -]+(\d{1,2})[-,/ ]+(\d{4})$/);
+  if (monthFirst) {
+    const month = Date.parse(`${monthFirst[1]} 1, 2000`);
+    if (!Number.isFinite(month)) return null;
+    const monthIndex = new Date(month).getUTCMonth();
+    const year = Number(monthFirst[3]);
+    const day = Number(monthFirst[2]);
+    const d = new Date(Date.UTC(year, monthIndex, day, 12));
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== monthIndex || d.getUTCDate() !== day) return null;
+    return d.toISOString();
+  }
   const normalized = value.replace(/[,]/g, " ").replace(/\s+/g, " ").replace(/([A-Za-z]+)[-](\d)/g, "$1 $2").replace(/(\d)[-]([A-Za-z]+)/g, "$1 $2");
   const parsed = Date.parse(normalized);
   if (!Number.isFinite(parsed)) return null;
