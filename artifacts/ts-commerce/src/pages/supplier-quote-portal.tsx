@@ -49,7 +49,7 @@ const inputClass = "mt-1 h-12 w-full rounded-xl border border-[#d7dce3] bg-white
 
 export default function SupplierQuotePortal() {
   const [, params] = useRoute(apiPath("/supplier-quote/:token"));
-  const token = params?.token ?? "";
+  const token = params?.[0] ?? "";
   const [portal, setPortal] = useState<QuotePortal | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
