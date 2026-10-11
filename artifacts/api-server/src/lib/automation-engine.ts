@@ -14,7 +14,7 @@ export const WORKFLOW_TRIGGER_EVENTS = [
   "membership.status_changed","storefront.published","merchant.operation.created","merchant.operation.transitioned",
   "merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated",
   "merchant.accounting_period.updated","merchant.message.created","merchant.document.created",
-  "sourcing.source_registered","fulfillment.status_changed","schedule.tick",
+  "sourcing.source_registered","fulfillment.job_created","fulfillment.status_changed","schedule.tick",
 ] as const;
 export type WorkflowTriggerEvent = typeof WORKFLOW_TRIGGER_EVENTS[number];
 const triggerSet = new Set<string>(WORKFLOW_TRIGGER_EVENTS);
