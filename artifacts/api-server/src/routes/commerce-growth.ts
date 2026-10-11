@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, or } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
+import { emitDomainEvent } from "../lib/domain-events";
 import {
   db,
   merchantsTable,
@@ -37,9 +38,32 @@ function cleanUrl(value: unknown): URL {
 
 router.post("/growth/sourcing/sources", async (req, res, next) => {
   try {
+    const actorId = getAuth(req).userId;
     const merchantId = await merchantIdFor(req);
     const url = cleanUrl(req.body?.sourceUrl);
-    const [source] = await db.insert(sourcingSourcesTable).values({ merchantId, sourceUrl: url.toString(), canonicalUrl: url.toString(), domain: url.hostname, sourceType: "product_url" }).returning();
+    const source = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(sourcingSourcesTable).values({
+        merchantId,
+        sourceUrl: url.toString(),
+        canonicalUrl: url.toString(),
+        domain: url.hostname,
+        sourceType: "product_url",
+      }).returning();
+      if (!created) throw new Error("Supplier source could not be registered");
+      await emitDomainEvent(tx, {
+        merchantId,
+        eventType: "sourcing.source_registered",
+        aggregateType: "sourcing_source",
+        aggregateId: created.id,
+        actorType: "merchant",
+        actorId: actorId ?? null,
+        source: "merchant_api",
+        idempotencyKey: "sourcing-source-registered:" + created.id,
+        payload: { sourceId: created.id, domain: created.domain, sourceType: created.sourceType },
+        after: { sourceId: created.id, domain: created.domain, sourceType: created.sourceType },
+      });
+      return created;
+    });
     res.status(201).json({ source }); return;
   } catch (error) { next(error); }
 });
