@@ -59,6 +59,34 @@ export type LunavoBrainRoute = {
   endpoint?: string;
 };
 
+export type LunavoModelDiversity = "single_model_only" | "multiple_models" | "model_reuse_detected";
+
+export function classifyLunavoModelDiversity(models: readonly string[]): LunavoModelDiversity {
+  const identities = models.map((model) => model.trim().toLowerCase()).filter(Boolean);
+  const uniqueIdentities = new Set(identities);
+  if (uniqueIdentities.size <= 1) return "single_model_only";
+  return uniqueIdentities.size === identities.length ? "multiple_models" : "model_reuse_detected";
+}
+
+export function configuredLunavoBrainRoutes() {
+  const roles: LunavoBrainRouteRole[] = [
+    "orchestrator", "researcher", "merchandiser", "growth", "operations",
+    "customer", "finance", "creative", "reviewer", "coder", "arbiter",
+  ];
+  return roles.map((role) => {
+    const primaryProfile = role === "arbiter" ? "review" : ROLE_PROFILES[role][0]!;
+    const route = resolveLunavoBrainRoute(role, primaryProfile);
+    return {
+      role,
+      primaryProfile,
+      fallbackProfiles: role === "arbiter" ? ["reasoning", "general"] : ROLE_PROFILES[role].slice(1),
+      modelOverride: route.model ?? null,
+      dedicatedEndpointConfigured: Boolean(route.endpoint),
+      usesProfileFallback: true,
+    };
+  });
+}
+
 /**
  * Give each specialist an independent, locally hosted model route when configured.
  * A role may use a dedicated Ollama/LocalAI/vLLM endpoint, while an unset route
@@ -176,6 +204,7 @@ export async function completeLunavoBrain(
   roles: string[];
   consensus: "full_ensemble" | "partial_ensemble" | "single";
   arbiterStatus: "completed" | "unavailable" | "not_needed_single_specialist";
+  modelDiversity: LunavoModelDiversity;
 }> {
   const defaultRoles: LunavoBrainRole[] = ["orchestrator", "researcher", "reviewer"];
   const roles = selectLunavoBrainRoles(options.roles?.length ? options.roles : defaultRoles);
@@ -236,6 +265,7 @@ export async function completeLunavoBrain(
       roles: [successes[0]!.role],
       consensus: "single",
       arbiterStatus: "not_needed_single_specialist",
+      modelDiversity: "single_model_only",
     };
   }
 
@@ -262,7 +292,10 @@ export async function completeLunavoBrain(
           content: "Task:\n" + safeTask + "\n\nSpecialist outputs:\n" + candidateEvidence,
         },
       ];
-    const arbiterProfiles: LocalAiProfile[] = ["reasoning", "general", "review"];
+    // Reviewer/vision and arbiter remain separately configurable: by default the
+    // arbiter starts with the review profile rather than reusing the orchestrator's
+    // reasoning profile, and can be given a dedicated endpoint/model in production.
+    const arbiterProfiles: LocalAiProfile[] = ["review", "reasoning", "general"];
     const primaryArbiterProfile = arbiterProfiles[0]!;
     const arbiterAttempt = await runWithLocalProfileFallback(arbiterProfiles, (profile) => {
       const route = resolveLunavoBrainRoute("arbiter", primaryArbiterProfile);
@@ -283,6 +316,10 @@ export async function completeLunavoBrain(
       roles: successes.map((item) => item.role),
       consensus: successes.length === roles.length ? "full_ensemble" : "partial_ensemble",
       arbiterStatus: "completed",
+      modelDiversity: classifyLunavoModelDiversity([
+        ...successes.map((item) => item.response.model),
+        arbiter.model,
+      ]),
     };
   } catch {
     // Never pretend that a set of independent drafts is a synthesized consensus.
@@ -295,6 +332,7 @@ export async function completeLunavoBrain(
       roles: successes.map((item) => item.role),
       consensus: "partial_ensemble",
       arbiterStatus: "unavailable",
+      modelDiversity: classifyLunavoModelDiversity(successes.map((item) => item.response.model)),
     };
   }
 }
