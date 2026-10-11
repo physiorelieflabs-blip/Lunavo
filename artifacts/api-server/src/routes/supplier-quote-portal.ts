@@ -6,6 +6,7 @@ import { requirePermission } from "../lib/tenant-access";
 import { emitDomainEvent } from "../lib/domain-events";
 import { currencyMinorDigits, toMinorUnits } from "../lib/money";
 import {
+  calculateSupplierQuoteTotalMinor,
   hashSupplierQuotePortalToken,
   issueSupplierQuotePortalToken,
   resolveSupplierQuotePortalBaseUrl,
@@ -342,9 +343,8 @@ router.post("/public/supplier-quote/:token", async (req, res, next) => {
       if (unitMinor === null || unitMinor <= 0 || shippingMinor === null || shippingMinor < 0) {
         return { kind: "bad_money" as const };
       }
-      const totalBig = BigInt(unitMinor) * BigInt(quantity) + BigInt(shippingMinor);
-      if (totalBig > BigInt(Number.MAX_SAFE_INTEGER)) return { kind: "overflow" as const };
-      const totalMinor = Number(totalBig);
+      const totalMinor = calculateSupplierQuoteTotalMinor(unitMinor, quantity, shippingMinor);
+      if (totalMinor === null) return { kind: "overflow" as const };
       const nowIso = new Date().toISOString();
       const portalEvidence = {
         supplierPortalResponse: {
