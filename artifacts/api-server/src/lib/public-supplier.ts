@@ -48,28 +48,38 @@ export type ImportedSupplierProduct = {
   sourceMetadata: Record<string, unknown>;
 };
 
-function blockedAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
+/** Fail closed for special-use, private, malformed, and ambiguous address literals. */
+export function isBlockedSupplierAddress(address: string): boolean {
+  const normalized = address.toLowerCase().split("%", 1)[0] ?? "";
+  const version = isIP(normalized);
+  if (version === 4) {
+    const octets = normalized.split(".").map(Number);
+    const [a, b, c] = octets;
+    if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
     return (
-      a === 10 ||
-      a === 127 ||
+      a === 0 || a === 10 || a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+      (a === 192 && b === 88 && c === 99) ||
       (a === 192 && b === 168) ||
-      a === 0
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113) ||
+      a >= 224
     );
   }
-  const normalized = address.toLowerCase();
-  if (normalized.startsWith("::ffff:")) {
-    return blockedAddress(normalized.slice("::ffff:".length));
-  }
-  return (
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe80:")
-  );
+  if (version !== 6) return true;
+  // Reject mapped/compatible forms to avoid disagreements between URL, DNS and socket parsers.
+  if (normalized.startsWith("::")) return true;
+  if (/^f[cd]/i.test(normalized)) return true;
+  if (/^fe[89ab]/i.test(normalized)) return true;
+  if (/^ff/i.test(normalized)) return true;
+  if (/^2001:(?:0{0,3}0|0db8|0002|0010|0020):/i.test(normalized)) return true;
+  const firstHextet = Number.parseInt(normalized.split(":")[0] ?? "", 16);
+  // Only global-unicast 2000::/3 is eligible for public supplier fetching.
+  return !Number.isFinite(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff;
 }
 
 async function resolvePublicAddress(hostname: string): Promise<string> {
@@ -78,13 +88,19 @@ async function resolvePublicAddress(hostname: string): Promise<string> {
     : lookup(hostname, { all: true, verbatim: true }).then((entries) =>
         entries.map((entry) => entry.address),
       );
-  const addresses = await Promise.race([
-    resolution,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS),
-    ),
-  ]);
-  if (!addresses.length || addresses.some(blockedAddress)) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let addresses: string[];
+  try {
+    addresses = await Promise.race([
+      resolution,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+  if (!addresses.length || addresses.some(isBlockedSupplierAddress)) {
     throw new Error("Private and internal supplier addresses are not allowed");
   }
   return addresses[0]!;
@@ -101,6 +117,9 @@ async function assertPublicUrl(value: string): Promise<{ url: URL; address: stri
     throw new Error("Only public http and https supplier URLs are supported");
   }
   const hostname = url.hostname.toLowerCase();
+  if (url.username || url.password) {
+    throw new Error("Supplier URLs must not contain embedded credentials");
+  }
   if (
     hostname === "localhost" ||
     hostname.endsWith(".local") ||
@@ -200,7 +219,7 @@ async function fetchPublicPageUncached(initialUrl: URL, initialAddress: string):
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`Supplier page could not be read (HTTP ${response.statusCode})`);
     }
-    const contentType = response.contentType;
+    const contentType = response.contentType.toLowerCase();
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
       throw new Error("Supplier link must point to a public HTML product page");
     }

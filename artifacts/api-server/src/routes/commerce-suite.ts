@@ -4,6 +4,7 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
 import { emitDomainEvent } from "../lib/domain-events";
+import { fulfillmentTransitionError } from "../lib/fulfillment-policy";
 import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
 
 const router = Router();
@@ -40,18 +41,19 @@ router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
   const m=await merchantFor(req, "fulfillment.manage"); if(!m) return fail(res,401,"Authentication required");
   const jobId=String(req.params.id ?? "").trim(); if(!/^[0-9a-fA-F-]{36}$/.test(jobId)) return fail(res,400,"Invalid fulfillment job id");
   const nextStatus=typeof req.body?.status==="string"?req.body.status.trim():"";
-  const allowed:Record<string,string[]>={
-    ready:["approved","failed"],
-    approved:["ordered","failed"],
-    ordered:["shipped","failed"],
-    shipped:["delivered","failed"],
-    delivered:[],
-    failed:["ready"],
-  };
   const current=(await db.select().from(fulfillmentJobsTable).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id))).limit(1))[0];
   if(!current) return fail(res,404,"Fulfillment job not found");
-  if(!allowed[String(current.status)]?.includes(nextStatus)) return fail(res,409,"Invalid fulfillment transition from "+String(current.status)+" to "+nextStatus);
+  const transitionError=fulfillmentTransitionError(String(current.status),{
+    status: nextStatus,
+    supplierOrderReference: req.body?.supplierOrderReference,
+    carrier: req.body?.carrier,
+    trackingNumber: req.body?.trackingNumber,
+    trackingUrl: req.body?.trackingUrl,
+    reason: req.body?.reason,
+  });
+  if(transitionError) return fail(res,transitionError.startsWith("Invalid fulfillment transition")?409:400,transitionError);
   const patch:any={status:nextStatus,updatedAt:new Date()};
+  if(nextStatus==="ready") patch.lastError=null;
   if(nextStatus==="ordered" && typeof req.body?.supplierOrderReference==="string") patch.supplierOrderReference=req.body.supplierOrderReference.trim().slice(0,160);
   if(nextStatus==="shipped"){
     patch.carrier=typeof req.body?.carrier==="string"?req.body.carrier.trim().slice(0,120):null;

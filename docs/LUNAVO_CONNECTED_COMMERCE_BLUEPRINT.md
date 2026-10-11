@@ -279,3 +279,8 @@ These official product pages were reviewed for broad dropshipping capability pat
 - DSers sourcing, supplier mapping, pricing/inventory rules and order automation: https://www.dsers.com/en/features
 - Zendrop fulfillment, branding, bundles and subscriptions: https://zendrop.com/features/
 - Spocket product importing, stock synchronization, branded invoicing and fulfillment examples: https://www.spocket.co/blogs/spocket-vs-dropified
+
+
+## Additional hardening invariants
+
+Supplier URL import must reject non-public/special-use IPv4 and IPv6 addresses, pin sockets to validated DNS addresses, revalidate every redirect and reject embedded URL credentials. Fulfillment state changes require the evidence appropriate to the target state. Pricing may not recommend a price below its deterministic landed-cost margin floor or above the observed market ceiling.
