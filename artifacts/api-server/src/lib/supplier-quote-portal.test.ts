@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateSupplierQuoteTotalMinor,
   hashSupplierQuotePortalToken,
   issueSupplierQuotePortalToken,
   resolveSupplierQuotePortalBaseUrl,
   supplierQuotePortalUrl,
 } from "./supplier-quote-portal";
+
+describe("supplier quote arithmetic", () => {
+  it("calculates unit price times quantity plus shipping in exact minor units", () => {
+    expect(calculateSupplierQuoteTotalMinor(1_250, 3, 499)).toBe(4_249);
+    expect(calculateSupplierQuoteTotalMinor(1, 1, 0)).toBe(1);
+    expect(calculateSupplierQuoteTotalMinor(1, 1, 0)).not.toBe(1.01);
+  });
+
+  it("rejects invalid inputs and totals outside the safe integer range", () => {
+    expect(calculateSupplierQuoteTotalMinor(0, 2, 0)).toBeNull();
+    expect(calculateSupplierQuoteTotalMinor(1, 0, 0)).toBeNull();
+    expect(calculateSupplierQuoteTotalMinor(1, 1_000_001, 0)).toBeNull();
+    expect(calculateSupplierQuoteTotalMinor(1, 1, -1)).toBeNull();
+    expect(calculateSupplierQuoteTotalMinor(Number.MAX_SAFE_INTEGER, 2, 0)).toBeNull();
+  });
+});
 
 describe("supplier quote portal capability links", () => {
   it("issues high-entropy URL-safe tokens and exposes only a SHA-256 digest for storage", () => {
