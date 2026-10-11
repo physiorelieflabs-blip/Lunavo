@@ -729,6 +729,8 @@ export const ordersTable = pgTable(
       .references(() => customersTable.id),
     orderNumber: text("order_number").notNull(),
     subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
+    discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    discountCode: text("discount_code"),
     taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     shippingAmount: numeric("shipping_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     total: numeric("total", { precision: 12, scale: 2 }).notNull(),
