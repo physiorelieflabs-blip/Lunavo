@@ -129,7 +129,7 @@ services:
       LUNAVO_MASTER_ADMIN_EMAIL: ${LUNAVO_MASTER_ADMIN_EMAIL:-}
       LUNAVO_MASTER_ADMIN_USERNAME: ${LUNAVO_MASTER_ADMIN_USERNAME:-tsadmin}
       LUNAVO_MASTER_ADMIN_PASSWORD: ${LUNAVO_MASTER_ADMIN_PASSWORD:-}
-    command: ["pnpm", "--filter", "@workspace/api-server", "run", "bootstrap:master-admin"]
+    command: ["node", "--experimental-strip-types", "artifacts/api-server/src/bootstrap-master-admin.ts"]
 
 volumes:
   lunavo_postgres:
