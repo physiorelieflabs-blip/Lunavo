@@ -115,6 +115,22 @@ services:
     volumes:
       - lunavo_data:/data/lunavo
 
+
+  master-admin-bootstrap:
+    build: .
+    profiles: ["bootstrap"]
+    restart: "no"
+    depends_on:
+      lunavo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://lunavo:${POSTGRES_PASSWORD}@postgres:5432/lunavo
+      LUNAVO_MASTER_ADMIN_EMAIL: ${LUNAVO_MASTER_ADMIN_EMAIL:-}
+      LUNAVO_MASTER_ADMIN_USERNAME: ${LUNAVO_MASTER_ADMIN_USERNAME:-tsadmin}
+      LUNAVO_MASTER_ADMIN_PASSWORD: ${LUNAVO_MASTER_ADMIN_PASSWORD:-}
+    command: ["pnpm", "--filter", "@workspace/api-server", "run", "bootstrap:master-admin"]
+
 volumes:
   lunavo_postgres:
   lunavo_data:

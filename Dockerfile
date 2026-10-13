@@ -11,6 +11,7 @@ RUN pnpm --filter @workspace/api-server build
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 ENV NODE_ENV=production
 ENV PORT=5000
 RUN useradd --create-home --uid 10001 lunavo
