@@ -1,6 +1,5 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json tsconfig.base.json ./
 COPY artifacts ./artifacts
 COPY lib ./lib
