@@ -1,7 +1,7 @@
 # Agent instructions for Lunavo
 
 ## Source of truth
-- This Git repository is the source of truth. Do not use Replit as a development or deployment authority.
+- This Git repository is the source of truth; use it for development and deployment review.
 - Read `docs/LUNAVO-MASTER-SPEC.md`, `docs/LUNAVO_FEATURE_CATALOG.md`, and `docs/LUNAVO_IMPLEMENTATION_STATE.md` before substantial architecture changes.
 - Preserve existing functionality unless a change explicitly replaces it. Prefer small reviewable changes over broad rewrites.
 
