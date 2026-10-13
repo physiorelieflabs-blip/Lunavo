@@ -19,7 +19,7 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Set a strong, unique `POSTGRES_PASSWORD` and `SESSION_SECRET`. Set `APP_BASE_URL` to the URL you will use to open Lunavo.
+2. Set strong, unique values for `POSTGRES_PASSWORD`, `SESSION_SECRET`, and `SOCIAL_GATEWAY_TOKEN`. Set `APP_BASE_URL` to the URL you will use to open Lunavo. Set `LUNAVO_MASTER_ADMIN_EMAIL` and choose a strong `LUNAVO_MASTER_ADMIN_PASSWORD` (at least 12 characters with uppercase, lowercase, a number, and a special character).
 3. Review `LUNAVO_LOCAL_MODEL_PACK` and the model profile settings. The defaults are self-hosted examples; ensure your machine can serve the selected models.
 4. Start the stack:
 
@@ -36,7 +36,13 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
 
 6. Check application health at `/healthz` and deployment readiness at `/readyz`. Readiness can report a degraded state when optional local AI, FX, social, or media workers are unavailable. Payment readiness remains false until both Flutterwave credentials are securely configured.
 
-The master administrator is provisioned with the API package's one-time `bootstrap:master-admin` command after the database schema has been initialized. Configure `LUNAVO_MASTER_ADMIN_EMAIL`, `LUNAVO_MASTER_ADMIN_USERNAME`, and a strong `LUNAVO_MASTER_ADMIN_PASSWORD` in the deployment environment before running that command. Do not run it as a routine restart command because its current behavior can reset the configured administrator credentials.
+After the stack is healthy and database migrations have completed, provision the master administrator once with the isolated bootstrap profile:
+
+   ```sh
+   docker compose --profile bootstrap run --rm master-admin-bootstrap
+   ```
+
+   The bootstrap profile passes administrator credentials only to the one-shot bootstrap container, not the long-running web server. Do not run it as a routine restart command because it can reset the configured administrator credentials. Flutterwave credentials can remain blank until you configure them in Master Admin; real-money actions must remain unavailable until then.
 
 ## Development and verification
 
@@ -58,7 +64,7 @@ pnpm test
 pnpm run build
 ```
 
-`pnpm preflight:production` checks production environment shape; `pnpm preflight:production -- --strict` also requires production URL and secret configuration. The API test command runs Vitest tests in `@workspace/api-server`.
+`pnpm preflight:production` runs the strict production environment check, requiring database/session settings, an HTTPS app URL, and a master-admin identity. The API test command runs Vitest tests in `@workspace/api-server`.
 
 ## Architecture entry points
 
