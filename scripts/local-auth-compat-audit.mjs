@@ -62,4 +62,16 @@ assert.ok(failedAttemptReturn > failedAttemptUpdate, "Failed login must resolve 
 assert.ok(transactionEnd >= 0 && failedAttemptReject > transactionEnd, "Failed login must be rejected only after the transaction resolves");
 assert.ok(!failedLogin.slice(failedLogin.indexOf("const valid ="), transactionEnd).includes('throw new Error("Invalid email or password")'), "Failed login must not throw inside the transaction and roll back the lockout counter");
 
+
+const authRoutes = await readFile("artifacts/api-server/src/routes/auth.ts", "utf8");
+const sessionStart = authRoutes.indexOf('router.get("/auth/session"');
+const sessionEnd = authRoutes.indexOf('router.post("/auth/sign-up"', sessionStart);
+assert.notEqual(sessionStart, -1, "Local auth session endpoint must exist");
+assert.notEqual(sessionEnd, -1, "Local auth session endpoint must have a bounded route body");
+const authSession = authRoutes.slice(sessionStart, sessionEnd);
+assert.ok(
+  authSession.includes("local_auth_user_id=") && authSession.includes("clerk_user_id="),
+  "Auth session lookup must resolve merchants through both legacy and self-hosted local-auth identities",
+);
+
 console.log("Lunavo local-auth commerce compatibility: PASS");
