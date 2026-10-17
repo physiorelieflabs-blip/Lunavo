@@ -556,6 +556,9 @@ router.patch("/merchant/order-portal/return-requests/:id", async (req: Request, 
       `);
       const current = ((found as { rows?: Row[] }).rows ?? [])[0];
       if (!current) return { status: 404, body: { error: "Return request not found." } };
+      if (action === "complete" && String(current.request_type) === "return") {
+        return { status: 409, body: { error: "A return is completed by processing its linked refund; do not complete it manually." } };
+      }
       if (!transition.from.includes(String(current.status))) {
         return { status: 409, body: { error: "This return request cannot make that status transition.", currentStatus: String(current.status) } };
       }
