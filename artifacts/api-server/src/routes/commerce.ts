@@ -13318,7 +13318,7 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
       try {
         providerRefund = await refundFlutterwaveTransaction(
           providerTransactionId,
-          pendingRefund.amountMinor / 100,
+          pendingRefund.amountMinor / Math.pow(10, currencyMinorDigits(pendingRefund.currency)),
           `refund:${pendingRefund.id}`,
         );
       } catch (error) {
