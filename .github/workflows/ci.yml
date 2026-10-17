@@ -72,6 +72,8 @@ jobs:
         run: node scripts/repository-security-audit.mjs
       - name: Financial boundary audit
         run: node scripts/financial-boundary-audit.mjs
+      - name: Local-auth commerce compatibility
+        run: node scripts/local-auth-compat-audit.mjs
       - name: Implementation invariants
         run: |
           set -o pipefail

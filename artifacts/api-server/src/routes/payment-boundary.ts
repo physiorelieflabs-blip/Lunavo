@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { getAuth } from "../lib/auth-compat";
 import {
   db,
@@ -85,7 +85,10 @@ router.post("/subscription/use-earnings", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
-  const [merchant] = await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, auth.userId)).limit(1);
+  const [merchant] = await db.select().from(merchantsTable).where(or(
+    eq(merchantsTable.clerkUserId, auth.userId),
+    eq(merchantsTable.localAuthUserId, auth.userId),
+  )).limit(1);
   if (!merchant) {
     res.status(404).json({ error: "Merchant account not found" });
     return;
