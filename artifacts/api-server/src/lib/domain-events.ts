@@ -88,6 +88,25 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
   const payload = event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
     ? event.payload as Record<string, unknown>
     : {};
+  if (event.eventType === "merchant.operation.transitioned" &&
+      event.aggregateType === "customer_return_request") {
+    if (payload.resolution === "refund_requested") {
+      return {
+        title: "Return refund request prepared",
+        body: "A return was inspected and linked to a refund request. Finance approval is still required before any provider refund occurs.",
+        severity: "info" as const,
+        deepLink: links.customer_return_request,
+      };
+    }
+    if (payload.resolution === "refund_processed") {
+      return {
+        title: "Return refund processed",
+        body: "The linked refund completed through the guarded payment and ledger workflow; the return case is now complete.",
+        severity: "success" as const,
+        deepLink: links.customer_return_request,
+      };
+    }
+  }
   if (event.eventType === "dropship.market_research.observed" &&
       event.aggregateType === "dropship_market_watch" &&
       payload.captureKind === "scheduled") {
