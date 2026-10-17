@@ -524,23 +524,43 @@ export async function synchronizeSupplierProduct(input: {
       applied: { sourceFields, merchantFields },
     };
   } catch (error) {
-    await db.execute(sql`
-      UPDATE supplier_products
-      SET last_attempted_sync=now(),import_status='failed',import_error=${String(error instanceof Error ? error.message : error).slice(0,1000)},updated_at=now()
-      WHERE id=${input.productId} AND merchant_id=${input.merchantId} AND updated_at::text=${product.updated_at}
-    `);
-    await db.execute(sql`
-      UPDATE supplier_sync_runs
-      SET status='failed',error_message=${String(error instanceof Error ? error.message : error).slice(0,2000)},completed_at=now()
-      WHERE id=${runId}::uuid AND merchant_id=${input.merchantId}
-    `);
-    // A failed poll must still advance the worker cursor; otherwise the same
-    // broken supplier can occupy every batch and starve all later policies.
-    await db.execute(sql`
-      UPDATE supplier_sync_policies
-      SET last_run_at=now(),updated_at=now()
-      WHERE id=${policy.id} AND merchant_id=${input.merchantId} AND supplier_product_id=${input.productId}
-    `);
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        UPDATE supplier_products
+        SET last_attempted_sync=now(),import_status='failed',import_error=${String(error instanceof Error ? error.message : error).slice(0,1000)},updated_at=now()
+        WHERE id=${input.productId} AND merchant_id=${input.merchantId} AND updated_at::text=${product.updated_at}
+      `);
+      await tx.execute(sql`
+        UPDATE supplier_sync_runs
+        SET status='failed',error_message=${String(error instanceof Error ? error.message : error).slice(0,2000)},completed_at=now()
+        WHERE id=${runId}::uuid AND merchant_id=${input.merchantId}
+      `);
+      // A failed poll must still advance the worker cursor; otherwise the same
+      // broken supplier can occupy every batch and starve all later policies.
+      await tx.execute(sql`
+        UPDATE supplier_sync_policies
+        SET last_run_at=now(),updated_at=now()
+        WHERE id=${policy.id} AND merchant_id=${input.merchantId} AND supplier_product_id=${input.productId}
+      `);
+      await emitDomainEvent(tx, {
+        merchantId: input.merchantId,
+        eventType: "supplier.sync_failed",
+        aggregateType: "supplier_product",
+        aggregateId: input.productId,
+        actorType: "system",
+        actorId: input.triggeredBy ?? "supplier_sync_worker",
+        source: "system",
+        idempotencyKey: "supplier-sync-failed:" + input.productId + ":" + runId,
+        payload: {
+          supplierProductId: input.productId,
+          runId,
+          sourceUrl: product.source_url,
+          errorCode: "supplier_sync_failed",
+        },
+        before: { importStatus: product.import_status },
+        after: { importStatus: "failed" },
+      });
+    });
     throw error;
   }
 }
