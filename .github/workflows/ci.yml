@@ -85,6 +85,8 @@ jobs:
           if-no-files-found: warn
       - name: Production configuration shape
         run: pnpm run preflight:production
+      - name: Verify production preflight env-file behavior
+        run: node --test scripts/production-preflight-env.test.mjs
       - name: Critical payment and subscription simulation
         run: node --experimental-strip-types scripts/security-simulation.ts
       - name: Unit tests
