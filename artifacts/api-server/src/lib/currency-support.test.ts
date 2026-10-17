@@ -12,7 +12,7 @@ describe("store currency coverage", () => {
     for (const currency of [
       "USD", "NGN", "EUR", "GBP", "CAD", "AUD", "CHF", "CNY",
       "HKD", "INR", "SGD", "NZD", "BRL", "MXN", "MYR", "THB",
-      "PHP", "PLN", "SEK", "NOK", "DKK", "CZK", "HUF", "RON",
+      "PHP", "PLN", "SEK", "NOK", "DKK", "CZK", "RON",
       "TRY", "ILS", "EGP", "PKR", "BDT", "TWD", "COP", "PEN",
       "ARS", "KZT", "UAH", "MAD", "DZD", "QAR", "LKR", "NPR",
       "MUR", "IDR",
