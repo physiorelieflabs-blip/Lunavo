@@ -425,6 +425,12 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Staff authorization
 
 ## 22. Customers
+- Customer returns/exchanges from token-protected order tracking
+- Merchant review, physical receipt confirmation, and inspection findings
+- Idempotent refund-request linkage to the existing Finance approval path
+- Verified-payment remaining-balance checks and exact currency minor-unit conversion
+- Automatic restock guard for full-order, resellable returns with tracked stock and no prior refunds
+- Return completion only after the linked refund is processed; exchange review does not fabricate a replacement shipment
 - Customer records
 - Customer profiles
 - Customer search
