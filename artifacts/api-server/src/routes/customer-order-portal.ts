@@ -5,6 +5,7 @@ import { db, merchantsTable } from "@workspace/db";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
 import { emitDomainEvent } from "../lib/domain-events";
+import { decideReturnRefund } from "../lib/customer-return-refund-policy";
 
 const router = Router();
 const REASONS = ["damaged", "wrong_item", "not_as_described", "arrived_late", "changed_mind", "size_fit", "other"] as const;
@@ -332,11 +333,15 @@ router.get("/merchant/order-portal/return-requests", async (req: Request, res: R
     const result = await db.execute(sql`
       SELECT r.id,r.order_id,r.request_type,r.quantity,r.reason,r.customer_message,r.status,
         r.return_window_days_snapshot,r.resolution_note,r.reviewed_by,r.reviewed_at,r.created_at,r.updated_at,
+        r.inspection_grade,r.inspection_note,r.inspected_at,r.refund_record_id,
+        fr.status AS refund_status,fr.amount_minor AS refund_amount_minor,fr.currency AS refund_currency,
+        fr.inventory_restock AS refund_inventory_restock,
         o.order_number,o.quantity AS purchased_quantity,o.currency,o.total AS order_total,o.fulfillment_status,
         p.title AS product_title,c.name AS customer_name,c.email AS customer_email
       FROM customer_return_requests r
       JOIN orders o ON o.id=r.order_id AND o.merchant_id=r.merchant_id
       LEFT JOIN supplier_products p ON p.id=o.supplier_product_id AND p.merchant_id=o.merchant_id
+      LEFT JOIN refund_records fr ON fr.id=r.refund_record_id AND fr.merchant_id=r.merchant_id
       JOIN customers c ON c.id=o.customer_id AND c.merchant_id=o.merchant_id
       WHERE r.merchant_id=${ctx.merchantId}
       ORDER BY CASE r.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 WHEN 'received' THEN 2 ELSE 3 END,
@@ -345,6 +350,175 @@ router.get("/merchant/order-portal/return-requests", async (req: Request, res: R
     `);
     res.setHeader("Cache-Control", "no-store, private");
     res.json({ requests: (result as { rows?: Row[] }).rows ?? [] });
+  } catch (error) { next(error); }
+});
+
+router.post("/merchant/order-portal/return-requests/:id/prepare-refund", async (req: Request, res: Response, next) => {
+  try {
+    const ctx = await merchantFor(req, res);
+    if (!ctx) return;
+    const id = uuid(req.params.id);
+    if (!id) { res.status(400).json({ error: "Invalid return request id." }); return; }
+    try { await requirePermission(ctx.userId, ctx.merchantId, "refunds.manage"); }
+    catch { res.status(403).json({ error: "Permission required: refunds.manage" }); return; }
+
+    const body = record(req.body) ? req.body : {};
+    const inspectionGrade = boundedText(body.inspectionGrade, 24);
+    const inspectionNote = boundedText(body.inspectionNote, 2000);
+    const amountMinor = body.refundAmountMinor;
+    const restockReturnedItems = body.restockReturnedItems === true;
+    if (!["resellable", "damaged", "unsellable"].includes(String(inspectionGrade)) ||
+        !Number.isSafeInteger(amountMinor) || Number(amountMinor) <= 0 ||
+        (body.inspectionNote !== undefined && body.inspectionNote !== null &&
+          body.inspectionNote !== "" && inspectionNote === null)) {
+      res.status(400).json({ error: "Choose an inspection result and enter a positive refund amount in currency minor units." });
+      return;
+    }
+
+    const result = await db.transaction(async tx => {
+      const found = await tx.execute(sql`
+        SELECT id,order_id,request_type,quantity,reason,status,refund_record_id
+        FROM customer_return_requests
+        WHERE id=${id}::uuid AND merchant_id=${ctx.merchantId}
+        LIMIT 1 FOR UPDATE
+      `);
+      const request = ((found as { rows?: Row[] }).rows ?? [])[0];
+      if (!request) return { status: 404, body: { error: "Return request not found." } };
+
+      if (request.refund_record_id != null) {
+        const linkedResult = await tx.execute(sql`
+          SELECT id,status,amount_minor,currency,inventory_restock,provider_status,provider_refund_id
+          FROM refund_records
+          WHERE id=${Number(request.refund_record_id)} AND merchant_id=${ctx.merchantId}
+          LIMIT 1
+        `);
+        const linkedRefund = ((linkedResult as { rows?: Row[] }).rows ?? [])[0];
+        if (!linkedRefund) throw new Error("Linked refund record is missing; contact support before retrying.");
+        return { status: 200, body: { refund: linkedRefund, returnRequestId: id, replayed: true } };
+      }
+
+      if (String(request.status) !== "received") {
+        return { status: 409, body: { error: "The returned item must be physically received before inspection and refund preparation." } };
+      }
+      if (String(request.request_type) !== "return") {
+        return { status: 409, body: { error: "This is an exchange request. Cash refunds are not created for exchange cases by this workflow." } };
+      }
+
+      const paymentResult = await tx.execute(sql`
+        SELECT
+          o.id AS order_id,o.quantity AS purchased_quantity,o.supplier_product_id,o.location_id,
+          pr.id AS payment_record_id,pr.amount_minor AS payment_amount_minor,
+          pr.currency AS payment_currency,pr.status AS payment_status,
+          pi.amount_minor AS payment_intent_amount_minor,pi.currency AS payment_intent_currency,
+          pi.status AS payment_intent_status,
+          p.inventory_strategy,p.availability_quantity
+        FROM orders o
+        JOIN payment_records pr ON pr.order_id=o.id AND pr.merchant_id=o.merchant_id
+          AND pr.status IN ('verified','partially_refunded','refunded')
+        JOIN payment_intents pi ON pi.id=pr.intent_id AND pi.order_id=o.id AND pi.merchant_id=o.merchant_id
+          AND pi.status IN ('verified','partially_refunded','refunded')
+        LEFT JOIN supplier_products p ON p.id=o.supplier_product_id AND p.merchant_id=o.merchant_id
+        WHERE o.id=${Number(request.order_id)} AND o.merchant_id=${ctx.merchantId}
+        ORDER BY pr.created_at DESC
+        LIMIT 1
+        FOR UPDATE OF o,pr,pi
+      `);
+      const payment = ((paymentResult as { rows?: Row[] }).rows ?? [])[0];
+      if (!payment) {
+        return { status: 409, body: { error: "A verified provider/payment record was not found for this order. No refund has been created." } };
+      }
+
+      const previousResult = await tx.execute(sql`
+        SELECT COALESCE(SUM(amount_minor),0)::bigint AS total
+        FROM refund_records
+        WHERE merchant_id=${ctx.merchantId}
+          AND payment_record_id=${Number(payment.payment_record_id)}
+          AND status IN ('requested','approved','processed')
+      `);
+      const priorRefundAmountMinor = Number((((previousResult as { rows?: Row[] }).rows ?? [])[0]?.total) ?? 0);
+
+      const decision = decideReturnRefund({
+        requestType: String(request.request_type),
+        requestStatus: String(request.status),
+        requestedQuantity: Number(request.quantity),
+        purchasedQuantity: Number(payment.purchased_quantity),
+        inspectionGrade: String(inspectionGrade),
+        amountMinor: Number(amountMinor),
+        paidAmountMinor: Number(payment.payment_amount_minor),
+        priorRefundAmountMinor,
+        paymentCurrency: String(payment.payment_currency),
+        paymentIntentAmountMinor: Number(payment.payment_intent_amount_minor),
+        paymentIntentCurrency: String(payment.payment_intent_currency),
+        restockReturnedItems,
+        inventoryStrategy: payment.inventory_strategy == null ? null : String(payment.inventory_strategy),
+        availabilityQuantity: payment.availability_quantity == null ? null : Number(payment.availability_quantity),
+      });
+      if (!decision.ok) return { status: 409, body: { error: decision.reason } };
+
+      const refundResult = await tx.execute(sql`
+        INSERT INTO refund_records (
+          merchant_id,order_id,payment_record_id,amount_minor,currency,status,reason,
+          inventory_restock,requested_by
+        ) VALUES (
+          ${ctx.merchantId},${Number(request.order_id)},${Number(payment.payment_record_id)},
+          ${Number(amountMinor)},${String(payment.payment_currency)},'requested',
+          ${"Return request " + id + " (" + String(request.reason) + "; inspection " + String(inspectionGrade) + ")"},
+          ${decision.inventoryRestock},${ctx.userId}
+        )
+        RETURNING id,status,amount_minor,currency,inventory_restock,provider_status,provider_refund_id
+      `);
+      const refund = ((refundResult as { rows?: Row[] }).rows ?? [])[0];
+      if (!refund) throw new Error("Refund request could not be recorded");
+
+      const updated = await tx.execute(sql`
+        UPDATE customer_return_requests
+        SET inspection_grade=${String(inspectionGrade)},
+            inspection_note=${inspectionNote},
+            inspected_at=now(),
+            refund_record_id=${Number(refund.id)},
+            updated_at=now()
+        WHERE id=${id}::uuid AND merchant_id=${ctx.merchantId}
+          AND status='received' AND refund_record_id IS NULL
+        RETURNING id
+      `);
+      if (!(((updated as { rows?: Row[] }).rows ?? []).length)) {
+        throw new Error("Return request changed while preparing the refund; the transaction has been rolled back.");
+      }
+
+      await tx.execute(sql`
+        INSERT INTO commerce_transition_history (
+          merchant_id,order_id,refund_id,entity_type,from_status,to_status,actor_id,note
+        ) VALUES (
+          ${ctx.merchantId},${Number(request.order_id)},${Number(refund.id)},
+          'customer_return_refund','received','requested',${ctx.userId},
+          ${"inspection=" + String(inspectionGrade) + "; inventoryRestock=" + String(decision.inventoryRestock)}
+        )
+      `);
+      await emitDomainEvent(tx, {
+        merchantId: ctx.merchantId,
+        eventType: "merchant.operation.transitioned",
+        aggregateType: "customer_return_request",
+        aggregateId: id,
+        actorType: "merchant",
+        actorId: ctx.userId,
+        source: "merchant_api",
+        idempotencyKey: "customer-return-request:" + id + ":refund-requested",
+        payload: {
+          status: "received",
+          resolution: "refund_requested",
+          refundRecordId: Number(refund.id),
+          amountMinor: Number(amountMinor),
+          currency: String(payment.payment_currency),
+          inspectionGrade: String(inspectionGrade),
+          inventoryRestock: decision.inventoryRestock,
+        },
+      });
+
+      return { status: 201, body: { refund, returnRequestId: id, replayed: false } };
+    });
+
+    res.setHeader("Cache-Control", "no-store, private");
+    res.status(result.status).json(result.body);
   } catch (error) { next(error); }
 });
 
