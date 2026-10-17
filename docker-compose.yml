@@ -31,7 +31,25 @@ services:
     environment:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["set -eu; for model in $(printf \"%s\" \"${LUNAVO_LOCAL_MODEL_PACK:-qwen3:4b,qwen3:14b,deepseek-r1:14b,gemma3:12b,nomic-embed-text}\" | tr ',' ' '); do echo \"Pulling $model\"; ollama pull \"$model\"; done"]
+    command:
+      - |
+        set -eu
+        ready=0
+        for attempt in $(seq 1 60); do
+          if ollama list >/dev/null 2>&1; then ready=1; break; fi
+          sleep 2
+        done
+        if [ "$ready" -ne 1 ]; then
+          echo "Ollama did not become ready; local AI model initialization skipped." >&2
+          exit 1
+        fi
+        for model in $(printf "%s" "${LUNAVO_LOCAL_MODEL_PACK:-qwen3:4b,qwen3:14b,deepseek-r1:14b,gemma3:12b,nomic-embed-text}" | tr ',' ' '); do
+          echo "Pulling $model"
+          if ! ollama pull "$model"; then
+            echo "Failed to pull local model $model; core Lunavo remains available with AI degraded." >&2
+            exit 1
+          fi
+        done
     volumes:
       - ollama_data:/root/.ollama
 
@@ -78,8 +96,6 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
-      ollama-init:
-        condition: service_completed_successfully
       social-gateway:
         condition: service_started
     environment:
