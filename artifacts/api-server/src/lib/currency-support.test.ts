@@ -35,6 +35,7 @@ describe("store currency coverage", () => {
       expect(isFlutterwavePaymentCurrency(currency), currency).toBe(true);
     }
     expect(isSupportedStoreCurrency("JPY")).toBe(false);
+    expect(isSupportedStoreCurrency("HUF")).toBe(false);
     expect(isSupportedStoreCurrency("BHD")).toBe(false);
     expect(isFlutterwavePaymentCurrency("CHF")).toBe(false);
   });
