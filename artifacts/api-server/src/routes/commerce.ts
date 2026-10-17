@@ -13441,6 +13441,7 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
       if (inventoryRestockSkipReason) {
         const [withoutRestock] = await tx.update(refundRecordsTable).set({
           inventoryRestock: false,
+          inventoryRestockSkipReason,
         }).where(and(
           eq(refundRecordsTable.id, id),
           eq(refundRecordsTable.merchantId, merchant.id),
@@ -13448,11 +13449,6 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
         )).returning();
         if (!withoutRestock) throw new Error("Could not record the skipped inventory-restock decision.");
         updated = withoutRestock;
-        await tx.execute(sql`
-          UPDATE refund_records
-          SET inventory_restock_skip_reason=${inventoryRestockSkipReason}
-          WHERE id=${id} AND merchant_id=${merchant.id}
-        `);
         inventoryRestockApplied = false;
       }
       const refunded = await tx.select({ total: sql<string>`coalesce(sum(${refundRecordsTable.amountMinor}),0)` }).from(refundRecordsTable).where(and(eq(refundRecordsTable.paymentRecordId, current.paymentRecordId), inArray(refundRecordsTable.status, ["approved", "processed"])));
