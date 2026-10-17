@@ -14,6 +14,7 @@ import { startCartRecoveryWorker } from "./lib/cart-recovery-worker";
 import { startCustomerAlertWorker } from "./lib/customer-alert-worker";
 import { startSupplierSyncWorker } from "./lib/supplier-sync";
 import { startChannelSyncWorker } from "./lib/channel-sync-worker";
+import { startDropshipMarketWatchWorker } from "./lib/dropship-market-watch-worker";
 
 await runMigrations();
 const rawPort=process.env["PORT"];
@@ -32,6 +33,7 @@ const stopCartRecovery=startCartRecoveryWorker();
 const stopCustomerAlerts=startCustomerAlertWorker();
 const stopSupplierSync=startSupplierSyncWorker();
 const stopChannelSync=startChannelSyncWorker();
+const stopDropshipMarketWatches=startDropshipMarketWatchWorker();
 let shuttingDown=false;
 const server=app.listen(port,(err)=>{if(err){logger.error({err},"Error listening on port");process.exit(1);}logger.info({port},"Server listening");});
 server.requestTimeout=120000;
@@ -41,7 +43,7 @@ const shutdown=async(signal:string)=>{
   if(shuttingDown)return;
   shuttingDown=true;
   logger.info({signal},"Graceful shutdown started");
-  stopOutbox(); stopFlutterwaveReconciliation(); stopDailyAiAdvertising(); stopAdminAiStore(); stopSocialPublishing(); stopScheduledWorkflows(); stopCustomerSubscriptions(); stopCartRecovery(); stopCustomerAlerts(); stopSupplierSync(); stopChannelSync();
+  stopOutbox(); stopFlutterwaveReconciliation(); stopDailyAiAdvertising(); stopAdminAiStore(); stopSocialPublishing(); stopScheduledWorkflows(); stopCustomerSubscriptions(); stopCartRecovery(); stopCustomerAlerts(); stopSupplierSync(); stopChannelSync(); stopDropshipMarketWatches();
   const forceTimer=setTimeout(()=>{logger.error("Graceful shutdown timeout");process.exit(1);},10000);
   forceTimer.unref();
   await new Promise<void>(resolve=>server.close(()=>resolve()));

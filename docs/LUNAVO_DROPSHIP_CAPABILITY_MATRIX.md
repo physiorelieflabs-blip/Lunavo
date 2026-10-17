@@ -67,6 +67,7 @@ Current commercial platforms increasingly combine supplier discovery/import, aut
 - Supplier quote draft -> expiring seven-day one-use share link -> supplier response page -> atomic quote recording and token consumption -> domain event/merchant notification -> quote review and acceptance/rejection -> landed-cost model. Only a SHA-256 token digest is stored; the merchant manually shares the link. The link does not imply supplier identity verification, an external message, a purchase order, or a payment.
 - Cost scenarios and quote records are tenant-scoped, idempotency-protected and auditable; they do not create a purchase order, payment, ledger entry or inventory movement.
 - External research -> evidence ledger -> local model synthesis; research is never treated as authoritative payment, stock or customer-consent truth.
+- Scheduled competitor/ad-spy public-page watches -> safe public URL capture -> idempotent evidence ledger -> recurring worker captures with pause/resume, bounded retry/backoff and per-merchant watch limits. Page observations remain unverified evidence and do not mutate prices, inventory, orders, payments or external ad accounts.
 
 ### Adapter-ready / credential-dependent
 These must remain real provider adapters rather than fake in-app completion:
@@ -90,7 +91,7 @@ These are the remaining significant gaps identified by the repository audit. Bui
 - Automated outbound supplier message/quote delivery adapters, supplier identity verification and authenticated provider-side replies. The secure one-time supplier quote portal currently handles inbound offers after a merchant manually shares its link; it does not itself send email/SMS or message a supplier platform.
 - Evidence-backed duty/import/tariff rules from authoritative jurisdiction-specific sources, dated by effective period, normalized to the transaction currency and kept distinct from operator-entered estimates.
 - Consent-gated email/SMS lifecycle campaign delivery with provider adapters, suppression/unsubscribe enforcement, bounce/complaint handling, delivery events and retry-safe idempotency. Current lifecycle recommendations remain advisory unless delivery is verified.
-- Scheduled competitor/ad-spy monitoring and real advertising/search connectors. Public URL capture is available and feeds the operating graph, but scheduled recapture or a live ad-network connector must not be claimed until a source adapter and successful fetch evidence exist.
+- Live advertising/search-network connectors and automated campaign execution still require verified provider adapters and successful remote acknowledgement; scheduled public-page monitoring does not imply access to private ads or an ad network.
 - Wholesale quantity breaks, customer/company-specific catalogs, negotiated price lists, payment terms/credit limits, tax-exempt evidence and B2B ordering UI. Current B2B/company/price-list records are primitives, not a full self-service wholesale checkout.
 - Returns portal automation, channel/provider operations and all new external actions need observability, per-tenant limits, operator-visible retries/dead letters and end-to-end tests before being marked fully implemented.
 
