@@ -81,5 +81,6 @@ pnpm run build
 - `docs/LUNAVO_FEATURE_CATALOG.md` — expected product capabilities
 - `docs/LUNAVO_IMPLEMENTATION_STATE.md` — implementation notes and release caveats
 - `docs/OPERATIONS_BACKUPS.md` — self-hosted backup monitoring, retention, and restore drill
+- `docs/PRODUCTION_LAUNCH_CHECKLIST.md` — self-hosted deployment, security, payments, AI, and recovery go/no-go checklist
 
 A green test suite is necessary but not sufficient for a production launch. Verify deployment-specific database backups, secrets, TLS, domain routing, provider configuration, local model capacity, and restore procedures before accepting real orders.
