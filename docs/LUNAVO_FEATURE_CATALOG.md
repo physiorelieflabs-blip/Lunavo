@@ -632,6 +632,12 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - GitHub Actions
 - Deployment/runtime compatibility
 - No development dependency on hosted platform tooling
+- Self-hosted scheduled PostgreSQL custom-format backups
+- Dedicated persistent backup volume separate from the live database volume
+- Backup archive validation and configurable retention
+- Retry-on-failure and timestamped operational logs
+- Non-destructive restore-drill runbook
+- Operator-configured independent encrypted copies for host-loss recovery; same-host dumps are not treated as complete disaster recovery
 
 ## 36. Data integrity rules
 - Immutable historical order pricing
