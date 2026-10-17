@@ -551,6 +551,27 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       `);
       const code = (codeResult.rows[0] as Record<string, unknown> | undefined) ?? null;
       if (!code) throw new Error("Discount redemption source code is missing during verified payment reconciliation");
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "discount.redeemed",
+        aggregateType: "discount_code",
+        aggregateId: Number(redemption.discount_code_id),
+        actorType: "system",
+        actorId: "flutterwave_webhook",
+        source: "system",
+        idempotencyKey: `discount-redemption:${settledOrder.id}:${Number(redemption.discount_code_id)}`,
+        payload: {
+          discountCodeId: Number(redemption.discount_code_id),
+          codeSnapshot: String(redemption.code_snapshot),
+          orderId: settledOrder.id,
+          usageCount: Number(code.usage_count),
+          usageLimit: code.usage_limit === null || code.usage_limit === undefined ? null : Number(code.usage_limit),
+          currency,
+          discountAmount: settledOrder.discountAmount,
+        },
+        before: { usageCount: Math.max(0, Number(code.usage_count) - 1) },
+        after: { usageCount: Number(code.usage_count) },
+      });
       const expiry = new Date(String(redemption.reserved_until)).getTime();
       const promotionReservationExpired = String(redemption.prior_status) === "released" || (Number.isFinite(expiry) && expiry <= Date.now());
       const usageLimit = code.usage_limit === null || code.usage_limit === undefined ? null : Number(code.usage_limit);
