@@ -6,9 +6,9 @@ const port=Number(process.env.PORT||"8081");
 const ratesFile=process.env.FX_RATES_FILE?.trim()||"/data/lunavo/fx-rates.json";
 const supported=/^[A-Z]{3}$/;
 const ttlMs=60_000;
-let cache:{loadedAt:number;rates:Record<string,Record<string,unknown>>}={loadedAt:0,rates:{}};
+let cache = { loadedAt: 0, rates: {} };
 
-function json(res: http.ServerResponse,status:number,payload:unknown){
+function json(res, status, payload) {
   const body=JSON.stringify(payload);
   res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","content-length":Buffer.byteLength(body)});
   res.end(body);
@@ -16,17 +16,17 @@ function json(res: http.ServerResponse,status:number,payload:unknown){
 async function loadRates(){
   try{
     const raw=await readFile(ratesFile,"utf8");
-    const parsed=JSON.parse(raw) as unknown;
+    const parsed = JSON.parse(raw);
     if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw new Error("FX ratebook must be an object");
-    const rates=(parsed as {rates?:unknown}).rates;
+    const rates = parsed.rates;
     if(!rates||typeof rates!=="object"||Array.isArray(rates))throw new Error("FX ratebook is missing a rates object");
-    cache={loadedAt:Date.now(),rates:rates as Record<string,Record<string,unknown>>};
+    cache = { loadedAt: Date.now(), rates };
   }catch(error){
-    if((error as NodeJS.ErrnoException)?.code==="ENOENT"){cache={loadedAt:Date.now(),rates:{}};return;}
+    if (error?.code === "ENOENT") {cache={loadedAt:Date.now(),rates:{}};return;}
     throw error;
   }
 }
-async function rateFor(base:string,quote:string){
+async function rateFor(base, quote) {
   if(Date.now()-cache.loadedAt>ttlMs)await loadRates();
   const direct=Number(cache.rates[base]?.[quote]);
   if(Number.isFinite(direct)&&direct>0)return direct;
