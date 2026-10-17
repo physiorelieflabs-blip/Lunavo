@@ -22,6 +22,7 @@ describe("exact monetary conversion", () => {
     expect(currencyMinorDigits("BHD")).toBe(3);
     expect(currencyMinorDigits("HUF")).toBe(2);
     expect(currencyMinorDigits("PKR")).toBe(2);
+    expect(currencyMinorDigits("COP")).toBe(2);
     expect(currencyMinorDigits("CLF")).toBe(4);
     expect(currencyMinorDigits("invalid")).toBe(2);
     expect(toMinorUnits("1500", currencyMinorDigits("JPY"))).toBe(1500);
