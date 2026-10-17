@@ -19,7 +19,7 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Set strong, unique values for `POSTGRES_PASSWORD`, `SESSION_SECRET`, and `SOCIAL_GATEWAY_TOKEN`. Set `APP_BASE_URL` to the URL you will use to open Lunavo. Set `LUNAVO_MASTER_ADMIN_EMAIL` and choose a strong `LUNAVO_MASTER_ADMIN_PASSWORD` (at least 12 characters with uppercase, lowercase, a number, and a special character).
+2. Set strong, unique values for `POSTGRES_PASSWORD` and `SESSION_SECRET`. Set `SOCIAL_GATEWAY_TOKEN` if you plan to enable social publishing integrations; without it, the local gateway remains disabled and core commerce can still start. Set `APP_BASE_URL` to the URL you will use to open Lunavo. Set `LUNAVO_MASTER_ADMIN_EMAIL` and choose a strong `LUNAVO_MASTER_ADMIN_PASSWORD` (at least 12 characters with uppercase, lowercase, a number, and a special character).
 3. Review `LUNAVO_LOCAL_MODEL_PACK` and the model profile settings. The defaults are self-hosted examples; ensure your machine can serve the selected models.
 4. Start the stack:
 
