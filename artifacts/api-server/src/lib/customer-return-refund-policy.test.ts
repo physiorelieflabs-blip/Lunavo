@@ -13,6 +13,8 @@ const base = {
   paymentCurrency: "USD",
   paymentIntentAmountMinor: 10000,
   paymentIntentCurrency: "USD",
+  settlementAmountMinor: 10000,
+  settlementCurrency: "USD",
   restockReturnedItems: true,
   inventoryStrategy: "tracked",
   availabilityQuantity: 3,
@@ -49,7 +51,16 @@ describe("return refund execution policy", () => {
     expect(decideReturnRefund({ ...base, inspectionGrade: "damaged" }).ok).toBe(false);
     expect(decideReturnRefund({ ...base, priorRefundAmountMinor: 1 }).ok).toBe(false);
     expect(decideReturnRefund({ ...base, availabilityQuantity: null }).ok).toBe(false);
-    expect(decideReturnRefund({ ...base, paymentIntentCurrency: "NGN" }).ok).toBe(false);
+    expect(decideReturnRefund({ ...base, settlementCurrency: "NGN" }).ok).toBe(false);
+    expect(decideReturnRefund({ ...base, settlementAmountMinor: 9999 }).ok).toBe(false);
     expect(decideReturnRefund({ ...base, inventoryStrategy: "source_based" }).ok).toBe(false);
+  });
+
+  it("blocks provider refund preparation when settlement values differ even if stock restock was not requested", () => {
+    expect(decideReturnRefund({
+      ...base,
+      restockReturnedItems: false,
+      settlementCurrency: "NGN",
+    })).toMatchObject({ ok: false });
   });
 });
