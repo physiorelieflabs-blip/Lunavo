@@ -27,6 +27,8 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
    docker compose up -d --build
    ```
 
+   Local AI model downloads are an optional capability bootstrap: a failed or incomplete model pull must not prevent the core commerce application from starting. Check `docker compose logs ollama-init` if AI is degraded. To retry initialization after fixing network, storage, or model settings, run `docker compose run --rm ollama-init`. Choose `LUNAVO_LOCAL_MODEL_PACK` for the hardware you actually have; a model endpoint is not considered healthy just because the Ollama container is running.
+
 5. Inspect service status and logs:
 
    ```sh
