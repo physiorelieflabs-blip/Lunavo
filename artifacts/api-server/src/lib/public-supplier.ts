@@ -9,17 +9,23 @@ const DNS_LOOKUP_TIMEOUT_MS = 3_000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MIN_HOST_REQUEST_GAP_MS = 250;
-export const SUPPORTED_SUPPLIER_CURRENCIES = [
-  "USD",
-  "NGN",
-  "GHS",
-  "KES",
-  "ZAR",
-  "GBP",
-  "EUR",
-  "CAD",
-  "AUD",
+const FALLBACK_SUPPLIER_CURRENCIES = [
+  "USD", "NGN", "GHS", "KES", "ZAR", "GBP", "EUR", "CAD", "AUD",
 ] as const;
+
+// Node 24 ships current ICU currency identifiers; using its registry avoids
+// silently rejecting ordinary supplier listings priced in JPY, CNY, INR, CHF,
+// XAF and other ISO currencies outside the original short list.
+const runtimeCurrencyCodes = new Set<string>(
+  typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("currency")
+    : FALLBACK_SUPPLIER_CURRENCIES,
+);
+
+export function isSupportedSupplierCurrency(value: string): boolean {
+  const currency = value.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(currency) && runtimeCurrencyCodes.has(currency);
+}
 const pageCache = new Map<string, { expiresAt: number; value: { url: URL; html: string } }>();
 const inFlightPages = new Map<string, Promise<{ url: URL; html: string }>>();
 const lastHostRequest = new Map<string, number>();
@@ -441,8 +447,8 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
     meta(html, "og:price:currency") ??
     "USD";
   const normalizedCurrency = currency.trim().toUpperCase();
-  if (!SUPPORTED_SUPPLIER_CURRENCIES.includes(normalizedCurrency as (typeof SUPPORTED_SUPPLIER_CURRENCIES)[number])) {
-    throw new Error(`Supplier product currency is not supported (${SUPPORTED_SUPPLIER_CURRENCIES.join(", ")})`);
+  if (!isSupportedSupplierCurrency(normalizedCurrency)) {
+    throw new Error("Supplier product currency must be a recognized three-letter ISO currency code");
   }
   const candidateImageUrls = [
     ...stringList(product?.image),
