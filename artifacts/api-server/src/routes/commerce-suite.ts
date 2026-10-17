@@ -4,6 +4,7 @@ import { getAuth } from "../lib/auth-compat";
 import { requirePermission, type PermissionKey } from "../lib/tenant-access";
 import { db, merchantsTable, customersTable, supplierProductsTable, autoDsSettingsTable, fulfillmentJobsTable, discountCodesTable, loyaltyAccountsTable, affiliateOffersTable, digitalProductsTable } from "@workspace/db";
 import { toMinorUnits } from "../lib/money";
+import { emitDomainEvent } from "../lib/domain-events";
 
 const router = Router();
 async function merchantFor(req: Request, permission: PermissionKey) {
@@ -60,12 +61,81 @@ router.post("/automation/fulfillment-jobs/:id/status", async(req,res)=>{
   }
   if(nextStatus==="delivered") patch.deliveredAt=new Date();
   if(nextStatus==="failed") patch.lastError=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"Fulfillment failed";
-  const [job]=await db.update(fulfillmentJobsTable).set(patch).where(and(eq(fulfillmentJobsTable.id,current.id),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,current.status))).returning();
+  const actorId = getAuth(req).userId;
+  const job = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(fulfillmentJobsTable).set(patch)
+      .where(and(eq(fulfillmentJobsTable.id,current.id),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,current.status)))
+      .returning();
+    if (!updated) return null;
+    await emitDomainEvent(tx, {
+      merchantId: m.id,
+      eventType: "fulfillment.status_changed",
+      aggregateType: "fulfillment_job",
+      aggregateId: updated.id,
+      actorType: "merchant",
+      actorId: actorId ?? null,
+      source: "merchant_api",
+      idempotencyKey: `fulfillment-status:${updated.id}:${updated.updatedAt.toISOString()}`,
+      payload: {
+        jobId: updated.id,
+        orderId: updated.orderId,
+        fromStatus: current.status,
+        toStatus: updated.status,
+        hasTracking: Boolean(updated.trackingNumber),
+      },
+      before: { status: current.status },
+      after: { status: updated.status },
+    });
+    await emitDomainEvent(tx, {
+      merchantId: m.id,
+      eventType: "order.fulfillment_changed",
+      aggregateType: "order",
+      aggregateId: updated.orderId,
+      actorType: "merchant",
+      actorId: actorId ?? null,
+      source: "merchant_api",
+      idempotencyKey: `order-fulfillment-status:${updated.orderId}:${updated.updatedAt.toISOString()}`,
+      payload: { orderId: updated.orderId, fulfillmentJobId: updated.id, fromStatus: current.status, toStatus: updated.status },
+      before: { fulfillmentStatus: current.status },
+      after: { fulfillmentStatus: updated.status },
+    });
+    return updated;
+  });
   if(!job) return fail(res,409,"Fulfillment job changed concurrently; reload and retry");
   res.json({job});
 });
 
-router.post("/automation/fulfillment-jobs/:id/approve", async(req,res)=>{const m=await merchantFor(req, "fulfillment.manage");if(!m)return fail(res,401,"Authentication required");const jobId=String(req.params.id ?? "").trim();if(!/^[0-9a-fA-F-]{36}$/.test(jobId))return fail(res,400,"Invalid fulfillment job id");const[j]=await db.update(fulfillmentJobsTable).set({status:"approved",updatedAt:new Date(),attempts:0}).where(and(eq(fulfillmentJobsTable.id,jobId),eq(fulfillmentJobsTable.merchantId,m.id),eq(fulfillmentJobsTable.status,"ready"))).returning();if(!j)return fail(res,404,"Ready fulfillment job not found");res.json({job:j,next:"Open the supplier checkout URL or use a configured supplier fulfillment adapter."});});
+router.post("/automation/fulfillment-jobs/:id/approve", async (req, res) => {
+  const m = await merchantFor(req, "fulfillment.manage");
+  if (!m) return fail(res, 401, "Authentication required");
+  const jobId = String(req.params.id ?? "").trim();
+  if (!/^[0-9a-fA-F-]{36}$/.test(jobId)) return fail(res, 400, "Invalid fulfillment job id");
+  const actorId = getAuth(req).userId;
+  const job = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(fulfillmentJobsTable)
+      .set({ status: "approved", updatedAt: new Date(), attempts: 0 })
+      .where(and(eq(fulfillmentJobsTable.id, jobId), eq(fulfillmentJobsTable.merchantId, m.id), eq(fulfillmentJobsTable.status, "ready")))
+      .returning();
+    if (!updated) return null;
+    await emitDomainEvent(tx, {
+      merchantId: m.id, eventType: "fulfillment.status_changed", aggregateType: "fulfillment_job",
+      aggregateId: updated.id, actorType: "merchant", actorId: actorId ?? null, source: "merchant_api",
+      idempotencyKey: `fulfillment-status:${updated.id}:${updated.updatedAt.toISOString()}`,
+      payload: { jobId: updated.id, orderId: updated.orderId, fromStatus: "ready", toStatus: "approved", hasTracking: Boolean(updated.trackingNumber) },
+      before: { status: "ready" }, after: { status: "approved" },
+    });
+    await emitDomainEvent(tx, {
+      merchantId: m.id, eventType: "order.fulfillment_changed", aggregateType: "order",
+      aggregateId: updated.orderId, actorType: "merchant", actorId: actorId ?? null, source: "merchant_api",
+      idempotencyKey: `order-fulfillment-status:${updated.orderId}:${updated.updatedAt.toISOString()}`,
+      payload: { orderId: updated.orderId, fulfillmentJobId: updated.id, fromStatus: "ready", toStatus: "approved" },
+      before: { fulfillmentStatus: "ready" }, after: { fulfillmentStatus: "approved" },
+    });
+    return updated;
+  });
+  if (!job) return fail(res, 404, "Ready fulfillment job not found");
+  res.json({ job, next: "Open the supplier checkout URL or use a configured supplier fulfillment adapter." });
+});
 
 router.get("/commerce/discount-codes", async(req,res)=>{const m=await merchantFor(req, "team.manage");if(!m)return fail(res,401,"Authentication required");res.json({codes:await db.select().from(discountCodesTable).where(eq(discountCodesTable.merchantId,m.id)).orderBy(desc(discountCodesTable.createdAt))});});
 router.post("/commerce/discount-codes", async (req, res) => {
