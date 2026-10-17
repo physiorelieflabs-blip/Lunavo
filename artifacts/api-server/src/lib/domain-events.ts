@@ -47,7 +47,7 @@ export function nextEventState(attempt: number, maxAttempts = 8): "retry" | "dea
 export function safeProjectionError(_error: unknown): { code: string; message: string } { return { code: "projection_failed", message: "A notification projection could not be completed." }; }
 
 function notificationFor(event: typeof domainEventsTable.$inferSelect) {
-  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", dropship_intelligence: "/dropship-intelligence", dropship_supplier_quote_request: "/dropship-workbench", channel_sync_job: "/channels" };
+  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", dropship_intelligence: "/dropship-intelligence", dropship_market_watch: "/dropship-intelligence", dropship_supplier_quote_request: "/dropship-workbench", channel_sync_job: "/channels" };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
     "dropship.market_research.observed": ["Market evidence captured", "A public product page was observed and saved as unverified competitive evidence.", "info"],
     "channel.sync.completed": ["Sales channel sync completed", "A channel adapter confirmed the provider operation and required commit.", "success"],
@@ -85,6 +85,32 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "account.exported": ["Account export created", "A privacy data export was generated.", "info"],
     "account.deleted": ["Account disabled", "Merchant account access was disabled.", "warning"],
   };
+  const payload = event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+    ? event.payload as Record<string, unknown>
+    : {};
+  if (event.eventType === "dropship.market_research.observed" &&
+      event.aggregateType === "dropship_market_watch" &&
+      payload.captureKind === "scheduled") {
+    const priceChanged = payload.priceChanged === true;
+    const availabilityChanged = payload.availabilityChanged === true;
+    if (!priceChanged && !availabilityChanged) return null;
+    const subject = payload.sourceKind === "ad_spy" ? "Ad research page" : "Competitor page";
+    const title = priceChanged && availabilityChanged
+      ? `${subject} price and availability changed`
+      : priceChanged
+        ? `${subject} price changed`
+        : `${subject} availability changed`;
+    const changedFields = [
+      priceChanged ? "observed price/currency" : null,
+      availabilityChanged ? "observed availability" : null,
+    ].filter((value): value is string => value !== null).join(" and ");
+    return {
+      title,
+      body: `Lunavo detected a change in ${changedFields} on a monitored public page. Review the evidence in Dropship Intelligence; page values are not checkout-verified.`,
+      severity: "info" as const,
+      deepLink: links[event.aggregateType] ?? "/dropship-intelligence",
+    };
+  }
   const label = labels[event.eventType as DomainEventType]; if (!label) return null;
   return { title: label[0], body: label[1], severity: label[2], deepLink: links[event.aggregateType] ?? null };
 }
