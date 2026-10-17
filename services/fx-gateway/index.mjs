@@ -101,6 +101,10 @@ async function refreshEcbRates() {
 }
 
 async function ensureEcbRatesFresh() {
+  if (ecbRefreshPromise) {
+    await ecbRefreshPromise;
+    return;
+  }
   const now = Date.now();
   const fetchedAtMs = ecbSnapshot.fetchedAt ? Date.parse(ecbSnapshot.fetchedAt) : 0;
   if (now - fetchedAtMs <= ecbRefreshIntervalMs) return;
@@ -124,6 +128,9 @@ function ecbQuote(base, quote) {
 }
 
 function ratebookQuote(base, quote) {
+  const asOfMs = ratebook.updatedAt ? Date.parse(ratebook.updatedAt) : 0;
+  const ageMs = Date.now() - asOfMs;
+  const ratebookStale = !asOfMs || ageMs < -5 * 60 * 1000 || ageMs > staleAfterMs;
   const direct = Number(ratebook.rates[base]?.[quote]);
   if (Number.isFinite(direct) && direct > 0 && direct <= 1_000_000_000) {
     return {
@@ -133,7 +140,7 @@ function ratebookQuote(base, quote) {
       asOf: ratebook.updatedAt,
       loadedAt: ratebook.loadedAt ? new Date(ratebook.loadedAt).toISOString() : null,
       indicativeOnly: true,
-      stale: true,
+      stale: ratebookStale,
     };
   }
   const inverse = Number(ratebook.rates[quote]?.[base]);
