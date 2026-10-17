@@ -54,6 +54,12 @@ The self-hosted endpoint boundary now normalizes bracketed IPv6 literals before 
 
 Supplier synchronization hardening also now enforces field-level policy toggles: a missing or unparseable supplier price cannot overwrite the last known source price; a currency mismatch blocks price/currency writes and repricing; stock observations must use recognized states; empty SKU/variant/media/description extraction does not erase existing catalog data; the database compare-and-swap guard rejects stale source fetches after concurrent product edits; price-change review thresholds use exact conservative basis-point arithmetic; and failed polling attempts advance the worker cursor to avoid repeatedly starving the same batch. Regression tests cover missing source fields, stock-status validation, currency boundaries, and price threshold math. These are implementation facts, not a claim that release CI has passed.
 
+## Backup and recovery operations
+
+The Compose stack now includes a self-hosted PostgreSQL backup worker that starts after the application is healthy and startup migrations have completed. It writes custom-format dumps to a dedicated persistent volume, validates generated archive metadata, uses a configurable retention window, and retries failures. CI includes a mocked backup-worker smoke test and a separate container-image build.
+
+The runbook covers archive validation and a non-destructive restore drill into a scratch database. These local backups do not protect against host or volume loss; a production operator must configure and verify independent encrypted copies, define recovery objectives, and perform restore drills before accepting live orders. The worker's running state is not proof of a recent successful backup.
+
 ## Verification status
 
 The GitHub Actions verification workflow covers migrations, self-hosted policy, repository secret audit, financial-boundary audit, implementation invariants, production configuration shape, payment/subscription security simulation, unit tests, typecheck, and build.
