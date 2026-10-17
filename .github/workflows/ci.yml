@@ -47,6 +47,12 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Validate self-hosted Docker Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-only-postgres-password
+          SESSION_SECRET: ci-only-session-secret-not-for-production
+          SOCIAL_GATEWAY_TOKEN: ci-only-social-gateway-token
+        run: docker compose config --quiet
       - name: Check standalone service runtime syntax
         run: |
           node --check services/fx-gateway/index.mjs
