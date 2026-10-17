@@ -6671,41 +6671,68 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
       ? await ensureSupplierRecord(merchant.id, supplierUrl.url, parsed.data.supplierName)
       : null;
     const sourceUrl = parsed.data.supplierUrl ?? `https://manual.invalid/product/${randomUUID()}`;
-    const [product] = await db
-      .insert(supplierProductsTable)
-      .values({
+    const product = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .insert(supplierProductsTable)
+        .values({
+          merchantId: merchant.id,
+          supplierId: supplier?.id ?? null,
+          sourceUrl,
+          supplierUrl: supplier?.website ?? "https://manual.invalid",
+          sourceDomain: supplier?.domain ?? "manual",
+          title: parsed.data.title,
+          description: parsed.data.description ?? null,
+          imageUrl: parsed.data.imageUrl ?? null,
+          price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
+          salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
+          currency: parsed.data.currency.toUpperCase(),
+          sku: parsed.data.sku ?? null,
+          category: parsed.data.category ?? null,
+          tags: parsed.data.tags ?? [],
+          sellingPrice: parsed.data.sellingPrice.toFixed(2),
+          inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
+          inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
+          availabilityQuantity: parsed.data.inventoryQuantity ?? null,
+          status: "active",
+          visibility: "active",
+          importStatus: "manual_import_required",
+          importedAt: new Date(),
+          publishedAt: new Date(),
+        })
+        .returning();
+      if (!saved) throw new Error("Manual product could not be saved");
+      await tx.insert(supplierImportAttemptsTable).values({
         merchantId: merchant.id,
-        supplierId: supplier?.id ?? null,
+        supplierProductId: saved.id,
         sourceUrl,
-        supplierUrl: supplier?.website ?? "https://manual.invalid",
-        sourceDomain: supplier?.domain ?? "manual",
-        title: parsed.data.title,
-        description: parsed.data.description ?? null,
-        imageUrl: parsed.data.imageUrl ?? null,
-        price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
-        salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
-        currency: parsed.data.currency.toUpperCase(),
-        sku: parsed.data.sku ?? null,
-        category: parsed.data.category ?? null,
-        tags: parsed.data.tags ?? [],
-        sellingPrice: parsed.data.sellingPrice.toFixed(2),
-        inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
-        inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
-        availabilityQuantity: parsed.data.inventoryQuantity ?? null,
-        status: "active",
-        visibility: "active",
-        importStatus: "manual_import_required",
-        importedAt: new Date(),
-        publishedAt: new Date(),
-      })
-      .returning();
-    if (!product) throw new Error("Manual product could not be saved");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl,
-      status: "manual_import_required",
-      message: "Created with merchant-supplied product details",
+        status: "manual_import_required",
+        message: "Created with merchant-supplied product details",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product-created:${saved.id}`,
+        payload: {
+          supplierProductId: saved.id,
+          changeType: "manual_product_created",
+          title: saved.title.slice(0, 180),
+          currency: saved.currency,
+          visibility: saved.visibility,
+        },
+        before: null,
+        after: {
+          status: saved.status,
+          visibility: saved.visibility,
+          currency: saved.currency,
+          sellingPrice: saved.sellingPrice,
+        },
+      });
+      return saved;
     });
     res.status(201).json(CreateManualSupplierProductResponse.parse(serializeSupplierProduct(product)));
   } catch (error) {
