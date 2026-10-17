@@ -58,3 +58,10 @@ The platform-core provider policy and production preflight reject third-party AI
 ## 7. Quality bar
 
 A feature is not complete when its screen exists. It is complete only when its server-side workflow, persistence, authorization, error states, idempotency, auditability and self-hosted fallback are implemented and verified.
+
+
+## 8. FX reference-rate boundary
+
+The self-hosted FX gateway refreshes the European Central Bank's public daily reference-rate XML feed without a customer API key. It derives cross rates through EUR when both currencies are present in the feed and reports the source, observation date, fetch time and stale status. The locally controlled ratebook remains a disclosed fallback for pairs the ECB feed does not cover; a missing pair is an error, never a guessed or silently fixed rate.
+
+ECB reference rates are published for information purposes and are not a payment quote. These indicative rates must not authorize a payment or replace the verified provider amount, provider settlement currency, provider fee, or authoritative TS Pay ledger records. The payment adapter and reconciliation flow remain responsible for actual transaction and settlement values.
