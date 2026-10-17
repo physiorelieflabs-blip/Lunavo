@@ -299,8 +299,9 @@ router.post("/merchant/dropship/market-watches", async (req, res, next) => {
         payload: {
           watchId,
           researchId: String(research.id),
+          captureKind: "initial",
           sourceKind,
-          sourceUrl: observation.sourceUrl,
+          sourceDomain: captured.sourceDomain,
           evidenceStatus: "page_observed_not_checkout_verified",
         },
       });

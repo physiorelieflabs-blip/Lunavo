@@ -6,6 +6,7 @@ import { logger } from "./logger";
 import { importPublicSupplierProduct } from "./public-supplier";
 import { buildPublicMarketObservation } from "./public-market-observation";
 import { recordMarketResearch } from "./dropship-intelligence";
+import { summarizeMarketWatchChange } from "./dropship-market-watch-diff";
 import {
   marketWatchRetryDelaySeconds,
   marketWatchStatusAfterFailure,
@@ -27,6 +28,9 @@ type MarketWatch = {
   claim_token: string;
   created_by: string;
   consecutive_failures: number;
+  last_observed_currency: string | null;
+  last_observed_price_minor: string | number | null;
+  last_observed_availability: string | null;
 };
 
 function safeCaptureError(error: unknown): string {
@@ -91,6 +95,14 @@ async function captureWatch(watch: MarketWatch): Promise<void> {
       captured,
       capturedAt: new Date(),
     });
+    const change = summarizeMarketWatchChange({
+      previousPriceMinor: watch.last_observed_price_minor,
+      previousCurrency: watch.last_observed_currency,
+      previousAvailability: watch.last_observed_availability,
+      currentPriceMinor: observation.observedPriceMinor,
+      currentCurrency: observation.currency,
+      currentAvailability: captured.availability,
+    });
     const idempotencyKey = `market-watch:${watch.id}:${watch.claim_token}`;
     const requestFingerprint = createHash("sha256").update(JSON.stringify({
       watchId: watch.id,
@@ -128,7 +140,8 @@ async function captureWatch(watch: MarketWatch): Promise<void> {
         requestFingerprint,
       }, tx);
 
-      if (!research.replayed) {
+      // Persist every snapshot, but only emit a merchant-facing event for a material change.
+      if (!research.replayed && change.changed) {
         await emitDomainEvent(tx, {
           merchantId: Number(watch.merchant_id),
           eventType: "dropship.market_research.observed",
@@ -139,11 +152,20 @@ async function captureWatch(watch: MarketWatch): Promise<void> {
           source: "system",
           idempotencyKey: `market-watch:${watch.id}:${String(research.id)}:observed`,
           payload: {
+            captureKind: "scheduled",
             watchId: watch.id,
             researchId: String(research.id),
             sourceKind: watch.source_kind,
-            sourceUrl: observation.sourceUrl,
+            sourceDomain: captured.sourceDomain,
             evidenceStatus: "page_observed_not_checkout_verified",
+            priceChanged: change.priceChanged,
+            availabilityChanged: change.availabilityChanged,
+            previousPriceMinor: change.previousPriceMinor,
+            previousCurrency: change.previousCurrency,
+            previousAvailability: change.previousAvailability,
+            observedPriceMinor: change.currentPriceMinor,
+            observedCurrency: change.currentCurrency,
+            observedAvailability: change.currentAvailability,
           },
         });
       }
