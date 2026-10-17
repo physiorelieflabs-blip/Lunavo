@@ -155,12 +155,10 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 ## 7. TS Pay / Lunavo Pay payment orchestration
 - First-party payment/orchestration layer
 - Internal ledger as accounting source of truth
-- Provider adapters rather than pretending to be a bank
-- Flutterwave adapter
-- Paystack adapter architecture
-- Stripe adapter architecture
-- PayPal adapter architecture
-- Provider checkout initiation
+- Provider adapter boundary; TS Pay is internal orchestration and ledger infrastructure, not a bank or customer wallet
+- Flutterwave is the only enabled external real-money payment provider
+- No Paystack, Stripe, PayPal, or alternate payout-rail integration without an explicit product-scope change
+- Provider checkout initiation through capabilities supported by the configured Flutterwave account
 - Provider webhook ingestion
 - Provider transaction verification
 - Provider settlement reconciliation

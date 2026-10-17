@@ -39,7 +39,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.34.5
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -47,6 +47,12 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Validate self-hosted Docker Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-only-postgres-password
+          SESSION_SECRET: ci-only-session-secret-not-for-production
+          SOCIAL_GATEWAY_TOKEN: ci-only-social-gateway-token
+        run: docker compose config --quiet
       - name: Check standalone service runtime syntax
         run: |
           node --check services/fx-gateway/index.mjs
@@ -95,6 +101,8 @@ jobs:
         run: |
           set -o pipefail
           pnpm run build 2>&1 | tee lunavo-build.log
+      - name: Build production Docker image
+        run: docker build --tag lunavo-ci:ci .
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4

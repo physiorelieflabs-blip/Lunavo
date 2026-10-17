@@ -1,10 +1,11 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json tsconfig.base.json ./
 COPY artifacts ./artifacts
 COPY lib ./lib
 COPY scripts ./scripts
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @workspace/lunavo build
 RUN pnpm --filter @workspace/api-server build
 
