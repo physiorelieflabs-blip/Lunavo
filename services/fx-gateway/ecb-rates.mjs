@@ -16,7 +16,7 @@ export function parseEcbRatesXml(xml) {
     throw new Error("ECB FX response is empty or exceeds the allowed size");
   }
 
-  const dateMatch = xml.match(/<Cube\\b[^>]*\\btime="(\\d{4}-\\d{2}-\\d{2})"/);
+  const dateMatch = xml.match(/<Cube\b[^>]*\btime="(\d{4}-\d{2}-\d{2})"/);
   const asOf = dateMatch?.[1] ?? null;
   if (!asOf) throw new Error("ECB FX response is missing its observation date");
   const asOfDate = new Date(asOf + "T00:00:00Z");
@@ -25,7 +25,7 @@ export function parseEcbRatesXml(xml) {
   }
 
   const rates = { EUR: 1 };
-  const cubes = xml.matchAll(/<Cube\\b([^>]*)\\/?\\s*>/g);
+  const cubes = xml.matchAll(/<Cube\b([^>]*)\/?\s*>/g);
   for (const cube of cubes) {
     const currency = attribute(cube[1], "currency");
     if (!currency) continue;
@@ -36,7 +36,7 @@ export function parseEcbRatesXml(xml) {
       throw new Error("ECB FX response contains a duplicate currency");
     }
     const rawRate = attribute(cube[1], "rate");
-    if (!rawRate || !/^\\d+(?:\\.\\d+)?$/.test(rawRate)) {
+    if (!rawRate || !/^\d+(?:\.\d+)?$/.test(rawRate)) {
       throw new Error("ECB FX response contains an invalid rate");
     }
     const rate = Number(rawRate);
