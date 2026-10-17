@@ -9,17 +9,23 @@ const DNS_LOOKUP_TIMEOUT_MS = 3_000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MIN_HOST_REQUEST_GAP_MS = 250;
-export const SUPPORTED_SUPPLIER_CURRENCIES = [
-  "USD",
-  "NGN",
-  "GHS",
-  "KES",
-  "ZAR",
-  "GBP",
-  "EUR",
-  "CAD",
-  "AUD",
+const FALLBACK_SUPPLIER_CURRENCIES = [
+  "USD", "NGN", "GHS", "KES", "ZAR", "GBP", "EUR", "CAD", "AUD",
 ] as const;
+
+// Node 24 ships current ICU currency identifiers; using its registry avoids
+// silently rejecting ordinary supplier listings priced in JPY, CNY, INR, CHF,
+// XAF and other ISO currencies outside the original short list.
+const runtimeCurrencyCodes = new Set<string>(
+  typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("currency")
+    : FALLBACK_SUPPLIER_CURRENCIES,
+);
+
+export function isSupportedSupplierCurrency(value: string): boolean {
+  const currency = value.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(currency) && runtimeCurrencyCodes.has(currency);
+}
 const pageCache = new Map<string, { expiresAt: number; value: { url: URL; html: string } }>();
 const inFlightPages = new Map<string, Promise<{ url: URL; html: string }>>();
 const lastHostRequest = new Map<string, number>();
@@ -48,28 +54,91 @@ export type ImportedSupplierProduct = {
   sourceMetadata: Record<string, unknown>;
 };
 
-function blockedAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
-    return (
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      a === 0
-    );
+function blockedIpv4Parts(parts: number[]): boolean {
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return true;
   }
-  const normalized = address.toLowerCase();
-  if (normalized.startsWith("::ffff:")) {
-    return blockedAddress(normalized.slice("::ffff:".length));
-  }
+  const [a, b, c] = parts;
   return (
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe80:")
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    a >= 224 ||
+    (a === 100 && b! >= 64 && b! <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b! >= 16 && b! <= 31) ||
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113)
   );
+}
+
+function parseIpv6Words(address: string): number[] | null {
+  let value = address.toLowerCase();
+  if (value.includes("%")) return null;
+
+  // Convert an embedded dotted IPv4 tail into its two hexadecimal IPv6 words.
+  if (value.includes(".")) {
+    const lastColon = value.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    const ipv4 = value.slice(lastColon + 1);
+    if (isIP(ipv4) !== 4) return null;
+    const bytes = ipv4.split(".").map(Number);
+    const high = ((bytes[0]! << 8) | bytes[1]!).toString(16);
+    const low = ((bytes[2]! << 8) | bytes[3]!).toString(16);
+    value = value.slice(0, lastColon + 1) + high + ":" + low;
+  }
+
+  const compressionIndex = value.indexOf("::");
+  let groups: string[];
+  if (compressionIndex >= 0) {
+    if (value.indexOf("::", compressionIndex + 2) >= 0) return null;
+    const leftText = value.slice(0, compressionIndex);
+    const rightText = value.slice(compressionIndex + 2);
+    const left = leftText ? leftText.split(":") : [];
+    const right = rightText ? rightText.split(":") : [];
+    const missing = 8 - left.length - right.length;
+    if (missing < 1) return null;
+    groups = [...left, ...Array(missing).fill("0"), ...right];
+  } else {
+    groups = value.split(":");
+    if (groups.length !== 8) return null;
+  }
+
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) {
+    return null;
+  }
+  return groups.map((group) => Number.parseInt(group, 16));
+}
+
+/**
+ * Blocks malformed addresses and known non-public or reserved address ranges.
+ * Supplier pages are untrusted input, so this classifier intentionally prefers a
+ * false positive over allowing a request to a private or special-purpose network.
+ */
+export function isBlockedSupplierAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 4) return blockedIpv4Parts(address.split(".").map(Number));
+  if (family !== 6) return true;
+
+  const words = parseIpv6Words(address);
+  if (!words) return true;
+  const [first, second, third] = words;
+
+  // The broad 2000::/3 global-unicast block contains reserved subranges too.
+  // These checks reject non-global prefixes and well-known IANA-reserved/special
+  // ranges before the supplier request is made.
+  if (first! < 0x2000 || first! > 0x3fff) return true;
+  if (first === 0x2000 || first! >= 0x2d00) return true; // Reserved/unallocated by IANA
+  if (first === 0x2001 && second! < 0x0200) return true; // IANA protocol/special-purpose range
+  if (first === 0x2001 && second === 0x0db8) return true; // Documentation
+  if (first === 0x2002) return true; // 6to4 embeds an IPv4 destination
+
+  return false;
 }
 
 async function resolvePublicAddress(hostname: string): Promise<string> {
@@ -84,7 +153,7 @@ async function resolvePublicAddress(hostname: string): Promise<string> {
       setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS),
     ),
   ]);
-  if (!addresses.length || addresses.some(blockedAddress)) {
+  if (!addresses.length || addresses.some(isBlockedSupplierAddress)) {
     throw new Error("Private and internal supplier addresses are not allowed");
   }
   return addresses[0]!;
@@ -378,8 +447,8 @@ export async function importPublicSupplierProduct(sourceUrl: string): Promise<Im
     meta(html, "og:price:currency") ??
     "USD";
   const normalizedCurrency = currency.trim().toUpperCase();
-  if (!SUPPORTED_SUPPLIER_CURRENCIES.includes(normalizedCurrency as (typeof SUPPORTED_SUPPLIER_CURRENCIES)[number])) {
-    throw new Error(`Supplier product currency is not supported (${SUPPORTED_SUPPLIER_CURRENCIES.join(", ")})`);
+  if (!isSupportedSupplierCurrency(normalizedCurrency)) {
+    throw new Error("Supplier product currency must be a recognized three-letter ISO currency code");
   }
   const candidateImageUrls = [
     ...stringList(product?.image),

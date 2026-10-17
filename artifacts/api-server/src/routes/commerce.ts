@@ -354,7 +354,7 @@ import {
 import { ensureTenantOwnerMembership, getTenantAccess, permissionKeys, requireLocationScope, requirePermission, TenantAuthorizationError, validateTenantLocations, type TenantAccess } from "../lib/tenant-access";
 import {
   importPublicSupplierProduct,
-  SUPPORTED_SUPPLIER_CURRENCIES,
+  isSupportedSupplierCurrency,
   type ImportedSupplierProduct,
 } from "../lib/public-supplier";
 import { canonicalInvoiceLine, canonicalMoneyMinor, invoiceStatusForDueDate } from "../lib/invoice-logic";
@@ -1711,8 +1711,8 @@ const MAX_SUPPLIER_PRICE = 100_000_000;
 
 function validateSupplierCurrency(value: string): string {
   const currency = value.trim().toUpperCase();
-  if (!SUPPORTED_SUPPLIER_CURRENCIES.includes(currency as (typeof SUPPORTED_SUPPLIER_CURRENCIES)[number])) {
-    throw new Error(`Supplier product currency is not supported (${SUPPORTED_SUPPLIER_CURRENCIES.join(", ")})`);
+  if (!isSupportedSupplierCurrency(currency)) {
+    throw new Error("Supplier product currency must be a recognized three-letter ISO currency code");
   }
   return currency;
 }
