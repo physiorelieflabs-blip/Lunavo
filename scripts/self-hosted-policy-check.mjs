@@ -20,6 +20,7 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){for(
 const compose=await readFile("docker-compose.yml","utf8");
 const lunavoService=compose.match(/^  lunavo:\n([\s\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
 if(!lunavoService)failures.push("Lunavo application service is missing from Compose");
+if(lunavoService&&!lunavoService.includes('127.0.0.1:${LUNAVO_PORT:-5000}:5000'))failures.push("Lunavo app port must bind to host loopback behind the operator-managed HTTPS reverse proxy");
 const serviceLines=lunavoService.split("\n");
 const dependsIndex=serviceLines.findIndex(line=>/^    depends_on:$/.test(line));
 const dependencyLines=[];
