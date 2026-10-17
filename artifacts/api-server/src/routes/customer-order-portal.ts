@@ -406,9 +406,9 @@ router.post("/merchant/order-portal/return-requests/:id/prepare-refund", async (
 
       const paymentResult = await tx.execute(sql`
         SELECT
-          o.id AS order_id,o.quantity AS purchased_quantity,o.supplier_product_id,o.location_id,
-          pr.id AS payment_record_id,pr.amount_minor AS payment_amount_minor,
-          pr.currency AS payment_currency,pr.status AS payment_status,
+          o.id AS order_id,o.quantity AS purchased_quantity,o.currency AS order_currency,o.supplier_product_id,o.location_id,
+          pr.id AS payment_record_id,pr.amount_minor AS settlement_amount_minor,
+          pr.currency AS settlement_currency,pr.status AS payment_status,
           pi.amount_minor AS payment_intent_amount_minor,pi.currency AS payment_intent_currency,
           pi.status AS payment_intent_status,
           p.inventory_strategy,p.availability_quantity
@@ -427,6 +427,9 @@ router.post("/merchant/order-portal/return-requests/:id/prepare-refund", async (
       if (!payment) {
         return { status: 409, body: { error: "A verified provider/payment record was not found for this order. No refund has been created." } };
       }
+      if (String(payment.order_currency).trim().toUpperCase() !== String(payment.payment_intent_currency).trim().toUpperCase()) {
+        return { status: 409, body: { error: "Order and transaction currencies differ. Use manual finance reconciliation for this return." } };
+      }
 
       const previousResult = await tx.execute(sql`
         SELECT COALESCE(SUM(amount_minor),0)::bigint AS total
@@ -444,11 +447,13 @@ router.post("/merchant/order-portal/return-requests/:id/prepare-refund", async (
         purchasedQuantity: Number(payment.purchased_quantity),
         inspectionGrade: String(inspectionGrade),
         amountMinor: Number(amountMinor),
-        paidAmountMinor: Number(payment.payment_amount_minor),
+        paidAmountMinor: Number(payment.payment_intent_amount_minor),
         priorRefundAmountMinor,
-        paymentCurrency: String(payment.payment_currency),
+        paymentCurrency: String(payment.payment_intent_currency),
         paymentIntentAmountMinor: Number(payment.payment_intent_amount_minor),
         paymentIntentCurrency: String(payment.payment_intent_currency),
+        settlementAmountMinor: Number(payment.settlement_amount_minor),
+        settlementCurrency: String(payment.settlement_currency),
         restockReturnedItems,
         inventoryStrategy: payment.inventory_strategy == null ? null : String(payment.inventory_strategy),
         availabilityQuantity: payment.availability_quantity == null ? null : Number(payment.availability_quantity),
@@ -461,7 +466,7 @@ router.post("/merchant/order-portal/return-requests/:id/prepare-refund", async (
           inventory_restock,requested_by
         ) VALUES (
           ${ctx.merchantId},${Number(request.order_id)},${Number(payment.payment_record_id)},
-          ${Number(amountMinor)},${String(payment.payment_currency)},'requested',
+          ${Number(amountMinor)},${String(payment.payment_intent_currency)},'requested',
           ${"Return request " + id + " (" + String(request.reason) + "; inspection " + String(inspectionGrade) + ")"},
           ${decision.inventoryRestock},${ctx.userId}
         )
