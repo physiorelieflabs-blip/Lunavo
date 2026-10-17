@@ -19,7 +19,7 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Set strong, unique values for `POSTGRES_PASSWORD`, `SESSION_SECRET`, and `SOCIAL_GATEWAY_TOKEN`. Set `APP_BASE_URL` to the URL you will use to open Lunavo. Set `LUNAVO_MASTER_ADMIN_EMAIL` and choose a strong `LUNAVO_MASTER_ADMIN_PASSWORD` (at least 12 characters with uppercase, lowercase, a number, and a special character).
+2. Set strong, unique values for `POSTGRES_PASSWORD` and `SESSION_SECRET`. Set `SOCIAL_GATEWAY_TOKEN` if you plan to enable social publishing integrations; without it, the local gateway remains disabled and core commerce can still start. Set `APP_BASE_URL` to the URL you will use to open Lunavo. Set `LUNAVO_MASTER_ADMIN_EMAIL` and choose a strong `LUNAVO_MASTER_ADMIN_PASSWORD` (at least 12 characters with uppercase, lowercase, a number, and a special character).
 3. Review `LUNAVO_LOCAL_MODEL_PACK` and the model profile settings. The defaults are self-hosted examples; ensure your machine can serve the selected models.
 4. Start the stack:
 
@@ -81,5 +81,6 @@ pnpm run build
 - `docs/LUNAVO_FEATURE_CATALOG.md` — expected product capabilities
 - `docs/LUNAVO_IMPLEMENTATION_STATE.md` — implementation notes and release caveats
 - `docs/OPERATIONS_BACKUPS.md` — self-hosted backup monitoring, retention, and restore drill
+- `docs/PRODUCTION_LAUNCH_CHECKLIST.md` — self-hosted deployment, security, payments, AI, and recovery go/no-go checklist
 
 A green test suite is necessary but not sufficient for a production launch. Verify deployment-specific database backups, secrets, TLS, domain routing, provider configuration, local model capacity, and restore procedures before accepting real orders.

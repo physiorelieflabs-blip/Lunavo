@@ -4,6 +4,12 @@ import path from "node:path";
 
 const env=await readFile(".env.example","utf8");
 const failures=[];
+const modelPackValue=env.match(/^LUNAVO_LOCAL_MODEL_PACK=(.*)$/m)?.[1]??"";
+const modelPack=new Set(modelPackValue.split(",").map((value)=>value.trim()).filter(Boolean));
+for(const key of ["LUNAVO_LOCAL_LLM_MODEL","LUNAVO_LOCAL_AI_FAST_MODEL","LUNAVO_LOCAL_AI_GENERAL_MODEL","LUNAVO_LOCAL_AI_REASONING_MODEL","LUNAVO_LOCAL_AI_CODING_MODEL","LUNAVO_LOCAL_AI_VISION_MODEL","LUNAVO_LOCAL_AI_REVIEW_MODEL","LUNAVO_LOCAL_EMBEDDINGS_MODEL"]){
+  const configured=env.match(new RegExp("^"+key+"=(.*)$","m"))?.[1]?.trim();
+  if(configured&&!modelPack.has(configured))failures.push("Default self-hosted model is not included in LUNAVO_LOCAL_MODEL_PACK: "+key+"="+configured);
+}
 const forbiddenKeys=["OPENAI_API_KEY","GEMINI_API_KEY","ANTHROPIC_API_KEY","DEEPSEEK_API_KEY","GOOGLE_MAPS_API_KEY","MAPBOX_ACCESS_TOKEN","TWILIO_AUTH_TOKEN","SENDGRID_API_KEY","MAILGUN_API_KEY","RESEND_API_KEY","ALGOLIA_API_KEY","PINECONE_API_KEY","AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY","CLERK_SECRET_KEY","CLERK_PUBLISHABLE_KEY"];
 for(const key of forbiddenKeys)if(new RegExp("^"+key+"=","m").test(env))failures.push("Forbidden hosted API key slot: "+key);
 const forbiddenUrls=["replit.com","replit.app","replit.dev","repl.co","repl.it","api.openai.com","api.anthropic.com","generativelanguage.googleapis.com","api.deepseek.com","api.stripe.com","api.paystack.co","api.paypal.com","api.twilio.com","api.sendgrid.com","api.resend.com","api.mapbox.com","maps.googleapis.com","s3.amazonaws.com","storage.googleapis.com","appwrite.io","supabase.co","firebaseio.com","algolia.net","pinecone.io","sentry.io","posthog.com","open.er-api.com"];
@@ -14,14 +20,29 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){for(
 const compose=await readFile("docker-compose.yml","utf8");
 const lunavoService=compose.match(/^  lunavo:\n([\s\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
 if(!lunavoService)failures.push("Lunavo application service is missing from Compose");
-const dependencyBlock=lunavoService.match(/^    depends_on:\n([\s\S]*?)(?=^    [a-zA-Z0-9_-]+:\n|$)/m)?.[1]??"";
-if(/^      ollama-init:/m.test(dependencyBlock))failures.push("Core Lunavo must not be blocked by optional local AI model downloads");
+if(lunavoService&&!lunavoService.includes('127.0.0.1:${LUNAVO_PORT:-5000}:5000'))failures.push("Lunavo app port must bind to host loopback behind the operator-managed HTTPS reverse proxy");
+const serviceLines=lunavoService.split("\n");
+const dependsIndex=serviceLines.findIndex(line=>/^    depends_on:$/.test(line));
+const dependencyLines=[];
+if(dependsIndex>=0){
+  for(const line of serviceLines.slice(dependsIndex+1)){
+    if(/^    [a-zA-Z0-9_-]+:/.test(line))break;
+    dependencyLines.push(line);
+  }
+}
+const dependencyBlock=dependencyLines.join("\n");
+for(const optionalService of ["ollama","ollama-init","fx-gateway","social-gateway"]){
+  if(new RegExp("^      "+optionalService+":","m").test(dependencyBlock))failures.push("Core Lunavo must not be blocked by optional local capability service: "+optionalService);
+}
 if(!compose.includes("ollama list >/dev/null 2>&1"))failures.push("Local AI model initialization must wait for the Ollama runtime to become ready");
 const backupService=compose.match(/^  postgres-backup:\n([\s\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
 if(!backupService)failures.push("Self-hosted PostgreSQL backup service is missing from Compose");
 if(backupService&&!backupService.includes("lunavo_backups:/backups"))failures.push("PostgreSQL dumps must use the dedicated persistent backup volume");
 if(backupService&&!backupService.includes("PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"))failures.push("PostgreSQL backup worker must use the configured database credential");
 if(!compose.includes("  lunavo_backups:"))failures.push("The dedicated PostgreSQL backup volume is not declared");
+if(compose.includes("SOCIAL_GATEWAY_TOKEN: ${SOCIAL_GATEWAY_TOKEN:?set SOCIAL_GATEWAY_TOKEN}"))failures.push("Optional social integration secret must not block Compose startup");
+const socialGateway=await readFile("services/social-gateway/index.mjs","utf8");
+if(!socialGateway.includes("Social gateway is disabled until SOCIAL_GATEWAY_TOKEN is configured"))failures.push("Social gateway must report disabled mode instead of crashing without its optional token");
 if(compose.includes("FX_UPSTREAM_URL")||compose.includes("open.er-api.com"))failures.push("FX gateway cannot use an external upstream");
 if(!compose.includes("FX_RATES_FILE: /data/lunavo/fx-rates.json"))failures.push("Self-hosted FX ratebook is not mounted in Compose");
 if(!compose.includes("LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-http://ollama:11434/v1/embeddings}"))failures.push("Compose embeddings endpoint is not local");
