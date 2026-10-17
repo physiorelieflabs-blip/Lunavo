@@ -342,6 +342,7 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 - Research limitations
 - Scheduled public competitor/ad-spy product-page watches
 - Idempotent first capture and recurring evidence with tenant limits, pause/resume and bounded retry
+- Price/currency/availability alerts only when a monitored public-page observation changes
 - Page observations never substitute for checkout verification or commerce authority
 - Product/image understanding
 - DeepSeek + Gemini architecture
