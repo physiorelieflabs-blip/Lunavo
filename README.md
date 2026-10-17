@@ -29,6 +29,8 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
 
    Local AI model downloads are an optional capability bootstrap: a failed or incomplete model pull must not prevent the core commerce application from starting. Check `docker compose logs ollama-init` if AI is degraded. To retry initialization after fixing network, storage, or model settings, run `docker compose run --rm ollama-init`. Choose `LUNAVO_LOCAL_MODEL_PACK` for the hardware you actually have; a model endpoint is not considered healthy just because the Ollama container is running.
 
+   A self-hosted PostgreSQL backup worker runs independently of the app and writes validated, timestamped dumps to the `lunavo_backups` volume. Review its logs after startup; a running container alone is not proof of a fresh backup. See [backup and restore operations](docs/OPERATIONS_BACKUPS.md) for the recovery drill and off-host copy requirements.
+
 5. Inspect service status and logs:
 
    ```sh
@@ -78,5 +80,6 @@ pnpm run build
 - `services/social-gateway` — isolated social integration boundary
 - `docs/LUNAVO_FEATURE_CATALOG.md` — expected product capabilities
 - `docs/LUNAVO_IMPLEMENTATION_STATE.md` — implementation notes and release caveats
+- `docs/OPERATIONS_BACKUPS.md` — self-hosted backup monitoring, retention, and restore drill
 
 A green test suite is necessary but not sufficient for a production launch. Verify deployment-specific database backups, secrets, TLS, domain routing, provider configuration, local model capacity, and restore procedures before accepting real orders.

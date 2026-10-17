@@ -17,6 +17,11 @@ if(!lunavoService)failures.push("Lunavo application service is missing from Comp
 const dependencyBlock=lunavoService.match(/^    depends_on:\n([\s\S]*?)(?=^    [a-zA-Z0-9_-]+:\n|$)/m)?.[1]??"";
 if(/^      ollama-init:/m.test(dependencyBlock))failures.push("Core Lunavo must not be blocked by optional local AI model downloads");
 if(!compose.includes("ollama list >/dev/null 2>&1"))failures.push("Local AI model initialization must wait for the Ollama runtime to become ready");
+const backupService=compose.match(/^  postgres-backup:\n([\s\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
+if(!backupService)failures.push("Self-hosted PostgreSQL backup service is missing from Compose");
+if(backupService&&!backupService.includes("lunavo_backups:/backups"))failures.push("PostgreSQL dumps must use the dedicated persistent backup volume");
+if(backupService&&!backupService.includes("PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"))failures.push("PostgreSQL backup worker must use the configured database credential");
+if(!compose.includes("  lunavo_backups:"))failures.push("The dedicated PostgreSQL backup volume is not declared");
 if(compose.includes("FX_UPSTREAM_URL")||compose.includes("open.er-api.com"))failures.push("FX gateway cannot use an external upstream");
 if(!compose.includes("FX_RATES_FILE: /data/lunavo/fx-rates.json"))failures.push("Self-hosted FX ratebook is not mounted in Compose");
 if(!compose.includes("LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-http://ollama:11434/v1/embeddings}"))failures.push("Compose embeddings endpoint is not local");
