@@ -30,6 +30,9 @@ if(!backupService)failures.push("Self-hosted PostgreSQL backup service is missin
 if(backupService&&!backupService.includes("lunavo_backups:/backups"))failures.push("PostgreSQL dumps must use the dedicated persistent backup volume");
 if(backupService&&!backupService.includes("PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"))failures.push("PostgreSQL backup worker must use the configured database credential");
 if(!compose.includes("  lunavo_backups:"))failures.push("The dedicated PostgreSQL backup volume is not declared");
+if(compose.includes("SOCIAL_GATEWAY_TOKEN: ${SOCIAL_GATEWAY_TOKEN:?set SOCIAL_GATEWAY_TOKEN}"))failures.push("Optional social integration secret must not block Compose startup");
+const socialGateway=await readFile("services/social-gateway/index.mjs","utf8");
+if(!socialGateway.includes("Social gateway is disabled until SOCIAL_GATEWAY_TOKEN is configured"))failures.push("Social gateway must report disabled mode instead of crashing without its optional token");
 if(compose.includes("FX_UPSTREAM_URL")||compose.includes("open.er-api.com"))failures.push("FX gateway cannot use an external upstream");
 if(!compose.includes("FX_RATES_FILE: /data/lunavo/fx-rates.json"))failures.push("Self-hosted FX ratebook is not mounted in Compose");
 if(!compose.includes("LUNAVO_LOCAL_EMBEDDINGS_URL: ${LUNAVO_LOCAL_EMBEDDINGS_URL:-http://ollama:11434/v1/embeddings}"))failures.push("Compose embeddings endpoint is not local");
