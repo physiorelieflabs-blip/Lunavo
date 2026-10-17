@@ -16,7 +16,7 @@ export const WORKFLOW_TRIGGER_EVENTS = [
   "merchant.accounting_period.updated","merchant.message.created","merchant.document.created",
   "supplier.sync_completed","supplier.sync_review_required","dropship.intelligence.refreshed","dropship.market_research.observed",
   "supplier.quote.portal_issued","supplier.quote.received","channel.sync.completed","channel.sync.partial","channel.sync.failed","channel.sync.cancelled",
-  "sourcing.source_registered","sourcing.product_discovered","supplier.product_imported","supplier.product_refreshed","supplier.observation_changed","supplier.sync_failed",
+  "sourcing.source_registered","supplier.product_imported","supplier.product_refreshed","supplier.observation_changed","supplier.sync_failed",
   "catalog.product_changed","discount.redeemed","order.fulfillment_changed","fulfillment.job_created","fulfillment.status_changed","schedule.tick",
 ] as const;
 export type WorkflowTriggerEvent = typeof WORKFLOW_TRIGGER_EVENTS[number];
