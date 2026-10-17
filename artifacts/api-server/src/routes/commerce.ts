@@ -1763,36 +1763,50 @@ async function ensureSupplierRecord(
 ): Promise<Supplier> {
   const parsed = new URL(supplierUrl);
   const domain = parsed.hostname.toLowerCase();
-  const existing = (
-    await db
+  return db.transaction(async (tx) => {
+    const existing = (
+      await tx
+        .select()
+        .from(suppliersTable)
+        .where(and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)))
+        .limit(1)
+    )[0];
+    if (existing) return existing;
+
+    const [created] = await tx
+      .insert(suppliersTable)
+      .values({
+        merchantId,
+        name: supplierName?.trim() || domain,
+        website: parsed.origin,
+        domain,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (created) {
+      await emitDomainEvent(tx, {
+        merchantId,
+        eventType: "sourcing.source_registered",
+        aggregateType: "sourcing_source",
+        aggregateId: created.id,
+        actorType: "system",
+        actorId: "supplier_registry",
+        source: "system",
+        idempotencyKey: `sourcing-source-registered:${created.id}`,
+        payload: { supplierId: created.id, name: created.name.slice(0, 180), domain: created.domain, website: created.website },
+        after: { domain: created.domain, website: created.website },
+      });
+      return created;
+    }
+
+    const [afterConflict] = await tx
       .select()
       .from(suppliersTable)
-      .where(
-        and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)),
-      )
-      .limit(1)
-  )[0];
-  if (existing) return existing;
-  const [created] = await db
-    .insert(suppliersTable)
-    .values({
-      merchantId,
-      name: supplierName?.trim() || domain,
-      website: parsed.origin,
-      domain,
-    })
-    .onConflictDoNothing()
-    .returning();
-  if (created) return created;
-  const [afterConflict] = await db
-    .select()
-    .from(suppliersTable)
-    .where(
-      and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)),
-    )
-    .limit(1);
-  if (!afterConflict) throw new Error("Supplier record could not be created");
-  return afterConflict;
+      .where(and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)))
+      .limit(1);
+    if (!afterConflict) throw new Error("Supplier record could not be created");
+    return afterConflict;
+  });
 }
 
 function importedProductValues(
