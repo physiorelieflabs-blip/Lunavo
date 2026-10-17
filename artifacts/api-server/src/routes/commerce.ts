@@ -13371,28 +13371,89 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
         if (!["requested", "approved"].includes(current.status)) throw new Error("Refund is not awaiting approval");
       await tx.execute(sql`select id from ${ordersTable} where id=${current.orderId} and merchant_id=${merchant.id} for update`);
       const order = (await tx.select().from(ordersTable).where(eq(ordersTable.id, current.orderId)).limit(1))[0];
-       const [updated] = await tx.update(refundRecordsTable).set({
+       let [updated] = await tx.update(refundRecordsTable).set({
          status: "processed",
          approvedBy: identity.clerkUserId,
          approvedAt: new Date(),
-           providerRefundId: providerRefund?.id ?? current.providerRefundId,
-           providerStatus: providerRefund?.status ?? current.providerStatus,
-           providerFailureReason: null,
+         providerRefundId: providerRefund?.id ?? current.providerRefundId,
+         providerStatus: providerRefund?.status ?? current.providerStatus,
+         providerFailureReason: null,
         }).where(and(
           eq(refundRecordsTable.id, id),
           inArray(refundRecordsTable.status, ["requested", "approved"]),
         )).returning();
        if (!updated) throw new Error("Refund changed while processing");
       await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: current.paymentRecordId, refundId: id, amountMinor: -current.amountMinor, currency: current.currency, entryType: "refund", referenceKey: `refund:${id}` });
-      if (current.inventoryRestock && order?.supplierProductId) {
-        await tx.execute(sql`select id from ${supplierProductsTable} where id=${order.supplierProductId} and merchant_id=${merchant.id} for update`);
-         await tx.execute(sql`select id from ${inventoryReservationsTable} where order_id=${order.id} and merchant_id=${merchant.id} for update`);
-         const reservation = (await tx.select().from(inventoryReservationsTable).where(and(eq(inventoryReservationsTable.orderId, order.id), eq(inventoryReservationsTable.merchantId, merchant.id), eq(inventoryReservationsTable.supplierProductId, order.supplierProductId))).limit(1))[0];
-          if (reservation && reservation.status !== "consumed") throw new Error("Only consumed inventory can be restocked");
-         const [movement] = await tx.insert(inventoryMovementsTable).values({ merchantId: merchant.id, locationId: order.locationId, supplierProductId: order.supplierProductId, orderId: order.id, quantityDelta: order.quantity, reason: "refund_restock", referenceKey: `restock:refund:${id}` }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey }).returning();
-         if (movement) {
-           await tx.update(supplierProductsTable).set({ availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} + ${reservation?.quantity ?? order.quantity}` }).where(and(eq(supplierProductsTable.id, order.supplierProductId), eq(supplierProductsTable.merchantId, merchant.id), sql`${supplierProductsTable.availabilityQuantity} is not null`));
-         }
+
+      let inventoryRestockApplied = current.inventoryRestock;
+      let inventoryRestockSkipReason: string | null = null;
+      if (current.inventoryRestock) {
+        if (!order?.supplierProductId) {
+          inventoryRestockSkipReason = "The order no longer has a linked product eligible for tracked inventory restock.";
+        } else {
+          const stockResult = await tx.execute(sql`
+            SELECT id, inventory_strategy, availability_quantity
+            FROM supplier_products
+            WHERE id=${order.supplierProductId} AND merchant_id=${merchant.id}
+            FOR UPDATE
+          `);
+          const stock = ((stockResult as { rows?: Array<Record<string, unknown>> }).rows ?? [])[0];
+          await tx.execute(sql`select id from ${inventoryReservationsTable} where order_id=${order.id} and merchant_id=${merchant.id} for update`);
+          const reservation = (await tx.select().from(inventoryReservationsTable).where(and(
+            eq(inventoryReservationsTable.orderId, order.id),
+            eq(inventoryReservationsTable.merchantId, merchant.id),
+            eq(inventoryReservationsTable.supplierProductId, order.supplierProductId),
+          )).limit(1))[0];
+          const available = Number(stock?.availability_quantity);
+          if (!stock) {
+            inventoryRestockSkipReason = "The linked product no longer exists in this merchant's inventory.";
+          } else if (String(stock.inventory_strategy) === "source_based" || stock.availability_quantity == null) {
+            inventoryRestockSkipReason = "Inventory is now source-based or unknown; automatic restock was skipped.";
+          } else if (!reservation || reservation.status !== "consumed" || Number(reservation.quantity) !== Number(order.quantity)) {
+            inventoryRestockSkipReason = "The full-order consumed inventory reservation could not be verified; automatic restock was skipped.";
+          } else if (!Number.isSafeInteger(available) || available < 0) {
+            inventoryRestockSkipReason = "The tracked inventory quantity is invalid; automatic restock was skipped.";
+          } else {
+            const [movement] = await tx.insert(inventoryMovementsTable).values({
+              merchantId: merchant.id,
+              locationId: order.locationId,
+              supplierProductId: order.supplierProductId,
+              orderId: order.id,
+              quantityDelta: reservation.quantity,
+              reason: "refund_restock",
+              referenceKey: `restock:refund:${id}`,
+            }).onConflictDoNothing({ target: inventoryMovementsTable.referenceKey }).returning();
+            if (!movement) {
+              inventoryRestockSkipReason = "An inventory movement already exists for this refund; no additional stock was added.";
+            } else {
+              const [restocked] = await tx.update(supplierProductsTable).set({
+                availabilityQuantity: sql`${supplierProductsTable.availabilityQuantity} + ${reservation.quantity}`,
+              }).where(and(
+                eq(supplierProductsTable.id, order.supplierProductId),
+                eq(supplierProductsTable.merchantId, merchant.id),
+                eq(supplierProductsTable.availabilityQuantity, available),
+              )).returning({ id: supplierProductsTable.id });
+              if (!restocked) throw new Error("Tracked inventory changed during restock; local refund transaction will retry safely.");
+            }
+          }
+        }
+      }
+      if (inventoryRestockSkipReason) {
+        const [withoutRestock] = await tx.update(refundRecordsTable).set({
+          inventoryRestock: false,
+        }).where(and(
+          eq(refundRecordsTable.id, id),
+          eq(refundRecordsTable.merchantId, merchant.id),
+          eq(refundRecordsTable.status, "processed"),
+        )).returning();
+        if (!withoutRestock) throw new Error("Could not record the skipped inventory-restock decision.");
+        updated = withoutRestock;
+        await tx.execute(sql`
+          UPDATE refund_records
+          SET inventory_restock_skip_reason=${inventoryRestockSkipReason}
+          WHERE id=${id} AND merchant_id=${merchant.id}
+        `);
+        inventoryRestockApplied = false;
       }
       const refunded = await tx.select({ total: sql<string>`coalesce(sum(${refundRecordsTable.amountMinor}),0)` }).from(refundRecordsTable).where(and(eq(refundRecordsTable.paymentRecordId, current.paymentRecordId), inArray(refundRecordsTable.status, ["approved", "processed"])));
       const payment = (await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.id, current.paymentRecordId)).limit(1))[0];
@@ -13401,12 +13462,12 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
         await tx.update(paymentRecordsTable).set({ status: paymentStatus }).where(eq(paymentRecordsTable.id, payment.id));
         await tx.update(paymentIntentsTable).set({ status: paymentStatus }).where(eq(paymentIntentsTable.id, payment.intentId));
       }
-      await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, refundId: id, entityType: "refund", fromStatus: "requested", toStatus: "processed", actorId: identity.clerkUserId });
+      await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: current.orderId, refundId: id, entityType: "refund", fromStatus: "requested", toStatus: "processed", actorId: identity.clerkUserId, note: inventoryRestockSkipReason ? "Inventory restock skipped: " + inventoryRestockSkipReason : null });
        await emitDomainEvent(tx, {
          merchantId: merchant.id, eventType: "refund.processed", aggregateType: "refund",
          aggregateId: updated.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api",
          idempotencyKey: `refund:${updated.id}:processed`,
-         payload: { orderId: current.orderId, amountMinor: current.amountMinor, currency: current.currency, inventoryRestock: current.inventoryRestock },
+         payload: { orderId: current.orderId, amountMinor: current.amountMinor, currency: current.currency, inventoryRestock: inventoryRestockApplied, inventoryRestockSkipReason },
          before: { status: current.status }, after: { status: updated.status },
        });
       const completedReturns = await tx.execute(sql`
