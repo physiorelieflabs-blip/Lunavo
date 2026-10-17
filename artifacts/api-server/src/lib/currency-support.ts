@@ -8,7 +8,7 @@
 export const SUPPORTED_CURRENCIES = [
   "USD", "NGN", "GHS", "KES", "ZAR", "GBP", "EUR", "CAD", "AUD",
   "CHF", "CNY", "HKD", "INR", "SGD", "NZD", "BRL", "MXN", "MYR",
-  "THB", "PHP", "PLN", "SEK", "NOK", "DKK", "CZK", "HUF", "RON",
+  "THB", "PHP", "PLN", "SEK", "NOK", "DKK", "CZK", "RON",
   "TRY", "ILS", "EGP", "PKR", "BDT", "TWD", "COP", "PEN", "ARS",
   "KZT", "UAH", "MAD", "DZD", "QAR", "LKR", "NPR", "MUR", "IDR",
 ] as const;
