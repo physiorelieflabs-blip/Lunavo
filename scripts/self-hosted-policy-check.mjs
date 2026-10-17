@@ -20,7 +20,16 @@ for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){for(
 const compose=await readFile("docker-compose.yml","utf8");
 const lunavoService=compose.match(/^  lunavo:\n([\s\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
 if(!lunavoService)failures.push("Lunavo application service is missing from Compose");
-const dependencyBlock=lunavoService.match(/^    depends_on:\n([\s\S]*?)(?=^    [a-zA-Z0-9_-]+:\n|$)/m)?.[1]??"";
+const serviceLines=lunavoService.split("\n");
+const dependsIndex=serviceLines.findIndex(line=>/^    depends_on:$/.test(line));
+const dependencyLines=[];
+if(dependsIndex>=0){
+  for(const line of serviceLines.slice(dependsIndex+1)){
+    if(/^    [a-zA-Z0-9_-]+:/.test(line))break;
+    dependencyLines.push(line);
+  }
+}
+const dependencyBlock=dependencyLines.join("\n");
 for(const optionalService of ["ollama","ollama-init","fx-gateway","social-gateway"]){
   if(new RegExp("^      "+optionalService+":","m").test(dependencyBlock))failures.push("Core Lunavo must not be blocked by optional local capability service: "+optionalService);
 }
