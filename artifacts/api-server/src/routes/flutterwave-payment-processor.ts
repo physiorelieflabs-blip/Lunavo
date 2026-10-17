@@ -736,6 +736,24 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
               mode: createdJob.mode,
             },
           });
+          await emitDomainEvent(tx, {
+            merchantId: merchant.id,
+            eventType: "order.fulfillment_changed",
+            aggregateType: "order",
+            aggregateId: createdJob.orderId,
+            actorType: "system",
+            actorId: "flutterwave_webhook",
+            source: "public_checkout",
+            idempotencyKey: `order-fulfillment-created:${createdJob.orderId}`,
+            payload: {
+              orderId: createdJob.orderId,
+              fulfillmentJobId: createdJob.id,
+              fromStatus: null,
+              toStatus: createdJob.status,
+            },
+            before: {},
+            after: { fulfillmentJobId: createdJob.id, fulfillmentStatus: createdJob.status },
+          });
         }
       }
     }
