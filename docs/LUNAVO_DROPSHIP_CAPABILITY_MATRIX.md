@@ -67,7 +67,7 @@ Current commercial platforms increasingly combine supplier discovery/import, aut
 - Supplier quote draft -> expiring seven-day one-use share link -> supplier response page -> atomic quote recording and token consumption -> domain event/merchant notification -> quote review and acceptance/rejection -> landed-cost model. Only a SHA-256 token digest is stored; the merchant manually shares the link. The link does not imply supplier identity verification, an external message, a purchase order, or a payment.
 - Cost scenarios and quote records are tenant-scoped, idempotency-protected and auditable; they do not create a purchase order, payment, ledger entry or inventory movement.
 - External research -> evidence ledger -> local model synthesis; research is never treated as authoritative payment, stock or customer-consent truth.
-- Scheduled competitor/ad-spy public-page watches -> safe public URL capture -> idempotent evidence ledger -> recurring worker captures with pause/resume, bounded retry/backoff and per-merchant watch limits. Page observations remain unverified evidence and do not mutate prices, inventory, orders, payments or external ad accounts.
+- Scheduled competitor/ad-spy public-page watches -> safe public URL capture -> idempotent evidence ledger -> recurring worker captures with pause/resume, bounded retry/backoff, per-merchant watch limits and alerts only for material observed price/currency or availability changes. Unchanged snapshots remain in evidence history without notification noise; observations do not mutate prices, inventory, orders, payments or external ad accounts.
 
 ### Adapter-ready / credential-dependent
 These must remain real provider adapters rather than fake in-app completion:
