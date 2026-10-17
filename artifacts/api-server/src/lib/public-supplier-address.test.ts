@@ -51,12 +51,17 @@ describe("public supplier URL address boundary", () => {
       "fd12:3456::1",
       "fe80::1",
       "ff02::1",
+      "2000::1",
       "2001:0::1",
+      "2001:1::1",
       "2001:2::1",
       "2001:db8::1",
       "2001:10::1",
       "2001:20::1",
       "2002:0808:0808::1",
+      "2d00::1",
+      "3000::1",
+      "3f00::1",
       "3fff::1",
     ]) {
       expect(isBlockedSupplierAddress(address), address).toBe(true);
