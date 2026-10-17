@@ -23,7 +23,7 @@ import {
 import { getAuth } from "../lib/auth-compat";
 import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
-import { currencyMinorDigits, multiplyMinorUnits, toMinorUnits } from "../lib/money";
+import { currencyMinorDigits, minorUnitsToMajorUnits, multiplyMinorUnits, toMinorUnits } from "../lib/money";
 import { calculateDiscountMinorUnits } from "../lib/discount-pricing";
 import {
   activityTable,
@@ -13531,10 +13531,23 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
         res.status(503).json({ error: "Flutterwave refunds are not configured" });
         return;
       }
+      const providerRefundAmount = minorUnitsToMajorUnits(pendingRefund.amountMinor, pendingRefund.currency);
+      if (providerRefundAmount === null || providerRefundAmount <= 0) {
+        await db.update(refundRecordsTable).set({
+          status: "requested",
+          providerStatus: "failed",
+          providerFailureReason: "Refund amount or currency precision is invalid",
+        }).where(and(
+          eq(refundRecordsTable.id, pendingRefund.id),
+          eq(refundRecordsTable.status, "approved"),
+        ));
+        res.status(409).json({ error: "Refund amount or currency precision is invalid" });
+        return;
+      }
       try {
         providerRefund = await refundFlutterwaveTransaction(
           providerTransactionId,
-          pendingRefund.amountMinor / 100,
+          providerRefundAmount,
           `refund:${pendingRefund.id}`,
         );
       } catch (error) {
