@@ -4,6 +4,12 @@ import path from "node:path";
 
 const env=await readFile(".env.example","utf8");
 const failures=[];
+const modelPackValue=env.match(/^LUNAVO_LOCAL_MODEL_PACK=(.*)$/m)?.[1]??"";
+const modelPack=new Set(modelPackValue.split(",").map((value)=>value.trim()).filter(Boolean));
+for(const key of ["LUNAVO_LOCAL_LLM_MODEL","LUNAVO_LOCAL_AI_FAST_MODEL","LUNAVO_LOCAL_AI_GENERAL_MODEL","LUNAVO_LOCAL_AI_REASONING_MODEL","LUNAVO_LOCAL_AI_CODING_MODEL","LUNAVO_LOCAL_AI_VISION_MODEL","LUNAVO_LOCAL_AI_REVIEW_MODEL","LUNAVO_LOCAL_EMBEDDINGS_MODEL"]){
+  const configured=env.match(new RegExp("^"+key+"=(.*)$","m"))?.[1]?.trim();
+  if(configured&&!modelPack.has(configured))failures.push("Default self-hosted model is not included in LUNAVO_LOCAL_MODEL_PACK: "+key+"="+configured);
+}
 const forbiddenKeys=["OPENAI_API_KEY","GEMINI_API_KEY","ANTHROPIC_API_KEY","DEEPSEEK_API_KEY","GOOGLE_MAPS_API_KEY","MAPBOX_ACCESS_TOKEN","TWILIO_AUTH_TOKEN","SENDGRID_API_KEY","MAILGUN_API_KEY","RESEND_API_KEY","ALGOLIA_API_KEY","PINECONE_API_KEY","AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY","CLERK_SECRET_KEY","CLERK_PUBLISHABLE_KEY"];
 for(const key of forbiddenKeys)if(new RegExp("^"+key+"=","m").test(env))failures.push("Forbidden hosted API key slot: "+key);
 const forbiddenUrls=["replit.com","replit.app","replit.dev","repl.co","repl.it","api.openai.com","api.anthropic.com","generativelanguage.googleapis.com","api.deepseek.com","api.stripe.com","api.paystack.co","api.paypal.com","api.twilio.com","api.sendgrid.com","api.resend.com","api.mapbox.com","maps.googleapis.com","s3.amazonaws.com","storage.googleapis.com","appwrite.io","supabase.co","firebaseio.com","algolia.net","pinecone.io","sentry.io","posthog.com","open.er-api.com"];
