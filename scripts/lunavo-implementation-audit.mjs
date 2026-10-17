@@ -91,7 +91,10 @@ const orderRoute=await read("artifacts/api-server/src/routes/commerce.ts");
 for(const m of [
   'const supplierProductId = parsed.data.supplierProductId',
   'supplierProduct.sellingPrice',
-  'const totalMinor = unitPriceMinor * quantity',
+  'const unitPriceMinor = toMinorUnits(supplierProduct.sellingPrice, minorDigits)',
+  'const totalMinor = unitPriceMinor === null ? null : multiplyMinorUnits(unitPriceMinor, quantity)',
+  'const submittedTotalMinor = toMinorUnits(parsed.data.total, minorDigits)',
+  'totalMinor === null',
   'submittedTotalMinor !== totalMinor',
   'inventoryReservationsTable',
   'status: "pending"',
