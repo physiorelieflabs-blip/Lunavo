@@ -14,6 +14,8 @@ export const domainEventTypes = [
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
   "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","cart.abandoned","cart.recovered","review.created","review.moderated","customer.address.updated","customer.preferences.updated","customer.price_watch.created","customer.saved_search.created","supplier.sync_completed","supplier.sync_review_required","dropship.intelligence.refreshed","dropship.market_research.observed","account.exported","account.deleted","channel.sync.completed","channel.sync.partial","channel.sync.failed","channel.sync.cancelled","supplier.quote.portal_issued","supplier.quote.received",
+  "sourcing.source_registered","sourcing.product_discovered","supplier.product_imported","supplier.product_refreshed","supplier.observation_changed","supplier.sync_failed",
+  "catalog.product_changed","discount.redeemed","order.fulfillment_changed","fulfillment.job_created","fulfillment.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
