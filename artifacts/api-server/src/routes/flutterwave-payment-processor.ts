@@ -551,6 +551,27 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       `);
       const code = (codeResult.rows[0] as Record<string, unknown> | undefined) ?? null;
       if (!code) throw new Error("Discount redemption source code is missing during verified payment reconciliation");
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "discount.redeemed",
+        aggregateType: "discount_code",
+        aggregateId: Number(redemption.discount_code_id),
+        actorType: "system",
+        actorId: "flutterwave_webhook",
+        source: "system",
+        idempotencyKey: `discount-redemption:${settledOrder.id}:${Number(redemption.discount_code_id)}`,
+        payload: {
+          discountCodeId: Number(redemption.discount_code_id),
+          codeSnapshot: String(redemption.code_snapshot),
+          orderId: settledOrder.id,
+          usageCount: Number(code.usage_count),
+          usageLimit: code.usage_limit === null || code.usage_limit === undefined ? null : Number(code.usage_limit),
+          currency,
+          discountAmount: settledOrder.discountAmount,
+        },
+        before: { usageCount: Math.max(0, Number(code.usage_count) - 1) },
+        after: { usageCount: Number(code.usage_count) },
+      });
       const expiry = new Date(String(redemption.reserved_until)).getTime();
       const promotionReservationExpired = String(redemption.prior_status) === "released" || (Number.isFinite(expiry) && expiry <= Date.now());
       const usageLimit = code.usage_limit === null || code.usage_limit === undefined ? null : Number(code.usage_limit);
@@ -672,7 +693,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
         const totalCostMinor = routedCostMinorPerUnit === null ? null : multiplyMinorUnits(routedCostMinorPerUnit, order.quantity);
         const blockedBySupplierState = fallbackMappingId === null && (!primaryInStock || !primaryEconomicallyEligible);
         const fulfillmentMustWaitForReview = latePaymentAfterCancellation || inventoryReservationException !== null;
-        await tx.insert(fulfillmentJobsTable).values({
+        const [createdJob] = await tx.insert(fulfillmentJobsTable).values({
           merchantId: merchant.id,
           orderId: order.id,
           supplierProductId: routedProductId,
@@ -698,7 +719,63 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
                 : null,
           attempts: 0,
           idempotencyKey: "autods:order:" + order.id,
-        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId });
+        }).onConflictDoNothing({ target: fulfillmentJobsTable.orderId })
+          .returning({
+            id: fulfillmentJobsTable.id,
+            orderId: fulfillmentJobsTable.orderId,
+            supplierProductId: fulfillmentJobsTable.supplierProductId,
+            status: fulfillmentJobsTable.status,
+            mode: fulfillmentJobsTable.mode,
+            currency: fulfillmentJobsTable.currency,
+            costMinor: fulfillmentJobsTable.costMinor,
+            lastError: fulfillmentJobsTable.lastError,
+          });
+        if (createdJob) {
+          await emitDomainEvent(tx, {
+            merchantId: merchant.id,
+            eventType: "fulfillment.job_created",
+            aggregateType: "fulfillment_job",
+            aggregateId: createdJob.id,
+            actorType: "system",
+            actorId: "flutterwave_webhook",
+            source: "public_checkout",
+            idempotencyKey: `fulfillment-job-created:${createdJob.id}`,
+            payload: {
+              jobId: createdJob.id,
+              orderId: createdJob.orderId,
+              supplierProductId: createdJob.supplierProductId,
+              status: createdJob.status,
+              mode: createdJob.mode,
+              currency: createdJob.currency,
+              blocked: createdJob.status === "failed",
+              hasCostSnapshot: createdJob.costMinor !== null,
+              requiresManualReview: createdJob.status === "failed" || Boolean(createdJob.lastError),
+            },
+            after: {
+              status: createdJob.status,
+              supplierProductId: createdJob.supplierProductId,
+              mode: createdJob.mode,
+            },
+          });
+          await emitDomainEvent(tx, {
+            merchantId: merchant.id,
+            eventType: "order.fulfillment_changed",
+            aggregateType: "order",
+            aggregateId: createdJob.orderId,
+            actorType: "system",
+            actorId: "flutterwave_webhook",
+            source: "public_checkout",
+            idempotencyKey: `order-fulfillment-created:${createdJob.orderId}`,
+            payload: {
+              orderId: createdJob.orderId,
+              fulfillmentJobId: createdJob.id,
+              fromStatus: null,
+              toStatus: createdJob.status,
+            },
+            before: {},
+            after: { fulfillmentJobId: createdJob.id, fulfillmentStatus: createdJob.status },
+          });
+        }
       }
     }
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: merchant.id, orderId: order.id, paymentIntentId: currentIntent.id, entityType: "payment_intent", fromStatus: currentIntent.status, toStatus: "successful", actorId: "flutterwave_webhook", note: "Provider-verified Flutterwave payment" });
