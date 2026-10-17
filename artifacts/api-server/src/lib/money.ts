@@ -20,6 +20,14 @@ export function currencyMinorDigits(currency: string): number {
   }
 }
 
+/** Convert authoritative integer minor units into a provider's decimal major-unit format. */
+export function minorUnitsToMajorUnits(amountMinor: number, currency: string): number | null {
+  if (!Number.isSafeInteger(amountMinor)) return null;
+  const digits = currencyMinorDigits(currency);
+  const amount = amountMinor / (10 ** digits);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 export function toMinorUnits(value: unknown, minorDigits = 2): number | null {
   if (!Number.isInteger(minorDigits) || minorDigits < 0 || minorDigits > 6) return null;
 
