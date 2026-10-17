@@ -37,7 +37,8 @@ while :; do
       mv "$temporary_file" "$final_file"
       printf '%s\n' "$timestamp" > "$BACKUP_DIR/.last-success.tmp"
       mv "$BACKUP_DIR/.last-success.tmp" "$BACKUP_DIR/.last-success"
-      find "$BACKUP_DIR" -maxdepth 1 -type f -name 'lunavo-*.dump' -mtime "+$BACKUP_RETENTION_DAYS" -delete
+      retention_cutoff=$((BACKUP_RETENTION_DAYS - 1))
+      find "$BACKUP_DIR" -maxdepth 1 -type f -name 'lunavo-*.dump' -mtime "+$retention_cutoff" -delete
       log "Backup completed and archive validated: $(basename "$final_file")"
       sleep "$BACKUP_INTERVAL_SECONDS"
     else
