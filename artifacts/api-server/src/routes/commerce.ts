@@ -2037,12 +2037,16 @@ async function ensurePublicManualPaymentIntent(order: Order) {
       .limit(1)
   )[0];
   if (!intent) {
+    const amountMinor = toMinorUnits(toNumber(order.total), currencyMinorDigits(order.currency));
+    if (amountMinor === null || amountMinor <= 0) {
+      throw new Error("Order total is invalid for its payment currency");
+    }
     [intent] = await db
       .insert(paymentIntentsTable)
       .values({
         merchantId: order.merchantId,
         orderId: order.id,
-        amountMinor: Math.round(toNumber(order.total) * 100),
+        amountMinor,
         currency: order.currency,
         method: "manual_bank_transfer",
         idempotencyKey: `public-order:${order.id}`,
@@ -2106,10 +2110,6 @@ async function ensurePublicFlutterwaveCheckout(
     throw new Error(`Flutterwave does not support ${paymentCurrency} for this store`);
   }
   const fx = await getMarketExchangeRate(order.currency, paymentCurrency);
-  const paymentAmount = Number((toNumber(order.total) * fx.rate).toFixed(2));
-  if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-    throw new Error("The selected payment currency could not be priced");
-  }
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select id from ${ordersTable} where id=${order.id} and merchant_id=${order.merchantId} for update`,
@@ -2124,6 +2124,27 @@ async function ensurePublicFlutterwaveCheckout(
     if (!currentOrder) throw new Error("Payment order could not be found");
     if (currentOrder.status === "paid") throw new Error("This order has already been paid");
 
+    const paymentAmountMinor = toMinorUnits(
+      toNumber(currentOrder.total) * fx.rate,
+      currencyMinorDigits(paymentCurrency),
+    );
+    const paymentAmount = paymentAmountMinor === null
+      ? null
+      : minorUnitsToMajorUnits(paymentAmountMinor, paymentCurrency);
+    const expectedSettlementMinor = toMinorUnits(
+      toNumber(currentOrder.total),
+      currencyMinorDigits(currentOrder.currency),
+    );
+    if (
+      paymentAmountMinor === null ||
+      paymentAmount === null ||
+      paymentAmount <= 0 ||
+      expectedSettlementMinor === null ||
+      expectedSettlementMinor <= 0
+    ) {
+      throw new Error("The selected payment currency could not be priced safely");
+    }
+
     let intent = (
       await tx
         .select()
@@ -2137,9 +2158,9 @@ async function ensurePublicFlutterwaveCheckout(
         .values({
           merchantId: currentOrder.merchantId,
           orderId: currentOrder.id,
-          amountMinor: Math.round(paymentAmount * 100),
+          amountMinor: paymentAmountMinor,
           currency: paymentCurrency,
-          settlementAmountMinor: Math.round(toNumber(currentOrder.total) * 100),
+          settlementAmountMinor: expectedSettlementMinor,
           settlementCurrency: currentOrder.currency,
           fxRate: fx.rate.toFixed(8),
           method: "flutterwave",
@@ -2160,10 +2181,9 @@ async function ensurePublicFlutterwaveCheckout(
     }
     if (!intent) throw new Error("Payment attempt could not be prepared");
     if (intent.status === "verified") throw new Error("This order has already been paid");
-    const expectedSettlementMinor = Math.round(toNumber(currentOrder.total) * 100);
     if (
       intent.currency !== paymentCurrency ||
-      Number(intent.amountMinor) !== Math.round(paymentAmount * 100) ||
+      Number(intent.amountMinor) !== paymentAmountMinor ||
       Number(intent.settlementAmountMinor ?? expectedSettlementMinor) !== expectedSettlementMinor ||
       String(intent.settlementCurrency ?? currentOrder.currency).toUpperCase() !== currentOrder.currency.toUpperCase()
     ) {
@@ -2235,6 +2255,18 @@ async function ensurePublicFlutterwaveCheckout(
       .returning();
     if (!updated) throw new Error("Could not save the customer checkout reference");
     if (destination) {
+      const destinationCurrency = String(destination.currency ?? "").trim().toUpperCase();
+      const destinationAmountMinor = toMinorUnits(
+        destination.amount,
+        currencyMinorDigits(destinationCurrency),
+      );
+      if (
+        destinationCurrency !== paymentCurrency ||
+        destinationAmountMinor === null ||
+        destinationAmountMinor !== paymentAmountMinor
+      ) {
+        throw new Error("Flutterwave returned a destination with an unexpected amount or currency");
+      }
       await tx.insert(paymentDestinationsTable).values({
         merchantId: currentOrder.merchantId,
         paymentIntentId: intent.id,
@@ -2243,8 +2275,8 @@ async function ensurePublicFlutterwaveCheckout(
         bankName: destination.bankName,
         accountName: destination.accountName,
         accountNumber: destination.accountNumber,
-        amountMinor: Math.round(destination.amount * 100),
-        currency: destination.currency,
+        amountMinor: destinationAmountMinor,
+        currency: destinationCurrency,
         providerReference: destination.providerReference ?? txRef,
         expiresAt: destination.expiresAt,
         status: "active",
@@ -2319,8 +2351,16 @@ async function findFlutterwaveCustomerPayment(
     throw new Error("Flutterwave transaction customer does not match this order");
   }
   const amount = flutterwaveAmount(transaction);
-  const currency = String(transaction.currency ?? "").toUpperCase();
-  if (!Number.isFinite(amount) || Math.abs(amount - intent.amountMinor / 100) >= 0.01 || currency !== intent.currency) {
+  const currency = String(transaction.currency ?? "").trim().toUpperCase();
+  const observedAmountMinor = Number.isFinite(amount) && currency === intent.currency
+    ? toMinorUnits(amount, currencyMinorDigits(currency))
+    : null;
+  if (
+    !Number.isFinite(amount) ||
+    observedAmountMinor === null ||
+    observedAmountMinor !== Number(intent.amountMinor) ||
+    currency !== intent.currency
+  ) {
     throw new Error("Flutterwave payment amount or currency does not match this order");
   }
   const status = flutterwaveStatus(transaction);
