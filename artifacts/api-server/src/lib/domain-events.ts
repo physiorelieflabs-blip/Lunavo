@@ -85,7 +85,6 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "supplier.sync_completed": ["Supplier data synchronized", "A supplier-backed product was refreshed from its public source.", "info"],
     "supplier.sync_review_required": ["Supplier sync needs review", "A supplier change exceeded the configured commerce guardrails.", "warning"],
     "sourcing.source_registered": ["Supplier source registered", "A supplier source was added for evidence-backed product research.", "info"],
-    "sourcing.product_discovered": ["Supplier product discovered", "A public supplier page was extracted into a reviewable sourcing record.", "info"],
     "supplier.product_imported": ["Supplier product imported", "A supplier product was imported or updated and is available for downstream review.", "info"],
     "supplier.product_refreshed": ["Supplier changes accepted", "Reviewed supplier facts were accepted; connected workflows can reassess cost and availability.", "info"],
     "supplier.observation_changed": ["Supplier facts changed", "A refreshed source observation may affect product cost, stock, or selling-price policy.", "warning"],
