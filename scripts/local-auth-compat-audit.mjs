@@ -47,4 +47,18 @@ assert.ok(
   "Profile updates must synchronize the merchant name for both legacy and local-auth identities",
 );
 
+
+const failedLoginStart = localAuth.indexOf("export async function verifyLocalCredentials");
+const failedLoginEnd = localAuth.indexOf("\\nasync function deliverLocalMail", failedLoginStart);
+assert.notEqual(failedLoginStart, -1, "Local credential verification must exist");
+assert.notEqual(failedLoginEnd, -1, "Local credential verification must have a bounded function body");
+const failedLogin = localAuth.slice(failedLoginStart, failedLoginEnd);
+const failedAttemptUpdate = failedLogin.indexOf("SET failed_login_attempts=");
+const failedAttemptReturn = failedLogin.indexOf("return { ok: false as const }", failedAttemptUpdate);
+const failedAttemptReject = failedLogin.indexOf('if (!result.ok) throw new Error("Invalid email or password")');
+assert.ok(failedAttemptUpdate >= 0, "Invalid local passwords must update the failed-attempt counter");
+assert.ok(failedAttemptReturn > failedAttemptUpdate, "Failed login must resolve the transaction after persisting the attempt");
+assert.ok(failedAttemptReject > failedAttemptReturn, "Failed login must be rejected only after the transaction resolves");
+assert.ok(!/if\\s*\\(!valid\\)[\\s\\S]*?throw new Error\\(/.test(failedLogin), "Failed login must not throw from inside the transaction and roll back the lockout counter");
+
 console.log("Lunavo local-auth commerce compatibility: PASS");

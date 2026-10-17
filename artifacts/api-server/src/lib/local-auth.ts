@@ -40,24 +40,46 @@ export async function verifyLocalPasswordForUser(userId:string,password:string):
   if(!row?.password_hash) return false;
   return verifyPassword(password,String(row.password_hash));
 }
-export async function verifyLocalCredentials(email:string,password:string){
-  return db.transaction(async (tx)=>{
-    const normalizedEmail=email.trim().toLowerCase();
-    const result=await tx.execute(sql`SELECT id,email,username,first_name,last_name,password_hash,role,email_verified,failed_login_attempts,login_locked_until FROM local_auth_users WHERE lower(email)=lower(${normalizedEmail}) AND role<>'deleted' LIMIT 1 FOR UPDATE`);
-    const row=result.rows[0] as any;
-    if(!row) throw new Error("Invalid email or password");
-    if(row.login_locked_until && new Date(row.login_locked_until).getTime()>Date.now()) throw new Error("Invalid email or password");
-    const valid=await verifyPassword(password,String(row.password_hash));
-    if(!valid){
-      const attempts=Number(row.failed_login_attempts??0)+1;
-      const lockedUntil=attempts>=5?new Date(Date.now()+15*60*1000):null;
-      await tx.execute(sql`UPDATE local_auth_users SET failed_login_attempts=${attempts},login_locked_until=${lockedUntil},updated_at=now() WHERE id=${row.id}`);
-      throw new Error("Invalid email or password");
+export async function verifyLocalCredentials(email: string, password: string) {
+  // Return a result from the transaction instead of throwing inside it. A thrown
+  // error rolls back the failed-attempt UPDATE and silently disables lockout.
+  const result = await db.transaction(async (tx) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const lookup = await tx.execute(sql`SELECT id,email,username,first_name,last_name,password_hash,role,email_verified,failed_login_attempts,login_locked_until FROM local_auth_users WHERE lower(email)=lower(${normalizedEmail}) AND role<>'deleted' LIMIT 1 FOR UPDATE`);
+    const row = lookup.rows[0] as any;
+    if (!row) return { ok: false as const };
+    if (row.login_locked_until && new Date(row.login_locked_until).getTime() > Date.now()) {
+      return { ok: false as const };
     }
+
+    const valid = await verifyPassword(password, String(row.password_hash));
+    if (!valid) {
+      const attempts = Number(row.failed_login_attempts ?? 0) + 1;
+      const lockedUntil = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+      await tx.execute(sql`UPDATE local_auth_users SET failed_login_attempts=${attempts},login_locked_until=${lockedUntil},updated_at=now() WHERE id=${row.id}`);
+      // Resolve normally so the increment/lock is committed before rejecting login.
+      return { ok: false as const };
+    }
+
     await tx.execute(sql`UPDATE local_auth_users SET failed_login_attempts=0,login_locked_until=NULL,updated_at=now() WHERE id=${row.id}`);
-    return{id:String(row.id),email:String(row.email),username:String(row.username),firstName:String(row.first_name),lastName:String(row.last_name),role:String(row.role),emailVerified:Boolean(row.email_verified)};
+    return {
+      ok: true as const,
+      user: {
+        id: String(row.id),
+        email: String(row.email),
+        username: String(row.username),
+        firstName: String(row.first_name),
+        lastName: String(row.last_name),
+        role: String(row.role),
+        emailVerified: Boolean(row.email_verified),
+      },
+    };
   });
+
+  if (!result.ok) throw new Error("Invalid email or password");
+  return result.user;
 }
+
 async function deliverLocalMail(email:string,subject:string,body:string){
   const from=process.env.LUNAVO_LOCAL_MAIL_FROM?.trim()||"no-reply@lunavo.local";
   const message="From: "+from+"\nTo: "+email+"\nSubject: "+subject+"\n\n"+body+"\n";
