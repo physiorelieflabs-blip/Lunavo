@@ -15,6 +15,8 @@ import {
 
 const router = Router();
 
+class MarketWatchLimitError extends Error {}
+
 async function merchantFor(req: Request, res: Response) {
   const userId = getAuth(req).userId;
   if (!userId) {
@@ -204,6 +206,15 @@ router.post("/merchant/dropship/market-watches", async (req, res, next) => {
       .digest("hex");
 
     const result = await db.transaction(async (tx) => {
+      // Serialize watch creation per merchant so concurrent requests cannot exceed the workspace cap.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('dropship-market-watch:' || ${ctx.merchantId}::text))`);
+      const lockedCount = await tx.execute(sql`
+        SELECT count(*)::int AS count
+        FROM dropship_market_watches WHERE merchant_id=${ctx.merchantId}
+      `);
+      if (Number((lockedCount.rows[0] as { count?: unknown } | undefined)?.count ?? 0) >= MAX_MARKET_WATCHES_PER_MERCHANT) {
+        throw new MarketWatchLimitError("Market-watch workspace cap reached");
+      }
       const inserted = await tx.execute(sql`
         INSERT INTO dropship_market_watches (
           id,merchant_id,supplier_product_id,source_kind,source_url,interval_minutes,
@@ -290,6 +301,10 @@ router.post("/merchant/dropship/market-watches", async (req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
     res.status(result.replayed ? 200 : 201).json({ watch: result.watch, replayed: result.replayed });
   } catch (error) {
+    if (error instanceof MarketWatchLimitError) {
+      res.status(429).json({ error: `A workspace can have at most ${MAX_MARKET_WATCHES_PER_MERCHANT} market watches. Delete an old watch before adding another.` });
+      return;
+    }
     next(error);
   }
 });
