@@ -49,7 +49,7 @@ export function nextEventState(attempt: number, maxAttempts = 8): "retry" | "dea
 export function safeProjectionError(_error: unknown): { code: string; message: string } { return { code: "projection_failed", message: "A notification projection could not be completed." }; }
 
 function notificationFor(event: typeof domainEventsTable.$inferSelect) {
-  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", dropship_intelligence: "/dropship-intelligence", dropship_market_watch: "/dropship-intelligence", dropship_supplier_quote_request: "/dropship-workbench", channel_sync_job: "/channels", sourcing_source: "/dropshipping", supplier_product: "/suppliers", fulfillment_job: "/dropshipping", discount_code: "/marketing" };
+  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", dropship_intelligence: "/dropship-intelligence", dropship_market_watch: "/dropship-intelligence", dropship_supplier_quote_request: "/dropship-workbench", customer_return_request: "/customer-returns", channel_sync_job: "/channels", sourcing_source: "/dropshipping", supplier_product: "/suppliers", fulfillment_job: "/dropshipping", discount_code: "/marketing" };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
     "dropship.market_research.observed": ["Market evidence captured", "A public product page was observed and saved as unverified competitive evidence.", "info"],
     "channel.sync.completed": ["Sales channel sync completed", "A channel adapter confirmed the provider operation and required commit.", "success"],
@@ -100,6 +100,25 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
   const payload = event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
     ? event.payload as Record<string, unknown>
     : {};
+  if (event.eventType === "merchant.operation.transitioned" &&
+      event.aggregateType === "customer_return_request") {
+    if (payload.resolution === "refund_requested") {
+      return {
+        title: "Return refund request prepared",
+        body: "A return was inspected and linked to a refund request. Finance approval is still required before any provider refund occurs.",
+        severity: "info" as const,
+        deepLink: links.customer_return_request,
+      };
+    }
+    if (payload.resolution === "refund_processed") {
+      return {
+        title: "Return refund processed",
+        body: "The linked refund completed through the guarded payment and ledger workflow; the return case is now complete.",
+        severity: "success" as const,
+        deepLink: links.customer_return_request,
+      };
+    }
+  }
   if (event.eventType === "dropship.market_research.observed" &&
       event.aggregateType === "dropship_market_watch" &&
       payload.captureKind === "scheduled") {
