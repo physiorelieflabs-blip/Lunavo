@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
 import { db, merchantsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 
 const router = Router();
 
@@ -26,7 +26,10 @@ function currencies(): string[] {
 async function merchantFor(req: Request) {
   const userId = getAuth(req).userId;
   if (!userId) return null;
-  const merchant = (await db.select().from(merchantsTable).where(eq(merchantsTable.clerkUserId, userId)).limit(1))[0] ?? null;
+  const merchant = (await db.select().from(merchantsTable).where(or(
+    eq(merchantsTable.clerkUserId, userId),
+    eq(merchantsTable.localAuthUserId, userId),
+  )).limit(1))[0] ?? null;
   if (!merchant) return null;
   await requirePermission(userId, merchant.id, "team.manage");
   return merchant;

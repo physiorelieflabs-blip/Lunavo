@@ -14,6 +14,18 @@ assert.ok(
   "Shared merchant-auth middleware must resolve both legacy and self-hosted local-auth identities",
 );
 
+const subscriptionOptions = await readFile("artifacts/api-server/src/routes/subscription-options.ts", "utf8");
+const subscriptionResolverStart = subscriptionOptions.indexOf("async function merchantFor(req: Request)");
+const subscriptionResolverEnd = subscriptionOptions.indexOf("\n}\n\nrouter.get", subscriptionResolverStart);
+assert.notEqual(subscriptionResolverStart, -1, "Subscription options merchant resolver must exist");
+assert.notEqual(subscriptionResolverEnd, -1, "Subscription options merchant resolver must have a clear end");
+const subscriptionResolver = subscriptionOptions.slice(subscriptionResolverStart, subscriptionResolverEnd);
+assert.ok(
+  subscriptionResolver.includes("merchantsTable.clerkUserId") &&
+  subscriptionResolver.includes("merchantsTable.localAuthUserId"),
+  "Subscription options must resolve both legacy and self-hosted local-auth identities",
+);
+
 const paymentBoundary = await readFile("artifacts/api-server/src/routes/payment-boundary.ts", "utf8");
 const subscriptionRouteStart = paymentBoundary.indexOf('router.post("/subscription/use-earnings"');
 assert.notEqual(subscriptionRouteStart, -1, "Subscription earnings route must exist");
