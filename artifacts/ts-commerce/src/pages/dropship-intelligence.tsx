@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { DropshipMarketWatchPanel } from "@/components/dropship-market-watch-panel";
 import { ArrowRight, BrainCircuit, Boxes, ChartNoAxesCombined, CheckCircle2, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, UsersRound, Warehouse, type LucideIcon } from "lucide-react";
 import { Link } from "wouter";
 
@@ -208,6 +209,8 @@ export default function DropshipIntelligence(){
       </form>
       {researchNotice&&<p role={researchNotice.error?"alert":"status"} className={"mt-3 rounded-xl px-3 py-3 text-xs leading-5 "+(researchNotice.error?"border border-red-200 bg-red-50 text-red-800":"border border-emerald-200 bg-emerald-50 text-emerald-900")}>{researchNotice.text}</p>}
     </section>
+
+    <DropshipMarketWatchPanel products={graph.products.map(product => ({ id: product.id, title: product.title }))} />
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
       {metricCards.map(([label,value,Icon])=><div key={label} className="rounded-2xl border border-border bg-card p-4">
