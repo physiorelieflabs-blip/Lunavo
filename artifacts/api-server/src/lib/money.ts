@@ -5,21 +5,18 @@
  * values are parsed as decimal text and rounded explicitly with half-up semantics,
  * never by JavaScript floating-point multiplication.
  */
-/** ISO-4217 currency scale, resolved locally through the runtime's Intl data. */
-const ISO_4217_MINOR_DIGITS_OVERRIDES: Readonly<Record<string, number>> = {
-  // These ISO codes have two minor units, although some ICU currency-formatting
-  // datasets apply zero decimal digits. Financial amount precision must not vary
-  // depending on the host's locale-data package.
-  HUF: 2,
-  PKR: 2,
-  COP: 2,
-};
+import { SUPPORTED_CURRENCIES } from "./currency-support";
+
+// Store/order ledger amounts only admit the configured two-minor-unit currency
+// registry. Resolve those codes from this stable application registry rather
+// than from host-dependent ICU display data. Other codes use Intl metadata but
+// are not thereby enabled for Lunavo transactions.
+const SUPPORTED_STORE_CURRENCY_SET = new Set<string>(SUPPORTED_CURRENCIES);
 
 export function currencyMinorDigits(currency: string): number {
   const normalized = currency.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(normalized)) return 2;
-  const override = ISO_4217_MINOR_DIGITS_OVERRIDES[normalized];
-  if (override !== undefined) return override;
+  if (SUPPORTED_STORE_CURRENCY_SET.has(normalized)) return 2;
   try {
     const digits = new Intl.NumberFormat("en", {
       style: "currency",
