@@ -3,7 +3,6 @@ import { URL } from "node:url";
 
 const PORT=Number(process.env.PORT||8080);
 const TOKEN=(process.env.SOCIAL_GATEWAY_TOKEN||"").trim();
-if(!TOKEN) throw new Error("SOCIAL_GATEWAY_TOKEN is required");
 
 const PROVIDERS={
   instagram:{auth:"https://www.facebook.com/v24.0/dialog/oauth",token:"https://graph.facebook.com/v24.0/oauth/access_token",client:"SOCIAL_META_CLIENT_ID",secret:"SOCIAL_META_CLIENT_SECRET",scope:"pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish"},
@@ -70,6 +69,7 @@ async function operation(name,payload){
 
 const server=http.createServer(async(req,res)=>{
  if(req.method!=="POST"||req.url!=="/v1/operation"){json(res,404,{error:"Not found"});return;}
+ if(!TOKEN){json(res,503,{error:"Social gateway is disabled until SOCIAL_GATEWAY_TOKEN is configured"});return;}
  if(req.headers["x-lunavo-gateway-token"]!==TOKEN){json(res,401,{error:"Unauthorized"});return;}
  try{const body=await readBody(req);const result=await operation(String(body.operation||""),body.payload&&typeof body.payload==="object"?body.payload:{});json(res,200,result);}catch(error){json(res,400,{error:error instanceof Error?error.message:"Gateway error"});}
 });
