@@ -3,19 +3,24 @@ import { RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { customFetch } from "@workspace/api-client-react";
 import { Badge, Button, EmptyState, LoadingState, SectionHeading } from "@/components/primitives";
 
+type Probe = { configured: boolean; reachable: boolean; healthy: boolean; error: string | null };
 type Health = {
   checkedAt: string;
   database: { reachable: boolean };
   schema: { complete: boolean };
   migrations: { applied: number };
   payments: { provider: string; configured: boolean; mode: string; checkoutAvailable: boolean };
-  ai: { providerConfigured: boolean; deepSeekConfigured: boolean; geminiConfigured: boolean; localLlmConfigured: boolean };
+  ai: { providerConfigured: boolean; localLlmConfigured: boolean; runtime: Probe & { model: string | null; modelAvailable: boolean } };
+  fx: Probe & { configuredPairs: number | null };
+  socialGateway: Probe & { providers: Record<string, boolean> | null };
+  mediaWorkers: { image: Probe; video: Probe };
   reconciliation: { openOrInvestigating: number };
   workers: { socialPublishing: { queuedOrProcessing: number; failed: number }; adminAiStore: { queuedOrProcessing: number; failed: number }; domainEvents: { pendingOrProcessing: number; failed: number } };
   notes: string[];
 };
 
 const statusTone = (ok: boolean) => ok ? "success" : "danger";
+const readinessTone = (healthy: boolean, configured: boolean) => healthy ? "success" : configured ? "danger" : "warning";
 
 export function AdminOpsPanel() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -49,7 +54,13 @@ export function AdminOpsPanel() {
         <div className="flex items-center justify-between"><span>Schema</span><Badge tone={statusTone(health!.schema.complete)}>{health!.schema.complete ? "complete" : "incomplete"}</Badge></div>
         <div className="flex items-center justify-between"><span>Migrations applied</span><strong>{health!.migrations.applied}</strong></div>
         <div className="flex items-center justify-between"><span>Flutterwave</span><Badge tone={statusTone(health!.payments.checkoutAvailable)}>{health!.payments.checkoutAvailable ? `${health!.payments.mode} configured` : "not configured"}</Badge></div>
-        <div className="flex items-center justify-between"><span>AI reasoning</span><Badge tone={statusTone(health!.ai.providerConfigured)}>{health!.ai.providerConfigured ? "configured" : "unavailable"}</Badge></div>
+        <div className="flex items-center justify-between"><span>Local AI inference</span><Badge tone={readinessTone(health!.ai.runtime.healthy, health!.ai.runtime.configured)}>{health!.ai.runtime.healthy ? `ready · ${health!.ai.runtime.model ?? "model"}` : health!.ai.runtime.configured ? "unavailable" : "not configured"}</Badge></div>
+        {!health!.ai.runtime.healthy && <p className="text-xs text-[#9a3b35]">{health!.ai.runtime.error || "The configured local model is not inference-ready."}</p>}
+        <div className="flex items-center justify-between"><span>Local FX ratebook</span><Badge tone={readinessTone(health!.fx.healthy, health!.fx.configured)}>{health!.fx.healthy ? `${health!.fx.configuredPairs ?? 0} currency pairs` : health!.fx.configured ? "unavailable" : "not configured"}</Badge></div>
+        {!health!.fx.healthy && <p className="text-xs text-[#9a3b35]">{health!.fx.error || "Cross-currency conversion is unavailable."}</p>}
+        <div className="flex items-center justify-between"><span>Social gateway</span><Badge tone={readinessTone(health!.socialGateway.healthy, health!.socialGateway.configured)}>{health!.socialGateway.healthy ? "reachable" : health!.socialGateway.configured ? "unavailable" : "disabled (optional)"}</Badge></div>
+        <div className="flex items-center justify-between"><span>Local image worker</span><Badge tone={readinessTone(health!.mediaWorkers.image.healthy, health!.mediaWorkers.image.configured)}>{health!.mediaWorkers.image.healthy ? "ready" : health!.mediaWorkers.image.configured ? "unavailable" : "not configured"}</Badge></div>
+        <div className="flex items-center justify-between"><span>Local video worker</span><Badge tone={readinessTone(health!.mediaWorkers.video.healthy, health!.mediaWorkers.video.configured)}>{health!.mediaWorkers.video.healthy ? "ready" : health!.mediaWorkers.video.configured ? "unavailable" : "not configured"}</Badge></div>
         <div className="flex items-center justify-between"><span>Reconciliation exceptions</span><strong className={health!.reconciliation.openOrInvestigating ? "text-[#9a3b35]" : ""}>{health!.reconciliation.openOrInvestigating}</strong></div>
         <div className="rounded-lg border p-3"><b>Worker queues</b><div className="mt-2 grid gap-2 text-xs sm:grid-cols-3"><span>Social: {health!.workers.socialPublishing.queuedOrProcessing} active / {health!.workers.socialPublishing.failed} failed</span><span>AI stores: {health!.workers.adminAiStore.queuedOrProcessing} active / {health!.workers.adminAiStore.failed} failed</span><span>Events: {health!.workers.domainEvents.pendingOrProcessing} active / {health!.workers.domainEvents.failed} failed</span></div></div>
       </div>}
