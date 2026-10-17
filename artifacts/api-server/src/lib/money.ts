@@ -12,6 +12,7 @@ const ISO_4217_MINOR_DIGITS_OVERRIDES: Readonly<Record<string, number>> = {
   // depending on the host's locale-data package.
   HUF: 2,
   PKR: 2,
+  COP: 2,
 };
 
 export function currencyMinorDigits(currency: string): number {
