@@ -63,7 +63,7 @@ function moneyMinor(value: string | number | null | undefined, currency: string)
 }
 function toMinorUnits(value: string, currency: string): number | null {
   const trimmed=value.trim();
-  if(!/^\\d+(?:\\.\\d+)?$/.test(trimmed))return null;
+  if(!/^\d+(?:\.\d+)?$/.test(trimmed))return null;
   const digits=currencyDigits(currency);
   const fraction=trimmed.split(".")[1]??"";
   if(fraction.length>digits)return null;
