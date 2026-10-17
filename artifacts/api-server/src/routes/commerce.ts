@@ -6909,24 +6909,58 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
       if (has(key as keyof typeof input)) currentOverrides[key] = true;
     }
     updates.merchantOverrides = currentOverrides;
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(
-        and(
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .update(supplierProductsTable)
+        .set(updates)
+        .where(and(
           eq(supplierProductsTable.id, product.id),
           eq(supplierProductsTable.merchantId, merchant.id),
-        ),
-      )
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: updated.id,
-      sourceUrl: updated.sourceUrl,
-      status: nextVisibility === "active" ? "published" : "edited",
-      message: "Merchant-edited product fields saved",
-      changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+        ))
+        .returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      const changedFields = Object.keys(updates).filter((key) => key !== "updatedAt");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: saved.sourceUrl,
+        status: nextVisibility === "active" ? "published" : "edited",
+        message: "Merchant-edited product fields saved",
+        changes: changedFields,
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product-changed:${saved.id}:${saved.updatedAt.toISOString()}`,
+        payload: {
+          supplierProductId: saved.id,
+          changeType: nextVisibility === "active" ? "product_published_or_edited" : "product_drafted_or_edited",
+          title: saved.title.slice(0, 180),
+          currency: saved.currency,
+          visibility: saved.visibility,
+          changedFields,
+        },
+        before: {
+          visibility: product.visibility,
+          status: product.status,
+          currency: product.currency,
+          sellingPrice: product.sellingPrice,
+          inventoryStatus: product.inventoryStatus,
+        },
+        after: {
+          visibility: saved.visibility,
+          status: saved.status,
+          currency: saved.currency,
+          sellingPrice: saved.sellingPrice,
+          inventoryStatus: saved.inventoryStatus,
+        },
+      });
+      return saved;
     });
     res.json(UpdateSupplierProductResponse.parse(serializeSupplierProduct(updated)));
   } catch (error) {
