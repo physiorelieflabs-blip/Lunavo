@@ -47,6 +47,12 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Check standalone service runtime syntax
+        run: |
+          node --check services/fx-gateway/index.mjs
+          node --check services/fx-gateway/ecb-rates.mjs
+          node --check services/social-gateway/index.mjs
+          node --test services/fx-gateway/ecb-rates.test.mjs
       - name: Verify migration registry consistency
         run: pnpm run check:migrations
       - name: Canonical PostgreSQL migration smoke test
