@@ -706,6 +706,7 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
             status: fulfillmentJobsTable.status,
             mode: fulfillmentJobsTable.mode,
             currency: fulfillmentJobsTable.currency,
+            costMinor: fulfillmentJobsTable.costMinor,
             lastError: fulfillmentJobsTable.lastError,
           });
         if (createdJob) {
