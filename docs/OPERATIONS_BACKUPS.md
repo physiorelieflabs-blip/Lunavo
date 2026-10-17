@@ -59,7 +59,7 @@ Run a restore drill on a schedule and after significant schema or deployment cha
 4. Confirm the expected schema and record counts for tables suitable for a controlled restore test. Avoid printing real customer data into shared logs:
 
    ```sh
-   docker compose exec postgres psql -U lunavo -d lunavo_restore_check -c '\\dt'
+   docker compose exec postgres psql -U lunavo -d lunavo_restore_check -c '\dt'
    ```
 
 5. After verifying the drill, remove only the scratch database you created:
