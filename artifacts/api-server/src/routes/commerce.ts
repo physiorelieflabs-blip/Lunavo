@@ -25,6 +25,7 @@ import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
 import { isMasterAdmin } from "../lib/master-admin";
 import { currencyMinorDigits, multiplyMinorUnits, toMinorUnits } from "../lib/money";
 import { calculateDiscountMinorUnits } from "../lib/discount-pricing";
+import { SUPPORTED_CURRENCIES, FLUTTERWAVE_PAYMENT_CURRENCIES } from "../lib/currency-support";
 import {
   activityTable,
   aiActionsTable,
@@ -485,18 +486,6 @@ router.use((req, _res, next) => {
   const blocksLocationScoped = !(/^\/marketplace\/products/.test(path) && req.method === "GET") && /^(\/settings|\/store|\/dashboard|\/ai|\/marketing|\/withdrawals|\/security\/withdrawal|\/bank-account|\/ts-pay|\/payments|\/refunds|\/reconciliations?|\/balances|\/subscription|\/payment-links|\/customers|\/exports|\/supplier-products|\/supplier-import-history|\/suppliers|\/merchant\/auctions|\/marketplace|\/events|\/notifications)/.test(path);
   workspaceContext.run({ requestedMerchantId, requiredPermission, explicitAuthorization, blocksLocationScoped }, next);
 });
-const SUPPORTED_CURRENCIES = [
-  "USD",
-  "NGN",
-  "GHS",
-  "KES",
-  "ZAR",
-  "GBP",
-  "EUR",
-  "CAD",
-  "AUD",
-] as const;
-const FLUTTERWAVE_PAYMENT_CURRENCIES = [...SUPPORTED_CURRENCIES] as const;
 const MONTHLY_FEE = 30;
 const SUPPLIER_IMPORT_WINDOW_MS = 10 * 60 * 1000;
 const SUPPLIER_IMPORT_LIMIT = 60;
