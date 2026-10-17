@@ -109,14 +109,10 @@ services:
     build: .
     restart: unless-stopped
     depends_on:
-      fx-gateway:
-        condition: service_started
+      # PostgreSQL is authoritative and must be healthy; local intelligence gateways
+      # are intentionally soft dependencies so commerce still starts in degraded mode.
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
-      social-gateway:
-        condition: service_started
     environment:
       NODE_ENV: production
       PORT: 5000
