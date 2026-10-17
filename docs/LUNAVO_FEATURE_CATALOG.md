@@ -588,16 +588,19 @@ This is the canonical rebuild checklist. A feature is not considered complete me
 
 ## 32. Currency & international commerce
 - Multi-currency commerce
-- Major global currencies
+- Broad two-decimal store/transaction currency selection, separate from the payment rail allowlist
+- Store currency choices currently include USD, NGN, GHS, KES, ZAR, GBP, EUR, CAD, AUD, CHF, CNY, HKD, INR, SGD, NZD, BRL, MXN, MYR, THB, PHP, PLN, SEK, NOK, DKK, CZK, HUF, RON, TRY, ILS, EGP, PKR, BDT, TWD, COP, PEN, ARS, KZT, UAH, MAD, DZD, QAR, LKR, NPR, MUR, and IDR
+- Flutterwave checkout uses a separate conservative allowlist; a store currency being selectable does not guarantee that the configured Flutterwave account can accept customer payment in it
 - Transaction currency
 - Settlement currency
-- Live FX integration for sourcing/conversion
+- Live FX integration for sourcing/conversion; fail closed when no valid quote is available
 - No silent historical currency relabeling
 - Currency-aware pricing
 - Currency-aware ledger entries
 - Currency-aware reporting
 - Provider capability constraints
 - Explicit conversion boundaries
+- Zero-decimal and three-decimal currencies remain disabled until all amount storage, checkout, ledger, reconciliation, refund, payout, and display paths have been migrated and tested together
 
 ## 33. API / integrations platform
 - Versionable internal API architecture
