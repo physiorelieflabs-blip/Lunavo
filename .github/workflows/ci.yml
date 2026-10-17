@@ -59,6 +59,9 @@ jobs:
           node --check services/fx-gateway/ecb-rates.mjs
           node --check services/social-gateway/index.mjs
           node --test services/fx-gateway/ecb-rates.test.mjs
+          sh -n services/postgres-backup/backup.sh
+          sh -n services/postgres-backup/test-backup.sh
+          sh services/postgres-backup/test-backup.sh
       - name: Verify migration registry consistency
         run: pnpm run check:migrations
       - name: Canonical PostgreSQL migration smoke test
@@ -103,6 +106,8 @@ jobs:
           pnpm run build 2>&1 | tee lunavo-build.log
       - name: Build production Docker image
         run: docker build --tag lunavo-ci:ci .
+      - name: Build self-hosted PostgreSQL backup image
+        run: docker build --tag lunavo-backup-ci:ci services/postgres-backup
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
