@@ -32,7 +32,7 @@ This is the operator hand-off for a **self-hosted** deployment. A passing build 
    openssl rand -hex 32
    ```
 
-   Use separate values for `POSTGRES_PASSWORD`, `SESSION_SECRET`, and `SOCIAL_GATEWAY_TOKEN`; do not reuse a secret across purposes. Do not paste the output into source control or share it in tickets.
+   Use separate values for `POSTGRES_PASSWORD` and `SESSION_SECRET`; do not reuse a secret across purposes. If you enable the social gateway, use the third random value for `SOCIAL_GATEWAY_TOKEN`. Without this token, the gateway returns a clear disabled response and the commerce service still starts. Do not paste generated secrets into source control or share them in tickets.
 
 3. Set at least `POSTGRES_PASSWORD`, `SESSION_SECRET`, `SOCIAL_GATEWAY_TOKEN`, `APP_BASE_URL`, `DATABASE_URL`, `LUNAVO_MASTER_ADMIN_EMAIL`, `LUNAVO_MASTER_ADMIN_USERNAME`, and a strong `LUNAVO_MASTER_ADMIN_PASSWORD` in `.env`. The connection URL should use the internal Compose database host, for example `postgres://lunavo:YOUR_HEX_PASSWORD@postgres:5432/lunavo`. Compose constructs the running app's database URL from `POSTGRES_PASSWORD`; the root `DATABASE_URL` is also used by the strict preflight check.
 4. Never commit `.env`. After the one-time master-admin bootstrap succeeds, clear `LUNAVO_MASTER_ADMIN_PASSWORD` from `.env` and store the recovery information securely. Do not rerun the bootstrap command during routine restarts because it may reset the administrator credentials.
