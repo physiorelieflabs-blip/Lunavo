@@ -19,7 +19,7 @@ services:
       context: ./services/postgres-backup
     restart: unless-stopped
     depends_on:
-      postgres:
+      lunavo:
         condition: service_healthy
     environment:
       PGHOST: postgres
