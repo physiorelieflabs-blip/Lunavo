@@ -3,6 +3,7 @@ import { getAuth } from "../lib/auth-compat";
 import { requirePermission } from "../lib/tenant-access";
 import { db, merchantsTable } from "@workspace/db";
 import { eq, or } from "drizzle-orm";
+import { SUPPORTED_CURRENCIES } from "../lib/currency-support";
 
 const router = Router();
 
@@ -16,11 +17,8 @@ const METHODS = [
 ] as const;
 
 function currencies(): string[] {
-  try {
-    return Intl.supportedValuesOf("currency").filter((value) => /^[A-Z]{3}$/.test(value)).sort();
-  } catch {
-    return ["USD", "NGN", "EUR", "GBP", "GHS", "KES", "ZAR", "CAD", "AUD", "JPY", "INR", "CNY"];
-  }
+  // Keep the picker aligned with the exact-decimal registry used by checkout and the ledger.
+  return [...SUPPORTED_CURRENCIES];
 }
 
 async function merchantFor(req: Request) {
