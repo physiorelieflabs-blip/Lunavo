@@ -13409,6 +13409,35 @@ router.post("/refunds/:id/approve", async (req, res): Promise<void> => {
          payload: { orderId: current.orderId, amountMinor: current.amountMinor, currency: current.currency, inventoryRestock: current.inventoryRestock },
          before: { status: current.status }, after: { status: updated.status },
        });
+      const completedReturns = await tx.execute(sql`
+        UPDATE customer_return_requests
+        SET status='completed', updated_at=now()
+        WHERE merchant_id=${merchant.id}
+          AND refund_record_id=${id}
+          AND status='received'
+        RETURNING id,order_id,request_type,quantity
+      `);
+      for (const linked of ((completedReturns as { rows?: Array<Record<string, unknown>> }).rows ?? [])) {
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "merchant.operation.transitioned",
+          aggregateType: "customer_return_request",
+          aggregateId: String(linked.id),
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `customer-return-request:${String(linked.id)}:completed:refund:${id}`,
+          payload: {
+            previousStatus: "received",
+            status: "completed",
+            requestType: String(linked.request_type),
+            quantity: Number(linked.quantity),
+            orderId: Number(linked.order_id),
+            resolution: "refund_processed",
+            refundRecordId: id,
+          },
+        });
+      }
       return updated;
     }); res.json(ApproveRefundResponse.parse(refund));
   } catch (error) { req.log.error({ err: error }, "refund approval failed"); res.status(409).json({ error: error instanceof Error ? error.message : "Refund failed" }); }
