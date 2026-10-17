@@ -1,16 +1,120 @@
 #!/usr/bin/env node
-const strict=process.argv.includes('--strict');
-const errors=[];const warnings=[];
-function requireEnv(name){if(!process.env[name])errors.push(`${name} is required for production.`)}
-function requireUrl(name){const value=process.env[name];if(!value){errors.push(`${name} is required for production.`);return}try{const url=new URL(value);if(url.protocol!=='https:')errors.push(`${name} must use HTTPS.`)}catch{errors.push(`${name} must be a valid URL.`)}}
-const forbiddenCoreKeys=new Set(['OPENAI_API_KEY','GEMINI_API_KEY','ANTHROPIC_API_KEY','DEEPSEEK_API_KEY','GOOGLE_MAPS_API_KEY','MAPBOX_ACCESS_TOKEN','TWILIO_AUTH_TOKEN','SENDGRID_API_KEY','MAILGUN_API_KEY','RESEND_API_KEY','ALGOLIA_API_KEY','PINECONE_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','CLERK_SECRET_KEY','CLERK_PUBLISHABLE_KEY','SOCIAL_META_CLIENT_ID','SOCIAL_META_CLIENT_SECRET','SOCIAL_TIKTOK_CLIENT_KEY','SOCIAL_TIKTOK_CLIENT_SECRET','SOCIAL_GOOGLE_CLIENT_ID','SOCIAL_GOOGLE_CLIENT_SECRET','SOCIAL_LINKEDIN_CLIENT_ID','SOCIAL_LINKEDIN_CLIENT_SECRET','SOCIAL_PINTEREST_CLIENT_ID','SOCIAL_PINTEREST_CLIENT_SECRET','SOCIAL_X_CLIENT_ID','SOCIAL_X_CLIENT_SECRET','LUNAVO_MASTER_ADMIN_SETUP_TOKEN']);
-if(strict){requireEnv('DATABASE_URL');requireEnv('SESSION_SECRET');requireUrl('APP_BASE_URL');if(!process.env.LUNAVO_MASTER_ADMIN_EMAIL&&!process.env.LUNAVO_MASTER_ADMIN_USER_ID)errors.push('LUNAVO_MASTER_ADMIN_EMAIL or LUNAVO_MASTER_ADMIN_USER_ID is required for production.');}
-for(const[name,value]of Object.entries(process.env)){if(!value)continue;if(forbiddenCoreKeys.has(name))errors.push(`${name} must not be required by Lunavo core; use the self-hosted capability instead.`);if(/^(FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|DATABASE_URL|SESSION_SECRET|LUNAVO_MASTER_ADMIN_SETUP_TOKEN)$/.test(name)&&/^(changeme|replace_me|your_|test_|example)/i.test(value))errors.push(`${name} contains a placeholder value.`)}
-if(strict&&!process.env.FLUTTERWAVE_SECRET_KEY&&!process.env.FLW_SECRET_KEY)warnings.push('Flutterwave Secret Key is not configured; real-money checkout remains disabled until configured in Master Admin.');
-if(strict&&!process.env.FLUTTERWAVE_WEBHOOK_SECRET&&!process.env.FLW_WEBHOOK_HASH)warnings.push('Flutterwave Webhook Secret is not configured; provider webhook settlement remains disabled until configured in Master Admin.');
-if(strict&&!process.env.LUNAVO_LOCAL_LLM_URL)warnings.push('Self-hosted AI is not configured; AI features remain unavailable until LUNAVO_LOCAL_LLM_URL is configured.');
-if(strict&&!process.env.LUNAVO_FX_RATES_FILE)warnings.push('Self-hosted FX ratebook path is not explicitly configured; default data volume path will be used.');
-if(strict&&!process.env.LUNAVO_LOCAL_FX_URL)warnings.push('Self-hosted FX gateway is not configured; currency conversion remains unavailable until LUNAVO_LOCAL_FX_URL is configured.');
-if(process.env.FX_UPSTREAM_URL)errors.push('FX_UPSTREAM_URL is forbidden; FX must use the self-hosted local ratebook.');
-if(process.env.SMTP_HOST||process.env.SMTP_USER||process.env.SMTP_PASSWORD||process.env.SMTP_PORT)errors.push('Remote SMTP configuration is forbidden in Lunavo core; use the local mail outbox/self-hosted MTA boundary.');
-if(errors.length){console.error('Lunavo production preflight: FAIL');for(const error of errors)console.error(`- ${error}`);process.exit(1)}for(const warning of warnings)console.warn(`- ${warning}`);console.log(strict?'Lunavo production preflight: PASS':'Lunavo production preflight: configuration shape OK');
+
+// Load local deployment settings for an operator-run preflight. Values already
+// present in the process environment take precedence over values in .env.
+// Missing .env is valid for CI and for deployments that inject variables.
+try {
+  process.loadEnvFile?.(".env");
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
+
+const strict = process.argv.includes("--strict");
+const errors = [];
+const warnings = [];
+
+function requireEnv(name) {
+  if (!process.env[name]) errors.push(`${name} is required for production.`);
+}
+
+function requireUrl(name) {
+  const value = process.env[name];
+  if (!value) {
+    errors.push(`${name} is required for production.`);
+    return;
+  }
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") errors.push(`${name} must use HTTPS.`);
+  } catch {
+    errors.push(`${name} must be a valid URL.`);
+  }
+}
+
+const forbiddenCoreKeys = new Set([
+  "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "GOOGLE_MAPS_API_KEY",
+  "MAPBOX_ACCESS_TOKEN",
+  "TWILIO_AUTH_TOKEN",
+  "SENDGRID_API_KEY",
+  "MAILGUN_API_KEY",
+  "RESEND_API_KEY",
+  "ALGOLIA_API_KEY",
+  "PINECONE_API_KEY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "CLERK_SECRET_KEY",
+  "CLERK_PUBLISHABLE_KEY",
+  "SOCIAL_META_CLIENT_ID",
+  "SOCIAL_META_CLIENT_SECRET",
+  "SOCIAL_TIKTOK_CLIENT_KEY",
+  "SOCIAL_TIKTOK_CLIENT_SECRET",
+  "SOCIAL_GOOGLE_CLIENT_ID",
+  "SOCIAL_GOOGLE_CLIENT_SECRET",
+  "SOCIAL_LINKEDIN_CLIENT_ID",
+  "SOCIAL_LINKEDIN_CLIENT_SECRET",
+  "SOCIAL_PINTEREST_CLIENT_ID",
+  "SOCIAL_PINTEREST_CLIENT_SECRET",
+  "SOCIAL_X_CLIENT_ID",
+  "SOCIAL_X_CLIENT_SECRET",
+  "LUNAVO_MASTER_ADMIN_SETUP_TOKEN",
+]);
+
+if (strict) {
+  requireEnv("DATABASE_URL");
+  requireEnv("SESSION_SECRET");
+  requireUrl("APP_BASE_URL");
+  if (!process.env.LUNAVO_MASTER_ADMIN_EMAIL && !process.env.LUNAVO_MASTER_ADMIN_USER_ID) {
+    errors.push("LUNAVO_MASTER_ADMIN_EMAIL or LUNAVO_MASTER_ADMIN_USER_ID is required for production.");
+  }
+}
+
+for (const [name, value] of Object.entries(process.env)) {
+  if (!value) continue;
+
+  if (forbiddenCoreKeys.has(name)) {
+    errors.push(`${name} must not be required by Lunavo core; use the self-hosted capability instead.`);
+  }
+
+  if (
+    /^(FLUTTERWAVE_SECRET_KEY|FLW_SECRET_KEY|FLUTTERWAVE_WEBHOOK_SECRET|FLW_WEBHOOK_HASH|DATABASE_URL|SESSION_SECRET|LUNAVO_MASTER_ADMIN_SETUP_TOKEN)$/.test(name) &&
+    /^(changeme|replace_me|your_|test_|example)/i.test(value)
+  ) {
+    errors.push(`${name} contains a placeholder value.`);
+  }
+}
+
+if (strict && !process.env.FLUTTERWAVE_SECRET_KEY && !process.env.FLW_SECRET_KEY) {
+  warnings.push("Flutterwave Secret Key is not configured; real-money checkout remains disabled until configured in Master Admin.");
+}
+if (strict && !process.env.FLUTTERWAVE_WEBHOOK_SECRET && !process.env.FLW_WEBHOOK_HASH) {
+  warnings.push("Flutterwave Webhook Secret is not configured; provider webhook settlement remains disabled until configured in Master Admin.");
+}
+if (strict && !process.env.LUNAVO_LOCAL_LLM_URL) {
+  warnings.push("Self-hosted AI is not configured; AI features remain unavailable until LUNAVO_LOCAL_LLM_URL is configured.");
+}
+if (strict && !process.env.LUNAVO_FX_RATES_FILE) {
+  warnings.push("Self-hosted FX ratebook path is not explicitly configured; default data volume path will be used.");
+}
+if (strict && !process.env.LUNAVO_LOCAL_FX_URL) {
+  warnings.push("Self-hosted FX gateway is not configured; currency conversion remains unavailable until LUNAVO_LOCAL_FX_URL is configured.");
+}
+if (process.env.FX_UPSTREAM_URL) {
+  errors.push("FX_UPSTREAM_URL is forbidden; FX must use the self-hosted local ratebook.");
+}
+if (process.env.SMTP_HOST || process.env.SMTP_USER || process.env.SMTP_PASSWORD || process.env.SMTP_PORT) {
+  errors.push("Remote SMTP configuration is forbidden in Lunavo core; use the local mail outbox/self-hosted MTA boundary.");
+}
+
+if (errors.length) {
+  console.error("Lunavo production preflight: FAIL");
+  for (const error of errors) console.error(`- ${error}`);
+  process.exit(1);
+}
+
+for (const warning of warnings) console.warn(`- ${warning}`);
+console.log(strict ? "Lunavo production preflight: PASS" : "Lunavo production preflight: configuration shape OK");
