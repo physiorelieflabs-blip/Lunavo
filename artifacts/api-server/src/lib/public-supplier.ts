@@ -48,28 +48,97 @@ export type ImportedSupplierProduct = {
   sourceMetadata: Record<string, unknown>;
 };
 
-function blockedAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
-    return (
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      a === 0
-    );
+function blockedIpv4Parts(parts: number[]): boolean {
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return true;
   }
-  const normalized = address.toLowerCase();
-  if (normalized.startsWith("::ffff:")) {
-    return blockedAddress(normalized.slice("::ffff:".length));
-  }
+  const [a, b, c] = parts;
   return (
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe80:")
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    a >= 224 ||
+    (a === 100 && b! >= 64 && b! <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b! >= 16 && b! <= 31) ||
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113)
   );
+}
+
+function parseIpv6Words(address: string): number[] | null {
+  let value = address.toLowerCase();
+  if (value.includes("%")) return null;
+
+  // Convert an embedded dotted IPv4 tail into its two hexadecimal IPv6 words.
+  if (value.includes(".")) {
+    const lastColon = value.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    const ipv4 = value.slice(lastColon + 1);
+    if (isIP(ipv4) !== 4) return null;
+    const bytes = ipv4.split(".").map(Number);
+    const high = ((bytes[0]! << 8) | bytes[1]!).toString(16);
+    const low = ((bytes[2]! << 8) | bytes[3]!).toString(16);
+    value = value.slice(0, lastColon + 1) + high + ":" + low;
+  }
+
+  const compressionIndex = value.indexOf("::");
+  let groups: string[];
+  if (compressionIndex >= 0) {
+    if (value.indexOf("::", compressionIndex + 2) >= 0) return null;
+    const leftText = value.slice(0, compressionIndex);
+    const rightText = value.slice(compressionIndex + 2);
+    const left = leftText ? leftText.split(":") : [];
+    const right = rightText ? rightText.split(":") : [];
+    const missing = 8 - left.length - right.length;
+    if (missing < 1) return null;
+    groups = [...left, ...Array(missing).fill("0"), ...right];
+  } else {
+    groups = value.split(":");
+    if (groups.length !== 8) return null;
+  }
+
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) {
+    return null;
+  }
+  return groups.map((group) => Number.parseInt(group, 16));
+}
+
+/**
+ * Returns true unless the address is a known globally routable unicast address.
+ * Supplier pages are untrusted input: private, reserved, transition, multicast,
+ * documentation, link-local, and malformed addresses must never be fetched.
+ */
+export function isBlockedSupplierAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 4) return blockedIpv4Parts(address.split(".").map(Number));
+  if (family !== 6) return true;
+
+  const words = parseIpv6Words(address);
+  if (!words) return true;
+  const [first, second, third] = words;
+
+  // IPv6 global-unicast space is 2000::/3. This also rejects loopback, mapped
+  // IPv4, unspecified, unique-local, link-local, and multicast addresses.
+  if (first! < 0x2000 || first! > 0x3fff) return true;
+
+  // Do not use transition or special-purpose blocks as a path to another network.
+  if (first === 0x2001 && second === 0x0000) return true; // Teredo
+  if (first === 0x2001 && second === 0x0002 && third === 0x0000) return true; // Benchmarking
+  if (first === 0x2001 && second === 0x0db8) return true; // Documentation
+  if (
+    first === 0x2001 &&
+    ((second! & 0xfff0) === 0x0010 || (second! & 0xfff0) === 0x0020)
+  ) return true; // ORCHID special-purpose ranges
+  if (first === 0x2002) return true; // 6to4 embeds an IPv4 destination
+  if (first === 0x3fff && (second! & 0xf000) === 0x0000) return true; // Documentation
+
+  return false;
 }
 
 async function resolvePublicAddress(hostname: string): Promise<string> {
@@ -84,7 +153,7 @@ async function resolvePublicAddress(hostname: string): Promise<string> {
       setTimeout(() => reject(new Error("Supplier DNS lookup timed out")), DNS_LOOKUP_TIMEOUT_MS),
     ),
   ]);
-  if (!addresses.length || addresses.some(blockedAddress)) {
+  if (!addresses.length || addresses.some(isBlockedSupplierAddress)) {
     throw new Error("Private and internal supplier addresses are not allowed");
   }
   return addresses[0]!;
