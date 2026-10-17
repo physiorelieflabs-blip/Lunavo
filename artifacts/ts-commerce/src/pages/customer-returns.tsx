@@ -21,6 +21,7 @@ type RequestRow = {
   refund_amount_minor?: string | number | null;
   refund_currency?: string | null;
   refund_inventory_restock?: boolean | null;
+  refund_inventory_restock_skip_reason?: string | null;
   created_at: string;
   updated_at: string;
   order_number: string;
@@ -231,7 +232,7 @@ export default function CustomerReturns() {
           </div>}
           {row.status==="received"&&row.request_type==="exchange"&&<button className={primary} disabled={busyId===row.id} onClick={()=>void act(row,"complete")}><ShieldCheck className="h-3.5 w-3.5"/>Complete exchange review</button>}
           {row.refund_record_id!=null&&<div className="mt-2 flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 p-3 text-xs">
-            <span>Linked refund #{row.refund_record_id} · <strong>{row.refund_status??"requested"}</strong>{row.refund_amount_minor!=null&&row.refund_currency?" · "+moneyMinor(row.refund_amount_minor,row.refund_currency):""}{row.refund_inventory_restock?" · eligible full restock":" "}{row.inspection_grade?" · inspected: "+row.inspection_grade:""}{row.inspection_note?" · "+row.inspection_note:""}</span>
+            <span>Linked refund #{row.refund_record_id} · <strong>{row.refund_status??"requested"}</strong>{row.refund_amount_minor!=null&&row.refund_currency?" · "+moneyMinor(row.refund_amount_minor,row.refund_currency):""}{row.refund_inventory_restock?" · restocked":" "}{row.refund_inventory_restock_skip_reason?" · restock skipped: "+row.refund_inventory_restock_skip_reason:""}{row.inspection_grade?" · inspected: "+row.inspection_grade:""}{row.inspection_note?" · "+row.inspection_note:""}</span>
             <Link href="/finance" className="font-extrabold text-accent underline underline-offset-2">Review in Finance</Link>
           </div>}
           {busyId===row.id&&<span className="self-center text-xs font-bold text-muted-foreground">Saving status…</span>}
