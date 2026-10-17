@@ -208,6 +208,19 @@ router.post("/merchant/dropship/market-watches", async (req, res, next) => {
     const result = await db.transaction(async (tx) => {
       // Serialize watch creation per merchant so concurrent requests cannot exceed the workspace cap.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('dropship-market-watch:' || ${ctx.merchantId}::text))`);
+      const lockedPriorResult = await tx.execute(sql`
+        SELECT * FROM dropship_market_watches
+        WHERE merchant_id=${ctx.merchantId} AND idempotency_key=${idempotencyKey}
+        LIMIT 1
+      `);
+      const lockedPrior = lockedPriorResult.rows[0] as Record<string, unknown> | undefined;
+      if (lockedPrior) {
+        return {
+          watch: lockedPrior,
+          replayed: true,
+          conflict: lockedPrior.request_fingerprint !== requestFingerprint,
+        };
+      }
       const lockedCount = await tx.execute(sql`
         SELECT count(*)::int AS count
         FROM dropship_market_watches WHERE merchant_id=${ctx.merchantId}
