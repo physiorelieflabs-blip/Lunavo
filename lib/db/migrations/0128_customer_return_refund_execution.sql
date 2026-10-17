@@ -14,3 +14,8 @@ ALTER TABLE customer_return_requests
 CREATE UNIQUE INDEX IF NOT EXISTS customer_return_requests_refund_record_unique
   ON customer_return_requests(refund_record_id)
   WHERE refund_record_id IS NOT NULL;
+
+-- Preserve audit detail if inventory eligibility changes between preparation and provider approval.
+ALTER TABLE refund_records
+  ADD COLUMN IF NOT EXISTS inventory_restock_skip_reason text
+    CHECK (inventory_restock_skip_reason IS NULL OR length(inventory_restock_skip_reason) <= 1000);
