@@ -12,7 +12,7 @@ describe("store currency coverage", () => {
     for (const currency of [
       "USD", "NGN", "EUR", "GBP", "CAD", "AUD", "CHF", "CNY",
       "HKD", "INR", "SGD", "NZD", "BRL", "MXN", "MYR", "THB",
-      "PHP", "PLN", "SEK", "NOK", "DKK", "CZK", "RON",
+      "PHP", "PLN", "SEK", "NOK", "DKK", "CZK", "HUF", "RON",
       "TRY", "ILS", "EGP", "PKR", "BDT", "TWD", "COP", "PEN",
       "ARS", "KZT", "UAH", "MAD", "DZD", "QAR", "LKR", "NPR",
       "MUR", "IDR",
@@ -21,7 +21,7 @@ describe("store currency coverage", () => {
     }
   });
 
-  it("only exposes store currencies whose current runtime minor precision is two digits", () => {
+  it("only exposes store currencies whose canonical ISO minor precision is two digits", () => {
     for (const currency of SUPPORTED_CURRENCIES) {
       expect(currencyMinorDigits(currency), currency).toBe(2);
     }
@@ -35,7 +35,7 @@ describe("store currency coverage", () => {
       expect(isFlutterwavePaymentCurrency(currency), currency).toBe(true);
     }
     expect(isSupportedStoreCurrency("JPY")).toBe(false);
-    expect(isSupportedStoreCurrency("HUF")).toBe(false);
+    expect(isSupportedStoreCurrency("HUF")).toBe(true);
     expect(isSupportedStoreCurrency("BHD")).toBe(false);
     expect(isFlutterwavePaymentCurrency("CHF")).toBe(false);
   });
