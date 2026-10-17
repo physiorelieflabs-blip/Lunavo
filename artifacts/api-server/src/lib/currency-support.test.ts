@@ -34,9 +34,15 @@ describe("store currency coverage", () => {
       expect(isSupportedStoreCurrency(currency), currency).toBe(true);
       expect(isFlutterwavePaymentCurrency(currency), currency).toBe(true);
     }
-    expect(isSupportedStoreCurrency("JPY")).toBe(false);
+    for (const currency of ["JPY", "KRW", "VND", "CLP", "BHD", "KWD", "OMR", "TND", "JOD", "CLF"]) {
+      expect(isSupportedStoreCurrency(currency), currency).toBe(false);
+    }
     expect(isSupportedStoreCurrency("HUF")).toBe(true);
-    expect(isSupportedStoreCurrency("BHD")).toBe(false);
+    expect(isSupportedStoreCurrency("PKR")).toBe(true);
+    expect(isSupportedStoreCurrency("COP")).toBe(true);
+    expect(currencyMinorDigits("HUF")).toBe(2);
+    expect(currencyMinorDigits("PKR")).toBe(2);
+    expect(currencyMinorDigits("COP")).toBe(2);
     expect(isFlutterwavePaymentCurrency("CHF")).toBe(false);
   });
 
