@@ -1496,6 +1496,7 @@ export const refundRecordsTable = pgTable("refund_records", {
   providerRefundId: text("provider_refund_id"),
   providerStatus: text("provider_status"),
   providerFailureReason: text("provider_failure_reason"),
+  inventoryRestockSkipReason: text("inventory_restock_skip_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
