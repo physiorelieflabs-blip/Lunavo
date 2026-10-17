@@ -101,6 +101,8 @@ jobs:
         run: |
           set -o pipefail
           pnpm run build 2>&1 | tee lunavo-build.log
+      - name: Build production Docker image
+        run: docker build --tag lunavo-ci:ci .
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
