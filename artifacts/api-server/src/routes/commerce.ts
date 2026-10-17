@@ -7987,14 +7987,20 @@ router.post("/orders", async (req, res): Promise<void> => {
       if (supplierProduct.currency.toUpperCase() !== merchant.currency.toUpperCase()) {
         throw new Error("The catalog product currency must match the merchant currency");
       }
-      const unitPriceMinor = Math.round(unitPrice * 100);
-      const totalMinor = unitPriceMinor * quantity;
+      const minorDigits = currencyMinorDigits(supplierProduct.currency);
+      const unitPriceMinor = toMinorUnits(supplierProduct.sellingPrice, minorDigits);
+      const totalMinor = unitPriceMinor === null ? null : multiplyMinorUnits(unitPriceMinor, quantity);
       const MAX_ORDER_TOTAL_MINOR = 999_999_999_999;
-      if (!Number.isSafeInteger(totalMinor) || totalMinor <= 0 || totalMinor > MAX_ORDER_TOTAL_MINOR) {
+      if (
+        totalMinor === null ||
+        !Number.isSafeInteger(totalMinor) ||
+        totalMinor <= 0 ||
+        totalMinor > MAX_ORDER_TOTAL_MINOR
+      ) {
         throw new Error("The calculated order total is outside the supported range");
       }
-      const submittedTotalMinor = Math.round(Number(parsed.data.total) * 100);
-      if (submittedTotalMinor !== totalMinor) {
+      const submittedTotalMinor = toMinorUnits(parsed.data.total, minorDigits);
+      if (submittedTotalMinor === null || submittedTotalMinor !== totalMinor) {
         throw new Error("Sale total does not match the active catalog price. Reload the product and try again.");
       }
 
