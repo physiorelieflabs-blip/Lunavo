@@ -2,6 +2,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+const middleware = await readFile("artifacts/api-server/src/lib/middleware.ts", "utf8");
+const merchantAuthStart = middleware.indexOf("export async function merchantAuthMiddleware");
+const merchantAuthEnd = middleware.indexOf("export function requireRole", merchantAuthStart);
+assert.notEqual(merchantAuthStart, -1, "Merchant auth middleware must exist");
+assert.notEqual(merchantAuthEnd, -1, "Merchant auth middleware must end before role helpers");
+const merchantAuth = middleware.slice(merchantAuthStart, merchantAuthEnd);
+assert.ok(
+  merchantAuth.includes("merchantsTable.clerkUserId") &&
+  merchantAuth.includes("merchantsTable.localAuthUserId"),
+  "Shared merchant-auth middleware must resolve both legacy and self-hosted local-auth identities",
+);
+
 const paymentBoundary = await readFile("artifacts/api-server/src/routes/payment-boundary.ts", "utf8");
 const subscriptionRouteStart = paymentBoundary.indexOf('router.post("/subscription/use-earnings"');
 assert.notEqual(subscriptionRouteStart, -1, "Subscription earnings route must exist");
