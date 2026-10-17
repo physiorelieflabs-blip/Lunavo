@@ -12,6 +12,8 @@ export type ReturnRefundDecisionInput = {
   paymentCurrency: string;
   paymentIntentAmountMinor: number;
   paymentIntentCurrency: string;
+  settlementAmountMinor: number;
+  settlementCurrency: string;
   restockReturnedItems: boolean;
   inventoryStrategy: string | null;
   availabilityQuantity: number | null;
@@ -36,8 +38,16 @@ export function decideReturnRefund(input: ReturnRefundDecisionInput): ReturnRefu
     return { ok: false, reason: "Refund amount must be a positive whole number of currency minor units." };
   }
   if (!Number.isSafeInteger(input.paidAmountMinor) || input.paidAmountMinor <= 0 ||
-      !Number.isSafeInteger(input.priorRefundAmountMinor) || input.priorRefundAmountMinor < 0) {
+      !Number.isSafeInteger(input.priorRefundAmountMinor) || input.priorRefundAmountMinor < 0 ||
+      !Number.isSafeInteger(input.paymentIntentAmountMinor) || input.paymentIntentAmountMinor <= 0 ||
+      !Number.isSafeInteger(input.settlementAmountMinor) || input.settlementAmountMinor <= 0) {
     return { ok: false, reason: "No verified payment or valid refund balance is available for this order." };
+  }
+  if (input.paidAmountMinor !== input.paymentIntentAmountMinor ||
+      input.paymentCurrency.trim().toUpperCase() !== input.paymentIntentCurrency.trim().toUpperCase() ||
+      input.settlementAmountMinor !== input.paidAmountMinor ||
+      input.settlementCurrency.trim().toUpperCase() !== input.paymentCurrency.trim().toUpperCase()) {
+    return { ok: false, reason: "This return-refund workflow requires matching order, transaction and settlement amounts/currencies. Use manual finance reconciliation for converted settlements." };
   }
   if (input.amountMinor + input.priorRefundAmountMinor > input.paidAmountMinor) {
     return { ok: false, reason: "This refund would exceed the remaining verified payment amount." };
@@ -55,10 +65,6 @@ export function decideReturnRefund(input: ReturnRefundDecisionInput): ReturnRefu
   }
   if (input.priorRefundAmountMinor !== 0 || input.amountMinor !== input.paidAmountMinor) {
     return { ok: false, reason: "Restocking is only allowed with a full refund and no earlier refund requests." };
-  }
-  if (input.paymentIntentAmountMinor !== input.paidAmountMinor ||
-      input.paymentIntentCurrency.trim().toUpperCase() !== input.paymentCurrency.trim().toUpperCase()) {
-    return { ok: false, reason: "Payment and settlement amounts/currencies differ; automatic stock restock is blocked." };
   }
   if (!input.inventoryStrategy || input.inventoryStrategy === "source_based" || input.availabilityQuantity === null ||
       !Number.isSafeInteger(input.availabilityQuantity) || input.availabilityQuantity < 0) {
