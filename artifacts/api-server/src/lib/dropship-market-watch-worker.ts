@@ -7,7 +7,6 @@ import { importPublicSupplierProduct } from "./public-supplier";
 import { buildPublicMarketObservation } from "./public-market-observation";
 import { recordMarketResearch } from "./dropship-intelligence";
 import {
-  MAX_MARKET_WATCH_FAILURES,
   marketWatchRetryDelaySeconds,
   marketWatchStatusAfterFailure,
 } from "./dropship-market-watch-policy";
@@ -124,7 +123,7 @@ async function captureWatch(watch: MarketWatch): Promise<void> {
           ...observation.evidence,
           watch: { id: watch.id, intervalMinutes: watch.interval_minutes, captureKind: "scheduled" },
         },
-        capturedBy: watch.created_by,
+        capturedBy: "system:dropship-market-watch-worker",
         idempotencyKey,
         requestFingerprint,
       }, tx);
