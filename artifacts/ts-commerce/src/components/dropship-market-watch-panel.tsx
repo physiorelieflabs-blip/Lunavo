@@ -38,10 +38,10 @@ async function request(path: string, method = "GET", body?: unknown) {
 
 function money(minor: string | number | null, currency: string | null): string {
   if (minor == null || !currency) return "Price not available";
-  const digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits;
-  const amount = Number(minor) / (10 ** digits);
-  if (!Number.isFinite(amount)) return "Price not available";
   try {
+    const digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+    const amount = Number(minor) / (10 ** digits);
+    if (!Number.isFinite(amount)) return "Price not available";
     return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: digits }).format(amount);
   } catch {
     return `${currency} ${String(minor)} minor units`;
