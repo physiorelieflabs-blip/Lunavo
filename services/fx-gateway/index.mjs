@@ -112,11 +112,17 @@ async function ensureEcbRatesFresh() {
   await refreshEcbRates();
 }
 
+function ecbObservationAgeMs() {
+  if (!ecbSnapshot.asOf) return Number.POSITIVE_INFINITY;
+  const asOfMs = Date.parse(ecbSnapshot.asOf + "T00:00:00Z");
+  return Number.isFinite(asOfMs) ? Math.max(0, Date.now() - asOfMs) : Number.POSITIVE_INFINITY;
+}
+
 function ecbQuote(base, quote) {
   if (!ecbSnapshot.fetchedAt) return null;
   const rate = crossRateFromEuroRates(ecbSnapshot.rates, base, quote);
   if (rate === null) return null;
-  const ageMs = Math.max(0, Date.now() - Date.parse(ecbSnapshot.fetchedAt));
+  const ageMs = ecbObservationAgeMs();
   return {
     rate,
     source: "ecb-reference-rates",
@@ -159,12 +165,13 @@ function ratebookQuote(base, quote) {
 }
 
 async function rateFor(base, quote) {
-  if (Date.now() - ratebook.loadedAt > ratebookTtlMs) await loadRates();
-
   // Official ECB reference rates take priority whenever both currencies are covered.
-  // They are indicative only and never authorize or settle a payment.
+  // A malformed optional fallback ratebook must not disable a valid official quote.
+  // These reference rates are indicative only and never authorize or settle a payment.
   const official = ecbQuote(base, quote);
   if (official) return official;
+
+  if (Date.now() - ratebook.loadedAt > ratebookTtlMs) await loadRates();
 
   // Keep a self-hosted ratebook fallback for currencies not covered by the ECB feed.
   const configured = ratebookQuote(base, quote);
@@ -194,7 +201,7 @@ const server = http.createServer(async (req, res) => {
           available: Boolean(ecbSnapshot.fetchedAt),
           asOf: ecbSnapshot.asOf,
           fetchedAt: ecbSnapshot.fetchedAt,
-          stale: !fetchedAtMs || Date.now() - fetchedAtMs > staleAfterMs,
+          stale: !fetchedAtMs || ecbObservationAgeMs() > staleAfterMs,
           lastError: ecbSnapshot.lastError,
         },
         ratebook: {
