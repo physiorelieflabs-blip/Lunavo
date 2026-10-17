@@ -27,7 +27,6 @@ describe("automation policy evaluator", () => {
       "channel.sync.failed",
       "channel.sync.cancelled",
       "sourcing.source_registered",
-      "sourcing.product_discovered",
       "supplier.product_imported",
       "supplier.product_refreshed",
       "supplier.observation_changed",
