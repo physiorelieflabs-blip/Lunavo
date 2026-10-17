@@ -12,9 +12,9 @@ for(const variable of localEndpointVars){const m=env.match(new RegExp("^"+variab
 async function walk(dir){const entries=await readdir(dir,{withFileTypes:true});const files=[];for(const entry of entries){if(["node_modules","dist",".git"].includes(entry.name))continue;const full=path.join(dir,entry.name);if(entry.isDirectory())files.push(...await walk(full));else if(/\.(ts|tsx|js|mjs|cjs)$/.test(entry.name))files.push(full);}return files;}
 for(const root of ["artifacts/api-server/src","artifacts/ts-commerce/src"]){for(const file of await walk(root)){const source=await readFile(file,"utf8");const relative=file.replaceAll("\\","/");for(const host of forbiddenUrls)if(source.includes(host))failures.push("Hosted service URL remains in Lunavo core: "+relative+" -> "+host);if(/process\.env\.(SMTP_HOST|SMTP_PORT|SMTP_USER|SMTP_PASSWORD|SMTP_FROM)\b/.test(source))failures.push("Remote SMTP configuration remains in Lunavo core: "+relative);}}
 const compose=await readFile("docker-compose.yml","utf8");
-const lunavoService=compose.match(/^  lunavo:\n([\\s\\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
+const lunavoService=compose.match(/^  lunavo:\n([\s\S]*?)(?=^  [a-zA-Z0-9_-]+:\n|^volumes:)/m)?.[1]??"";
 if(!lunavoService)failures.push("Lunavo application service is missing from Compose");
-const dependencyBlock=lunavoService.match(/^    depends_on:\n([\\s\\S]*?)(?=^    [a-zA-Z0-9_-]+:\n|$)/m)?.[1]??"";
+const dependencyBlock=lunavoService.match(/^    depends_on:\n([\s\S]*?)(?=^    [a-zA-Z0-9_-]+:\n|$)/m)?.[1]??"";
 if(/^      ollama-init:/m.test(dependencyBlock))failures.push("Core Lunavo must not be blocked by optional local AI model downloads");
 if(!compose.includes("ollama list >/dev/null 2>&1"))failures.push("Local AI model initialization must wait for the Ollama runtime to become ready");
 if(compose.includes("FX_UPSTREAM_URL")||compose.includes("open.er-api.com"))failures.push("FX gateway cannot use an external upstream");
