@@ -336,6 +336,7 @@ router.get("/merchant/order-portal/return-requests", async (req: Request, res: R
         r.inspection_grade,r.inspection_note,r.inspected_at,r.refund_record_id,
         fr.status AS refund_status,fr.amount_minor AS refund_amount_minor,fr.currency AS refund_currency,
         fr.inventory_restock AS refund_inventory_restock,
+        fr.inventory_restock_skip_reason AS refund_inventory_restock_skip_reason,
         o.order_number,o.quantity AS purchased_quantity,o.currency,o.total AS order_total,o.fulfillment_status,
         p.title AS product_title,c.name AS customer_name,c.email AS customer_email
       FROM customer_return_requests r
