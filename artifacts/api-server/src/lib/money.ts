@@ -6,9 +6,19 @@
  * never by JavaScript floating-point multiplication.
  */
 /** ISO-4217 currency scale, resolved locally through the runtime's Intl data. */
+const ISO_4217_MINOR_DIGITS_OVERRIDES: Readonly<Record<string, number>> = {
+  // These ISO codes have two minor units, although some ICU currency-formatting
+  // datasets apply zero decimal digits. Financial amount precision must not vary
+  // depending on the host's locale-data package.
+  HUF: 2,
+  PKR: 2,
+};
+
 export function currencyMinorDigits(currency: string): number {
   const normalized = currency.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(normalized)) return 2;
+  const override = ISO_4217_MINOR_DIGITS_OVERRIDES[normalized];
+  if (override !== undefined) return override;
   try {
     const digits = new Intl.NumberFormat("en", {
       style: "currency",
