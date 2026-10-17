@@ -2,7 +2,7 @@
 
 ## What is protected
 
-The self-hosted `postgres-backup` service writes PostgreSQL custom-format dumps to the separate Docker volume `lunavo_backups`. It starts after PostgreSQL is healthy, makes an initial backup, validates each dump with `pg_restore --list`, and then repeats on the configured interval. Failed dumps are deleted and retried after five minutes. The default retention is 14 days.
+The self-hosted `postgres-backup` service writes PostgreSQL custom-format dumps to the separate Docker volume `lunavo_backups`. It starts after the Lunavo application is healthy (so startup migrations have completed), makes an initial backup, validates each dump with `pg_restore --list`, and then repeats on the configured interval. Failed dumps are deleted and retried after five minutes. The default retention is 14 days.
 
 Backups contain customer, order, account, and financial records. Treat the backup volume as sensitive production data. Access to a Docker host or to the backup container is effectively privileged access to those records.
 
