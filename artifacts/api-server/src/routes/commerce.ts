@@ -1763,36 +1763,50 @@ async function ensureSupplierRecord(
 ): Promise<Supplier> {
   const parsed = new URL(supplierUrl);
   const domain = parsed.hostname.toLowerCase();
-  const existing = (
-    await db
+  return db.transaction(async (tx) => {
+    const existing = (
+      await tx
+        .select()
+        .from(suppliersTable)
+        .where(and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)))
+        .limit(1)
+    )[0];
+    if (existing) return existing;
+
+    const [created] = await tx
+      .insert(suppliersTable)
+      .values({
+        merchantId,
+        name: supplierName?.trim() || domain,
+        website: parsed.origin,
+        domain,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (created) {
+      await emitDomainEvent(tx, {
+        merchantId,
+        eventType: "sourcing.source_registered",
+        aggregateType: "sourcing_source",
+        aggregateId: created.id,
+        actorType: "system",
+        actorId: "supplier_registry",
+        source: "system",
+        idempotencyKey: `sourcing-source-registered:${created.id}`,
+        payload: { supplierId: created.id, name: created.name.slice(0, 180), domain: created.domain, website: created.website },
+        after: { domain: created.domain, website: created.website },
+      });
+      return created;
+    }
+
+    const [afterConflict] = await tx
       .select()
       .from(suppliersTable)
-      .where(
-        and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)),
-      )
-      .limit(1)
-  )[0];
-  if (existing) return existing;
-  const [created] = await db
-    .insert(suppliersTable)
-    .values({
-      merchantId,
-      name: supplierName?.trim() || domain,
-      website: parsed.origin,
-      domain,
-    })
-    .onConflictDoNothing()
-    .returning();
-  if (created) return created;
-  const [afterConflict] = await db
-    .select()
-    .from(suppliersTable)
-    .where(
-      and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)),
-    )
-    .limit(1);
-  if (!afterConflict) throw new Error("Supplier record could not be created");
-  return afterConflict;
+      .where(and(eq(suppliersTable.merchantId, merchantId), eq(suppliersTable.domain, domain)))
+      .limit(1);
+    if (!afterConflict) throw new Error("Supplier record could not be created");
+    return afterConflict;
+  });
 }
 
 function importedProductValues(
@@ -6371,23 +6385,55 @@ router.post("/supplier-products", async (req, res): Promise<void> => {
     const existing =
       duplicateAction === "create_new" ? undefined : duplicates[0];
     const values = importedProductValues(imported, parsed.data, supplier.id);
-    const [product] = existing
-      ? await db
-          .update(supplierProductsTable)
-          .set(values)
-          .where(eq(supplierProductsTable.id, existing.id))
-          .returning()
-      : await db
-          .insert(supplierProductsTable)
-          .values({ merchantId: merchant.id, ...values })
-          .returning();
-    if (!product) throw new Error("Supplier product could not be saved");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: imported.sourceUrl,
-      status: product.importStatus,
-      message: existing ? "Product updated from source" : "Product imported from source",
+    const product = await db.transaction(async (tx) => {
+      const [saved] = existing
+        ? await tx.update(supplierProductsTable)
+            .set(values)
+            .where(and(eq(supplierProductsTable.id, existing.id), eq(supplierProductsTable.merchantId, merchant.id)))
+            .returning()
+        : await tx.insert(supplierProductsTable)
+            .values({ merchantId: merchant.id, ...values })
+            .returning();
+      if (!saved) throw new Error("Supplier product could not be saved");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: imported.sourceUrl,
+        status: saved.importStatus,
+        message: existing ? "Product updated from source" : "Product imported from source",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "supplier.product_imported",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `supplier-product-imported:${saved.id}:${saved.updatedAt.toISOString()}`,
+        payload: {
+          supplierProductId: saved.id,
+          created: !existing,
+          importStatus: saved.importStatus,
+          title: saved.title.slice(0, 180),
+          sourceDomain: saved.sourceDomain,
+          currency: saved.currency,
+          sourceUrl: saved.sourceUrl,
+        },
+        before: existing ? {
+          importStatus: existing.importStatus,
+          currency: existing.currency,
+          availability: existing.availability,
+          price: existing.price,
+        } : null,
+        after: {
+          importStatus: saved.importStatus,
+          currency: saved.currency,
+          availability: saved.availability,
+          price: saved.price,
+        },
+      });
+      return saved;
     });
     res.status(existing ? 200 : 201).json(
       ImportSupplierProductResponse.parse(serializeSupplierProduct(product)),
@@ -6563,24 +6609,57 @@ router.post("/supplier-products/batch", async (req, res): Promise<void> => {
       }, supplier.id);
       const existing =
         duplicateAction === "create_new" ? undefined : duplicates[0];
-      const [product] = existing
-        ? await db
-            .update(supplierProductsTable)
-            .set(values)
-            .where(eq(supplierProductsTable.id, existing.id))
-            .returning()
-        : await db
-            .insert(supplierProductsTable)
-            .values({ merchantId: merchant.id, ...values })
-            .returning();
-      if (!product) throw new Error("Product could not be saved");
-      await db.insert(supplierImportAttemptsTable).values({
-        merchantId: merchant.id,
-        supplierProductId: product.id,
-        batchId: batch.id,
-        sourceUrl: imported.sourceUrl,
-        status: existing ? "updated" : "imported",
-        message: existing ? "Updated from batch source" : "Imported from batch source",
+      const product = await db.transaction(async (tx) => {
+        const [saved] = existing
+          ? await tx.update(supplierProductsTable)
+              .set(values)
+              .where(and(eq(supplierProductsTable.id, existing.id), eq(supplierProductsTable.merchantId, merchant.id)))
+              .returning()
+          : await tx.insert(supplierProductsTable)
+              .values({ merchantId: merchant.id, ...values })
+              .returning();
+        if (!saved) throw new Error("Product could not be saved");
+        await tx.insert(supplierImportAttemptsTable).values({
+          merchantId: merchant.id,
+          supplierProductId: saved.id,
+          batchId: batch.id,
+          sourceUrl: imported.sourceUrl,
+          status: existing ? "updated" : "imported",
+          message: existing ? "Updated from batch source" : "Imported from batch source",
+        });
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.product_imported",
+          aggregateType: "supplier_product",
+          aggregateId: saved.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-product-imported:${saved.id}:${saved.updatedAt.toISOString()}`,
+          payload: {
+            supplierProductId: saved.id,
+            batchId: batch.id,
+            created: !existing,
+            importStatus: saved.importStatus,
+            title: saved.title.slice(0, 180),
+            sourceDomain: saved.sourceDomain,
+            currency: saved.currency,
+            sourceUrl: saved.sourceUrl,
+          },
+          before: existing ? {
+            importStatus: existing.importStatus,
+            currency: existing.currency,
+            availability: existing.availability,
+            price: existing.price,
+          } : null,
+          after: {
+            importStatus: saved.importStatus,
+            currency: saved.currency,
+            availability: saved.availability,
+            price: saved.price,
+          },
+        });
+        return saved;
       });
       completedCount += 1;
       results.push({ sourceUrl, status: "imported", product: serializeSupplierProduct(product) });
@@ -6639,41 +6718,68 @@ router.post("/supplier-products/manual", async (req, res): Promise<void> => {
       ? await ensureSupplierRecord(merchant.id, supplierUrl.url, parsed.data.supplierName)
       : null;
     const sourceUrl = parsed.data.supplierUrl ?? `https://manual.invalid/product/${randomUUID()}`;
-    const [product] = await db
-      .insert(supplierProductsTable)
-      .values({
+    const product = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .insert(supplierProductsTable)
+        .values({
+          merchantId: merchant.id,
+          supplierId: supplier?.id ?? null,
+          sourceUrl,
+          supplierUrl: supplier?.website ?? "https://manual.invalid",
+          sourceDomain: supplier?.domain ?? "manual",
+          title: parsed.data.title,
+          description: parsed.data.description ?? null,
+          imageUrl: parsed.data.imageUrl ?? null,
+          price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
+          salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
+          currency: parsed.data.currency.toUpperCase(),
+          sku: parsed.data.sku ?? null,
+          category: parsed.data.category ?? null,
+          tags: parsed.data.tags ?? [],
+          sellingPrice: parsed.data.sellingPrice.toFixed(2),
+          inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
+          inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
+          availabilityQuantity: parsed.data.inventoryQuantity ?? null,
+          status: "active",
+          visibility: "active",
+          importStatus: "manual_import_required",
+          importedAt: new Date(),
+          publishedAt: new Date(),
+        })
+        .returning();
+      if (!saved) throw new Error("Manual product could not be saved");
+      await tx.insert(supplierImportAttemptsTable).values({
         merchantId: merchant.id,
-        supplierId: supplier?.id ?? null,
+        supplierProductId: saved.id,
         sourceUrl,
-        supplierUrl: supplier?.website ?? "https://manual.invalid",
-        sourceDomain: supplier?.domain ?? "manual",
-        title: parsed.data.title,
-        description: parsed.data.description ?? null,
-        imageUrl: parsed.data.imageUrl ?? null,
-        price: parsed.data.price == null ? null : parsed.data.price.toFixed(2),
-        salePrice: parsed.data.salePrice == null ? null : parsed.data.salePrice.toFixed(2),
-        currency: parsed.data.currency.toUpperCase(),
-        sku: parsed.data.sku ?? null,
-        category: parsed.data.category ?? null,
-        tags: parsed.data.tags ?? [],
-        sellingPrice: parsed.data.sellingPrice.toFixed(2),
-        inventoryStrategy: parsed.data.inventoryStrategy ?? "manual",
-        inventoryStatus: parsed.data.inventoryStatus ?? "unknown",
-        availabilityQuantity: parsed.data.inventoryQuantity ?? null,
-        status: "active",
-        visibility: "active",
-        importStatus: "manual_import_required",
-        importedAt: new Date(),
-        publishedAt: new Date(),
-      })
-      .returning();
-    if (!product) throw new Error("Manual product could not be saved");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl,
-      status: "manual_import_required",
-      message: "Created with merchant-supplied product details",
+        status: "manual_import_required",
+        message: "Created with merchant-supplied product details",
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product-created:${saved.id}`,
+        payload: {
+          supplierProductId: saved.id,
+          changeType: "manual_product_created",
+          title: saved.title.slice(0, 180),
+          currency: saved.currency,
+          visibility: saved.visibility,
+        },
+        before: null,
+        after: {
+          status: saved.status,
+          visibility: saved.visibility,
+          currency: saved.currency,
+          sellingPrice: saved.sellingPrice,
+        },
+      });
+      return saved;
     });
     res.status(201).json(CreateManualSupplierProductResponse.parse(serializeSupplierProduct(product)));
   } catch (error) {
@@ -6850,24 +6956,58 @@ router.patch("/supplier-products/:id", async (req, res): Promise<void> => {
       if (has(key as keyof typeof input)) currentOverrides[key] = true;
     }
     updates.merchantOverrides = currentOverrides;
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(
-        and(
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .update(supplierProductsTable)
+        .set(updates)
+        .where(and(
           eq(supplierProductsTable.id, product.id),
           eq(supplierProductsTable.merchantId, merchant.id),
-        ),
-      )
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: updated.id,
-      sourceUrl: updated.sourceUrl,
-      status: nextVisibility === "active" ? "published" : "edited",
-      message: "Merchant-edited product fields saved",
-      changes: Object.keys(updates).filter((key) => key !== "updatedAt"),
+        ))
+        .returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      const changedFields = Object.keys(updates).filter((key) => key !== "updatedAt");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: saved.sourceUrl,
+        status: nextVisibility === "active" ? "published" : "edited",
+        message: "Merchant-edited product fields saved",
+        changes: changedFields,
+      });
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "catalog.product_changed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `catalog-product-changed:${saved.id}:${saved.updatedAt.toISOString()}`,
+        payload: {
+          supplierProductId: saved.id,
+          changeType: nextVisibility === "active" ? "product_published_or_edited" : "product_drafted_or_edited",
+          title: saved.title.slice(0, 180),
+          currency: saved.currency,
+          visibility: saved.visibility,
+          changedFields,
+        },
+        before: {
+          visibility: product.visibility,
+          status: product.status,
+          currency: product.currency,
+          sellingPrice: product.sellingPrice,
+          inventoryStatus: product.inventoryStatus,
+        },
+        after: {
+          visibility: saved.visibility,
+          status: saved.status,
+          currency: saved.currency,
+          sellingPrice: saved.sellingPrice,
+          inventoryStatus: saved.inventoryStatus,
+        },
+      });
+      return saved;
     });
     res.json(UpdateSupplierProductResponse.parse(serializeSupplierProduct(updated)));
   } catch (error) {
@@ -7011,19 +7151,89 @@ router.post("/supplier-products/:id/refresh/accept", async (req, res): Promise<v
         updates[field] = value;
       }
     }
-    const [updated] = await db
-      .update(supplierProductsTable)
-      .set(updates)
-      .where(eq(supplierProductsTable.id, product.id))
-      .returning();
-    if (!updated) throw new Error("Supplier product could not be updated");
-    await db.insert(supplierImportAttemptsTable).values({
-      merchantId: merchant.id,
-      supplierProductId: product.id,
-      sourceUrl: product.sourceUrl,
-      status: "imported",
-      message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
-      changes: parsed.data.fields,
+    const updated = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .update(supplierProductsTable)
+        .set(updates)
+        .where(and(eq(supplierProductsTable.id, product.id), eq(supplierProductsTable.merchantId, merchant.id)))
+        .returning();
+      if (!saved) throw new Error("Supplier product could not be updated");
+      await tx.insert(supplierImportAttemptsTable).values({
+        merchantId: merchant.id,
+        supplierProductId: saved.id,
+        sourceUrl: product.sourceUrl,
+        status: "imported",
+        message: `Accepted ${parsed.data.fields.join(", ")} from source refresh`,
+        changes: parsed.data.fields,
+      });
+      const acceptedFields = [...parsed.data.fields];
+      const priceChanged = acceptedFields.some((field) => ["price", "salePrice", "currency"].includes(field));
+      const stockChanged = acceptedFields.some((field) => ["availability", "availabilityQuantity"].includes(field));
+      await emitDomainEvent(tx, {
+        merchantId: merchant.id,
+        eventType: "supplier.product_refreshed",
+        aggregateType: "supplier_product",
+        aggregateId: saved.id,
+        actorType: "merchant",
+        actorId: identity.clerkUserId,
+        source: "merchant_api",
+        idempotencyKey: `supplier-product-refresh:${saved.id}:${saved.updatedAt.toISOString()}`,
+        payload: {
+          supplierProductId: saved.id,
+          acceptedFields,
+          sourceUrl: saved.sourceUrl,
+          priceChanged,
+          stockChanged,
+        },
+        before: {
+          price: product.price,
+          salePrice: product.salePrice,
+          currency: product.currency,
+          availability: product.availability,
+          availabilityQuantity: product.availabilityQuantity,
+        },
+        after: {
+          price: saved.price,
+          salePrice: saved.salePrice,
+          currency: saved.currency,
+          availability: saved.availability,
+          availabilityQuantity: saved.availabilityQuantity,
+        },
+      });
+      if (priceChanged || stockChanged) {
+        await emitDomainEvent(tx, {
+          merchantId: merchant.id,
+          eventType: "supplier.observation_changed",
+          aggregateType: "supplier_product",
+          aggregateId: saved.id,
+          actorType: "merchant",
+          actorId: identity.clerkUserId,
+          source: "merchant_api",
+          idempotencyKey: `supplier-observation-change:${saved.id}:${saved.updatedAt.toISOString()}`,
+          payload: {
+            supplierProductId: saved.id,
+            acceptedFields,
+            sourceUrl: saved.sourceUrl,
+            priceChanged,
+            stockChanged,
+          },
+          before: {
+            price: product.price,
+            salePrice: product.salePrice,
+            currency: product.currency,
+            availability: product.availability,
+            availabilityQuantity: product.availabilityQuantity,
+          },
+          after: {
+            price: saved.price,
+            salePrice: saved.salePrice,
+            currency: saved.currency,
+            availability: saved.availability,
+            availabilityQuantity: saved.availabilityQuantity,
+          },
+        });
+      }
+      return saved;
     });
     res.json(
       AcceptSupplierRefreshResponse.parse({

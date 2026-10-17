@@ -14,6 +14,8 @@ export const domainEventTypes = [
   "location.created", "location.updated", "location.disabled", "ts_pay.transfer_completed", "ts_pay.transfer_received",
   "invitation.created", "invitation.revoked", "invitation.accepted", "membership.role_changed", "membership.scope_changed", "membership.status_changed",
   "storefront.published","merchant.operation.created","merchant.operation.transitioned","merchant.api_key.created","merchant.api_key.revoked","merchant.feature_flag.updated","merchant.experiment.updated","merchant.accounting_period.updated","merchant.message.created","merchant.document.created","cart.abandoned","cart.recovered","review.created","review.moderated","customer.address.updated","customer.preferences.updated","customer.price_watch.created","customer.saved_search.created","supplier.sync_completed","supplier.sync_review_required","dropship.intelligence.refreshed","dropship.market_research.observed","account.exported","account.deleted","channel.sync.completed","channel.sync.partial","channel.sync.failed","channel.sync.cancelled","supplier.quote.portal_issued","supplier.quote.received",
+  "sourcing.source_registered","supplier.product_imported","supplier.product_refreshed","supplier.observation_changed","supplier.sync_failed",
+  "catalog.product_changed","discount.redeemed","order.fulfillment_changed","fulfillment.job_created","fulfillment.status_changed",
 ] as const;
 export type DomainEventType = (typeof domainEventTypes)[number];
 
@@ -47,7 +49,7 @@ export function nextEventState(attempt: number, maxAttempts = 8): "retry" | "dea
 export function safeProjectionError(_error: unknown): { code: string; message: string } { return { code: "projection_failed", message: "A notification projection could not be completed." }; }
 
 function notificationFor(event: typeof domainEventsTable.$inferSelect) {
-  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", dropship_intelligence: "/dropship-intelligence", dropship_market_watch: "/dropship-intelligence", dropship_supplier_quote_request: "/dropship-workbench", channel_sync_job: "/channels" };
+  const links: Record<string, string> = { order: "/orders", invoice: "/invoices", inventory: "/inventory", marketplace_listing: "/marketplace/manage", ai_action: "/ai", location: "/settings/team", invitation: "/settings/team", membership: "/settings/team", storefront: "/store", merchant_operation: "/operations", merchant_api_key: "/operations", merchant_feature_flag: "/operations", merchant_experiment: "/operations", merchant_accounting_period: "/operations", merchant_message: "/operations", merchant_document: "/operations", dropship_intelligence: "/dropship-intelligence", dropship_market_watch: "/dropship-intelligence", dropship_supplier_quote_request: "/dropship-workbench", channel_sync_job: "/channels", sourcing_source: "/dropshipping", supplier_product: "/suppliers", fulfillment_job: "/dropshipping", discount_code: "/marketing" };
   const labels: Partial<Record<DomainEventType, [string, string, string]>> = {
     "dropship.market_research.observed": ["Market evidence captured", "A public product page was observed and saved as unverified competitive evidence.", "info"],
     "channel.sync.completed": ["Sales channel sync completed", "A channel adapter confirmed the provider operation and required commit.", "success"],
@@ -82,6 +84,16 @@ function notificationFor(event: typeof domainEventsTable.$inferSelect) {
     "customer.saved_search.created": ["Saved search created", "A customer saved a product search.", "info"],
     "supplier.sync_completed": ["Supplier data synchronized", "A supplier-backed product was refreshed from its public source.", "info"],
     "supplier.sync_review_required": ["Supplier sync needs review", "A supplier change exceeded the configured commerce guardrails.", "warning"],
+    "sourcing.source_registered": ["Supplier source registered", "A supplier source was added for evidence-backed product research.", "info"],
+    "supplier.product_imported": ["Supplier product imported", "A supplier product was imported or updated and is available for downstream review.", "info"],
+    "supplier.product_refreshed": ["Supplier changes accepted", "Reviewed supplier facts were accepted; connected workflows can reassess cost and availability.", "info"],
+    "supplier.observation_changed": ["Supplier facts changed", "A refreshed source observation may affect product cost, stock, or selling-price policy.", "warning"],
+    "supplier.sync_failed": ["Supplier sync failed", "A supplier refresh failed; review source data before relying on synchronized availability.", "warning"],
+    "catalog.product_changed": ["Catalog product changed", "A merchant created, edited, or published a product; connected workflows can reassess it.", "info"],
+    "discount.redeemed": ["Discount code redeemed", "A provider-verified payment consumed a discount reservation and incremented its usage count.", "success"],
+    "order.fulfillment_changed": ["Order fulfilment updated", "A supplier fulfilment status changed; verify external supplier actions separately.", "info"],
+    "fulfillment.job_created": ["Fulfilment task created", "A paid order has a supplier fulfilment task; review its status and margin before proceeding.", "info"],
+    "fulfillment.status_changed": ["Fulfilment status updated", "A fulfilment task changed state. Lunavo does not claim that an external supplier order was placed.", "info"],
     "account.exported": ["Account export created", "A privacy data export was generated.", "info"],
     "account.deleted": ["Account disabled", "Merchant account access was disabled.", "warning"],
   };
