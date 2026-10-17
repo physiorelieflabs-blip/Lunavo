@@ -110,9 +110,9 @@ function parseIpv6Words(address: string): number[] | null {
 }
 
 /**
- * Returns true unless the address is a known globally routable unicast address.
- * Supplier pages are untrusted input: private, reserved, transition, multicast,
- * documentation, link-local, and malformed addresses must never be fetched.
+ * Blocks malformed addresses and known non-public or reserved address ranges.
+ * Supplier pages are untrusted input, so this classifier intentionally prefers a
+ * false positive over allowing a request to a private or special-purpose network.
  */
 export function isBlockedSupplierAddress(address: string): boolean {
   const family = isIP(address);
@@ -123,20 +123,14 @@ export function isBlockedSupplierAddress(address: string): boolean {
   if (!words) return true;
   const [first, second, third] = words;
 
-  // IPv6 global-unicast space is 2000::/3. This also rejects loopback, mapped
-  // IPv4, unspecified, unique-local, link-local, and multicast addresses.
+  // The broad 2000::/3 global-unicast block contains reserved subranges too.
+  // These checks reject non-global prefixes and well-known IANA-reserved/special
+  // ranges before the supplier request is made.
   if (first! < 0x2000 || first! > 0x3fff) return true;
-
-  // Do not use transition or special-purpose blocks as a path to another network.
-  if (first === 0x2001 && second === 0x0000) return true; // Teredo
-  if (first === 0x2001 && second === 0x0002 && third === 0x0000) return true; // Benchmarking
+  if (first === 0x2000 || first! >= 0x2d00) return true; // Reserved/unallocated by IANA
+  if (first === 0x2001 && second! < 0x0200) return true; // IANA protocol/special-purpose range
   if (first === 0x2001 && second === 0x0db8) return true; // Documentation
-  if (
-    first === 0x2001 &&
-    ((second! & 0xfff0) === 0x0010 || (second! & 0xfff0) === 0x0020)
-  ) return true; // ORCHID special-purpose ranges
   if (first === 0x2002) return true; // 6to4 embeds an IPv4 destination
-  if (first === 0x3fff && (second! & 0xf000) === 0x0000) return true; // Documentation
 
   return false;
 }
