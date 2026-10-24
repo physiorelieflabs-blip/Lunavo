@@ -88,6 +88,14 @@ jobs:
           path: lunavo-implementation-audit.log
           if-no-files-found: warn
       - name: Production configuration shape
+        env:
+          POSTGRES_PASSWORD: ci-only-postgres-password
+          DATABASE_URL: postgres://lunavo:ci-only-postgres-password@postgres:5432/lunavo
+          SESSION_SECRET: ci-only-session-secret-not-for-production
+          APP_BASE_URL: https://ci.invalid
+          LUNAVO_DOMAIN: ci.invalid
+          LUNAVO_MASTER_ADMIN_EMAIL: ci-admin@example.invalid
+          LUNAVO_PREFLIGHT_TEST_MODE: "1"
         run: pnpm run preflight:production
       - name: Verify production preflight env-file behavior
         run: node --test scripts/production-preflight-env.test.mjs

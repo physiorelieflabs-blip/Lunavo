@@ -11,9 +11,9 @@ This is the operator hand-off for a **self-hosted** deployment. A passing build 
 ## 2. Prepare the host and HTTPS entry point
 
 - [ ] Use a host with Docker Engine and the Docker Compose plugin. Reserve sufficient storage for PostgreSQL, uploads, backups, logs, and the selected local model pack.
-- [ ] Point a domain you control at this host and set up your own HTTPS reverse proxy/TLS termination. Set `APP_BASE_URL` to the final **HTTPS** URL.
-- [ ] The Compose stack publishes Lunavo on host loopback at `127.0.0.1:5000` by default. Point a host-level reverse proxy to `127.0.0.1:5000`; do not open port 5000 directly to the public internet. If your reverse proxy is containerized, use an explicitly shared Docker network and route to the `lunavo:5000` service instead of relying on one container's loopback.
-- [ ] Permit only the public ports needed by your reverse proxy and firewall direct access to PostgreSQL, Ollama, the FX gateway, and the social gateway.
+- [ ] Set `LUNAVO_DOMAIN` to a real hostname you control and set `APP_BASE_URL=https://<LUNAVO_DOMAIN>`; the production preflight rejects placeholder/reserved domains and hostname mismatches. Point the domain's DNS A/AAAA records at the host.
+- [ ] The included Caddy edge requests and renews HTTPS certificates automatically. Open inbound TCP 80/443 and UDP 443; run production with `docker compose --profile production-edge up -d --build`. Do not run the production-edge profile with a placeholder domain.
+- [ ] Lunavo remains published on host loopback at `127.0.0.1:5000`; Caddy shares the Compose network and routes to `lunavo:5000`. Do not open port 5000 directly to the public internet. Keep PostgreSQL, Ollama, the FX gateway, and the social gateway off public ports.
 
 ## 3. Create private environment secrets
 
@@ -60,10 +60,10 @@ pnpm run typecheck
 pnpm run test
 pnpm run build
 pnpm preflight:production
-docker compose config --quiet
-docker compose up -d --build
-docker compose ps
-docker compose logs --tail=100 lunavo postgres postgres-backup ollama-init social-gateway fx-gateway
+docker compose --profile production-edge config --quiet
+docker compose --profile production-edge up -d --build
+docker compose --profile production-edge ps
+docker compose --profile production-edge logs --tail=100 lunavo caddy postgres postgres-backup ollama-init social-gateway fx-gateway
 ```
 
 Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Readiness can report degraded optional capabilities; understand the reported reason rather than ignoring it. Verify startup migrations completed before provisioning the master administrator.
@@ -115,4 +115,4 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
 
 Launch only when the exact code revision has green CI; HTTPS and firewall controls are proven; administrator recovery is tested; Flutterwave settlement and ledger reconciliation have passed; local models/FX have been tested for every capability being enabled; backups have an independent copy and a successful restore drill; and tenant-isolation/permission checks pass.
 
-A green CI run does not supply a domain, TLS certificate, provider account, OAuth credentials, server capacity, external supplier purchasing capability, or independent disaster-recovery storage. Those are deployment-specific prerequisites—not features to pretend are automatically ready.
+Caddy automates certificate issuance/renewal, but a green CI run cannot create or control your DNS zone, open host firewall ports, provide a real Flutterwave account, supply social-provider OAuth credentials, add server capacity, guarantee third-party supplier purchasing, or provide independent disaster-recovery storage. These are external prerequisites. Keep every capability that has not passed its live verification disabled.
