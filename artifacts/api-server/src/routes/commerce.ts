@@ -3039,6 +3039,21 @@ async function verifyPublicFlutterwaveInvoice(token: string, checkoutId: string 
     const currentIntent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1))[0];
     if (!current || !currentIntent) throw new Error("Invoice payment session is no longer available");
     if (current.status === "paid" || ["verified", "successful"].includes(currentIntent.status)) return current;
+    const providerAmountMinor = toMinorUnits(flutterwaveAmount(paid), currencyMinorDigits(String(paid.currency ?? currentIntent.currency).toUpperCase()));
+    const providerCurrency = String(paid.currency ?? currentIntent.currency).trim().toUpperCase();
+    if (providerAmountMinor !== Number(currentIntent.amountMinor) || providerCurrency !== currentIntent.currency) {
+      throw new Error("Flutterwave invoice payment does not match the invoice currency and amount");
+    }
+    const rawProviderFee = (paid as any).app_fee;
+    const providerFeeEvidenceMinor = rawProviderFee == null || rawProviderFee === ""
+      ? null
+      : toMinorUnits(Number(rawProviderFee), currencyMinorDigits(providerCurrency));
+    const providerFeeMinor = providerFeeEvidenceMinor ?? Number(currentIntent.providerFeeMinor ?? 0);
+    const tsFeeMinor = calculateTsCommerceFeeMinor(Number(currentIntent.amountMinor));
+    const merchantNetMinor = Number(currentIntent.amountMinor) - providerFeeMinor - tsFeeMinor;
+    if (!Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0) {
+      throw new Error("The verified invoice payment does not reconcile to safe merchant proceeds");
+    }
     const [record] = await tx.insert(paymentRecordsTable).values({
       intentId: currentIntent.id,
       merchantId: current.merchantId,
@@ -3061,21 +3076,6 @@ async function verifyPublicFlutterwaveInvoice(token: string, checkoutId: string 
       tsCommerceFeeMinor: tsFeeMinor,
       merchantNetMinor,
     }).where(eq(paymentIntentsTable.id, currentIntent.id));
-    const providerAmountMinor = toMinorUnits(flutterwaveAmount(paid), currencyMinorDigits(String(paid.currency ?? currentIntent.currency).toUpperCase()));
-    const providerCurrency = String(paid.currency ?? currentIntent.currency).trim().toUpperCase();
-    if (providerAmountMinor !== Number(currentIntent.amountMinor) || providerCurrency !== currentIntent.currency) {
-      throw new Error("Flutterwave invoice payment does not match the invoice currency and amount");
-    }
-    const rawProviderFee = (paid as any).app_fee;
-    const providerFeeEvidenceMinor = rawProviderFee == null || rawProviderFee === ""
-      ? null
-      : toMinorUnits(Number(rawProviderFee), currencyMinorDigits(providerCurrency));
-    const providerFeeMinor = providerFeeEvidenceMinor ?? Number(currentIntent.providerFeeMinor ?? 0);
-    const tsFeeMinor = calculateTsCommerceFeeMinor(Number(currentIntent.amountMinor));
-    const merchantNetMinor = Number(currentIntent.amountMinor) - providerFeeMinor - tsFeeMinor;
-    if (!Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0) {
-      throw new Error("The verified invoice payment does not reconcile to safe merchant proceeds");
-    }
     await tx.execute(sql`
       INSERT INTO merchant_fund_release_reviews (
         merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
@@ -3102,7 +3102,7 @@ async function verifyPublicFlutterwaveInvoice(token: string, checkoutId: string 
       merchantId: current.merchantId,
       type: "invoice_payment_confirmed",
       title: `Online payment confirmed for ${current.invoiceNumber}`,
-      description: "Flutterwave confirmed the invoice payment and it entered the sales ledger.",
+      description: "Flutterwave confirmed the customer payment; merchant proceeds are queued for Master Admin release.",
       amount: outstanding.toFixed(2),
       currency: current.currency,
       tone: "positive",
