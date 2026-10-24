@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { requireMasterAdmin } from "../lib/master-admin";
 import { flutterwaveAmount, flutterwaveStatus, flutterwaveTransactionId, verifyFlutterwaveTransaction } from "../lib/flutterwave-client";
 import { merchantFundReleaseVerificationFailure } from "../lib/merchant-fund-release-policy";
-import { toMinorUnits } from "../lib/money";
+import { currencyMinorDigits, toMinorUnits } from "../lib/money";
 
 const router = Router();
 
@@ -178,7 +178,9 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
     const pendingFundReleases = await db.execute(sql`
       SELECT r.id,r.merchant_id,m.name AS merchant_name,m.email AS merchant_email,
              r.source_type,r.source_reference,r.payment_intent_id,r.order_id,r.payment_record_id,
-             r.provider,r.provider_transaction_id,r.provider_reference,r.amount_minor,r.currency,r.legacy_hold,
+             r.provider,r.provider_transaction_id,r.provider_reference,r.provider_amount_minor,r.provider_currency,
+             r.provider_fee_evidence_minor,r.amount_minor,r.currency,r.invoice_id,r.legacy_hold,r.held_amount_minor,
+             r.legacy_provider_fee_posted_minor,r.legacy_lunavo_fee_posted_minor,
              r.provider_fee_minor,r.lunavo_fee_minor,r.merchant_net_minor,r.status,r.review_note,r.created_at
       FROM merchant_fund_release_reviews r
       INNER JOIN merchants m ON m.id=r.merchant_id
@@ -241,7 +243,9 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
   if (!Number.isSafeInteger(id) || id < 1) { res.status(400).json({ error: "Invalid fund-release review id" }); return; }
   const reviewResult = await db.execute(sql`
     SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
-           provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
+           provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+           provider_fee_evidence_minor,amount_minor,currency,invoice_id,legacy_hold,held_amount_minor,
+           legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
            provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status,review_note
     FROM merchant_fund_release_reviews WHERE id=${id} LIMIT 1
   `);
@@ -274,9 +278,12 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
   const observedReference = String(verified.tx_ref ?? verified.reference ?? "").trim();
   const refundStatus = String(verified.refund_status ?? "").trim().toLowerCase();
   const disputeStatus = String(verified.dispute_status ?? "").trim().toLowerCase();
-  const observedProviderFee = verified.app_fee == null || verified.app_fee === "" ? null : toMinorUnits(verified.app_fee);
+  const observedProviderFee = verified.app_fee == null || verified.app_fee === "" ? null : toMinorUnits(Number(verified.app_fee), currencyMinorDigits(observedCurrency));
   const providerFeeMinor = Number(review.provider_fee_minor);
   const amountMinor = Number(review.amount_minor);
+  const providerAmountMinor = Number(review.provider_amount_minor);
+  const providerCurrency = String(review.provider_currency).toUpperCase();
+  const providerFeeEvidenceMinor = review.provider_fee_evidence_minor == null ? null : Number(review.provider_fee_evidence_minor);
   const lunavoFeeMinor = Number(review.lunavo_fee_minor);
   const merchantNetMinor = Number(review.merchant_net_minor);
   const reversalOrDispute = ["successful","processed","refunded","completed"].includes(refundStatus) ||
@@ -287,13 +294,16 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
     observedTransactionId: observedId || null,
     expectedTransactionId: String(review.provider_transaction_id),
     observedAmountMinor,
-    expectedAmountMinor: amountMinor,
+    expectedAmountMinor: providerAmountMinor,
     observedCurrency,
-    expectedCurrency: String(review.currency).toUpperCase(),
+    expectedCurrency: providerCurrency,
     observedReference,
     expectedReference: review.provider_reference == null ? null : String(review.provider_reference),
     observedProviderFeeMinor: observedProviderFee,
     expectedProviderFeeMinor: providerFeeMinor,
+    expectedProviderFeeEvidenceMinor: providerFeeEvidenceMinor,
+    expectedMerchantGrossMinor: amountMinor,
+    expectedMerchantCurrency: String(review.currency).toUpperCase(),
     expectedLunavoFeeMinor: lunavoFeeMinor,
     expectedMerchantNetMinor: merchantNetMinor,
   });
@@ -378,6 +388,31 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
         `);
         const order = orderResult.rows[0] as Record<string, any> | undefined;
         if (!order || String(order.status) !== "paid") return await block("The associated order is not in paid status.");
+      } else if (String(row.source_type) === "invoice_payment") {
+        const invoiceResult = await tx.execute(sql`
+          SELECT id,status,merchant_id FROM invoices WHERE id=${Number(row.invoice_id)}
+            AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+        `);
+        const invoice = invoiceResult.rows[0] as Record<string, any> | undefined;
+        if (!invoice || !["paid","partially_paid"].includes(String(invoice.status))) return await block("The invoice is not paid or partially paid.");
+        const intentResult = await tx.execute(sql`
+          SELECT id,status,provider_transaction_id,merchant_id FROM payment_intents
+          WHERE id=${Number(row.payment_intent_id)} AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+        `);
+        const intent = intentResult.rows[0] as Record<string, any> | undefined;
+        if (!intent || !["successful","verified"].includes(String(intent.status)) ||
+            String(intent.provider_transaction_id ?? "") !== String(row.provider_transaction_id)) return await block("The online invoice payment intent does not match provider evidence.");
+        const recordResult = await tx.execute(sql`
+          SELECT id,status FROM payment_records WHERE id=${Number(row.payment_record_id)}
+            AND intent_id=${Number(row.payment_intent_id)} AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+        `);
+        const record = recordResult.rows[0] as Record<string, any> | undefined;
+        if (!record || !["successful","verified"].includes(String(record.status))) return await block("The invoice payment record is missing or unverified.");
+        const exceptionResult = await tx.execute(sql`
+          SELECT id FROM payment_reconciliation_exceptions WHERE payment_intent_id=${Number(row.payment_intent_id)}
+            AND resolved_at IS NULL AND status NOT IN ('resolved','closed','dismissed') LIMIT 1
+        `);
+        if (exceptionResult.rows.length) return await block("An unresolved invoice payment exception prevents reopening.");
       } else if (String(row.source_type) === "store_auction") {
         const evidence = await tx.execute(sql`
           SELECT id FROM store_auction_payment_verifications
@@ -396,6 +431,14 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
         return await block("Unsupported fund-release source type.");
       }
 
+      if (Boolean(row.legacy_hold)) {
+        const held = Number(row.held_amount_minor ?? 0);
+        if (!Number.isSafeInteger(held) || held < Number(row.merchant_net_minor) ||
+            Number(row.legacy_provider_fee_posted_minor ?? 0) > Number(row.provider_fee_minor) ||
+            Number(row.legacy_lunavo_fee_posted_minor ?? 0) > Number(row.lunavo_fee_minor)) {
+          return await block("Historic ledger amount or fee postings do not reconcile; Finance review required.");
+        }
+      }
       const reopened = await tx.execute(sql`
         UPDATE merchant_fund_release_reviews
         SET status='pending',reviewed_at=NULL,reviewed_by=NULL,
@@ -444,7 +487,9 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
     : "Provider re-verified and released by Master Admin";
   const initialResult = await db.execute(sql`
     SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
-           provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
+           provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+           provider_fee_evidence_minor,amount_minor,currency,invoice_id,legacy_hold,held_amount_minor,
+           legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
            provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status
     FROM merchant_fund_release_reviews WHERE id=${id} LIMIT 1
   `);
@@ -478,8 +523,11 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
   const observedReference = String(verified.tx_ref ?? verified.reference ?? "").trim();
   const refundStatus = String(verified.refund_status ?? "").trim().toLowerCase();
   const disputeStatus = String(verified.dispute_status ?? "").trim().toLowerCase();
-  const observedProviderFee = verified.app_fee == null || verified.app_fee === "" ? null : toMinorUnits(verified.app_fee);
+  const observedProviderFee = verified.app_fee == null || verified.app_fee === "" ? null : toMinorUnits(Number(verified.app_fee), currencyMinorDigits(observedCurrency));
   const amountMinor = Number(initial.amount_minor);
+  const providerAmountMinor = Number(initial.provider_amount_minor);
+  const providerCurrency = String(initial.provider_currency).toUpperCase();
+  const providerFeeEvidenceMinor = initial.provider_fee_evidence_minor == null ? null : Number(initial.provider_fee_evidence_minor);
   const providerFeeMinor = Number(initial.provider_fee_minor);
   const lunavoFeeMinor = Number(initial.lunavo_fee_minor);
   const merchantNetMinor = Number(initial.merchant_net_minor);
@@ -491,13 +539,16 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
     observedTransactionId: observedId || null,
     expectedTransactionId: String(initial.provider_transaction_id),
     observedAmountMinor,
-    expectedAmountMinor: amountMinor,
+    expectedAmountMinor: providerAmountMinor,
     observedCurrency,
-    expectedCurrency: String(initial.currency).toUpperCase(),
+    expectedCurrency: providerCurrency,
     observedReference,
     expectedReference: initial.provider_reference == null ? null : String(initial.provider_reference),
     observedProviderFeeMinor: observedProviderFee,
     expectedProviderFeeMinor: providerFeeMinor,
+    expectedProviderFeeEvidenceMinor: providerFeeEvidenceMinor,
+    expectedMerchantGrossMinor: amountMinor,
+    expectedMerchantCurrency: String(initial.currency).toUpperCase(),
     expectedLunavoFeeMinor: lunavoFeeMinor,
     expectedMerchantNetMinor: merchantNetMinor,
   });
@@ -599,6 +650,31 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         if (!order || String(order.status) !== "paid") {
           return await blockRelease("The associated order is not in paid status.");
         }
+      } else if (String(row.source_type) === "invoice_payment") {
+        const invoiceResult = await tx.execute(sql`
+          SELECT id,status,merchant_id FROM invoices WHERE id=${Number(row.invoice_id)}
+            AND merchant_id=${Number(row.merchant_id)} LIMIT 1 FOR UPDATE
+        `);
+        const invoice = invoiceResult.rows[0] as Record<string, any> | undefined;
+        if (!invoice || !["paid","partially_paid"].includes(String(invoice.status))) return await blockRelease("The invoice is not paid or partially paid.");
+        const intentResult = await tx.execute(sql`
+          SELECT id,status,provider_transaction_id,merchant_id FROM payment_intents
+          WHERE id=${Number(row.payment_intent_id)} AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+        `);
+        const intent = intentResult.rows[0] as Record<string, any> | undefined;
+        if (!intent || !["successful","verified"].includes(String(intent.status)) ||
+            String(intent.provider_transaction_id ?? "") !== String(row.provider_transaction_id)) return await blockRelease("The online invoice payment intent does not match provider evidence.");
+        const recordResult = await tx.execute(sql`
+          SELECT id,status FROM payment_records WHERE id=${Number(row.payment_record_id)}
+            AND intent_id=${Number(row.payment_intent_id)} AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+        `);
+        const record = recordResult.rows[0] as Record<string, any> | undefined;
+        if (!record || !["successful","verified"].includes(String(record.status))) return await blockRelease("The invoice payment record is missing or unverified.");
+        const exceptionResult = await tx.execute(sql`
+          SELECT id FROM payment_reconciliation_exceptions WHERE payment_intent_id=${Number(row.payment_intent_id)}
+            AND resolved_at IS NULL AND status NOT IN ('resolved','closed','dismissed') LIMIT 1
+        `);
+        if (exceptionResult.rows.length) return await blockRelease("An unresolved invoice payment exception prevents release.");
       } else if (String(row.source_type) === "store_auction") {
         const auctionEvidence = await tx.execute(sql`
           SELECT id FROM store_auction_payment_verifications
@@ -618,32 +694,57 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
       }
 
       if (Boolean(row.legacy_hold)) {
-        // Migration 0130 already has the immutable sale/fee history. Reverse the
-        // matching hold only; posting a second sale would double-credit proceeds.
-        if (merchantNetMinor > 0) {
+        const heldAmountMinor = Number(row.held_amount_minor ?? 0);
+        const missingProviderFeeMinor = providerFeeMinor - Number(row.legacy_provider_fee_posted_minor ?? 0);
+        const missingLunavoFeeMinor = lunavoFeeMinor - Number(row.legacy_lunavo_fee_posted_minor ?? 0);
+        if (!Number.isSafeInteger(heldAmountMinor) || heldAmountMinor < merchantNetMinor ||
+            missingProviderFeeMinor < 0 || missingLunavoFeeMinor < 0) {
+          return await blockRelease("Legacy hold and fee entries do not reconcile; Finance must resolve the discrepancy.");
+        }
+        if (heldAmountMinor > 0) {
           await tx.execute(sql`
-            INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
             VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
-                    ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
-                    ${merchantNetMinor},${String(row.currency).toUpperCase()},'merchant_funds_release',
+                    ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${heldAmountMinor},${String(row.currency).toUpperCase()},'merchant_funds_release',
                     ${"merchant-fund-release:legacy-release:" + String(row.source_reference)})
+            ON CONFLICT (reference_key) DO NOTHING
+          `);
+        }
+        if (missingProviderFeeMinor > 0) {
+          await tx.execute(sql`
+            INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                    ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${-missingProviderFeeMinor},${String(row.currency).toUpperCase()},'fee',
+                    ${"merchant-fund-release:legacy-provider-fee:" + String(row.source_reference)})
+            ON CONFLICT (reference_key) DO NOTHING
+          `);
+        }
+        if (missingLunavoFeeMinor > 0) {
+          await tx.execute(sql`
+            INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                    ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${-missingLunavoFeeMinor},${String(row.currency).toUpperCase()},'fee',
+                    ${"merchant-fund-release:legacy-lunavo-fee:" + String(row.source_reference)})
             ON CONFLICT (reference_key) DO NOTHING
           `);
         }
       } else {
         const saleReference = String(row.source_reference) + ":released-sale";
         await tx.execute(sql`
-          INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
           VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
-                  ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
                   ${amountMinor},${String(row.currency).toUpperCase()},'sale',${saleReference})
           ON CONFLICT (reference_key) DO NOTHING
         `);
         if (providerFeeMinor > 0) {
           await tx.execute(sql`
-            INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
             VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
-                    ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
                     ${-providerFeeMinor},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-provider-fee"})
             ON CONFLICT (reference_key) DO NOTHING
           `);
