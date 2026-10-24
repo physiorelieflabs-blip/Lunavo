@@ -111,6 +111,99 @@ ALTER TABLE ledger_entries
     'merchant_funds_hold','merchant_funds_release'
   ));
 
+-- A release review cannot be inserted already finalized. Every first-write source
+-- enters pending or reconciliation_required; only the guarded update flow can release it.
+CREATE OR REPLACE FUNCTION lunavo_guard_fund_release_review_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF NEW.status NOT IN ('pending','reconciliation_required') THEN
+    RAISE EXCEPTION 'Fund-release reviews must be created pending or quarantined';
+  END IF;
+  IF NEW.status='pending' AND (NEW.reviewed_at IS NOT NULL OR NEW.reviewed_by IS NOT NULL) THEN
+    RAISE EXCEPTION 'Pending fund-release review cannot contain a finalized reviewer';
+  END IF;
+  IF NEW.status='reconciliation_required' AND (NEW.reviewed_at IS NULL OR NEW.reviewed_by IS NULL) THEN
+    RAISE EXCEPTION 'Quarantined fund-release review requires a reviewer and timestamp';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS merchant_fund_release_review_insert_guard ON merchant_fund_release_reviews;
+CREATE TRIGGER merchant_fund_release_review_insert_guard
+BEFORE INSERT ON merchant_fund_release_reviews
+FOR EACH ROW EXECUTE FUNCTION lunavo_guard_fund_release_review_insert();
+
+-- Make PostgreSQL itself reject positive seller sale credits unless a matching
+-- Master Admin release row has already been finalized in this same transaction.
+CREATE OR REPLACE FUNCTION lunavo_guard_merchant_fund_ledger_credit()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+DECLARE
+  review merchant_fund_release_reviews%ROWTYPE;
+BEGIN
+  IF NEW.entry_type='sale' AND NEW.amount_minor > 0 THEN
+    SELECT r.* INTO review
+    FROM merchant_fund_release_reviews r
+    WHERE r.status='released'
+      AND r.legacy_hold=FALSE
+      AND r.merchant_id=NEW.merchant_id
+      AND r.source_reference || ':released-sale'=NEW.reference_key
+    LIMIT 1;
+    IF NOT FOUND
+       OR review.amount_minor IS DISTINCT FROM NEW.amount_minor
+       OR upper(review.currency) IS DISTINCT FROM upper(NEW.currency)
+       OR review.order_id IS DISTINCT FROM NEW.order_id
+       OR review.invoice_id IS DISTINCT FROM NEW.invoice_id
+       OR review.payment_record_id IS DISTINCT FROM NEW.payment_record_id THEN
+      RAISE EXCEPTION 'Positive sale ledger credits require a matching released Master Admin fund review';
+    END IF;
+  ELSIF NEW.entry_type='merchant_funds_release' AND NEW.amount_minor > 0 THEN
+    SELECT r.* INTO review
+    FROM merchant_fund_release_reviews r
+    WHERE r.status='released'
+      AND r.legacy_hold=TRUE
+      AND r.merchant_id=NEW.merchant_id
+      AND 'merchant-fund-release:legacy-release:' || r.source_reference=NEW.reference_key
+    LIMIT 1;
+    IF NOT FOUND
+       OR review.held_amount_minor IS DISTINCT FROM NEW.amount_minor
+       OR upper(review.currency) IS DISTINCT FROM upper(NEW.currency)
+       OR review.order_id IS DISTINCT FROM NEW.order_id
+       OR review.invoice_id IS DISTINCT FROM NEW.invoice_id
+       OR review.payment_record_id IS DISTINCT FROM NEW.payment_record_id THEN
+      RAISE EXCEPTION 'Positive merchant-funds release requires a matching legacy hold and released review';
+    END IF;
+  ELSIF NEW.entry_type='merchant_funds_hold' THEN
+    SELECT r.* INTO review
+    FROM merchant_fund_release_reviews r
+    WHERE r.legacy_hold=TRUE
+      AND r.status IN ('pending','reconciliation_required')
+      AND r.merchant_id=NEW.merchant_id
+      AND 'merchant-fund-release:legacy-hold:' || r.source_reference=NEW.reference_key
+    LIMIT 1;
+    IF NOT FOUND
+       OR review.held_amount_minor <= 0
+       OR NEW.amount_minor IS DISTINCT FROM -review.held_amount_minor
+       OR upper(review.currency) IS DISTINCT FROM upper(NEW.currency)
+       OR review.order_id IS DISTINCT FROM NEW.order_id
+       OR review.invoice_id IS DISTINCT FROM NEW.invoice_id
+       OR review.payment_record_id IS DISTINCT FROM NEW.payment_record_id THEN
+      RAISE EXCEPTION 'Merchant funds hold must equal a queued historical ledger contribution';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS merchant_fund_ledger_credit_guard ON ledger_entries;
+CREATE TRIGGER merchant_fund_ledger_credit_guard
+BEFORE INSERT ON ledger_entries
+FOR EACH ROW EXECUTE FUNCTION lunavo_guard_merchant_fund_ledger_credit();
+
 CREATE OR REPLACE FUNCTION lunavo_project_ledger_to_dashboard()
 RETURNS trigger
 LANGUAGE plpgsql
