@@ -314,6 +314,11 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
 
   try {
     const result = await db.transaction(async (tx) => {
+      // Payment workflows lock the payment intent before the release review.
+      // Keep the same order here to avoid webhook/refund/admin deadlocks.
+      if (String(review.source_type) === "order_payment" && review.payment_intent_id != null) {
+        await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${Number(review.payment_intent_id)} FOR UPDATE`);
+      }
       const lockedResult = await tx.execute(sql`
         SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
                provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
@@ -377,14 +382,14 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
         const evidence = await tx.execute(sql`
           SELECT id FROM store_auction_payment_verifications
           WHERE provider='flutterwave' AND provider_reference=${String(row.provider_transaction_id)}
-            AND status='verified' LIMIT 1 FOR UPDATE
+            AND status='verified' LIMIT 1
         `);
         if (!evidence.rows.length) return await block("Verified store-auction settlement evidence is missing.");
       } else if (String(row.source_type) === "product_auction") {
         const evidence = await tx.execute(sql`
           SELECT id FROM product_auction_settlements
           WHERE provider_transaction_id=${String(row.provider_transaction_id)}
-            AND status='paid' LIMIT 1 FOR UPDATE
+            AND status='paid' LIMIT 1
         `);
         if (!evidence.rows.length) return await block("Verified product-auction settlement evidence is missing.");
       } else {
@@ -523,6 +528,11 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
   }
   try {
     const result = await db.transaction(async (tx) => {
+      // Match reverseOrderPayment/processOrderPayment lock order (intent first,
+      // release review second) so a concurrent refund cannot deadlock the release.
+      if (String(initial.source_type) === "order_payment" && initial.payment_intent_id != null) {
+        await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${Number(initial.payment_intent_id)} FOR UPDATE`);
+      }
       const lockedResult = await tx.execute(sql`
         SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
                provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
