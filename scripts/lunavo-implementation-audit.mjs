@@ -346,7 +346,7 @@ for(const marker of [
   "openReconciliationExceptions",
   "FROM payment_intents p",
   "FROM payment_reconciliation_exceptions e",
-  "moneyMovement: \"read_only\"",
+  "moneyMovement: \"ledger_release_only\"",
 ])if(!globalMoneyApi.includes(marker))failures.push("Master Admin money-control feed invariant missing: "+marker);
 const globalMoneyUi=await read("artifacts/ts-commerce/src/pages/admin-transactions.tsx");
 for(const marker of [
