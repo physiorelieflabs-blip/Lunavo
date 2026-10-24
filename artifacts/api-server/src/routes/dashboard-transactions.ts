@@ -239,7 +239,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
     : "Provider re-verified and released by Master Admin";
   const initialResult = await db.execute(sql`
     SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
-           provider,provider_transaction_id,provider_reference,amount_minor,currency,
+           provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
            provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status
     FROM merchant_fund_release_reviews WHERE id=${id} LIMIT 1
   `);
@@ -314,7 +314,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
     const result = await db.transaction(async (tx) => {
       const lockedResult = await tx.execute(sql`
         SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
-               provider,provider_transaction_id,provider_reference,amount_minor,currency,
+               provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
                provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status
         FROM merchant_fund_release_reviews WHERE id=${id} FOR UPDATE
       `);
