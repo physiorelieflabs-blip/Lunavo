@@ -243,7 +243,7 @@ requireMarkers("Global Money Control release UI", globalMoneyUi, [
   "releaseFund(row)",
   "/api/admin/dashboard/fund-releases/",
   "Release proceeds",
-  "Funds remain locked",
+  "Proceeds remain locked",
 ]);
 const migrationRunner = sources.get("lib/db/src/migration-runner.ts") ?? await read("lib/db/src/migration-runner.ts");
 requireMarkers("Fund-release migration registry", migrationRunner, [
