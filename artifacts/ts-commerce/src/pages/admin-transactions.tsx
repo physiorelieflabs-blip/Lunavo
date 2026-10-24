@@ -98,6 +98,7 @@ type PendingFundRelease = {
   provider_fee_minor: number | string;
   lunavo_fee_minor: number | string;
   merchant_net_minor: number | string;
+  legacy_hold: boolean;
   status: 'pending' | 'reconciliation_required';
   review_note: string | null;
   created_at: string;
@@ -239,6 +240,7 @@ export default function AdminTransactions() {
                 <p className="text-sm font-extrabold">{row.merchant_name || `Merchant #${row.merchant_id}`} · Review #{row.id}</p>
                 <p className="mt-1 text-xs text-[#697687]">{row.merchant_email} · {label(row.source_type)} · {when(row.created_at)}</p>
                 <p className="mt-1 break-all font-mono text-[10px] text-[#697687]">Internal: {row.source_reference} · Provider ID: {row.provider_transaction_id}</p>
+                {row.legacy_hold ? <p className="mt-1 text-xs font-semibold text-[#8d641c]">Legacy balance frozen for review; release reverses the hold without duplicating the sale.</p> : null}
                 <p className="mt-1 break-all font-mono text-[10px] text-[#697687]">Provider reference: {row.provider_reference || '—'} · Intent {row.payment_intent_id ?? '—'} · Order {row.order_id ?? '—'}</p>
               </div>
               <Badge tone={row.status === 'pending' ? 'warning' : 'danger'}>{label(row.status)}</Badge>
