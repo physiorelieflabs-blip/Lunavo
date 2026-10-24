@@ -222,6 +222,206 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
  * and a second, locked check of internal payment state. All ledger postings and
  * the review decision commit atomically; retries cannot pay the same proceeds twice.
  */
+/**
+ * Safely returns a quarantined proceeds row to the pending queue only after a
+ * fresh provider re-query and locked confirmation of its internal source.
+ * This route never posts a ledger entry; a second explicit release action is required.
+ */
+router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Promise<void> => {
+  const userId = getAuth(req).userId;
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
+  try {
+    await requireMasterAdmin(userId);
+  } catch {
+    res.status(403).json({ error: "Master Admin access with MFA is required" });
+    return;
+  }
+
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) { res.status(400).json({ error: "Invalid fund-release review id" }); return; }
+  const reviewResult = await db.execute(sql`
+    SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
+           provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
+           provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status,review_note
+    FROM merchant_fund_release_reviews WHERE id=${id} LIMIT 1
+  `);
+  const review = reviewResult.rows[0] as Record<string, any> | undefined;
+  if (!review) { res.status(404).json({ error: "Fund-release review not found" }); return; }
+  if (String(review.status) === "pending") {
+    res.json({ id, status: "pending", replayed: true, message: "The row is already back in the release queue; no money moved." });
+    return;
+  }
+  if (String(review.status) !== "reconciliation_required") {
+    res.status(409).json({ error: "Only a reconciliation-required proceeds row can be rechecked." });
+    return;
+  }
+  if (String(review.provider) !== "flutterwave" || !String(review.provider_transaction_id ?? "")) {
+    res.status(409).json({ error: "The release row has no valid supported provider transaction." });
+    return;
+  }
+
+  let verified: Record<string, any>;
+  try {
+    verified = await verifyFlutterwaveTransaction(String(review.provider_transaction_id)) as unknown as Record<string, any>;
+  } catch (error) {
+    req.log.warn({ err: error, fundReleaseId: id }, "Flutterwave recheck failed for quarantined merchant proceeds");
+    res.status(502).json({ error: "Flutterwave could not re-verify this payment. It remains quarantined." });
+    return;
+  }
+  const observedId = flutterwaveTransactionId(verified as any);
+  const observedAmountMinor = toMinorUnits(flutterwaveAmount(verified as any));
+  const observedCurrency = String(verified.currency ?? "").trim().toUpperCase();
+  const observedReference = String(verified.tx_ref ?? verified.reference ?? "").trim();
+  const refundStatus = String(verified.refund_status ?? "").trim().toLowerCase();
+  const disputeStatus = String(verified.dispute_status ?? "").trim().toLowerCase();
+  const observedProviderFee = verified.app_fee == null || verified.app_fee === "" ? null : toMinorUnits(verified.app_fee);
+  const providerFeeMinor = Number(review.provider_fee_minor);
+  const amountMinor = Number(review.amount_minor);
+  const lunavoFeeMinor = Number(review.lunavo_fee_minor);
+  const merchantNetMinor = Number(review.merchant_net_minor);
+  const reversalOrDispute = ["successful","processed","refunded","completed"].includes(refundStatus) ||
+    ["chargeback","charged_back","reversed","open","active","disputed"].includes(disputeStatus);
+  const failure = merchantFundReleaseVerificationFailure({
+    providerPaid: flutterwaveStatus(verified as any) === "paid",
+    reversalOrDispute,
+    observedTransactionId: observedId || null,
+    expectedTransactionId: String(review.provider_transaction_id),
+    observedAmountMinor,
+    expectedAmountMinor: amountMinor,
+    observedCurrency,
+    expectedCurrency: String(review.currency).toUpperCase(),
+    observedReference,
+    expectedReference: review.provider_reference == null ? null : String(review.provider_reference),
+    observedProviderFeeMinor: observedProviderFee,
+    expectedProviderFeeMinor: providerFeeMinor,
+    expectedLunavoFeeMinor: lunavoFeeMinor,
+    expectedMerchantNetMinor: merchantNetMinor,
+  });
+  if (failure) {
+    await db.execute(sql`
+      INSERT INTO audit_logs (
+        user_id,merchant_id,action,resource_type,resource_id,changes,
+        ip_address,user_agent,status,created_at
+      ) VALUES (
+        ${userId},${String(review.merchant_id)},'merchant_funds_release_recheck_blocked','merchant_fund_release_review',
+        ${String(id)},${JSON.stringify({reason:failure,sourceReference:String(review.source_reference)})}::jsonb,
+        ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
+      )
+    `);
+    res.status(409).json({ error: failure + " The row remains quarantined; no money moved." });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const lockedResult = await tx.execute(sql`
+        SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
+               provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
+               provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status,review_note
+        FROM merchant_fund_release_reviews WHERE id=${id} FOR UPDATE
+      `);
+      const row = lockedResult.rows[0] as Record<string, any> | undefined;
+      if (!row) return { outcome: "missing" as const };
+      if (String(row.status) === "pending") return { outcome: "pending" as const };
+      if (String(row.status) !== "reconciliation_required") return { outcome: "blocked" as const, reason: "The proceeds row is no longer quarantined." };
+      const block = async (reason: string) => {
+        await tx.execute(sql`
+          INSERT INTO audit_logs (
+            user_id,merchant_id,action,resource_type,resource_id,changes,
+            ip_address,user_agent,status,created_at
+          ) VALUES (
+            ${userId},${String(row.merchant_id)},'merchant_funds_release_recheck_blocked','merchant_fund_release_review',
+            ${String(id)},${JSON.stringify({reason,sourceReference:String(row.source_reference)})}::jsonb,
+            ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
+          )
+        `);
+        return { outcome: "blocked" as const, reason };
+      };
+
+      if (String(row.source_type) === "order_payment") {
+        const intentResult = await tx.execute(sql`
+          SELECT id,status,provider_transaction_id,order_id,merchant_id
+          FROM payment_intents WHERE id=${Number(row.payment_intent_id)} FOR UPDATE
+        `);
+        const intent = intentResult.rows[0] as Record<string, any> | undefined;
+        if (!intent || String(intent.status) !== "successful" ||
+            String(intent.provider_transaction_id ?? "") !== String(row.provider_transaction_id) ||
+            Number(intent.order_id) !== Number(row.order_id) ||
+            Number(intent.merchant_id) !== Number(row.merchant_id)) {
+          return await block("The underlying payment intent is not in a matching successful state.");
+        }
+        const exceptionResult = await tx.execute(sql`
+          SELECT id FROM payment_reconciliation_exceptions
+          WHERE payment_intent_id=${Number(row.payment_intent_id)}
+            AND resolved_at IS NULL AND status NOT IN ('resolved','closed','dismissed')
+          LIMIT 1
+        `);
+        if (exceptionResult.rows.length) return await block("An unresolved payment reconciliation exception prevents reopening.");
+        const recordResult = await tx.execute(sql`
+          SELECT id,status FROM payment_records
+          WHERE id=${Number(row.payment_record_id)} AND intent_id=${Number(row.payment_intent_id)}
+          LIMIT 1 FOR UPDATE
+        `);
+        const record = recordResult.rows[0] as Record<string, any> | undefined;
+        if (!record || String(record.status) !== "successful") {
+          return await block("The verified payment record is missing or no longer successful.");
+        }
+        const orderResult = await tx.execute(sql`
+          SELECT id,status FROM orders
+          WHERE id=${Number(row.order_id)} AND merchant_id=${Number(row.merchant_id)}
+          LIMIT 1 FOR UPDATE
+        `);
+        const order = orderResult.rows[0] as Record<string, any> | undefined;
+        if (!order || String(order.status) !== "paid") return await block("The associated order is not in paid status.");
+      } else if (String(row.source_type) === "store_auction") {
+        const evidence = await tx.execute(sql`
+          SELECT id FROM store_auction_payment_verifications
+          WHERE provider='flutterwave' AND provider_reference=${String(row.provider_transaction_id)}
+            AND status='verified' LIMIT 1 FOR UPDATE
+        `);
+        if (!evidence.rows.length) return await block("Verified store-auction settlement evidence is missing.");
+      } else if (String(row.source_type) === "product_auction") {
+        const evidence = await tx.execute(sql`
+          SELECT id FROM product_auction_settlements
+          WHERE provider_transaction_id=${String(row.provider_transaction_id)}
+            AND status='paid' LIMIT 1 FOR UPDATE
+        `);
+        if (!evidence.rows.length) return await block("Verified product-auction settlement evidence is missing.");
+      } else {
+        return await block("Unsupported fund-release source type.");
+      }
+
+      const reopened = await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews
+        SET status='pending',reviewed_at=NULL,reviewed_by=NULL,
+            review_note='Reopened after fresh provider and internal-state verification'
+        WHERE id=${id} AND status='reconciliation_required' RETURNING id
+      `);
+      if (!reopened.rows.length) return { outcome: "pending" as const };
+      await tx.execute(sql`
+        INSERT INTO audit_logs (
+          user_id,merchant_id,action,resource_type,resource_id,changes,
+          ip_address,user_agent,status,created_at
+        ) VALUES (
+          ${userId},${String(row.merchant_id)},'merchant_funds_release_reopened','merchant_fund_release_review',
+          ${String(id)},${JSON.stringify({
+            sourceType:String(row.source_type),sourceReference:String(row.source_reference),
+            providerTransactionId:String(row.provider_transaction_id),
+            previousReviewNote:row.review_note ?? null, legacyHold:Boolean(row.legacy_hold)
+          })}::jsonb,${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
+        )
+      `);
+      return { outcome: "reopened" as const };
+    });
+    if (result.outcome === "missing") { res.status(404).json({ error: "Fund-release review not found" }); return; }
+    if (result.outcome === "blocked") { res.status(409).json({ error: result.reason + " The row remains quarantined." }); return; }
+    res.json({ id, status: "pending", replayed: result.outcome === "pending", message: "Fresh provider/internal checks passed. Proceeds are back in the release queue but no money moved; use Release proceeds separately." });
+  } catch (error) {
+    req.log.error({ err: error, fundReleaseId: id }, "Failed to recheck quarantined merchant proceeds");
+    res.status(500).json({ error: "The proceeds row was not reopened. Check the audit trail before retrying." });
+  }
+});
+
 router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Promise<void> => {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
