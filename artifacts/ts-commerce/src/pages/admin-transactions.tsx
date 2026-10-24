@@ -22,6 +22,7 @@ type TxRow = {
   provider: string | null;
   provider_reference: string | null;
   internal_reference: string | null;
+  idempotency_key: string | null;
   source: string;
   created_at: string;
 };
