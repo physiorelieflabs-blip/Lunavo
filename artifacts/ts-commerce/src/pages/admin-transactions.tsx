@@ -116,10 +116,10 @@ export default function AdminTransactions() {
       {feed.isLoading ? <LoadingState label="Loading platform money activity"/> :
        feed.isError ? <ErrorState onRetry={() => void feed.refetch()}/> : <>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Activity rows" value={totals.transactions.toLocaleString()} description="All currencies in the filtered feed" icon={Activity}/>
-          <MetricCard label="Provider-verified" value={totals.verified.toLocaleString()} description="Confirmed and verified records" icon={ShieldCheck}/>
-          <MetricCard label="Needs attention" value={totals.attention.toLocaleString()} description="Pending or unverified transactions" icon={AlertTriangle}/>
-          <MetricCard label="Exceptions" value={totals.exceptions.toLocaleString()} description="Failed, reversed, disputed, or reversed records" icon={WalletCards}/>
+          <MetricCard label="Activity rows" value={totals.transactions.toLocaleString()} detail="All currencies in the filtered feed" icon={<Activity className="h-5 w-5"/>}/>
+          <MetricCard label="Provider-verified" value={totals.verified.toLocaleString()} detail="Confirmed and verified records" icon={<ShieldCheck className="h-5 w-5"/>}/>
+          <MetricCard label="Needs attention" value={totals.attention.toLocaleString()} detail="Pending or unverified transactions" icon={<AlertTriangle className="h-5 w-5"/>}/>
+          <MetricCard label="Exceptions" value={totals.exceptions.toLocaleString()} detail="Failed, reversed, disputed, or reversed records" icon={<WalletCards className="h-5 w-5"/>}/>
         </div>
 
         <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 sm:p-6">
