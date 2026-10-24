@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { requireMasterAdmin } from "../lib/master-admin";
 import { flutterwaveAmount, flutterwaveStatus, flutterwaveTransactionId, verifyFlutterwaveTransaction } from "../lib/flutterwave-client";
-import { calculateTsCommerceFeeMinor } from "../lib/critical-payment-rules";
+import { merchantFundReleaseVerificationFailure } from "../lib/merchant-fund-release-policy";
 import { toMinorUnits } from "../lib/money";
 
 const router = Router();
@@ -278,35 +278,43 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
   const providerFeeMinor = Number(initial.provider_fee_minor);
   const lunavoFeeMinor = Number(initial.lunavo_fee_minor);
   const merchantNetMinor = Number(initial.merchant_net_minor);
-  const expectedNetMinor = amountMinor - providerFeeMinor - lunavoFeeMinor;
-  const verifiedPaid = flutterwaveStatus(verified as any) === "paid";
   const reversalOrDispute = ["successful","processed","refunded","completed"].includes(refundStatus) ||
     ["chargeback","charged_back","reversed","open","active","disputed"].includes(disputeStatus);
-  const mismatch =
-    !verifiedPaid ||
-    !observedId ||
-    observedId !== String(initial.provider_transaction_id) ||
-    observedAmountMinor === null ||
-    observedAmountMinor !== amountMinor ||
-    observedCurrency !== String(initial.currency).toUpperCase() ||
-    (initial.provider_reference && observedReference !== String(initial.provider_reference)) ||
-    (observedProviderFee !== null && observedProviderFee !== providerFeeMinor) ||
-    !Number.isSafeInteger(amountMinor) || amountMinor <= 0 ||
-    !Number.isSafeInteger(providerFeeMinor) || providerFeeMinor < 0 ||
-    !Number.isSafeInteger(lunavoFeeMinor) || lunavoFeeMinor < 0 ||
-    !Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0 ||
-    expectedNetMinor !== merchantNetMinor ||
-    lunavoFeeMinor !== calculateTsCommerceFeeMinor(amountMinor) ||
-    reversalOrDispute;
+  const releaseFailure = merchantFundReleaseVerificationFailure({
+    providerPaid: flutterwaveStatus(verified as any) === "paid",
+    reversalOrDispute,
+    observedTransactionId: observedId || null,
+    expectedTransactionId: String(initial.provider_transaction_id),
+    observedAmountMinor,
+    expectedAmountMinor: amountMinor,
+    observedCurrency,
+    expectedCurrency: String(initial.currency).toUpperCase(),
+    observedReference,
+    expectedReference: initial.provider_reference == null ? null : String(initial.provider_reference),
+    observedProviderFeeMinor: observedProviderFee,
+    expectedProviderFeeMinor: providerFeeMinor,
+    expectedLunavoFeeMinor: lunavoFeeMinor,
+    expectedMerchantNetMinor: merchantNetMinor,
+  });
 
-  if (mismatch) {
+  if (releaseFailure) {
     await db.execute(sql`
       UPDATE merchant_fund_release_reviews
       SET status='reconciliation_required', reviewed_at=now(), reviewed_by=${userId},
-          review_note=${"Provider amount, currency, reference, fee, status, or reversal state failed release verification.".slice(0,500)}
+          review_note=${releaseFailure.slice(0,500)}
       WHERE id=${id} AND status='pending'
     `);
-    res.status(409).json({ error: "Provider verification did not match the release record. Proceeds remain locked and the row was sent to reconciliation." });
+    await db.execute(sql`
+      INSERT INTO audit_logs (
+        user_id,merchant_id,action,resource_type,resource_id,changes,
+        ip_address,user_agent,status,created_at
+      ) VALUES (
+        ${userId},${String(initial.merchant_id)},'merchant_funds_release_blocked','merchant_fund_release_review',
+        ${String(id)},${JSON.stringify({reason: releaseFailure, sourceReference: String(initial.source_reference)})}::jsonb,
+        ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'blocked',now()
+      )
+    `);
+    res.status(409).json({ error: releaseFailure + " Proceeds remain locked and the row was sent to reconciliation." });
     return;
   }
 
