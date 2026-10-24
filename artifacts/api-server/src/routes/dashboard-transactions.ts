@@ -495,8 +495,8 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
     return;
   }
   const observedId = flutterwaveTransactionId(verified as any);
-  const observedAmountMinor = toMinorUnits(flutterwaveAmount(verified as any));
   const observedCurrency = String(verified.currency ?? "").trim().toUpperCase();
+  const observedAmountMinor = toMinorUnits(flutterwaveAmount(verified as any), currencyMinorDigits(observedCurrency));
   const observedReference = String(verified.tx_ref ?? verified.reference ?? "").trim();
   const refundStatus = String(verified.refund_status ?? "").trim().toLowerCase();
   const disputeStatus = String(verified.dispute_status ?? "").trim().toLowerCase();
@@ -638,7 +638,7 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
       } else if (String(row.source_type) === "store_auction") {
         const evidence = await tx.execute(sql`
           SELECT id FROM store_auction_payment_verifications
-          WHERE provider='flutterwave' AND provider_reference=${String(row.provider_transaction_id)}
+          WHERE provider='flutterwave' AND provider_reference=${String(row.provider_reference ?? "")}
             AND status='verified' LIMIT 1
         `);
         if (!evidence.rows.length) return await block("Verified store-auction settlement evidence is missing.");
