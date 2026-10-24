@@ -342,6 +342,10 @@ for(const marker of [
   "requireMasterAdmin(userId)",
   "FROM lunavo_dashboard_transactions t",
   "pendingWithdrawals",
+  "pendingPaymentIntents",
+  "openReconciliationExceptions",
+  "FROM payment_intents p",
+  "FROM payment_reconciliation_exceptions e",
   "moneyMovement: \"read_only\"",
 ])if(!globalMoneyApi.includes(marker))failures.push("Master Admin money-control feed invariant missing: "+marker);
 const globalMoneyUi=await read("artifacts/ts-commerce/src/pages/admin-transactions.tsx");
@@ -349,6 +353,8 @@ for(const marker of [
   "/api/admin/dashboard/transactions",
   "Needs attention",
   "Provider-verified",
+  "Payment attempts awaiting a final state",
+  "Open reconciliation exceptions",
   "Withdrawals awaiting provider settlement",
   "read-only",
 ])if(!globalMoneyUi.includes(marker))failures.push("Master Admin money-control UI invariant missing: "+marker);
