@@ -464,7 +464,7 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id < 1) { res.status(400).json({ error: "Invalid fund-release review id" }); return; }
   const reviewResult = await db.execute(sql`
-    SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
+    SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
            provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
            provider_fee_evidence_minor,amount_minor,currency,invoice_id,legacy_hold,held_amount_minor,
            legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
@@ -710,7 +710,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
     ? req.body.reviewNote.trim().slice(0, 500)
     : "Provider re-verified and released by Master Admin";
   const initialResult = await db.execute(sql`
-    SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
+    SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
            provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
            provider_fee_evidence_minor,amount_minor,currency,invoice_id,legacy_hold,held_amount_minor,
            legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
@@ -977,9 +977,9 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         }
         if (lunavoFeeMinor > 0) {
           await tx.execute(sql`
-            INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
             VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
-                    ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
                     ${-lunavoFeeMinor},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-lunavo-fee"})
             ON CONFLICT (reference_key) DO NOTHING
           `);
