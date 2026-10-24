@@ -77,6 +77,7 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
   ```
 
 - [ ] Sign in through HTTPS, configure the supported Master Admin security/MFA settings, and verify recovery access.
+- [ ] Open Master Admin → Global Money Control and verify platform transaction rows, provider verification states, fee/net figures, unsettled payment-intent queue, unresolved reconciliation exceptions, and the pending payout queue. Confirm a pending payment intent does not create spendable balance, unresolved exceptions remain visible, and a dashboard row does not by itself mark funds as settled.
 - [ ] Create at least two test merchants and prove each can access only its own store, products, orders, customer records, payment records, and reports.
 - [ ] Verify merchant-team roles and location scopes; do not rely on UI hiding instead of server permission checks.
 - [ ] Verify signup works before full verification, while the payout path remains gated by the required full verification/KYC controls.
@@ -98,6 +99,9 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
 - [ ] Create a test checkout and confirm the paid order, stock reservation/commit, promotion redemption, TS Pay ledger entries, and fulfilment task agree. Repeat the provider webhook to prove idempotency.
 - [ ] Confirm that fulfilment status events represent Lunavo's **internal task status**. Do not infer that the external supplier placed, accepted, shipped, or delivered an order unless a configured supplier adapter/provider actually confirmed that action.
 - [ ] Verify refund and withdrawal review, tax/shipping configuration, storefront publication/custom-domain routing, analytics, and required customer notifications.
+- [ ] Exercise two simultaneous withdrawal requests against the same available balance; only the request(s) within unreserved funds may succeed. Repeat with a simultaneous TS Pay transfer and a supplier/advertising spend attempt.
+- [ ] Confirm pending/approved payouts reduce available balance exactly once, failed/rejected payouts release their hold exactly once, and paid payouts create a negative ledger debit only after provider confirmation. Duplicate delivery of a payout webhook must not debit twice.
+- [ ] Reconcile historical paid withdrawals against provider payout references and the ledger. Any automatic backfill adjustment must remain visibly flagged for Finance reconciliation until confirmed.
 - [ ] Confirm that notifications which need email delivery have a configured self-hosted mail/outbox delivery path; a stored notification or queued message alone does not prove email was delivered.
 
 ## 9. Backup and recovery gate

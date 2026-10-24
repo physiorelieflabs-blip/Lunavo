@@ -152,9 +152,11 @@ export function buildTsPayWithdrawalLedgerEntry(input: {
   const currency = normalizedCurrency(input.currency);
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Withdrawal currency must be a 3-letter ISO code");
 
-  const amountMinor =
-    input.event === "reserve" ? input.amountMinor :
-    input.event === "release" ? -input.amountMinor : 0;
+  // A reservation only earmarks funds; it must never increase the spendable
+  // ledger balance. A release clears the hold, while a confirmed payout is a
+  // real debit. Balance readers exclude reserve/release rows and include the
+  // negative withdrawal_paid row.
+  const amountMinor = input.event === "reserve" ? input.amountMinor : -input.amountMinor;
 
   return {
     merchantId: input.merchantId,

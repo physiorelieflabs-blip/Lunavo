@@ -310,5 +310,58 @@ const customerSubApp=await read("artifacts/ts-commerce/src/App.tsx");
 for(const m of ['path="/customer-subscriptions"','path="/subscribe/:id"','path="/subscription-portal"','path="/subscribe/return"'])if(!customerSubApp.includes(m))failures.push("Customer subscription UI route invariant missing: "+m);
 const customerSubUi=await read("artifacts/ts-commerce/src/pages/customer-subscriptions.tsx");
 for(const m of ["Create a recurring plan","Published subscription plans","Customer subscriptions","Server verified billing"])if(!customerSubUi.includes(m))failures.push("Merchant subscription UI invariant missing: "+m);
+// Withdrawal accounting is a financial safety invariant, not a display-only concern.
+const withdrawalLedgerRules=await read("artifacts/api-server/src/lib/ts-pay-ledger-rules.ts");
+if(!withdrawalLedgerRules.includes("input.event === \"reserve\" ? input.amountMinor : -input.amountMinor"))failures.push("A paid withdrawal must be a negative ledger debit; reserve/release markers must never credit spendable funds");
+for(const file of [
+  "artifacts/api-server/src/routes/merchant-financials.ts",
+  "artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/routes/ts-pay-transfers.ts"
+]){
+  const source=await read(file);
+  if(!source.includes("NOT IN ('withdrawal_reserve','withdrawal_release')"))failures.push("Spendable balance includes payout reserve markers: "+file);
+  if(!source.includes("status IN ('pending','approved')"))failures.push("Active pending/approved withdrawals are not deducted from spendable balance: "+file);
+}
+const commerceWithdrawalAccounting=await read("artifacts/api-server/src/routes/commerce.ts");
+for(const marker of [
+  "NOT IN ('withdrawal_reserve','withdrawal_release')",
+  'inArray(withdrawalsTable.status, ["pending", "approved"])',
+  "withdrawalHoldMinor: Math.round(toNumber(withdrawalHolds?.total) * 100)",
+  "toNumber(withdrawalReserve?.total)",
+])if(!commerceWithdrawalAccounting.includes(marker))failures.push("Commerce financial path is missing payout-hold protection: "+marker);
+const withdrawalRepair=await read("lib/db/migrations/0128_withdrawal_balance_integrity.sql");
+for(const marker of ["migration:0128:paid-withdrawal-debit:","w.status = 'paid'","'adjustment'"])if(!withdrawalRepair.includes(marker))failures.push("Legacy paid-withdrawal balance correction missing: "+marker);
+const withdrawalMigrationRunner=await read("lib/db/src/migration-runner.ts");
+if(!withdrawalMigrationRunner.includes("0128_withdrawal_balance_integrity"))failures.push("Canonical/bootstrap migration registry is missing 0128_withdrawal_balance_integrity");
+
+// Master Admin must have one platform-wide financial activity feed and a visible
+// pending-payout queue. It is intentionally read-only and gated by master-admin MFA.
+const globalMoneyApi=await read("artifacts/api-server/src/routes/dashboard-transactions.ts");
+for(const marker of [
+  'router.get("/admin/dashboard/transactions"',
+  "requireMasterAdmin(userId)",
+  "FROM lunavo_dashboard_transactions t",
+  "pendingWithdrawals",
+  "pendingPaymentIntents",
+  "openReconciliationExceptions",
+  "FROM payment_intents p",
+  "FROM payment_reconciliation_exceptions e",
+  "moneyMovement: \"read_only\"",
+])if(!globalMoneyApi.includes(marker))failures.push("Master Admin money-control feed invariant missing: "+marker);
+const globalMoneyUi=await read("artifacts/ts-commerce/src/pages/admin-transactions.tsx");
+for(const marker of [
+  "/api/admin/dashboard/transactions",
+  "Needs attention",
+  "Provider-verified",
+  "Payment attempts awaiting a final state",
+  "Open reconciliation exceptions",
+  "Withdrawals awaiting provider settlement",
+  "read-only",
+])if(!globalMoneyUi.includes(marker))failures.push("Master Admin money-control UI invariant missing: "+marker);
+const globalMoneyApp=await read("artifacts/ts-commerce/src/App.tsx");
+if(!globalMoneyApp.includes('path="/admin/transactions"')||!globalMoneyApp.includes("<AdminTransactions />"))failures.push("Master Admin money-control route is not registered");
+const globalMoneyNav=await read("artifacts/ts-commerce/src/components/app-shell.tsx");
+if(!globalMoneyNav.includes("Global Money Control")||!globalMoneyNav.includes("/admin/transactions"))failures.push("Master Admin money-control screen is not in admin navigation");
+
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 

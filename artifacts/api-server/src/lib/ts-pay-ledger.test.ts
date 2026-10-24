@@ -41,6 +41,42 @@ test("invalid ledger postings are rejected", () => {
   assert.throws(() => buildTsPayLedgerPostings({ fromMerchantId: 12, toMerchantId: 13, amountMinor: 100, currency: "USD", referenceKey: " " }), /reference key/);
 });
 
+test("withdrawal reservations, releases, and payouts have correct ledger signs", () => {
+  const base = { merchantId: 12, withdrawalId: 34, amountMinor: 2500, currency: "USD" };
+  const reserve = buildTsPayWithdrawalLedgerEntry({ ...base, event: "reserve" });
+  const release = buildTsPayWithdrawalLedgerEntry({ ...base, event: "release" });
+  const paid = buildTsPayWithdrawalLedgerEntry({ ...base, event: "paid" });
+
+  assert.equal(reserve.amountMinor, 2500, "reserve is a positive hold marker");
+  assert.equal(reserve.entryType, "withdrawal_reserve");
+  assert.equal(release.amountMinor, -2500, "release clears the outstanding hold");
+  assert.equal(release.entryType, "withdrawal_release");
+  assert.equal(paid.amountMinor, -2500, "confirmed payout reduces merchant funds");
+  assert.equal(paid.entryType, "withdrawal_paid");
+  assert.notEqual(reserve.referenceKey, paid.referenceKey);
+});
+
+test("the available balance cannot reuse funds already reserved for withdrawal", () => {
+  const settledLedgerBalanceMinor = 10000; // Reserve/release markers are excluded.
+  assert.equal(tsPayAvailableMinor({
+    ledgerBalanceMinor: settledLedgerBalanceMinor,
+    withdrawalHoldMinor: 8000,
+    earningsHeldMinor: 0,
+  }), 2000);
+  assert.equal(tsPayAvailableMinor({
+    ledgerBalanceMinor: settledLedgerBalanceMinor,
+    withdrawalHoldMinor: 10000,
+    earningsHeldMinor: 0,
+  }), 0);
+  // After a successful payout, the payout is a negative ledger debit and the
+  // reservation no longer exists in the active-hold calculation.
+  assert.equal(tsPayAvailableMinor({
+    ledgerBalanceMinor: 7500,
+    withdrawalHoldMinor: 0,
+    earningsHeldMinor: 0,
+  }), 7500);
+});
+
 test("the same idempotency key produces deterministic ledger references", () => {
   const reference = tsPayReferenceKey(12, "transfer-1");
   assert.deepEqual(
