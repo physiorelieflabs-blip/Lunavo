@@ -116,3 +116,10 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
 Launch only when the exact code revision has green CI; HTTPS and firewall controls are proven; administrator recovery is tested; Flutterwave settlement and ledger reconciliation have passed; local models/FX have been tested for every capability being enabled; backups have an independent copy and a successful restore drill; and tenant-isolation/permission checks pass.
 
 Caddy automates certificate issuance/renewal, but a green CI run cannot create or control your DNS zone, open host firewall ports, provide a real Flutterwave account, supply social-provider OAuth credentials, add server capacity, guarantee third-party supplier purchasing, or provide independent disaster-recovery storage. These are external prerequisites. Keep every capability that has not passed its live verification disabled.
+
+
+## Mandatory seller-proceeds review gate
+
+Migration `0129_merchant_sale_release_gate` creates a ledger contra-credit in the same database transaction as every new positive `sale` ledger entry, then places the matching sale in Master Admin Global Money Control. Payout/transfer balance checks see the net held ledger amount, so a dashboard display or duplicate webhook cannot make the sale spendable. Only the MFA-gated Master Admin release action can add the compensating `sale_release` credit. A recorded release includes the reviewer ID, timestamp, and a required review note.
+
+The migration also holds positive pre-cutover ledger balances as review items, while leaving historical ledger rows untouched. Existing negative balances are not hidden. Verify the queue after migration, resolve all open reconciliation exceptions, and review legacy balance items before enabling payouts. A reversed or disputed payment is not eligible for release; webhook reversals write compensating immutable ledger entries.

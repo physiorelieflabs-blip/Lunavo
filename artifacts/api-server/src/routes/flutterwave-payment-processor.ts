@@ -196,8 +196,40 @@ async function reverseOrderPayment(input: {
     await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${input.intentId} AND merchant_id=${input.merchantId} FOR UPDATE`);
     const intent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, input.intentId)).limit(1))[0];
     if (!intent) throw new Error("Payment intent not found during provider reversal");
-    if (["refunded", "charged_back"].includes(intent.status)) return "duplicate" as const;
-    if (!["successful", "verified"].includes(intent.status)) return "pending" as const;
+    if (["refunded", "charged_back", "reversed"].includes(intent.status)) return "duplicate" as const;
+    if (!["successful", "verified", "disputed"].includes(intent.status)) return "pending" as const;
+
+    // Immutable compensations unwind a pending sale hold, and remove any
+    // additional dispute hold, before the provider reversal is recorded.
+    await tx.execute(sql`
+      INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+      SELECT r.merchant_id,r.order_id,r.invoice_id,r.payment_record_id,r.release_amount_minor,r.currency,
+             'sale_release_cancel','sale-release-cancel:' || r.id::text
+      FROM merchant_sale_release_requests r
+      WHERE r.payment_intent_id=${intent.id}
+        AND r.status IN ('pending_review','disputed','reconciliation_required')
+        AND EXISTS (SELECT 1 FROM ledger_entries h WHERE h.reference_key='sale-release-hold:' || r.source_reference)
+        AND NOT EXISTS (SELECT 1 FROM ledger_entries released WHERE released.reference_key='sale-release:' || r.id::text)
+        AND NOT EXISTS (SELECT 1 FROM ledger_entries cancelled WHERE cancelled.reference_key='sale-release-cancel:' || r.id::text)
+      ON CONFLICT (reference_key) DO NOTHING
+    `);
+    await tx.execute(sql`
+      INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+      SELECT r.merchant_id,r.order_id,r.invoice_id,r.payment_record_id,r.release_amount_minor,r.currency,
+             'sale_dispute_cancel','sale-dispute-cancel:' || r.id::text
+      FROM merchant_sale_release_requests r
+      WHERE r.payment_intent_id=${intent.id} AND r.status='disputed'
+        AND EXISTS (SELECT 1 FROM ledger_entries h WHERE h.reference_key='sale-dispute-hold:' || r.id::text)
+        AND NOT EXISTS (SELECT 1 FROM ledger_entries cancelled WHERE cancelled.reference_key='sale-dispute-cancel:' || r.id::text)
+      ON CONFLICT (reference_key) DO NOTHING
+    `);
+    await tx.execute(sql`
+      UPDATE merchant_sale_release_requests
+      SET status='reversed',reviewed_by='flutterwave_reversal',reviewed_at=now(),
+          review_note=${input.reason.slice(0,500)},updated_at=now()
+      WHERE payment_intent_id=${intent.id}
+        AND status IN ('pending_review','released','disputed','reconciliation_required')
+    `);
     await tx.update(paymentIntentsTable).set({ status: input.status }).where(eq(paymentIntentsTable.id, intent.id));
     const [record] = await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1);
     if (record) {
@@ -255,7 +287,23 @@ async function markOrderPaymentDisputed(input: {
   await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${input.intentId} AND merchant_id=${input.merchantId} FOR UPDATE`);
     const intent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, input.intentId)).limit(1))[0];
-    if (!intent || intent.status === "disputed") return;
+    if (!intent || ["refunded", "charged_back", "reversed", "disputed"].includes(intent.status)) return;
+    await tx.execute(sql`
+      INSERT INTO ledger_entries (merchant_id,order_id,amount_minor,currency,entry_type,reference_key)
+      SELECT r.merchant_id,r.order_id,-r.release_amount_minor,r.currency,'sale_dispute_hold',
+             'sale-dispute-hold:' || r.id::text
+      FROM merchant_sale_release_requests r
+      WHERE r.payment_intent_id=${intent.id} AND r.status='released'
+        AND NOT EXISTS (SELECT 1 FROM ledger_entries h WHERE h.reference_key='sale-dispute-hold:' || r.id::text)
+      ON CONFLICT (reference_key) DO NOTHING
+    `);
+    await tx.execute(sql`
+      UPDATE merchant_sale_release_requests
+      SET status='disputed',provider_transaction_id=COALESCE(provider_transaction_id,${input.providerTransactionId}),
+          reviewed_by='flutterwave_dispute',reviewed_at=now(),
+          review_note=${input.reason.slice(0,500)},updated_at=now()
+      WHERE payment_intent_id=${intent.id} AND status IN ('pending_review','released')
+    `);
     await tx.update(paymentIntentsTable).set({ status: "disputed" }).where(eq(paymentIntentsTable.id, intent.id));
     const [record] = await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1);
     if (record) await tx.update(paymentRecordsTable).set({ status: "disputed", verifiedBy: "flutterwave_dispute", verifiedAt: new Date(), evidenceReference: input.providerTransactionId ?? record.evidenceReference }).where(eq(paymentRecordsTable.id, record.id));
