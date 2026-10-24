@@ -142,6 +142,8 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
         COUNT(*) FILTER (WHERE status IN ('failed','reversed','disputed') OR verification_state='reversed')::bigint AS exception_count
       FROM lunavo_dashboard_transactions
       WHERE (${currency ? sql`currency=${currency}` : sql`true`})
+        AND (${status ? sql`status=${status}` : sql`true`})
+        AND (${verificationState ? sql`verification_state=${verificationState}` : sql`true`})
         AND (${merchantId ? sql`merchant_id=${merchantId}` : sql`true`})
       GROUP BY currency ORDER BY currency
     `);
