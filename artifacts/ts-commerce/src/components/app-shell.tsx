@@ -22,6 +22,7 @@ const adminGroups = [{ label: 'Administration', items: [
   { href: '/admin/merchants', label: 'Merchants', icon: Users },
   { href: '/admin/kyc', label: 'KYC Review', icon: ShieldCheck },
   { href: '/admin/withdrawals', label: 'Withdrawals', icon: WalletCards },
+  { href: '/admin/transactions', label: 'Global Money Control', icon: Activity },
   { href: '/admin/ai-stores', label: 'AI Store Jobs', icon: BrainCircuit },
   { href: '/admin/integrations', label: 'Integrations & Runtime', icon: KeyRound },
   { href: '/admin/mfa-setup', label: 'Admin Security', icon: ShieldCheck },
