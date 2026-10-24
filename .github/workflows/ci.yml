@@ -74,6 +74,8 @@ jobs:
         run: node scripts/financial-boundary-audit.mjs
       - name: Local-auth commerce compatibility
         run: node scripts/local-auth-compat-audit.mjs
+      - name: Launch-critical architecture invariants
+        run: pnpm run check:launch-invariants
       - name: Implementation invariants
         run: |
           set -o pipefail
