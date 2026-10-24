@@ -88,7 +88,7 @@ SELECT
   GREATEST(0,COALESCE(-lunavo_fee.amount_minor,COALESCE(p.ts_commerce_fee_minor,floor(sale.amount_minor::numeric/100 + 0.5)::bigint))),
   GREATEST(0,COALESCE(current_net.amount_minor,0)),
   CASE
-    WHEN p.status IN ('successful','verified') AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN 'pending'
+    WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN 'pending'
     ELSE 'reconciliation_required'
   END,
   CASE
@@ -96,8 +96,8 @@ SELECT
     WHEN p.status NOT IN ('successful','verified') THEN 'Legacy payment state requires Finance reconciliation'
     ELSE NULL
   END,
-  CASE WHEN p.status IN ('successful','verified') AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN NULL ELSE 'migration:0130' END,
-  CASE WHEN p.status IN ('successful','verified') AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN NULL ELSE now() END,
+  CASE WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN NULL ELSE 'migration:0130' END,
+  CASE WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN NULL ELSE now() END,
   TRUE
 FROM payment_intents p
 JOIN orders o ON o.id=p.order_id AND o.merchant_id=p.merchant_id
