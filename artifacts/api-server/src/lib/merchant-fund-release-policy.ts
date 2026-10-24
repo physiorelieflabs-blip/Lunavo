@@ -13,6 +13,9 @@ export type MerchantFundReleaseVerification = {
   expectedReference: string | null;
   observedProviderFeeMinor: number | null;
   expectedProviderFeeMinor: number;
+  expectedProviderFeeEvidenceMinor?: number | null;
+  expectedMerchantGrossMinor?: number;
+  expectedMerchantCurrency?: string;
   expectedLunavoFeeMinor: number;
   expectedMerchantNetMinor: number;
 };
@@ -41,17 +44,29 @@ export function merchantFundReleaseVerificationFailure(
   if (!Number.isSafeInteger(input.expectedProviderFeeMinor) || input.expectedProviderFeeMinor < 0) {
     return "Stored provider fee is invalid.";
   }
-  if (input.observedProviderFeeMinor !== null &&
+  const providerFeeEvidence = input.expectedProviderFeeEvidenceMinor === undefined
+    ? input.expectedProviderFeeMinor
+    : input.expectedProviderFeeEvidenceMinor;
+  if (providerFeeEvidence !== null && input.observedProviderFeeMinor !== null &&
       (!Number.isSafeInteger(input.observedProviderFeeMinor) ||
-       input.observedProviderFeeMinor !== input.expectedProviderFeeMinor)) {
+       input.observedProviderFeeMinor !== providerFeeEvidence)) {
     return "Provider fee does not match the release record.";
   }
+  const merchantGross = input.expectedMerchantGrossMinor ?? input.expectedAmountMinor;
+  const merchantCurrency = (input.expectedMerchantCurrency ?? input.expectedCurrency).toUpperCase();
+  if (!Number.isSafeInteger(merchantGross) || merchantGross <= 0 ||
+      !/^[A-Z]{3}$/.test(merchantCurrency)) {
+    return "Stored merchant settlement amount or currency is invalid.";
+  }
   if (!Number.isSafeInteger(input.expectedLunavoFeeMinor) || input.expectedLunavoFeeMinor < 0 ||
-      input.expectedLunavoFeeMinor !== calculateTsCommerceFeeMinor(input.expectedAmountMinor)) {
+      input.expectedLunavoFeeMinor !== calculateTsCommerceFeeMinor(merchantGross)) {
     return "Lunavo fee does not match the configured transaction fee.";
   }
+  if (!Number.isSafeInteger(input.expectedProviderFeeMinor) || input.expectedProviderFeeMinor < 0) {
+    return "Stored merchant-currency provider fee is invalid.";
+  }
   if (!Number.isSafeInteger(input.expectedMerchantNetMinor) || input.expectedMerchantNetMinor < 0 ||
-      input.expectedMerchantNetMinor !== input.expectedAmountMinor -
+      input.expectedMerchantNetMinor !== merchantGross -
         input.expectedProviderFeeMinor - input.expectedLunavoFeeMinor) {
     return "Merchant net does not reconcile to gross and fee lines.";
   }
