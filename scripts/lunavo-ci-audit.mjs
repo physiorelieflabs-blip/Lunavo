@@ -46,6 +46,7 @@ const paths = [
   "artifacts/api-server/src/routes/admin-integrations.ts",
   "artifacts/api-server/src/routes/automation-workflows.ts",
   "artifacts/api-server/src/routes/advanced-commerce.ts",
+  "artifacts/api-server/src/routes/commerce.ts",
   "artifacts/api-server/src/routes/dashboard-transactions.ts",
   "artifacts/api-server/src/routes/flutterwave-payment-processor.ts",
   "artifacts/api-server/src/lib/store-auction-settlement.ts",
@@ -201,6 +202,7 @@ const orderPaymentProcessor = sources.get("artifacts/api-server/src/routes/flutt
 const storeAuctionSettlement = sources.get("artifacts/api-server/src/lib/store-auction-settlement.ts") ?? "";
 const productAuctionSettlement = sources.get("artifacts/api-server/src/lib/product-auction-settlement.ts") ?? "";
 const globalMoneyUi = sources.get("artifacts/ts-commerce/src/pages/admin-transactions.tsx") ?? "";
+const commerceSales = sources.get("artifacts/api-server/src/routes/commerce.ts") ?? "";
 const fundReleasePolicy = sources.get("artifacts/api-server/src/lib/merchant-fund-release-policy.ts") ?? "";
 const fundReleasePolicyTests = sources.get("artifacts/api-server/src/lib/merchant-fund-release-policy.test.ts") ?? "";
 const legacyHoldMigration = sources.get("lib/db/migrations/0130_merchant_fund_release_legacy_holds.sql") ?? "";
@@ -212,8 +214,12 @@ requireMarkers("Merchant fund-release schema", fundReleaseMigration, [
   "Merchant fund-release review history is immutable",
 ]);
 requireMarkers("Master Admin fund-release endpoint", fundReleaseApi, [
+  "/admin/dashboard/fund-releases/:id/manual-release",
   "/admin/dashboard/fund-releases/:id/recheck",
   "/admin/dashboard/fund-releases/:id/release",
+  "provider_amount_minor",
+  "provider_currency",
+  "invoice_payment",
   "await requireMasterAdmin(userId)",
   "verifyFlutterwaveTransaction",
   "status='released'",
@@ -253,6 +259,26 @@ requireMarkers("Global Money Control release UI", globalMoneyUi, [
   "Recheck & reopen",
   "Proceeds remain locked",
   "legacy_hold",
+]);
+requireMarkers("Public order and invoice sales gate", commerceSales, [
+  "INSERT INTO merchant_fund_release_reviews",
+  "providerAmountMinor",
+  "providerFeeEvidenceMinor",
+  "'manual_evidence'",
+  "invoice-flutterwave:",
+  "MANUAL-INVOICE-SUBMISSION:",
+  "MANUAL-ORDER-EVIDENCE:",
+]);
+forbidMarkers("Public order and invoice sales gate", commerceSales, [
+  'entryType: "sale"',
+]);
+requireMarkers("Master Admin manual receipt UI", globalMoneyUi, [
+  "confirmManualFunds(row)",
+  "/manual-release",
+  "verifiedFundsReceived: true",
+  "Confirm receipt & release",
+  "provider_amount_minor",
+  "provider_currency",
 ]);
 requireMarkers("Fund-release verification policy", fundReleasePolicy, [
   "merchantFundReleaseVerificationFailure",
