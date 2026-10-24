@@ -77,7 +77,7 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
   ```
 
 - [ ] Sign in through HTTPS, configure the supported Master Admin security/MFA settings, and verify recovery access.
-- [ ] Open Master Admin → Global Money Control and verify platform transaction rows, provider verification states, fee/net figures, and the pending payout queue. Confirm this screen is read-only and a dashboard row does not by itself mark funds as settled.
+- [ ] Open Master Admin → Global Money Control and verify platform transaction rows, provider verification states, fee/net figures, unsettled payment-intent queue, unresolved reconciliation exceptions, and the pending payout queue. Confirm a pending payment intent does not create spendable balance, unresolved exceptions remain visible, and a dashboard row does not by itself mark funds as settled.
 - [ ] Create at least two test merchants and prove each can access only its own store, products, orders, customer records, payment records, and reports.
 - [ ] Verify merchant-team roles and location scopes; do not rely on UI hiding instead of server permission checks.
 - [ ] Verify signup works before full verification, while the payout path remains gated by the required full verification/KYC controls.
