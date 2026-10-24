@@ -178,7 +178,7 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
     const pendingFundReleases = await db.execute(sql`
       SELECT r.id,r.merchant_id,m.name AS merchant_name,m.email AS merchant_email,
              r.source_type,r.source_reference,r.payment_intent_id,r.order_id,r.payment_record_id,
-             r.provider,r.provider_transaction_id,r.provider_reference,r.amount_minor,r.currency,
+             r.provider,r.provider_transaction_id,r.provider_reference,r.amount_minor,r.currency,r.legacy_hold,
              r.provider_fee_minor,r.lunavo_fee_minor,r.merchant_net_minor,r.status,r.review_note,r.created_at
       FROM merchant_fund_release_reviews r
       INNER JOIN merchants m ON m.id=r.merchant_id
@@ -378,31 +378,46 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         return { outcome: "blocked" as const, reason: "Unsupported fund-release source type." };
       }
 
-      const saleReference = String(row.source_reference) + ":released-sale";
-      await tx.execute(sql`
-        INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
-        VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
-                ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
-                ${amountMinor},${String(row.currency).toUpperCase()},'sale',${saleReference})
-        ON CONFLICT (reference_key) DO NOTHING
-      `);
-      if (providerFeeMinor > 0) {
+      if (Boolean(row.legacy_hold)) {
+        // Migration 0130 already has the immutable sale/fee history. Reverse the
+        // matching hold only; posting a second sale would double-credit proceeds.
+        if (merchantNetMinor > 0) {
+          await tx.execute(sql`
+            INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                    ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${merchantNetMinor},${String(row.currency).toUpperCase()},'merchant_funds_release',
+                    ${"merchant-fund-release:legacy-release:" + String(row.source_reference)})
+            ON CONFLICT (reference_key) DO NOTHING
+          `);
+        }
+      } else {
+        const saleReference = String(row.source_reference) + ":released-sale";
         await tx.execute(sql`
           INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
           VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
                   ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
-                  ${-providerFeeMinor},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-provider-fee"})
+                  ${amountMinor},${String(row.currency).toUpperCase()},'sale',${saleReference})
           ON CONFLICT (reference_key) DO NOTHING
         `);
-      }
-      if (lunavoFeeMinor > 0) {
-        await tx.execute(sql`
-          INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
-          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
-                  ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
-                  ${-lunavoFeeMinor},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-lunavo-fee"})
-          ON CONFLICT (reference_key) DO NOTHING
-        `);
+        if (providerFeeMinor > 0) {
+          await tx.execute(sql`
+            INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                    ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${-providerFeeMinor},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-provider-fee"})
+            ON CONFLICT (reference_key) DO NOTHING
+          `);
+        }
+        if (lunavoFeeMinor > 0) {
+          await tx.execute(sql`
+            INSERT INTO ledger_entries (merchant_id,order_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+            VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                    ${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                    ${-lunavoFeeMinor},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-lunavo-fee"})
+            ON CONFLICT (reference_key) DO NOTHING
+          `);
+        }
       }
       const updated = await tx.execute(sql`
         UPDATE merchant_fund_release_reviews
