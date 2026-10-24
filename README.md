@@ -63,6 +63,7 @@ Useful repository checks:
 ```sh
 pnpm check:self-hosted
 pnpm check:migrations
+pnpm run check:launch-invariants
 pnpm run typecheck
 pnpm test
 pnpm run build

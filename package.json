@@ -9,6 +9,7 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "check:self-hosted": "node scripts/self-hosted-policy-check.mjs",
+    "check:launch-invariants": "node scripts/lunavo-ci-audit.mjs",
     "preflight:production": "node scripts/production-preflight.mjs --strict",
     "test": "pnpm --filter @workspace/api-server exec vitest run",
     "check:migrations": "node scripts/check-migration-registry.mjs"
