@@ -259,7 +259,7 @@ router.post("/admin/dashboard/sale-releases/:id/approve", async (req, res, next)
                  pr.evidence_reference AS payment_record_evidence,m.status AS merchant_status
           FROM payment_intents pi
           INNER JOIN merchants m ON m.id=pi.merchant_id
-          LEFT JOIN payment_records pr ON pr.id=${Number(peek.payment_record_id ?? 0)}
+          LEFT JOIN payment_records pr ON pr.id=${Number(peek.payment_record_id ?? 0)} AND pr.intent_id=pi.id
           WHERE pi.id=${intentId}
           FOR UPDATE OF pi,m
         `);
