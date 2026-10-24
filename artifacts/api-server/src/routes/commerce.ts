@@ -4311,7 +4311,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
     );
   const [withdrawalReserve] = await db
     .select({
-      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
+      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved')), 0)`,
     })
     .from(withdrawalsTable)
     .where(
@@ -4358,7 +4358,7 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
       : Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100);
   const [ledgerBalance] = await db
     .select({
-      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+      total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)`,
     })
     .from(ledgerEntriesTable)
     .where(
@@ -4374,7 +4374,8 @@ router.get("/dashboard/overview", async (req, res): Promise<void> => {
   const availableBalance = Math.max(
     0,
     Number(ledgerBalance?.total ?? 0) / 100 -
-      earningsHeldForSubscription,
+      earningsHeldForSubscription -
+      toNumber(withdrawalReserve?.total),
   );
   res.json(
     GetDashboardOverviewResponse.parse({
@@ -4433,7 +4434,7 @@ router.get("/marketing/billing", async (req, res): Promise<void> => {
       await Promise.all([
         db
           .select({
-            total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+            total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)`,
           })
           .from(ledgerEntriesTable)
           .where(
@@ -4457,7 +4458,7 @@ router.get("/marketing/billing", async (req, res): Promise<void> => {
             and(
               eq(withdrawalsTable.merchantId, merchant.id),
               eq(withdrawalsTable.currency, merchant.currency),
-              inArray(withdrawalsTable.status, ["pending", "approved", "paid"]),
+              inArray(withdrawalsTable.status, ["pending", "approved"]),
             ),
           )
           .then(([row]) => row),
@@ -4474,7 +4475,7 @@ router.get("/marketing/billing", async (req, res): Promise<void> => {
         : 0;
     const availableBalance = Math.max(
       0,
-      ledgerBalance - heldSubscription,
+      ledgerBalance - heldSubscription - toNumber(withdrawalReserve?.total),
     );
     res.json(
       GetMarketingBillingResponse.parse({
@@ -4543,7 +4544,7 @@ router.post(
         }
         const [balance] = await tx
           .select({
-            total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+            total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)`,
           })
           .from(ledgerEntriesTable)
           .where(
@@ -4571,7 +4572,6 @@ router.post(
               inArray(withdrawalsTable.status, [
                 "pending",
                 "approved",
-                "paid",
               ]),
             ),
           );
@@ -4579,7 +4579,8 @@ router.post(
           Number(balance?.total ?? 0) / 100 -
           (subscription?.currency === merchant.currency
             ? toNumber(subscription.earningsHeld)
-            : 0);
+            : 0) -
+          toNumber(withdrawalReserve?.total);
         if (available < budget.amount) {
           throw new Error(
             `Not enough available ${merchant.currency} earnings for this campaign`,
@@ -6202,7 +6203,7 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
       }
        const [revenue] = await tx
          .select({
-           total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+           total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)`,
          })
          .from(ledgerEntriesTable)
          .where(
@@ -6216,11 +6217,22 @@ router.post("/withdrawals", async (req, res): Promise<void> => {
         .from(subscriptionsTable)
         .where(eq(subscriptionsTable.merchantId, merchant.id))
         .limit(1);
+      const [withdrawalReserve] = await tx
+        .select({
+          total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)`,
+        })
+        .from(withdrawalsTable)
+        .where(and(
+          eq(withdrawalsTable.merchantId, merchant.id),
+          eq(withdrawalsTable.currency, currency),
+          inArray(withdrawalsTable.status, ["pending", "approved"]),
+        ));
       const available =
          Number(revenue?.total ?? 0) / 100 -
          (subscription?.currency !== merchant.currency
           ? 0
-           : toNumber(subscription?.earningsHeld));
+           : toNumber(subscription?.earningsHeld)) -
+         toNumber(withdrawalReserve?.total);
       if (amount > available) {
         throw new Error(`Only ${Math.max(0, available).toFixed(2)} is available to withdraw`);
       }
@@ -10790,7 +10802,7 @@ router.post("/dropship/queue/:id", async (req, res): Promise<void> => {
       const amountMinor = Math.round(toNumber(existing.product.price) * existing.order.quantity * 100);
       if (amountMinor <= 0) throw new Error("Supplier payment amount must be positive");
       const [balance] = await tx
-        .select({ total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)` })
+        .select({ total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)` })
         .from(ledgerEntriesTable)
         .where(
           and(
@@ -10798,7 +10810,25 @@ router.post("/dropship/queue/:id", async (req, res): Promise<void> => {
             eq(ledgerEntriesTable.currency, existing.order.currency),
           ),
         );
-      const balanceMinor = Number(balance?.total ?? 0);
+      const [withdrawalHolds] = await tx
+        .select({ total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)` })
+        .from(withdrawalsTable)
+        .where(and(
+          eq(withdrawalsTable.merchantId, merchant.id),
+          eq(withdrawalsTable.currency, existing.order.currency),
+          inArray(withdrawalsTable.status, ["pending", "approved"]),
+        ));
+      const [subscription] = await tx
+        .select()
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.merchantId, merchant.id))
+        .limit(1);
+      const settledLedgerMinor = Number(balance?.total ?? 0);
+      const withdrawalHoldMinor = Math.round(toNumber(withdrawalHolds?.total) * 100);
+      const earningsHeldMinor = subscription?.currency === existing.order.currency
+        ? Math.round(toNumber(subscription.earningsHeld) * 100)
+        : 0;
+      const balanceMinor = Math.max(0, settledLedgerMinor - withdrawalHoldMinor - earningsHeldMinor);
       if (existing.order.supplierPaymentStatus === "paid") {
         return {
           orderId: existing.order.id,
@@ -13295,8 +13325,18 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
   const merchant = await getOrCreateMerchant(identity);
   await getOrCreateTsPayAccount(merchant);
   try {
+    const destinationAccountNumber = body.data.toAccountNumber.trim().toUpperCase();
+    const recipientCandidate = (
+      await db.select().from(tsPayAccountsTable)
+        .where(eq(tsPayAccountsTable.accountNumber, destinationAccountNumber)).limit(1)
+    )[0];
+    if (!recipientCandidate) throw new Error("The destination TS Pay account was not found");
     const result = await db.transaction(async (tx) => {
-      const destinationAccountNumber = body.data.toAccountNumber.trim().toUpperCase();
+      // Match the withdrawal route's merchant-first lock order so outgoing
+      // transfers and payout reservations cannot spend the same earnings.
+      await tx.execute(sql`select id from ${merchantsTable}
+        where id in (${merchant.id},${recipientCandidate.merchantId})
+        order by id for update`);
       await tx.execute(sql`select id from ${tsPayAccountsTable}
         where merchant_id=${merchant.id} or account_number=${destinationAccountNumber}
         order by id for update`);
@@ -13315,6 +13355,7 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
           .limit(1)
       )[0];
       if (!sender || !recipient) throw new Error("The destination TS Pay account was not found");
+      if (recipient.merchantId !== recipientCandidate.merchantId) throw new Error("The destination TS Pay account changed while the transfer was being prepared");
       if (sender.status !== "active" || recipient.status !== "active") throw new Error("One of the TS Pay accounts is not active");
       if (sender.merchantId === recipient.merchantId) throw new Error("You cannot transfer to your own TS Pay account");
       const currency = (body.data.currency ?? sender.currency).toUpperCase();
@@ -13342,9 +13383,17 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
       }
 
       const [ledger] = await tx
-        .select({ total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)` })
+        .select({ total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)` })
         .from(ledgerEntriesTable)
         .where(and(eq(ledgerEntriesTable.merchantId, merchant.id), eq(ledgerEntriesTable.currency, currency)));
+      const [withdrawalHolds] = await tx
+        .select({ total: sql<string>`coalesce(sum(${withdrawalsTable.amount}), 0)` })
+        .from(withdrawalsTable)
+        .where(and(
+          eq(withdrawalsTable.merchantId, merchant.id),
+          eq(withdrawalsTable.currency, currency),
+          inArray(withdrawalsTable.status, ["pending", "approved"]),
+        ));
       const [subscription] = await tx
         .select()
         .from(subscriptionsTable)
@@ -13353,7 +13402,7 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
       const availableMinor =
         tsPayAvailableMinor({
           ledgerBalanceMinor: Number(ledger?.total ?? 0),
-           withdrawalHoldMinor: 0,
+          withdrawalHoldMinor: Math.round(toNumber(withdrawalHolds?.total) * 100),
           earningsHeldMinor: subscription?.currency === currency ? Math.round(toNumber(subscription.earningsHeld) * 100) : 0,
         });
       validateTsPayTransfer({
@@ -13452,7 +13501,13 @@ router.post("/ts-pay/transfers", async (req, res): Promise<void> => {
 
 router.get("/balances", async (req, res): Promise<void> => {
   const identity = await requireIdentity(req, res); if (!identity) return; const merchant = await getOrCreateMerchant(identity);
-  const rows = await db.select({ currency: ledgerEntriesTable.currency, balance: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}),0)` }).from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).groupBy(ledgerEntriesTable.currency);
+  const rows = await db.select({ currency: ledgerEntriesTable.currency, balance: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END),0)` }).from(ledgerEntriesTable).where(eq(ledgerEntriesTable.merchantId, merchant.id)).groupBy(ledgerEntriesTable.currency);
+  const withdrawalHolds = await db.execute(sql`
+    SELECT currency, COALESCE(SUM(ROUND(CAST(amount AS numeric)*100)),0)::bigint AS amount_minor
+    FROM withdrawals WHERE merchant_id=${merchant.id} AND status IN ('pending','approved')
+    GROUP BY currency
+  `);
+  const withdrawalHoldByCurrency = new Map(withdrawalHolds.rows.map((row: any) => [String(row.currency), Math.max(0, Number(row.amount_minor ?? 0))]));
   const subscription = await db
     .select({ currency: subscriptionsTable.currency, earningsHeld: subscriptionsTable.earningsHeld })
     .from(subscriptionsTable)
@@ -13465,7 +13520,7 @@ router.get("/balances", async (req, res): Promise<void> => {
     return {
       currency: r.currency,
       ledgerBalanceMinor,
-      availableBalanceMinor: Math.max(0, ledgerBalanceMinor - subscriptionHeldMinor),
+      availableBalanceMinor: Math.max(0, ledgerBalanceMinor - subscriptionHeldMinor - (withdrawalHoldByCurrency.get(String(r.currency)) ?? 0)),
       heldBalanceMinor: subscriptionHeldMinor,
     };
   })));
