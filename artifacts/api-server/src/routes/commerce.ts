@@ -12304,7 +12304,7 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
   );
   const [adminWithdrawalReserve] = await db
     .select({
-      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved', 'paid')), 0)`,
+      total: sql<string>`coalesce(sum(${withdrawalsTable.amount}) filter (where ${withdrawalsTable.status} in ('pending', 'approved')), 0)`,
     })
     .from(withdrawalsTable)
     .where(
