@@ -44,3 +44,23 @@ test("does not release without a real observed transaction id or a safe amount",
   assert.notEqual(merchantFundReleaseVerificationFailure({ ...valid, observedTransactionId: null }), null);
   assert.notEqual(merchantFundReleaseVerificationFailure({ ...valid, expectedAmountMinor: Number.MAX_SAFE_INTEGER + 1 }), null);
 });
+
+test("validates provider charge currency independently from merchant settlement currency", () => {
+  const fxPayment = {
+    ...valid,
+    observedAmountMinor: 10000,
+    expectedAmountMinor: 10000,
+    observedCurrency: "USD",
+    expectedCurrency: "USD",
+    observedProviderFeeMinor: 100,
+    expectedProviderFeeMinor: 150,
+    expectedProviderFeeEvidenceMinor: 100,
+    expectedMerchantGrossMinor: 15000,
+    expectedMerchantCurrency: "NGN",
+    expectedLunavoFeeMinor: 150,
+    expectedMerchantNetMinor: 14700,
+  };
+  assert.equal(merchantFundReleaseVerificationFailure(fxPayment), null);
+  assert.notEqual(merchantFundReleaseVerificationFailure({ ...fxPayment, observedCurrency: "NGN" }), null);
+  assert.notEqual(merchantFundReleaseVerificationFailure({ ...fxPayment, expectedMerchantNetMinor: 14699 }), null);
+});
