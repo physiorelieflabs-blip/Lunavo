@@ -208,15 +208,34 @@ async function reverseOrderPayment(input: {
         evidenceReference: input.providerTransactionId ?? record.evidenceReference,
       }).where(eq(paymentRecordsTable.id, record.id));
     }
-    await tx.insert(ledgerEntriesTable).values({
-      merchantId: input.merchantId,
-      orderId: input.orderId,
-      paymentRecordId: record?.id ?? null,
-      amountMinor: -input.amountMinor,
-      currency: input.currency,
-      entryType: "refund",
-      referenceKey: `payment:${input.intentId}:${input.status}`,
-    }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    const fundReleaseResult = await tx.execute(sql`
+      SELECT id,status FROM merchant_fund_release_reviews
+      WHERE source_reference=${`payment:${input.intentId}`}
+      FOR UPDATE
+    `);
+    const fundRelease = fundReleaseResult.rows[0] as { id:number; status:string } | undefined;
+    const fundsWereReleased = !fundRelease || fundRelease.status === "released";
+    if (fundRelease?.status === "pending") {
+      await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews
+        SET status='cancelled', reviewed_at=now(), reviewed_by='flutterwave_reversal',
+            review_note=${input.reason.slice(0,500)}
+        WHERE id=${fundRelease.id} AND status='pending'
+      `);
+    }
+    if (fundRelease && ["pending","cancelled","reconciliation_required"].includes(fundRelease.status)) {
+      // No original seller credit was posted, so do not create an unmatched debit.
+    } else if (fundsWereReleased) {
+      await tx.insert(ledgerEntriesTable).values({
+        merchantId: input.merchantId,
+        orderId: input.orderId,
+        paymentRecordId: record?.id ?? null,
+        amountMinor: -input.amountMinor,
+        currency: input.currency,
+        entryType: "refund",
+        referenceKey: `payment:${input.intentId}:${input.status}`,
+      }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    }
     await tx.update(ordersTable).set({ status: "pending" }).where(and(
       eq(ordersTable.id, input.orderId),
       eq(ordersTable.merchantId, input.merchantId),
@@ -257,6 +276,12 @@ async function markOrderPaymentDisputed(input: {
     const intent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, input.intentId)).limit(1))[0];
     if (!intent || intent.status === "disputed") return;
     await tx.update(paymentIntentsTable).set({ status: "disputed" }).where(eq(paymentIntentsTable.id, intent.id));
+    await tx.execute(sql`
+      UPDATE merchant_fund_release_reviews
+      SET status='reconciliation_required', reviewed_at=now(), reviewed_by='flutterwave_dispute',
+          review_note=${input.reason.slice(0,500)}
+      WHERE source_reference=${`payment:${input.intentId}`} AND status='pending'
+    `);
     const [record] = await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, intent.id)).limit(1);
     if (record) await tx.update(paymentRecordsTable).set({ status: "disputed", verifiedBy: "flutterwave_dispute", verifiedAt: new Date(), evidenceReference: input.providerTransactionId ?? record.evidenceReference }).where(eq(paymentRecordsTable.id, record.id));
     await tx.insert(commerceTransitionHistoryTable).values({ merchantId: input.merchantId, orderId: input.orderId, paymentIntentId: input.intentId, entityType: "payment_intent", fromStatus: intent.status, toStatus: "disputed", actorId: "flutterwave_webhook", note: input.reason });
@@ -510,12 +535,29 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
     }).where(eq(paymentIntentsTable.id, currentIntent.id));
     await tx.update(paymentRecordsTable).set({ status: "successful", evidenceReference: providerId ?? reference, verifiedBy: "flutterwave_webhook", verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, currentRecord.id));
     await tx.execute(sql`UPDATE payment_intents SET provider_transaction_id=${providerId}, provider_event_id=${eventId}, provider_fee_minor=${providerFee}, ts_commerce_fee_minor=${calculateTsCommerceFeeMinor(intent.amountMinor)}, merchant_net_minor=${calculateMerchantNetMinor(intent.amountMinor, providerFee)}, settlement_amount_minor=${settlementMinor}, settlement_currency=${settlementMinor === null ? null : settlementCurrency} WHERE id=${currentIntent.id}`);
-    await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: intent.amountMinor, currency, entryType: "sale", referenceKey: `payment:${currentIntent.id}` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-    if (providerFee !== null && providerFee > 0) {
-      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -providerFee, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:provider-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
-    }
+    // Provider verification settles the order, but seller proceeds are not
+    // spendable until a Master Admin reviews the Global Money Control queue.
+    // The release route re-queries Flutterwave before it creates these ledger entries.
     const tsFeeMinor = calculateTsCommerceFeeMinor(intent.amountMinor);
-    await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: order.id, paymentRecordId: currentRecord.id, amountMinor: -tsFeeMinor, currency, entryType: "fee", referenceKey: `payment:${currentIntent.id}:ts-fee` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    const providerFeeMinor = providerFee ?? 0;
+    const sellerNetMinor = intent.amountMinor - providerFeeMinor - tsFeeMinor;
+    if (!providerId || !Number.isSafeInteger(sellerNetMinor) || sellerNetMinor < 0) {
+      throw new Error("Verified provider transaction is missing a usable id or net amount");
+    }
+    await tx.execute(sql`
+      INSERT INTO merchant_fund_release_reviews (
+        merchant_id, source_type, source_reference, payment_intent_id, order_id,
+        payment_record_id, provider, provider_transaction_id, provider_reference,
+        amount_minor, currency, provider_fee_minor, lunavo_fee_minor,
+        merchant_net_minor, status
+      ) VALUES (
+        ${merchant.id}, 'order_payment', ${`payment:${currentIntent.id}`},
+        ${currentIntent.id}, ${order.id}, ${currentRecord.id}, 'flutterwave',
+        ${providerId}, ${reference || null}, ${intent.amountMinor}, ${currency},
+        ${providerFeeMinor}, ${tsFeeMinor}, ${sellerNetMinor}, 'pending'
+      )
+      ON CONFLICT (source_reference) DO NOTHING
+    `);
     const [settledOrder] = await tx.update(ordersTable)
       .set({ status: "paid", ...((latePaymentAfterCancellation || inventoryReservationException) ? { fulfillmentStatus: "review_required" } : {}) })
       .where(and(
