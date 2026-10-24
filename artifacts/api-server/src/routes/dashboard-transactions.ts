@@ -229,6 +229,228 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
  * fresh provider re-query and locked confirmation of its internal source.
  * This route never posts a ledger entry; a second explicit release action is required.
  */
+/**
+ * Manual receipt release requires an explicit Master Admin attestation that
+ * actual money was independently observed in the platform's bank/provider
+ * statement. Merchant-submitted receipts alone are never enough.
+ */
+router.post("/admin/dashboard/fund-releases/:id/manual-release", async (req, res): Promise<void> => {
+  const userId = getAuth(req).userId;
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
+  try {
+    await requireMasterAdmin(userId);
+  } catch {
+    res.status(403).json({ error: "Master Admin access with MFA is required" });
+    return;
+  }
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) { res.status(400).json({ error: "Invalid fund-release review id" }); return; }
+  const externalReference = typeof req.body?.externalReference === "string" ? req.body.externalReference.trim().slice(0,200) : "";
+  const reviewNote = typeof req.body?.reviewNote === "string" ? req.body.reviewNote.trim().slice(0,500) : "";
+  if (req.body?.verifiedFundsReceived !== true || externalReference.length < 4 || reviewNote.length < 30) {
+    res.status(400).json({ error: "Confirm funds received, enter an external bank/provider statement reference, and provide a review note of at least 30 characters." });
+    return;
+  }
+
+  const initialResult = await db.execute(sql`
+    SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+           provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+           provider_fee_evidence_minor,amount_minor,currency,legacy_hold,held_amount_minor,
+           legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
+           provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status,review_note
+    FROM merchant_fund_release_reviews WHERE id=${id} LIMIT 1
+  `);
+  const initial = initialResult.rows[0] as Record<string, any> | undefined;
+  if (!initial) { res.status(404).json({ error: "Fund-release review not found" }); return; }
+  if (String(initial.status) === "released") {
+    res.json({ id,status:"released",replayed:true,message:"These proceeds were already released." });
+    return;
+  }
+  if (String(initial.provider) !== "manual_evidence" ||
+      !["order_payment","invoice_payment"].includes(String(initial.source_type))) {
+    res.status(409).json({ error: "Only manually submitted order/invoice receipt evidence can use this attestation route." });
+    return;
+  }
+  if (String(initial.status) !== "reconciliation_required") {
+    res.status(409).json({ error: "Manual receipt must remain quarantined until explicit Admin attestation." });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      if (initial.payment_intent_id != null) {
+        await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${Number(initial.payment_intent_id)} FOR UPDATE`);
+      }
+      const lockedResult = await tx.execute(sql`
+        SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+               provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+               provider_fee_evidence_minor,amount_minor,currency,legacy_hold,held_amount_minor,
+               legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
+               provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status,review_note
+        FROM merchant_fund_release_reviews WHERE id=${id} FOR UPDATE
+      `);
+      const row = lockedResult.rows[0] as Record<string, any> | undefined;
+      if (!row) return { outcome:"missing" as const };
+      if (String(row.status) === "released") return { outcome:"replay" as const };
+      if (String(row.status) !== "reconciliation_required" || String(row.provider) !== "manual_evidence") {
+        return { outcome:"blocked" as const, reason:"The row is no longer a quarantined manual receipt." };
+      }
+      const block = async (reason:string) => {
+        await tx.execute(sql`
+          INSERT INTO audit_logs (
+            user_id,merchant_id,action,resource_type,resource_id,changes,
+            ip_address,user_agent,status,created_at
+          ) VALUES (
+            ${userId},${String(row.merchant_id)},'manual_funds_release_blocked','merchant_fund_release_review',
+            ${String(id)},${JSON.stringify({reason,sourceReference:String(row.source_reference)})}::jsonb,
+            ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
+          )
+        `);
+        return { outcome:"blocked" as const, reason };
+      };
+      if (!["order_payment","invoice_payment"].includes(String(row.source_type))) return await block("Unsupported manual receipt source.");
+      const intentResult = await tx.execute(sql`
+        SELECT id,status,merchant_id,order_id FROM payment_intents
+        WHERE id=${Number(row.payment_intent_id)} AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+      `);
+      const intent = intentResult.rows[0] as Record<string, any> | undefined;
+      if (!intent || !["verified","successful"].includes(String(intent.status))) {
+        return await block("The underlying payment intent is not in a verified state.");
+      }
+      const recordResult = await tx.execute(sql`
+        SELECT id,status FROM payment_records
+        WHERE id=${Number(row.payment_record_id)} AND intent_id=${Number(row.payment_intent_id)}
+          AND merchant_id=${Number(row.merchant_id)} LIMIT 1
+      `);
+      const record = recordResult.rows[0] as Record<string, any> | undefined;
+      if (!record || !["verified","successful"].includes(String(record.status))) {
+        return await block("The payment evidence record is missing or not verified.");
+      }
+      if (String(row.source_type) === "order_payment") {
+        const orderResult = await tx.execute(sql`
+          SELECT id,status FROM orders WHERE id=${Number(row.order_id)}
+            AND merchant_id=${Number(row.merchant_id)} LIMIT 1 FOR UPDATE
+        `);
+        const order = orderResult.rows[0] as Record<string, any> | undefined;
+        if (!order || !["paid","fulfilled","cancelled"].includes(String(order.status))) {
+          return await block("The associated order is not in a verified payment state.");
+        }
+      } else {
+        const invoiceResult = await tx.execute(sql`
+          SELECT id,status FROM invoices WHERE id=${Number(row.invoice_id)}
+            AND merchant_id=${Number(row.merchant_id)} LIMIT 1 FOR UPDATE
+        `);
+        const invoice = invoiceResult.rows[0] as Record<string, any> | undefined;
+        if (!invoice || !["paid","partially_paid"].includes(String(invoice.status))) {
+          return await block("The associated invoice is not in a paid/partially-paid state.");
+        }
+      }
+      const exceptionResult = await tx.execute(sql`
+        SELECT id FROM payment_reconciliation_exceptions
+        WHERE payment_intent_id=${Number(row.payment_intent_id)}
+          AND resolved_at IS NULL AND status NOT IN ('resolved','closed','dismissed') LIMIT 1
+      `);
+      if (exceptionResult.rows.length) return await block("An unresolved payment exception prevents release.");
+      const heldAmount = Number(row.held_amount_minor ?? 0);
+      const gross = Number(row.amount_minor);
+      const providerFee = Number(row.provider_fee_minor);
+      const lunavoFee = Number(row.lunavo_fee_minor);
+      const net = Number(row.merchant_net_minor);
+      const missingProviderFee = providerFee - Number(row.legacy_provider_fee_posted_minor ?? 0);
+      const missingLunavoFee = lunavoFee - Number(row.legacy_lunavo_fee_posted_minor ?? 0);
+      if (!Number.isSafeInteger(gross) || gross <= 0 || !Number.isSafeInteger(net) || net < 0 ||
+          providerFee < 0 || lunavoFee < 0 || gross - providerFee - lunavoFee !== net) {
+        return await block("Gross, fees, and merchant net do not reconcile.");
+      }
+      if (Boolean(row.legacy_hold) &&
+          (!Number.isSafeInteger(heldAmount) || heldAmount < net || missingProviderFee < 0 || missingLunavoFee < 0)) {
+        return await block("Historic frozen proceeds/fee postings do not reconcile. Finance must resolve the row.");
+      }
+
+      const reopened = await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews SET status='pending',reviewed_at=NULL,reviewed_by=NULL
+        WHERE id=${id} AND status='reconciliation_required' RETURNING id
+      `);
+      if (!reopened.rows.length) return { outcome:"replay" as const };
+
+      if (Boolean(row.legacy_hold)) {
+        if (heldAmount > 0) await tx.execute(sql`
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${heldAmount},${String(row.currency).toUpperCase()},'merchant_funds_release',
+                  ${"merchant-fund-release:legacy-release:" + String(row.source_reference)})
+          ON CONFLICT (reference_key) DO NOTHING
+        `);
+        if (missingProviderFee > 0) await tx.execute(sql`
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${-missingProviderFee},${String(row.currency).toUpperCase()},'fee',${"merchant-fund-release:legacy-provider-fee:" + String(row.source_reference)})
+          ON CONFLICT (reference_key) DO NOTHING
+        `);
+        if (missingLunavoFee > 0) await tx.execute(sql`
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${-missingLunavoFee},${String(row.currency).toUpperCase()},'fee',${"merchant-fund-release:legacy-lunavo-fee:" + String(row.source_reference)})
+          ON CONFLICT (reference_key) DO NOTHING
+        `);
+      } else {
+        await tx.execute(sql`
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${gross},${String(row.currency).toUpperCase()},'sale',${String(row.source_reference)+":released-sale"})
+          ON CONFLICT (reference_key) DO NOTHING
+        `);
+        if (providerFee > 0) await tx.execute(sql`
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${-providerFee},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-provider-fee"})
+          ON CONFLICT (reference_key) DO NOTHING
+        `);
+        if (lunavoFee > 0) await tx.execute(sql`
+          INSERT INTO ledger_entries (merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key)
+          VALUES (${Number(row.merchant_id)},${row.order_id == null ? null : Number(row.order_id)},
+                  ${row.invoice_id == null ? null : Number(row.invoice_id)},${row.payment_record_id == null ? null : Number(row.payment_record_id)},
+                  ${-lunavoFee},${String(row.currency).toUpperCase()},'fee',${String(row.source_reference)+":released-lunavo-fee"})
+          ON CONFLICT (reference_key) DO NOTHING
+        `);
+      }
+      await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews
+        SET status='released',reviewed_at=now(),reviewed_by=${userId},
+            review_note=${reviewNote}
+        WHERE id=${id} AND status='pending'
+      `);
+      await tx.execute(sql`
+        INSERT INTO audit_logs (
+          user_id,merchant_id,action,resource_type,resource_id,changes,
+          ip_address,user_agent,status,created_at
+        ) VALUES (
+          ${userId},${String(row.merchant_id)},'manual_funds_received_and_released','merchant_fund_release_review',
+          ${String(id)},${JSON.stringify({
+            sourceType:String(row.source_type),sourceReference:String(row.source_reference),
+            merchantGrossMinor:gross,currency:String(row.currency).toUpperCase(),
+            merchantNetMinor:net,externalReference,reviewNote,legacyHold:Boolean(row.legacy_hold),
+            attestation:"Master Admin independently confirmed funds received in external bank/provider statement"
+          })}::jsonb,${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
+        )
+      `);
+      return { outcome:"released" as const };
+    });
+    if (result.outcome === "missing") { res.status(404).json({ error:"Fund-release review not found" }); return; }
+    if (result.outcome === "blocked") { res.status(409).json({ error:result.reason+" Proceeds remain locked." }); return; }
+    if (result.outcome === "replay") { res.json({ id,status:"released",replayed:true }); return; }
+    res.json({ id,status:"released",replayed:false,message:"Manual receipt attestation was recorded and the proceeds were released to TS Pay ledger." });
+  } catch (error) {
+    req.log.error({ err:error,fundReleaseId:id },"Manual merchant receipt release failed");
+    res.status(500).json({ error:"Manual proceeds were not released. Check the audit trail before retrying." });
+  }
+});
+
 router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Promise<void> => {
   const userId = getAuth(req).userId;
   if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
