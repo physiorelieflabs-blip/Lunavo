@@ -12335,7 +12335,7 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
       subscriptionRevenue: confirmedRevenue,
       availableBalance: Math.max(
         0,
-        Number(adminLedgerBalance?.total ?? 0) / 100,
+        Number(adminLedgerBalance?.total ?? 0) / 100 - toNumber(adminWithdrawalReserve?.total),
       ),
       withdrawalReserved: toNumber(adminWithdrawalReserve?.total),
       heldMerchantRevenue: subs.reduce(
