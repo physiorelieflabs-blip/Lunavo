@@ -12317,7 +12317,7 @@ router.get("/admin/overview", async (req, res): Promise<void> => {
     );
   const [adminLedgerBalance] = await db
     .select({
-      total: sql<string>`coalesce(sum(${ledgerEntriesTable.amountMinor}), 0)`,
+      total: sql<string>`coalesce(sum(CASE WHEN ${ledgerEntriesTable.entryType} NOT IN ('withdrawal_reserve','withdrawal_release') THEN ${ledgerEntriesTable.amountMinor} ELSE 0 END), 0)`,
     })
     .from(ledgerEntriesTable)
     .where(
