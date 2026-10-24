@@ -2298,7 +2298,14 @@ async function findFlutterwaveCustomerPayment(
   intent: typeof paymentIntentsTable.$inferSelect,
   order: Order,
   transactionId: string | null,
-): Promise<{ status: "paid" | "failed" | "pending"; providerPaymentId?: string }> {
+): Promise<{
+  status: "paid" | "failed" | "pending";
+  providerPaymentId?: string;
+  providerReference?: string;
+  providerAmountMinor?: number;
+  providerCurrency?: string;
+  providerFeeEvidenceMinor?: number | null;
+}> {
   if (!intent.evidenceReference || !transactionId) return { status: "pending" };
   const transaction = await verifyFlutterwaveTransaction(transactionId);
   if (transaction.tx_ref !== intent.evidenceReference) {
@@ -2381,7 +2388,18 @@ async function findFlutterwaveCustomerPayment(
       throw new Error("This Flutterwave transaction has already been applied to another payment");
     }
   }
-  return { status, providerPaymentId };
+  const rawProviderFee = (transaction as any).app_fee;
+  const providerFeeEvidenceMinor = rawProviderFee === null || rawProviderFee === undefined || rawProviderFee === ""
+    ? null
+    : toMinorUnits(Number(rawProviderFee), currencyMinorDigits(currency));
+  return {
+    status,
+    providerPaymentId,
+    providerReference: String((transaction as any).tx_ref ?? (transaction as any).reference ?? intent.evidenceReference ?? ""),
+    providerAmountMinor: observedAmountMinor,
+    providerCurrency: currency,
+    providerFeeEvidenceMinor,
+  };
 }
 
 async function verifyPublicFlutterwaveOrder(
@@ -2584,7 +2602,7 @@ async function verifyPublicFlutterwaveOrder(
         currency: settlementCurrency,
         method: currentIntent.method,
         evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
-        status: "verified",
+        status: "successful",
         verifiedBy: "flutterwave",
         verifiedAt: new Date(),
       })
@@ -2602,7 +2620,13 @@ async function verifyPublicFlutterwaveOrder(
     if (!paymentRecord) throw new Error("Payment record could not be created");
     await tx
       .update(paymentIntentsTable)
-      .set({ status: "verified" })
+      .set({
+        status: "successful",
+        providerTransactionId: provider.providerPaymentId ?? null,
+        providerFeeMinor: merchantProviderFeeMinor,
+        tsCommerceFeeMinor: tsFeeMinor,
+        merchantNetMinor,
+      })
       .where(
         and(
           eq(paymentIntentsTable.id, currentIntent.id),
@@ -2612,24 +2636,35 @@ async function verifyPublicFlutterwaveOrder(
     await tx
       .update(paymentRecordsTable)
       .set({
-        status: "verified",
+        status: "successful",
         evidenceReference: provider.providerPaymentId ?? currentIntent.evidenceReference,
         verifiedBy: "flutterwave",
         verifiedAt: new Date(),
       })
       .where(eq(paymentRecordsTable.id, paymentRecord.id));
-    await tx
-      .insert(ledgerEntriesTable)
-      .values({
-        merchantId: order.merchantId,
-        orderId: currentOrder.id,
-        paymentRecordId: paymentRecord.id,
-        amountMinor: settlementAmountMinor,
-        currency: settlementCurrency,
-        entryType: "sale",
-        referenceKey: `payment:${currentIntent.id}`,
-      })
-      .onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    const merchantProviderFeeMinor = provider.providerFeeEvidenceMinor == null
+      ? Number(currentIntent.providerFeeMinor ?? 0)
+      : Math.round(provider.providerFeeEvidenceMinor * settlementAmountMinor / Number(currentIntent.amountMinor));
+    const tsFeeMinor = calculateTsCommerceFeeMinor(settlementAmountMinor);
+    const merchantNetMinor = settlementAmountMinor - merchantProviderFeeMinor - tsFeeMinor;
+    if (!Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0) {
+      throw new Error("The verified payment did not produce a safe non-negative merchant settlement");
+    }
+    await tx.execute(sql`
+      INSERT INTO merchant_fund_release_reviews (
+        merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+        provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+        provider_fee_evidence_minor,amount_minor,currency,provider_fee_minor,lunavo_fee_minor,merchant_net_minor,
+        status,review_note,reviewed_by,reviewed_at
+      ) VALUES (
+        ${order.merchantId},'order_payment',${`payment:${currentIntent.id}`},${currentIntent.id},${currentOrder.id},NULL,${paymentRecord.id},
+        'flutterwave',${provider.providerPaymentId},${provider.providerReference || null},
+        ${provider.providerAmountMinor ?? Number(currentIntent.amountMinor)},${provider.providerCurrency ?? currentIntent.currency},
+        ${provider.providerFeeEvidenceMinor},${settlementAmountMinor},${settlementCurrency},
+        ${merchantProviderFeeMinor},${tsFeeMinor},${merchantNetMinor},
+        'pending',NULL,NULL,NULL
+      ) ON CONFLICT (source_reference) DO NOTHING
+    `);
     const [subscription] = await tx
       .select()
       .from(subscriptionsTable)
@@ -3012,24 +3047,50 @@ async function verifyPublicFlutterwaveInvoice(token: string, checkoutId: string 
       amountMinor: currentIntent.amountMinor,
       currency: currentIntent.currency,
       method: currentIntent.method,
-      status: "verified",
+      status: "successful",
       evidenceReference: paid.id ?? currentIntent.evidenceReference,
       verifiedBy: "flutterwave",
       verifiedAt: new Date(),
     }).onConflictDoNothing().returning();
     const paymentRecord = record ?? (await tx.select().from(paymentRecordsTable).where(eq(paymentRecordsTable.intentId, currentIntent.id)).limit(1))[0];
     if (!paymentRecord) throw new Error("Invoice payment record could not be created");
-    await tx.update(paymentIntentsTable).set({ status: "verified" }).where(eq(paymentIntentsTable.id, currentIntent.id));
-    await tx.insert(ledgerEntriesTable).values({
-      merchantId: current.merchantId,
-      invoiceId: current.id,
-      orderId: current.orderId,
-      paymentRecordId: paymentRecord.id,
-      amountMinor: currentIntent.amountMinor,
-      currency: currentIntent.currency,
-      entryType: "sale",
-      referenceKey: `invoice-flutterwave:${currentIntent.id}`,
-    }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+    await tx.update(paymentIntentsTable).set({
+      status: "successful",
+      providerTransactionId: flutterwaveTransactionId(paid) ?? String(paid.id ?? ""),
+      providerFeeMinor: providerFeeEvidenceMinor ?? 0,
+      tsCommerceFeeMinor: tsFeeMinor,
+      merchantNetMinor,
+    }).where(eq(paymentIntentsTable.id, currentIntent.id));
+    const providerAmountMinor = toMinorUnits(flutterwaveAmount(paid), currencyMinorDigits(String(paid.currency ?? currentIntent.currency).toUpperCase()));
+    const providerCurrency = String(paid.currency ?? currentIntent.currency).trim().toUpperCase();
+    if (providerAmountMinor !== Number(currentIntent.amountMinor) || providerCurrency !== currentIntent.currency) {
+      throw new Error("Flutterwave invoice payment does not match the invoice currency and amount");
+    }
+    const rawProviderFee = (paid as any).app_fee;
+    const providerFeeEvidenceMinor = rawProviderFee == null || rawProviderFee === ""
+      ? null
+      : toMinorUnits(Number(rawProviderFee), currencyMinorDigits(providerCurrency));
+    const providerFeeMinor = providerFeeEvidenceMinor ?? Number(currentIntent.providerFeeMinor ?? 0);
+    const tsFeeMinor = calculateTsCommerceFeeMinor(Number(currentIntent.amountMinor));
+    const merchantNetMinor = Number(currentIntent.amountMinor) - providerFeeMinor - tsFeeMinor;
+    if (!Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0) {
+      throw new Error("The verified invoice payment does not reconcile to safe merchant proceeds");
+    }
+    await tx.execute(sql`
+      INSERT INTO merchant_fund_release_reviews (
+        merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+        provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+        provider_fee_evidence_minor,amount_minor,currency,provider_fee_minor,lunavo_fee_minor,merchant_net_minor,
+        status,review_note,reviewed_by,reviewed_at
+      ) VALUES (
+        ${current.merchantId},'invoice_payment',${`invoice-flutterwave:${currentIntent.id}`},${currentIntent.id},
+        ${current.orderId},${current.id},${paymentRecord.id},'flutterwave',${flutterwaveTransactionId(paid) ?? String(paid.id ?? "")},
+        ${String((paid as any).tx_ref ?? (paid as any).reference ?? currentIntent.evidenceReference ?? "")},
+        ${providerAmountMinor},${providerCurrency},${providerFeeEvidenceMinor},
+        ${Number(currentIntent.amountMinor)},${currentIntent.currency},${providerFeeMinor},${tsFeeMinor},${merchantNetMinor},
+        'pending',NULL,NULL,NULL
+      ) ON CONFLICT (source_reference) DO NOTHING
+    `);
     const nextPaid = Number((toNumber(current.amountPaid) + outstanding).toFixed(2));
     const [updated] = await tx.update(invoicesTable).set({
       amountPaid: nextPaid.toFixed(2),
@@ -10686,13 +10747,29 @@ router.post("/invoices/:id/payments/:paymentId/verify", async (req, res): Promis
       const paid = Number((toNumber(current.amountPaid) + toNumber(payment.amount)).toFixed(2));
       if (paid > toNumber(current.total)) throw new Error("Verified amount exceeds invoice total");
       const status = paid === toNumber(current.total) ? "paid" : "partially_paid";
-      const [verified] = await tx.update(invoicePaymentSubmissionsTable).set({ status: "verified", reviewedBy: identity.clerkUserId, reviewedAt: new Date(), reviewNote: body.data.reviewNote ?? null }).where(and(eq(invoicePaymentSubmissionsTable.id, payment.id), eq(invoicePaymentSubmissionsTable.status, "pending_review"))).returning();
+      const [verified] = await tx.update(invoicePaymentSubmissionsTable).set({ status: "successful", reviewedBy: identity.clerkUserId, reviewedAt: new Date(), reviewNote: body.data.reviewNote ?? null }).where(and(eq(invoicePaymentSubmissionsTable.id, payment.id), eq(invoicePaymentSubmissionsTable.status, "pending_review"))).returning();
       if (!verified) throw new Error("Payment submission changed during review");
       const [intent] = await tx.insert(paymentIntentsTable).values({ merchantId: merchant.id, orderId: null, invoicePaymentSubmissionId: payment.id, amountMinor: Math.round(toNumber(payment.amount) * 100), currency: current.currency, method: "invoice_payment_reference", status: "verified", evidenceReference: payment.paymentReference, idempotencyKey: `invoice:${payment.id}` }).onConflictDoNothing({ target: paymentIntentsTable.invoicePaymentSubmissionId }).returning();
       if (!intent) throw new Error("Authoritative invoice payment already exists");
       const [record] = await tx.insert(paymentRecordsTable).values({ intentId: intent.id, merchantId: merchant.id, orderId: null, invoicePaymentSubmissionId: payment.id, amountMinor: intent.amountMinor, currency: current.currency, method: intent.method, status: "verified", evidenceReference: payment.paymentReference, verifiedBy: identity.clerkUserId, verifiedAt: new Date() }).returning();
       if (!record) throw new Error("Authoritative invoice payment record could not be created");
-      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, invoiceId: current.id, paymentRecordId: record.id, amountMinor: intent.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `invoice-payment:${payment.id}` });
+      const manualGrossMinor = Number(intent.amountMinor);
+      const manualPlatformFeeMinor = calculateTsCommerceFeeMinor(manualGrossMinor);
+      await tx.execute(sql`
+        INSERT INTO merchant_fund_release_reviews (
+          merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+          provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+          provider_fee_evidence_minor,amount_minor,currency,provider_fee_minor,lunavo_fee_minor,merchant_net_minor,
+          status,review_note,reviewed_by,reviewed_at
+        ) VALUES (
+          ${merchant.id},'invoice_payment',${`invoice-payment:${payment.id}`},${intent.id},NULL,${current.id},${record.id},
+          'manual_evidence',${`MANUAL-INVOICE-SUBMISSION:${payment.id}`},${payment.paymentReference},
+          ${manualGrossMinor},${current.currency},NULL,${manualGrossMinor},${current.currency},0,
+          ${manualPlatformFeeMinor},${manualGrossMinor-manualPlatformFeeMinor},
+          'reconciliation_required','Seller-provided receipt requires independent Master Admin confirmation.',
+          ${identity.clerkUserId},now()
+        ) ON CONFLICT (source_reference) DO NOTHING
+      `);
       await tx.execute(sql`select id from ${subscriptionsTable} where merchant_id=${merchant.id} for update`);
       const subscription = (await tx.select().from(subscriptionsTable).where(eq(subscriptionsTable.merchantId, merchant.id)).limit(1))[0];
       if (subscription) {
@@ -13055,19 +13132,25 @@ router.post("/payments/:id/verify", async (req, res): Promise<void> => {
             await emitDomainEvent(tx, { merchantId: merchant.id, eventType: "inventory.committed", aggregateType: "inventory_reservation", aggregateId: reservation.id, actorType: "merchant", actorId: identity.clerkUserId, source: "merchant_api", idempotencyKey: `inventory-reservation:${reservation.id}:committed`, payload: { orderId: order.id, supplierProductId: reservation.supplierProductId, quantity: reservation.quantity } });
          }
        }
-      const [updated] = await tx.update(paymentIntentsTable).set({ status: "verified", evidenceReference: evidence }).where(eq(paymentIntentsTable.id, id)).returning();
+      const [updated] = await tx.update(paymentIntentsTable).set({ status: "verified", evidenceReference: evidence, providerTransactionId: null, providerFeeMinor: 0, tsCommerceFeeMinor: calculateTsCommerceFeeMinor(current.amountMinor), merchantNetMinor: Number(current.amountMinor) - calculateTsCommerceFeeMinor(current.amountMinor) }).where(eq(paymentIntentsTable.id, id)).returning();
       await tx.update(paymentRecordsTable).set({ status: "verified", evidenceReference: evidence, verifiedBy: identity.clerkUserId, verifiedAt: new Date() }).where(eq(paymentRecordsTable.id, payment.id));
-      await tx.insert(ledgerEntriesTable).values({ merchantId: merchant.id, orderId: current.orderId, paymentRecordId: payment.id, amountMinor: current.amountMinor, currency: current.currency, entryType: "sale", referenceKey: `payment:${id}` }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
       const tsFeeMinor = calculateTsCommerceFeeMinor(current.amountMinor);
-      await tx.insert(ledgerEntriesTable).values({
-        merchantId: merchant.id,
-        orderId: current.orderId,
-        paymentRecordId: payment.id,
-        amountMinor: -tsFeeMinor,
-        currency: current.currency,
-        entryType: "fee",
-        referenceKey: `payment:${id}:ts-fee`,
-      }).onConflictDoNothing({ target: ledgerEntriesTable.referenceKey });
+      const merchantNetMinor = Number(current.amountMinor) - tsFeeMinor;
+      await tx.execute(sql`
+        INSERT INTO merchant_fund_release_reviews (
+          merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+          provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+          provider_fee_evidence_minor,amount_minor,currency,provider_fee_minor,lunavo_fee_minor,merchant_net_minor,
+          status,review_note,reviewed_by,reviewed_at
+        ) VALUES (
+          ${merchant.id},'order_payment',${`payment:${id}`},${current.id},${current.orderId},NULL,${payment.id},
+          'manual_evidence',${`MANUAL-ORDER-EVIDENCE:${id}`},${evidence},
+          ${Number(current.amountMinor)},${current.currency},NULL,${Number(current.amountMinor)},${current.currency},0,
+          ${tsFeeMinor},${merchantNetMinor},'reconciliation_required',
+          'Merchant-verified payment evidence requires independent Master Admin receipt confirmation.',
+          ${identity.clerkUserId},now()
+        ) ON CONFLICT (source_reference) DO NOTHING
+      `);
       await tx.update(paymentIntentsTable).set({
         providerFeeMinor: 0,
         tsCommerceFeeMinor: tsFeeMinor,
