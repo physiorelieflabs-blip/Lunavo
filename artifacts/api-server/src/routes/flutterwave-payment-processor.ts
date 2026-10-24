@@ -209,23 +209,28 @@ async function reverseOrderPayment(input: {
       }).where(eq(paymentRecordsTable.id, record.id));
     }
     const fundReleaseResult = await tx.execute(sql`
-      SELECT id,status FROM merchant_fund_release_reviews
+      SELECT id,status,legacy_hold,merchant_net_minor FROM merchant_fund_release_reviews
       WHERE source_reference=${`payment:${input.intentId}`}
       FOR UPDATE
     `);
-    const fundRelease = fundReleaseResult.rows[0] as { id:number; status:string } | undefined;
-    const fundsWereReleased = !fundRelease || fundRelease.status === "released";
+    const fundRelease = fundReleaseResult.rows[0] as { id:number; status:string; legacy_hold?:boolean; merchant_net_minor?:number|string } | undefined;
+    const legacySaleAlreadyCredited = Boolean(fundRelease?.legacy_hold);
+    const fundsWereReleased = !fundRelease || fundRelease.status === "released" || legacySaleAlreadyCredited;
     if (fundRelease?.status === "pending") {
       await tx.execute(sql`
         UPDATE merchant_fund_release_reviews
-        SET status='cancelled', reviewed_at=now(), reviewed_by='flutterwave_reversal',
-            review_note=${input.reason.slice(0,500)}
+        SET status=${legacySaleAlreadyCredited ? "reconciliation_required" : "cancelled"},
+            reviewed_at=now(), reviewed_by='flutterwave_reversal',
+            review_note=${(legacySaleAlreadyCredited ? "Previously credited sale reversed; historical hold needs Finance reconciliation. " : "") + input.reason.slice(0,350)}
         WHERE id=${fundRelease.id} AND status='pending'
       `);
     }
-    if (fundRelease && ["pending","cancelled","reconciliation_required"].includes(fundRelease.status)) {
-      // No original seller credit was posted, so do not create an unmatched debit.
+    if (fundRelease && !legacySaleAlreadyCredited &&
+        ["pending","cancelled","reconciliation_required"].includes(fundRelease.status)) {
+      // Modern queued proceeds have not posted a sale credit; never create a phantom debit.
     } else if (fundsWereReleased) {
+      // Legacy-hold rows preserve immutable sale entries, so a refund must still
+      // debit the old credit. The hold stays in place until Finance reconciles it.
       await tx.insert(ledgerEntriesTable).values({
         merchantId: input.merchantId,
         orderId: input.orderId,
