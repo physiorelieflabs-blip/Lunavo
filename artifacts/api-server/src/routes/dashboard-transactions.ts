@@ -330,6 +330,24 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
       if (!row) return { outcome: "missing" as const };
       if (String(row.status) === "released") return { outcome: "duplicate" as const };
       if (String(row.status) !== "pending") return { outcome: "blocked" as const, reason: "Fund-release row is no longer pending." };
+      const blockRelease = async (reason: string) => {
+        await tx.execute(sql`
+          UPDATE merchant_fund_release_reviews
+          SET status='reconciliation_required',reviewed_at=now(),reviewed_by=${userId},review_note=${reason.slice(0,500)}
+          WHERE id=${id} AND status='pending'
+        `);
+        await tx.execute(sql`
+          INSERT INTO audit_logs (
+            user_id,merchant_id,action,resource_type,resource_id,changes,
+            ip_address,user_agent,status,created_at
+          ) VALUES (
+            ${userId},${String(row.merchant_id)},'merchant_funds_release_blocked','merchant_fund_release_review',
+            ${String(id)},${JSON.stringify({reason,sourceReference:String(row.source_reference)})}::jsonb,
+            ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'blocked',now()
+          )
+        `);
+        return { outcome: "blocked" as const, reason };
+      };
 
       if (String(row.source_type) === "order_payment") {
         const intentResult = await tx.execute(sql`
@@ -341,7 +359,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
             String(intent.provider_transaction_id ?? "") !== String(row.provider_transaction_id) ||
             Number(intent.order_id) !== Number(row.order_id) ||
             Number(intent.merchant_id) !== Number(row.merchant_id)) {
-          return { outcome: "blocked" as const, reason: "The underlying payment intent is not in a matching successful state." };
+          return await blockRelease("The underlying payment intent is not in a matching successful state.");
         }
         const exceptionResult = await tx.execute(sql`
           SELECT id FROM payment_reconciliation_exceptions
@@ -349,7 +367,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
             AND resolved_at IS NULL AND status NOT IN ('resolved','closed','dismissed')
           LIMIT 1
         `);
-        if (exceptionResult.rows.length) return { outcome: "blocked" as const, reason: "An unresolved payment reconciliation exception prevents release." };
+        if (exceptionResult.rows.length) return await blockRelease("An unresolved payment reconciliation exception prevents release.");
         const recordResult = await tx.execute(sql`
           SELECT id,status FROM payment_records
           WHERE id=${Number(row.payment_record_id)} AND intent_id=${Number(row.payment_intent_id)}
@@ -357,7 +375,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         `);
         const record = recordResult.rows[0] as Record<string, any> | undefined;
         if (!record || String(record.status) !== "successful") {
-          return { outcome: "blocked" as const, reason: "The verified payment record is missing or no longer successful." };
+          return await blockRelease("The verified payment record is missing or no longer successful.");
         }
         const orderResult = await tx.execute(sql`
           SELECT id,status FROM orders
@@ -366,7 +384,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         `);
         const order = orderResult.rows[0] as Record<string, any> | undefined;
         if (!order || String(order.status) !== "paid") {
-          return { outcome: "blocked" as const, reason: "The associated order is not in paid status." };
+          return await blockRelease("The associated order is not in paid status.");
         }
       } else if (String(row.source_type) === "store_auction") {
         const auctionEvidence = await tx.execute(sql`
@@ -374,16 +392,16 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
           WHERE provider='flutterwave' AND provider_reference=${String(row.provider_transaction_id)}
             AND status='verified' LIMIT 1 FOR UPDATE
         `);
-        if (!auctionEvidence.rows.length) return { outcome: "blocked" as const, reason: "Verified store-auction settlement evidence is missing." };
+        if (!auctionEvidence.rows.length) return await blockRelease("Verified store-auction settlement evidence is missing.");
       } else if (String(row.source_type) === "product_auction") {
         const auctionEvidence = await tx.execute(sql`
           SELECT id FROM product_auction_settlements
           WHERE provider_transaction_id=${String(row.provider_transaction_id)}
             AND status='paid' LIMIT 1 FOR UPDATE
         `);
-        if (!auctionEvidence.rows.length) return { outcome: "blocked" as const, reason: "Verified product-auction settlement evidence is missing." };
+        if (!auctionEvidence.rows.length) return await blockRelease("Verified product-auction settlement evidence is missing.");
       } else {
-        return { outcome: "blocked" as const, reason: "Unsupported fund-release source type." };
+        return await blockRelease("Unsupported fund-release source type.");
       }
 
       if (Boolean(row.legacy_hold)) {
