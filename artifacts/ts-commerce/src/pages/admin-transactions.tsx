@@ -187,6 +187,30 @@ export default function AdminTransactions() {
     }
   }
 
+  async function reopenFund(row: PendingFundRelease) {
+    if (row.status !== 'reconciliation_required') return;
+    if (!window.confirm(`Recheck quarantined proceeds #${row.id}? This re-queries Flutterwave and rechecks internal evidence. It does not move money; a separate Release proceeds action is still required.`)) return;
+    setReleasingId(row.id);
+    setReleaseMessage(null);
+    try {
+      const response = await fetch(`/api/admin/dashboard/fund-releases/${encodeURIComponent(String(row.id))}/recheck`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'The row could not be rechecked.');
+      setReleaseMessage(`Review #${row.id} passed fresh checks and returned to the pending queue. No money moved; release it separately after review.`);
+      await feed.refetch();
+    } catch (error) {
+      setReleaseMessage(error instanceof Error ? error.message : 'The review remains quarantined. No money was released.');
+      await feed.refetch();
+    } finally {
+      setReleasingId(null);
+    }
+  }
+
   return <AppShell admin>
     <div className="mx-auto max-w-[1380px] space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -254,7 +278,7 @@ export default function AdminTransactions() {
             {row.status === 'reconciliation_required' ? <p className="mt-3 text-sm font-semibold text-[#9b3c31]">Locked: this row requires Finance reconciliation before it can be released. {row.review_note || ''}</p> : null}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="max-w-3xl text-xs leading-5 text-[#697687]">Release is a ledger credit, not a bank payout. A later merchant withdrawal still follows its separate approval and provider-settlement workflow.</p>
-              {row.status === 'pending' ? <Button variant="secondary" onClick={() => void releaseFund(row)} disabled={releasingId !== null}>{releasingId === row.id ? 'Re-verifying…' : 'Release proceeds'}</Button> : <Button variant="secondary" disabled>Release blocked</Button>}
+              {row.status === 'pending' ? <Button variant="secondary" onClick={() => void releaseFund(row)} disabled={releasingId !== null}>{releasingId === row.id ? 'Re-verifying…' : 'Release proceeds'}</Button> : <Button variant="secondary" onClick={() => void reopenFund(row)} disabled={releasingId !== null}>{releasingId === row.id ? 'Rechecking…' : 'Recheck & reopen'}</Button>}
             </div>
           </div>)}</div> : <EmptyState title="No verified sales awaiting release" description="All visible proceeds have been released or there are no pending provider-verified sales for the selected filters."/>}
         </section>
