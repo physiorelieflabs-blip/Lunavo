@@ -28,6 +28,19 @@ CREATE TABLE IF NOT EXISTS merchant_sale_release_requests (
   UNIQUE (source_type, source_reference)
 );
 
+-- Extend the existing ledger entry-type guard for this append-only control
+-- ledger. These rows remain internal accounting entries, never bank rails.
+ALTER TABLE ledger_entries
+  DROP CONSTRAINT IF EXISTS ledger_entries_entry_type_check;
+ALTER TABLE ledger_entries
+  ADD CONSTRAINT ledger_entries_entry_type_check
+  CHECK (entry_type IN (
+    'sale','fee','refund','withdrawal_reserve','withdrawal_release','withdrawal_paid',
+    'adjustment','internal_transfer_out','internal_transfer_in',
+    'sale_release_hold','sale_release','sale_release_cancel',
+    'sale_dispute_hold','sale_dispute_cancel'
+  ));
+
 CREATE INDEX IF NOT EXISTS merchant_sale_release_review_idx
   ON merchant_sale_release_requests (status, created_at ASC);
 CREATE INDEX IF NOT EXISTS merchant_sale_release_merchant_idx
