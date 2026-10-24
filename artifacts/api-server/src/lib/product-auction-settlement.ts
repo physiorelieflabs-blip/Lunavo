@@ -64,12 +64,12 @@ export async function settleVerifiedProductAuctionPayment(transaction: ProviderT
     await tx.execute(sql`
       INSERT INTO merchant_fund_release_reviews (
         merchant_id, source_type, source_reference, provider, provider_transaction_id,
-        provider_reference, amount_minor, currency, provider_fee_minor,
-        lunavo_fee_minor, merchant_net_minor, status
+        provider_reference, provider_amount_minor, provider_currency, provider_fee_evidence_minor,
+        amount_minor, currency, provider_fee_minor, lunavo_fee_minor, merchant_net_minor, status
       ) VALUES (
         ${auction.merchant_id}, 'product_auction', ${sourceReference}, 'flutterwave',
-        ${transactionId}, ${providerReference}, ${grossMinor}, ${currency},
-        ${providerFeeMinor}, ${lunavoFeeMinor}, ${sellerNetMinor}, 'pending'
+        ${transactionId}, ${providerReference}, ${grossMinor}, ${currency}, ${providerFeeMinor},
+        ${grossMinor}, ${currency}, ${providerFeeMinor}, ${lunavoFeeMinor}, ${sellerNetMinor}, 'pending'
       )
       ON CONFLICT (source_reference) DO NOTHING
     `);
