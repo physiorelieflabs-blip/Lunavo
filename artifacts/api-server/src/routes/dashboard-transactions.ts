@@ -159,10 +159,39 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
       ORDER BY w.created_at ASC
       LIMIT ${limit}
     `);
+    const pendingPaymentIntents = await db.execute(sql`
+      SELECT p.id,p.merchant_id,m.name AS merchant_name,m.email AS merchant_email,
+             p.order_id,p.amount_minor,p.currency,p.settlement_amount_minor,p.settlement_currency,
+             p.method,p.status,p.evidence_reference,p.provider_transaction_id,p.provider_event_id,
+             p.created_at,p.updated_at
+      FROM payment_intents p
+      INNER JOIN merchants m ON m.id=p.merchant_id
+      WHERE p.status NOT IN ('verified','failed','cancelled','expired','refunded','reversed')
+        AND (${currency ? sql`p.currency=${currency}` : sql`true`})
+        AND (${merchantId ? sql`p.merchant_id=${merchantId}` : sql`true`})
+      ORDER BY p.created_at ASC
+      LIMIT ${limit}
+    `);
+    const openReconciliationExceptions = await db.execute(sql`
+      SELECT e.id,e.provider,e.event_id,e.provider_transaction_id,e.payment_reference,
+             e.merchant_id,m.name AS merchant_name,e.order_id,e.payment_intent_id,
+             e.expected_amount_minor,e.observed_amount_minor,e.expected_currency,
+             e.observed_currency,e.reason,e.status,e.created_at
+      FROM payment_reconciliation_exceptions e
+      LEFT JOIN merchants m ON m.id=e.merchant_id
+      WHERE e.resolved_at IS NULL
+        AND e.status NOT IN ('resolved','closed','dismissed')
+        AND (${currency ? sql`(upper(e.expected_currency)=${currency} OR upper(e.observed_currency)=${currency})` : sql`true`})
+        AND (${merchantId ? sql`e.merchant_id=${merchantId}` : sql`true`})
+      ORDER BY e.created_at ASC
+      LIMIT ${limit}
+    `);
     res.json({
       transactions: rows.rows,
       summary: summary.rows,
       pendingWithdrawals: pendingWithdrawals.rows,
+      pendingPaymentIntents: pendingPaymentIntents.rows,
+      openReconciliationExceptions: openReconciliationExceptions.rows,
       sourceOfTruth: "immutable TS Pay ledger + provider-verified dashboard projection",
       moneyMovement: "read_only",
       message: "Provider settlement and payout confirmation are authoritative. Dashboard rows never by themselves confirm external funds movement.",
