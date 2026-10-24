@@ -45,10 +45,48 @@ type PendingWithdrawal = {
   provider_status: string | null;
   created_at: string;
 };
+type PendingPaymentIntent = {
+  id: number | string;
+  merchant_id: number | string;
+  merchant_name: string;
+  merchant_email: string;
+  order_id: number | string | null;
+  amount_minor: number | string;
+  currency: string;
+  settlement_amount_minor: number | string | null;
+  settlement_currency: string | null;
+  method: string;
+  status: string;
+  evidence_reference: string | null;
+  provider_transaction_id: string | null;
+  provider_event_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type ReconciliationException = {
+  id: number | string;
+  provider: string;
+  event_id: string;
+  provider_transaction_id: string | null;
+  payment_reference: string | null;
+  merchant_id: number | string | null;
+  merchant_name: string | null;
+  order_id: number | string | null;
+  payment_intent_id: number | string | null;
+  expected_amount_minor: number | string | null;
+  observed_amount_minor: number | string | null;
+  expected_currency: string | null;
+  observed_currency: string | null;
+  reason: string;
+  status: string;
+  created_at: string;
+};
 type Feed = {
   transactions: TxRow[];
   summary: SummaryRow[];
   pendingWithdrawals: PendingWithdrawal[];
+  pendingPaymentIntents: PendingPaymentIntent[];
+  openReconciliationExceptions: ReconciliationException[];
   sourceOfTruth: string;
   moneyMovement: 'read_only';
   message: string;
@@ -116,11 +154,12 @@ export default function AdminTransactions() {
 
       {feed.isLoading ? <LoadingState label="Loading platform money activity"/> :
        feed.isError ? <ErrorState onRetry={() => void feed.refetch()}/> : <>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard label="Activity rows" value={totals.transactions.toLocaleString()} detail="Matching the selected filters" icon={<Activity className="h-5 w-5"/>}/>
           <MetricCard label="Provider-verified" value={totals.verified.toLocaleString()} detail="Confirmed and verified records" icon={<ShieldCheck className="h-5 w-5"/>}/>
-          <MetricCard label="Needs attention" value={totals.attention.toLocaleString()} detail="Pending or unverified transactions" icon={<AlertTriangle className="h-5 w-5"/>}/>
-          <MetricCard label="Exceptions" value={totals.exceptions.toLocaleString()} detail="Failed, reversed, disputed, or reversed records" icon={<WalletCards className="h-5 w-5"/>}/>
+          <MetricCard label="Needs attention" value={totals.attention.toLocaleString()} detail="Pending/unverified ledger projections" icon={<AlertTriangle className="h-5 w-5"/>}/>
+          <MetricCard label="Open payment attempts" value={(feed.data?.pendingPaymentIntents.length ?? 0).toLocaleString()} detail="Payment intents not yet terminal" icon={<WalletCards className="h-5 w-5"/>}/>
+          <MetricCard label="Reconciliation cases" value={(feed.data?.openReconciliationExceptions.length ?? 0).toLocaleString()} detail="Open provider amount/reference mismatches" icon={<AlertTriangle className="h-5 w-5"/>}/>
         </div>
 
         <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 sm:p-6">
@@ -162,6 +201,30 @@ export default function AdminTransactions() {
               </tr>)}</tbody>
             </table>
           </div> : <EmptyState title="No matching transactions" description="Verified payments and ledger activity will appear here after they are recorded by Lunavo's server-side financial boundary."/>}
+        </section>
+
+        <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 sm:p-6">
+          <SectionHeading eyebrow="Unsettled inflows" title="Payment attempts awaiting a final state" description="These payment intents are not counted as received or spendable funds. This operational queue is independent of the ledger-table status filter above."/>
+          {feed.data?.pendingPaymentIntents.length ? <div className="mt-4 overflow-x-auto rounded-xl border border-[#ded8cd] bg-white">
+            <table className="w-full min-w-[900px] text-left text-xs"><thead className="bg-[#f0ede5] text-[10px] uppercase tracking-[.12em] text-[#697687]"><tr>
+              <th className="px-3 py-3">Attempt</th><th className="px-3 py-3">Merchant / order</th><th className="px-3 py-3">Amount</th><th className="px-3 py-3">Method / status</th><th className="px-3 py-3">Provider reference</th><th className="px-3 py-3">Created</th>
+            </tr></thead><tbody className="divide-y divide-[#eee9df]">{feed.data.pendingPaymentIntents.map(row=><tr key={String(row.id)} data-testid={`admin-pending-payment-${row.id}`}>
+              <td className="px-3 py-3 font-mono">PI-{row.id}</td><td className="px-3 py-3"><p className="font-bold">{row.merchant_name || `Merchant #${row.merchant_id}`}</p><p className="mt-1 text-[10px] text-[#697687]">{row.merchant_email} · Order {row.order_id ?? '—'}</p></td>
+              <td className="px-3 py-3 font-mono font-bold">{money(row.amount_minor,row.currency)}{row.settlement_currency && row.settlement_amount_minor !== null && row.settlement_currency !== row.currency ? <p className="mt-1 text-[10px] text-[#697687]">Settlement {money(row.settlement_amount_minor,row.settlement_currency)}</p> : null}</td>
+              <td className="px-3 py-3"><p>{label(row.method)}</p><Badge tone={['disputed','reconciliation_required'].includes(row.status)?'danger':'warning'}>{label(row.status)}</Badge></td>
+              <td className="px-3 py-3"><p className="font-mono">{row.provider_transaction_id || '—'}</p><p className="mt-1 text-[10px] text-[#697687]">{row.provider_event_id || row.evidence_reference || 'No provider evidence yet'}</p></td><td className="px-3 py-3">{when(row.created_at)}</td>
+            </tr>)}</tbody></table>
+          </div> : <EmptyState title="No open payment attempts" description="All currently tracked payment intents have reached a terminal state."/>}
+        </section>
+
+        <section className="rounded-2xl border border-[#e4bcb5] bg-[#fff9f7] p-5 sm:p-6">
+          <SectionHeading eyebrow="Finance action required" title="Open reconciliation exceptions" description="Amount, currency, or reference mismatches remain unresolved until a permitted Finance/Admin action resolves them. Raw provider payloads are not exposed in this screen."/>
+          {feed.data?.openReconciliationExceptions.length ? <div className="mt-4 space-y-3">{feed.data.openReconciliationExceptions.map(row=><div key={String(row.id)} className="rounded-xl border border-[#e4bcb5] bg-white p-4" data-testid={`admin-reconciliation-${row.id}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-extrabold">Exception #{row.id} · {row.merchant_name || (row.merchant_id ? `Merchant #${row.merchant_id}` : 'Unmatched merchant')}</p><p className="mt-1 text-xs text-[#697687]">{row.provider} · {when(row.created_at)} · {label(row.status)}</p></div><Badge tone="danger">Unresolved</Badge></div>
+            <p className="mt-3 text-sm font-semibold">{row.reason}</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2"><div className="rounded-lg bg-[#f7f4ed] p-3"><p className="text-[10px] font-bold uppercase text-[#697687]">Expected</p><p className="mt-1 font-mono text-sm">{row.expected_amount_minor === null || !row.expected_currency ? '—' : money(row.expected_amount_minor,row.expected_currency)}</p></div><div className="rounded-lg bg-[#f7f4ed] p-3"><p className="text-[10px] font-bold uppercase text-[#697687]">Observed</p><p className="mt-1 font-mono text-sm">{row.observed_amount_minor === null || !row.observed_currency ? '—' : money(row.observed_amount_minor,row.observed_currency)}</p></div></div>
+            <p className="mt-3 text-[10px] text-[#697687]">Payment reference: {row.payment_reference || row.provider_transaction_id || row.event_id} · Intent {row.payment_intent_id ?? '—'} · Order {row.order_id ?? '—'}</p>
+          </div>)}</div> : <EmptyState title="No open reconciliation exceptions" description="No unresolved provider reconciliation records were found for the selected currency/merchant filter."/>}
         </section>
 
         <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 sm:p-6">
