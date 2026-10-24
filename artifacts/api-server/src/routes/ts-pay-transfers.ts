@@ -55,9 +55,9 @@ router.post("/merchant/ts-pay/transfers", async (req, res, next) => {
         validateTsPayReplay({ existingToMerchantId:Number(existingRow.to_merchant_id), existingAmountMinor:Number(existingRow.amount_minor), existingCurrency:String(existingRow.currency), existingNote:existingRow.note == null ? null : String(existingRow.note), requestedToMerchantId:toMerchantId, requestedAmountMinor:amountMinor, requestedCurrency:currency, requestedNote:note });
         return { replay:true, row:existingRow };
       }
-      const balance = await tx.execute(sql`SELECT COALESCE(SUM(amount_minor),0)::bigint AS ledger_balance_minor FROM ledger_entries WHERE merchant_id=${fromMerchantId} AND currency=${String(currentFrom.currency).trim().toUpperCase()}`);
-      const holds = await tx.execute(sql`SELECT COALESCE(SUM(CASE WHEN entry_type='withdrawal_reserve' AND amount_minor>0 THEN amount_minor ELSE 0 END),0)::bigint AS withdrawal_hold_minor FROM ledger_entries WHERE merchant_id=${fromMerchantId} AND currency=${String(currentFrom.currency).trim().toUpperCase()}`);
-      const earnings = await tx.execute(sql`SELECT COALESCE(SUM(ROUND(CAST(earnings_held AS numeric) * 100)),0)::bigint AS earnings_held_minor FROM subscriptions WHERE merchant_id=${fromMerchantId} AND CAST(earnings_held AS numeric)>0`);
+      const balance = await tx.execute(sql`SELECT COALESCE(SUM(CASE WHEN entry_type NOT IN ('withdrawal_reserve','withdrawal_release') THEN amount_minor ELSE 0 END),0)::bigint AS ledger_balance_minor FROM ledger_entries WHERE merchant_id=${fromMerchantId} AND currency=${String(currentFrom.currency).trim().toUpperCase()}`);
+      const holds = await tx.execute(sql`SELECT COALESCE(SUM(ROUND(CAST(amount AS numeric)*100)),0)::bigint AS withdrawal_hold_minor FROM withdrawals WHERE merchant_id=${fromMerchantId} AND currency=${String(currentFrom.currency).trim().toUpperCase()} AND status IN ('pending','approved')`);
+      const earnings = await tx.execute(sql`SELECT COALESCE(SUM(ROUND(CAST(earnings_held AS numeric) * 100)),0)::bigint AS earnings_held_minor FROM subscriptions WHERE merchant_id=${fromMerchantId} AND currency=${String(currentFrom.currency).trim().toUpperCase()} AND CAST(earnings_held AS numeric)>0`);
       const ledgerBalanceMinor = Number((balance.rows[0] as any)?.ledger_balance_minor ?? 0);
       const withdrawalHoldMinor = Number((holds.rows[0] as any)?.withdrawal_hold_minor ?? 0);
       const earningsHeldMinor = Number((earnings.rows[0] as any)?.earnings_held_minor ?? 0);
