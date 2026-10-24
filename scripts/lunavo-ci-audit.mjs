@@ -46,6 +46,12 @@ const paths = [
   "artifacts/api-server/src/routes/admin-integrations.ts",
   "artifacts/api-server/src/routes/automation-workflows.ts",
   "artifacts/api-server/src/routes/advanced-commerce.ts",
+  "artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/routes/flutterwave-payment-processor.ts",
+  "artifacts/api-server/src/lib/store-auction-settlement.ts",
+  "artifacts/api-server/src/lib/product-auction-settlement.ts",
+  "lib/db/migrations/0129_merchant_fund_release_approval.sql",
+  "artifacts/ts-commerce/src/pages/admin-transactions.tsx",
   "artifacts/api-server/src/bootstrap-master-admin.ts",
   "scripts/production-preflight.mjs",
   ".github/workflows/ci.yml",
@@ -182,6 +188,66 @@ requireMarkers("Production edge compose profile", compose, [
 requireMarkers("CI production-preflight fixture", ciWorkflow, [
   'LUNAVO_PREFLIGHT_TEST_MODE: "1"',
   "pnpm run preflight:production",
+]);
+
+// Every externally verified merchant sale is held out of spendable balance
+// until an explicit, audited Master Admin release re-queries Flutterwave.
+const fundReleaseMigration = sources.get("lib/db/migrations/0129_merchant_fund_release_approval.sql") ?? "";
+const fundReleaseApi = sources.get("artifacts/api-server/src/routes/dashboard-transactions.ts") ?? "";
+const orderPaymentProcessor = sources.get("artifacts/api-server/src/routes/flutterwave-payment-processor.ts") ?? "";
+const storeAuctionSettlement = sources.get("artifacts/api-server/src/lib/store-auction-settlement.ts") ?? "";
+const productAuctionSettlement = sources.get("artifacts/api-server/src/lib/product-auction-settlement.ts") ?? "";
+const globalMoneyUi = sources.get("artifacts/ts-commerce/src/pages/admin-transactions.tsx") ?? "";
+requireMarkers("Merchant fund-release schema", fundReleaseMigration, [
+  "merchant_fund_release_reviews",
+  "provider_transaction_id",
+  "merchant_net_minor",
+  "merchant_fund_release_review_guard",
+  "Merchant fund-release review history is immutable",
+]);
+requireMarkers("Master Admin fund-release endpoint", fundReleaseApi, [
+  "/admin/dashboard/fund-releases/:id/release",
+  "await requireMasterAdmin(userId)",
+  "verifyFlutterwaveTransaction",
+  "status='released'",
+  "merchant_funds_released",
+  "pendingFundReleases",
+]);
+requireMarkers("Verified checkout proceeds hold", orderPaymentProcessor, [
+  "INSERT INTO merchant_fund_release_reviews",
+  "'order_payment'",
+  "flutterwave_dispute",
+  "fundsWereReleased",
+]);
+forbidMarkers("Verified checkout proceeds hold", orderPaymentProcessor, [
+  'entryType: "sale", referenceKey: `payment:${currentIntent.id}`',
+]);
+requireMarkers("Store auction proceeds hold", storeAuctionSettlement, [
+  "merchant_fund_release_reviews",
+  "'store_auction'",
+  "releaseReviewStatus:'pending'",
+]);
+forbidMarkers("Store auction proceeds hold", storeAuctionSettlement, [
+  "${auction.seller_merchant_id},${grossMinor},${currency},'sale',${sellerSaleKey}",
+]);
+requireMarkers("Product auction proceeds hold", productAuctionSettlement, [
+  "merchant_fund_release_reviews",
+  "'product_auction'",
+  "releaseReviewStatus:'pending'",
+]);
+forbidMarkers("Product auction proceeds hold", productAuctionSettlement, [
+  "${auction.merchant_id},${grossMinor},${currency},'sale',${`product-auction:${auctionId}:${bidId}:sale`}",
+]);
+requireMarkers("Global Money Control release UI", globalMoneyUi, [
+  "pendingFundReleases",
+  "releaseFund(row)",
+  "/api/admin/dashboard/fund-releases/",
+  "Release proceeds",
+  "Funds remain locked",
+]);
+const migrationRunner = sources.get("lib/db/src/migration-runner.ts") ?? await read("lib/db/src/migration-runner.ts");
+requireMarkers("Fund-release migration registry", migrationRunner, [
+  '"0129_merchant_fund_release_approval"',
 ]);
 
 try {
