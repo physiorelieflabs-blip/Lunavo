@@ -552,8 +552,10 @@ router.post("/admin/dashboard/fund-releases/:id/recheck", async (req, res): Prom
         await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${Number(review.payment_intent_id)} FOR UPDATE`);
       }
       const lockedResult = await tx.execute(sql`
-        SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
-               provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
+        SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+               provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+               provider_fee_evidence_minor,amount_minor,currency,legacy_hold,held_amount_minor,
+               legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
                provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status,review_note
         FROM merchant_fund_release_reviews WHERE id=${id} FOR UPDATE
       `);
@@ -807,8 +809,10 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         await tx.execute(sql`SELECT id FROM payment_intents WHERE id=${Number(initial.payment_intent_id)} FOR UPDATE`);
       }
       const lockedResult = await tx.execute(sql`
-        SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,payment_record_id,
-               provider,provider_transaction_id,provider_reference,amount_minor,currency,legacy_hold,
+        SELECT id,merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
+               provider,provider_transaction_id,provider_reference,provider_amount_minor,provider_currency,
+               provider_fee_evidence_minor,amount_minor,currency,legacy_hold,held_amount_minor,
+               legacy_provider_fee_posted_minor,legacy_lunavo_fee_posted_minor,
                provider_fee_minor,lunavo_fee_minor,merchant_net_minor,status
         FROM merchant_fund_release_reviews WHERE id=${id} FOR UPDATE
       `);
