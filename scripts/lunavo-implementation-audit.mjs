@@ -310,5 +310,29 @@ const customerSubApp=await read("artifacts/ts-commerce/src/App.tsx");
 for(const m of ['path="/customer-subscriptions"','path="/subscribe/:id"','path="/subscription-portal"','path="/subscribe/return"'])if(!customerSubApp.includes(m))failures.push("Customer subscription UI route invariant missing: "+m);
 const customerSubUi=await read("artifacts/ts-commerce/src/pages/customer-subscriptions.tsx");
 for(const m of ["Create a recurring plan","Published subscription plans","Customer subscriptions","Server verified billing"])if(!customerSubUi.includes(m))failures.push("Merchant subscription UI invariant missing: "+m);
+// Withdrawal accounting is a financial safety invariant, not a display-only concern.
+const withdrawalLedgerRules=await read("artifacts/api-server/src/lib/ts-pay-ledger-rules.ts");
+if(!withdrawalLedgerRules.includes("input.event === \"reserve\" ? input.amountMinor : -input.amountMinor"))failures.push("A paid withdrawal must be a negative ledger debit; reserve/release markers must never credit spendable funds");
+for(const file of [
+  "artifacts/api-server/src/routes/merchant-financials.ts",
+  "artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/routes/ts-pay-transfers.ts"
+]){
+  const source=await read(file);
+  if(!source.includes("NOT IN ('withdrawal_reserve','withdrawal_release')"))failures.push("Spendable balance includes payout reserve markers: "+file);
+  if(!source.includes("status IN ('pending','approved')"))failures.push("Active pending/approved withdrawals are not deducted from spendable balance: "+file);
+}
+const commerceWithdrawalAccounting=await read("artifacts/api-server/src/routes/commerce.ts");
+for(const marker of [
+  "NOT IN ('withdrawal_reserve','withdrawal_release')",
+  'inArray(withdrawalsTable.status, ["pending", "approved"])',
+  "withdrawalHoldMinor: Math.round(toNumber(withdrawalHolds?.total) * 100)",
+  "toNumber(withdrawalReserve?.total)",
+])if(!commerceWithdrawalAccounting.includes(marker))failures.push("Commerce financial path is missing payout-hold protection: "+marker);
+const withdrawalRepair=await read("lib/db/migrations/0128_withdrawal_balance_integrity.sql");
+for(const marker of ["migration:0128:paid-withdrawal-debit:","w.status = 'paid'","'adjustment'"])if(!withdrawalRepair.includes(marker))failures.push("Legacy paid-withdrawal balance correction missing: "+marker);
+const migrationRunner=await read("lib/db/src/migration-runner.ts");
+if(!migrationRunner.includes("0128_withdrawal_balance_integrity"))failures.push("Canonical/bootstrap migration registry is missing 0128_withdrawal_balance_integrity");
+
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
