@@ -553,13 +553,14 @@ async function processOrderPayment(transaction: ProviderTransaction, eventId: st
       INSERT INTO merchant_fund_release_reviews (
         merchant_id, source_type, source_reference, payment_intent_id, order_id,
         payment_record_id, provider, provider_transaction_id, provider_reference,
+        provider_amount_minor, provider_currency, provider_fee_evidence_minor,
         amount_minor, currency, provider_fee_minor, lunavo_fee_minor,
         merchant_net_minor, status
       ) VALUES (
         ${merchant.id}, 'order_payment', ${`payment:${currentIntent.id}`},
         ${currentIntent.id}, ${order.id}, ${currentRecord.id}, 'flutterwave',
-        ${providerId}, ${reference || null}, ${intent.amountMinor}, ${currency},
-        ${providerFeeMinor}, ${tsFeeMinor}, ${sellerNetMinor}, 'pending'
+        ${providerId}, ${reference || null}, ${intent.amountMinor}, ${currency}, ${providerFee},
+        ${intent.amountMinor}, ${currency}, ${providerFeeMinor}, ${tsFeeMinor}, ${sellerNetMinor}, 'pending'
       )
       ON CONFLICT (source_reference) DO NOTHING
     `);
