@@ -81,14 +81,33 @@ type ReconciliationException = {
   status: string;
   created_at: string;
 };
+type PendingSaleRelease = {
+  id: number | string;
+  merchant_id: number | string;
+  merchant_name: string;
+  merchant_email: string;
+  order_id: number | string | null;
+  invoice_id: number | string | null;
+  payment_record_id: number | string | null;
+  payment_intent_id: number | string | null;
+  source_type: string;
+  source_reference: string;
+  release_amount_minor: number | string;
+  currency: string;
+  provider_reference: string | null;
+  provider_transaction_id: string | null;
+  status: string;
+  created_at: string;
+};
 type Feed = {
   transactions: TxRow[];
   summary: SummaryRow[];
   pendingWithdrawals: PendingWithdrawal[];
   pendingPaymentIntents: PendingPaymentIntent[];
+  pendingSaleReleases: PendingSaleRelease[];
   openReconciliationExceptions: ReconciliationException[];
   sourceOfTruth: string;
-  moneyMovement: 'read_only';
+  moneyMovement: 'ledger_release_only';
   message: string;
 };
 const money = (minor: number | string, currency: string) => {
@@ -124,6 +143,8 @@ export default function AdminTransactions() {
   const [currency, setCurrency] = useState('');
   const [verificationState, setVerificationState] = useState('');
   const [status, setStatus] = useState('');
+  const [saleReleaseActionId, setSaleReleaseActionId] = useState<string | null>(null);
+  const [saleReleaseError, setSaleReleaseError] = useState<string | null>(null);
   const feed = useQuery({
     queryKey: ['admin-financial-control-feed', currency, verificationState, status],
     queryFn: () => loadFeed(currency, verificationState, status),
@@ -137,6 +158,32 @@ export default function AdminTransactions() {
     exceptions: sum.exceptions + Number(row.exception_count || 0),
   }), { transactions: 0, verified: 0, attention: 0, exceptions: 0 }), [feed.data?.summary]);
 
+  async function approveSaleRelease(row: PendingSaleRelease) {
+    const note = window.prompt(`Finance review for ${row.source_reference}. Confirm the evidence and enter your reason (at least 10 characters):`);
+    if (note === null) return;
+    if (note.trim().length < 10 || note.trim().length > 500) {
+      setSaleReleaseError('Enter a Finance review note of 10–500 characters.');
+      return;
+    }
+    setSaleReleaseError(null);
+    setSaleReleaseActionId(String(row.id));
+    try {
+      const response = await fetch(`/api/admin/dashboard/sale-releases/${row.id}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ note: note.trim() }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Sale release was not approved.');
+      await feed.refetch();
+    } catch (error) {
+      setSaleReleaseError(error instanceof Error ? error.message : 'Sale release was not approved.');
+    } finally {
+      setSaleReleaseActionId(null);
+    }
+  }
+
   return <AppShell admin>
     <div className="mx-auto max-w-[1380px] space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -149,18 +196,43 @@ export default function AdminTransactions() {
       </div>
 
       <div className="rounded-xl border border-[#dfc27a] bg-[#fff7df] p-4 text-sm leading-6 text-[#765817]">
-        <div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0"/><p><strong>Control-plane only.</strong> This screen is read-only. A dashboard row is not proof that funds moved; provider verification and the immutable TS Pay ledger are authoritative. Payouts stay pending until the payout provider confirms settlement.</p></div>
+        <div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0"/><p><strong>Controlled release.</strong> New sale credits and positive cutover balances are held in the immutable TS Pay ledger until a Master Admin reviews them here. Approval only releases the ledger hold; it does not itself transfer money to a bank. Payouts stay pending until the payout provider confirms settlement.</p></div>
       </div>
 
       {feed.isLoading ? <LoadingState label="Loading platform money activity"/> :
        feed.isError ? <ErrorState onRetry={() => void feed.refetch()}/> : <>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {saleReleaseError ? <div role="alert" className="rounded-xl border border-[#e4bcb5] bg-[#fff9f7] p-3 text-sm text-[#9c3023]">{saleReleaseError}</div> : null}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <MetricCard label="Held sale proceeds" value={(feed.data?.pendingSaleReleases.length ?? 0).toLocaleString()} detail="Awaiting Master Admin release" icon={<ShieldCheck className="h-5 w-5"/>}/>
           <MetricCard label="Activity rows" value={totals.transactions.toLocaleString()} detail="Matching the selected filters" icon={<Activity className="h-5 w-5"/>}/>
           <MetricCard label="Provider-verified" value={totals.verified.toLocaleString()} detail="Confirmed and verified records" icon={<ShieldCheck className="h-5 w-5"/>}/>
           <MetricCard label="Needs attention" value={totals.attention.toLocaleString()} detail="Pending/unverified ledger projections" icon={<AlertTriangle className="h-5 w-5"/>}/>
           <MetricCard label="Open payment attempts" value={(feed.data?.pendingPaymentIntents.length ?? 0).toLocaleString()} detail="Payment intents not yet terminal" icon={<WalletCards className="h-5 w-5"/>}/>
           <MetricCard label="Reconciliation cases" value={(feed.data?.openReconciliationExceptions.length ?? 0).toLocaleString()} detail="Open provider amount/reference mismatches" icon={<AlertTriangle className="h-5 w-5"/>}/>
         </div>
+
+        <section className="rounded-2xl border border-[#dfc27a] bg-[#fffaf0] p-5 sm:p-6">
+          <SectionHeading eyebrow="Mandatory pre-release gate" title="Sale proceeds awaiting Master Admin review" description="Each new positive sale ledger credit is automatically offset by an immutable hold in the same database transaction. The seller cannot spend that credit until a Master Admin approves it here. Pre-cutover positive ledger balances are queued for an explicit transition review too."/>
+          {feed.data?.pendingSaleReleases.length ? <div className="mt-4 space-y-3">
+            {feed.data.pendingSaleReleases.map(row => <div key={String(row.id)} className="rounded-xl border border-[#e3d5af] bg-white p-4" data-testid={`admin-sale-release-${row.id}`}>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-extrabold">{row.merchant_name || `Merchant #${row.merchant_id}`} · #{row.merchant_id}</p><Badge tone="warning">Pending review</Badge></div>
+                  <p className="mt-1 text-xs text-[#697687]">{row.merchant_email} · {label(row.source_type)} · {when(row.created_at)}</p>
+                  <p className="mt-2 break-all font-mono text-[10px] text-[#697687]">{row.source_reference}</p>
+                  <p className="mt-1 text-[10px] text-[#697687]">Provider reference: {row.provider_reference || '—'} · Transaction: {row.provider_transaction_id || '—'} · Order {row.order_id ?? '—'} · Invoice {row.invoice_id ?? '—'}</p>
+                  {row.source_type === 'legacy_balance' ? <p className="mt-2 text-xs font-semibold text-[#765817]">Pre-cutover balance: review merchant history and resolve any reconciliation cases before approval.</p> : null}
+                </div>
+                <div className="flex min-w-[190px] flex-col items-end gap-3">
+                  <p className="font-mono text-lg font-extrabold">{money(row.release_amount_minor,row.currency)} <span className="text-xs text-[#697687]">{row.currency}</span></p>
+                  <Button onClick={() => void approveSaleRelease(row)} disabled={saleReleaseActionId !== null || feed.isFetching}>
+                    {saleReleaseActionId === String(row.id) ? 'Reviewing…' : 'Approve release'}
+                  </Button>
+                </div>
+              </div>
+            </div>)}
+          </div> : <EmptyState title="No sale proceeds awaiting review" description="New sale entries are held by the database gate until review. The queue will show pending releases and pre-cutover positive balances when present."/>}
+        </section>
 
         <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 sm:p-6">
           <SectionHeading eyebrow="Filters" title="Inspect the whole platform" description="Filter to a currency, settlement state, or transaction status. Rows needing reconciliation are sorted first."/>

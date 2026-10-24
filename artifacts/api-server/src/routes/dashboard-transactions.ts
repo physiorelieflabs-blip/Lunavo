@@ -186,18 +186,256 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
       ORDER BY e.created_at ASC
       LIMIT ${limit}
     `);
+    const pendingSaleReleases = await db.execute(sql`
+      SELECT r.id,r.merchant_id,m.name AS merchant_name,m.email AS merchant_email,
+             r.order_id,r.invoice_id,r.payment_record_id,r.payment_intent_id,
+             r.source_type,r.source_reference,r.release_amount_minor,r.currency,
+             r.provider_reference,r.provider_transaction_id,r.status,r.created_at
+      FROM merchant_sale_release_requests r
+      INNER JOIN merchants m ON m.id=r.merchant_id
+      WHERE r.status='pending_review'
+        AND (${currency ? sql`r.currency=${currency}` : sql`true`})
+        AND (${merchantId ? sql`r.merchant_id=${merchantId}` : sql`true`})
+      ORDER BY r.created_at ASC
+      LIMIT ${limit}
+    `);
     res.json({
       transactions: rows.rows,
       summary: summary.rows,
       pendingWithdrawals: pendingWithdrawals.rows,
       pendingPaymentIntents: pendingPaymentIntents.rows,
+      pendingSaleReleases: pendingSaleReleases.rows,
       openReconciliationExceptions: openReconciliationExceptions.rows,
       sourceOfTruth: "immutable TS Pay ledger + provider-verified dashboard projection",
-      moneyMovement: "read_only",
-      message: "Provider settlement and payout confirmation are authoritative. Dashboard rows never by themselves confirm external funds movement.",
+      moneyMovement: "ledger_release_only",
+      message: "All new sale ledger credits are offset by an immutable ledger hold until a Master Admin reviews and releases the request. Dashboard rows alone never confirm external funds movement.",
     });
   } catch (error) { next(error); }
 });
 
+
+
+router.post("/admin/dashboard/sale-releases/:id/approve", async (req, res, next) => {
+  const userId = getAuth(req).userId;
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
+  try {
+    await requireMasterAdmin(userId);
+  } catch {
+    res.status(403).json({ error: "Master Admin access with MFA is required" });
+    return;
+  }
+
+  const releaseId = Number(req.params.id);
+  const reviewNote = typeof req.body?.note === "string" ? req.body.note.trim() : "";
+  if (!Number.isSafeInteger(releaseId) || releaseId < 1) {
+    res.status(400).json({ error: "Sale release ID must be a positive integer" });
+    return;
+  }
+  if (reviewNote.length < 10 || reviewNote.length > 500) {
+    res.status(400).json({ error: "A Finance review note of 10–500 characters is required" });
+    return;
+  }
+
+  try {
+    const outcome = await db.transaction(async tx => {
+      // Read without a lock first so we can follow the same payment-intent ->
+      // release-request lock order used by reversal/webhook processing.
+      const peekResult = await tx.execute(sql`SELECT * FROM merchant_sale_release_requests WHERE id=${releaseId}`);
+      const peek = peekResult.rows[0] as Record<string, any> | undefined;
+      if (!peek) return { kind: "not_found" as const };
+      if (String(peek.status) === "released") return { kind: "already_released" as const, duplicate: true };
+      if (String(peek.status) !== "pending_review") return { kind: "conflict" as const, status: String(peek.status) };
+
+      const merchantId = Number(peek.merchant_id);
+      const intentId = Number(peek.payment_intent_id ?? 0);
+      let providerReference = String(peek.provider_reference ?? "").trim();
+      let providerTransactionId = String(peek.provider_transaction_id ?? "").trim();
+      let merchantStatus = "";
+
+      if (intentId > 0) {
+        const intentResult = await tx.execute(sql`
+          SELECT pi.id,pi.merchant_id,pi.currency,pi.status,pi.amount_minor,pi.provider_transaction_id,
+                 pi.evidence_reference,pr.status AS payment_record_status,
+                 pr.evidence_reference AS payment_record_evidence,m.status AS merchant_status
+          FROM payment_intents pi
+          INNER JOIN merchants m ON m.id=pi.merchant_id
+          LEFT JOIN payment_records pr ON pr.id=${Number(peek.payment_record_id ?? 0)} AND pr.intent_id=pi.id
+          WHERE pi.id=${intentId}
+          FOR UPDATE OF pi,m
+        `);
+        const intent = intentResult.rows[0] as Record<string, any> | undefined;
+        if (!intent || Number(intent.merchant_id) !== merchantId ||
+            String(intent.currency).toUpperCase() !== String(peek.currency).toUpperCase()) {
+          return { kind: "conflict" as const, status: "payment_identity_mismatch" };
+        }
+        if (!["successful","verified"].includes(String(intent.status)) ||
+            (intent.payment_record_status && !["successful","verified"].includes(String(intent.payment_record_status)))) {
+          return { kind: "conflict" as const, status: "payment_not_verified" };
+        }
+        merchantStatus = String(intent.merchant_status);
+        const recordedProviderTransactionId = String(intent.provider_transaction_id ?? "").trim();
+        const recordedProviderReference = String(intent.payment_record_evidence ?? intent.evidence_reference ?? "").trim();
+        if ((providerTransactionId || recordedProviderTransactionId) &&
+            providerTransactionId !== recordedProviderTransactionId) {
+          return { kind: "conflict" as const, status: "provider_transaction_reference_mismatch" };
+        }
+        if ((providerReference || recordedProviderReference) &&
+            providerReference !== recordedProviderReference) {
+          return { kind: "conflict" as const, status: "provider_payment_reference_mismatch" };
+        }
+        const requestedReleaseAmount = Number(peek.release_amount_minor);
+        const providerCapturedAmount = Number(intent.amount_minor);
+        if (!Number.isSafeInteger(requestedReleaseAmount) || requestedReleaseAmount <= 0 ||
+            !Number.isSafeInteger(providerCapturedAmount) || providerCapturedAmount < requestedReleaseAmount) {
+          return { kind: "conflict" as const, status: "provider_amount_below_release_amount" };
+        }
+        providerTransactionId = recordedProviderTransactionId;
+        providerReference = recordedProviderReference;
+        if (!providerTransactionId && !providerReference) {
+          return { kind: "conflict" as const, status: "provider_evidence_missing" };
+        }
+      } else if (String(peek.source_type) === "store_auction_sale") {
+        const match = /^store-auction-sale:(\d+):(\d+)$/.exec(String(peek.source_reference));
+        if (!match || !providerReference || !providerTransactionId) {
+          return { kind: "conflict" as const, status: "auction_provider_evidence_missing" };
+        }
+        const auctionResult = await tx.execute(sql`
+          SELECT payment_status,payment_reference,currency,seller_merchant_id
+          FROM store_auction_listings WHERE id=${Number(match[1])} FOR UPDATE
+        `);
+        const auction = auctionResult.rows[0] as Record<string, any> | undefined;
+        if (!auction || Number(auction.seller_merchant_id) !== merchantId ||
+            String(auction.payment_status).toLowerCase() !== "verified" ||
+            String(auction.payment_reference ?? "") !== providerReference ||
+            String(auction.currency).toUpperCase() !== String(peek.currency).toUpperCase()) {
+          return { kind: "conflict" as const, status: "store_auction_not_verified" };
+        }
+      } else if (String(peek.source_type) === "product_auction_sale") {
+        const match = /^product-auction:(\d+):(\d+):sale$/.exec(String(peek.source_reference));
+        if (!match || !providerReference || !providerTransactionId) {
+          return { kind: "conflict" as const, status: "auction_provider_evidence_missing" };
+        }
+        const auctionResult = await tx.execute(sql`
+          SELECT status,settlement_status,settlement_reference,currency,merchant_id
+          FROM auction_listings WHERE id=${Number(match[1])} FOR UPDATE
+        `);
+        const auction = auctionResult.rows[0] as Record<string, any> | undefined;
+        if (!auction || Number(auction.merchant_id) !== merchantId ||
+            String(auction.status).toLowerCase() !== "paid" ||
+            String(auction.settlement_status).toLowerCase() !== "verified" ||
+            String(auction.settlement_reference ?? "") !== providerTransactionId ||
+            String(auction.currency).toUpperCase() !== String(peek.currency).toUpperCase()) {
+          return { kind: "conflict" as const, status: "product_auction_not_verified" };
+        }
+      } else if (String(peek.source_type) !== "legacy_balance") {
+        return { kind: "conflict" as const, status: "payment_evidence_missing" };
+      }
+
+      const exceptionResult = String(peek.source_type) === "legacy_balance"
+        ? await tx.execute(sql`
+            SELECT id FROM payment_reconciliation_exceptions
+            WHERE merchant_id=${merchantId} AND resolved_at IS NULL
+              AND status NOT IN ('resolved','closed','dismissed')
+            LIMIT 1
+          `)
+        : await tx.execute(sql`
+            SELECT id FROM payment_reconciliation_exceptions
+            WHERE merchant_id=${merchantId} AND resolved_at IS NULL
+              AND status NOT IN ('resolved','closed','dismissed')
+              AND (
+                (${intentId} > 0 AND payment_intent_id=${intentId})
+                OR (${providerTransactionId} <> '' AND provider_transaction_id=${providerTransactionId})
+                OR (${providerReference} <> '' AND payment_reference=${providerReference})
+              )
+            LIMIT 1
+          `);
+      if (exceptionResult.rows.length) return { kind: "conflict" as const, status: "open_reconciliation_exception" };
+
+      const lockedResult = await tx.execute(sql`SELECT * FROM merchant_sale_release_requests WHERE id=${releaseId} FOR UPDATE`);
+      const release = lockedResult.rows[0] as Record<string, any> | undefined;
+      if (!release) return { kind: "not_found" as const };
+      if (String(release.status) === "released") return { kind: "already_released" as const, duplicate: true };
+      if (String(release.status) !== "pending_review") return { kind: "conflict" as const, status: String(release.status) };
+
+      const merchantResult = await tx.execute(sql`SELECT id,status FROM merchants WHERE id=${merchantId} FOR UPDATE`);
+      const merchant = merchantResult.rows[0] as Record<string, any> | undefined;
+      merchantStatus = merchantStatus || String(merchant?.status ?? "");
+      if (!merchant || merchantStatus !== "active" || String(merchant.status) !== "active") {
+        return { kind: "conflict" as const, status: "merchant_not_active" };
+      }
+
+      const amountMinor = Number(release.release_amount_minor);
+      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+        return { kind: "conflict" as const, status: "invalid_release_amount" };
+      }
+      const holdResult = await tx.execute(sql`
+        SELECT id,merchant_id,amount_minor,currency FROM ledger_entries
+        WHERE reference_key=${"sale-release-hold:" + String(release.source_reference)}
+        FOR UPDATE
+      `);
+      const hold = holdResult.rows[0] as Record<string, any> | undefined;
+      if (!hold || Number(hold.merchant_id) !== merchantId ||
+          Number(hold.amount_minor) !== -amountMinor ||
+          String(hold.currency).toUpperCase() !== String(release.currency).toUpperCase()) {
+        return { kind: "conflict" as const, status: "sale_hold_missing_or_mismatch" };
+      }
+      if (String(release.source_type) !== "legacy_balance") {
+        const saleResult = await tx.execute(sql`
+          SELECT id,merchant_id,amount_minor,currency,order_id,invoice_id,payment_record_id
+          FROM ledger_entries
+          WHERE entry_type='sale' AND reference_key=${String(release.source_reference)}
+          FOR UPDATE
+        `);
+        const sale = saleResult.rows[0] as Record<string, any> | undefined;
+        if (!sale || Number(sale.merchant_id) !== merchantId ||
+            Number(sale.amount_minor) !== amountMinor ||
+            String(sale.currency).toUpperCase() !== String(release.currency).toUpperCase() ||
+            Number(sale.order_id ?? 0) !== Number(release.order_id ?? 0) ||
+            Number(sale.invoice_id ?? 0) !== Number(release.invoice_id ?? 0) ||
+            Number(sale.payment_record_id ?? 0) !== Number(release.payment_record_id ?? 0)) {
+          return { kind: "conflict" as const, status: "sale_ledger_mismatch" };
+        }
+      }
+      const priorMarker = await tx.execute(sql`
+        SELECT id FROM ledger_entries
+        WHERE reference_key IN (${"sale-release:" + releaseId},${"sale-release-cancel:" + releaseId})
+        LIMIT 1
+      `);
+      if (priorMarker.rows.length) {
+        return { kind: "conflict" as const, status: "release_marker_exists" };
+      }
+      await tx.execute(sql`
+        INSERT INTO ledger_entries (
+          merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key
+        ) VALUES (
+          ${merchantId},${release.order_id ?? null},${release.invoice_id ?? null},
+          ${release.payment_record_id ?? null},${amountMinor},upper(${String(release.currency)}),
+          'sale_release',${"sale-release:" + releaseId}
+        ) ON CONFLICT (reference_key) DO NOTHING
+      `);
+      await tx.execute(sql`
+        UPDATE merchant_sale_release_requests
+        SET status='released',reviewed_by=${userId},reviewed_at=now(),review_note=${reviewNote},
+            provider_reference=COALESCE(provider_reference,${providerReference || null}),
+            provider_transaction_id=COALESCE(provider_transaction_id,${providerTransactionId || null}),
+            updated_at=now()
+        WHERE id=${releaseId} AND status='pending_review'
+      `);
+      return { kind: "released" as const, duplicate: false, id: releaseId, amountMinor, currency: String(release.currency).toUpperCase() };
+    });
+
+    if (outcome.kind === "not_found") { res.status(404).json({ error: "Sale release request not found" }); return; }
+    if (outcome.kind === "conflict") {
+      res.status(409).json({ error: "Sale proceeds were not released because the request failed a verification/review guard", reason: outcome.status });
+      return;
+    }
+    res.json({
+      ok: true,
+      duplicate: outcome.duplicate,
+      ...("id" in outcome ? { releaseId: outcome.id, amountMinor: outcome.amountMinor, currency: outcome.currency } : {}),
+      message: outcome.kind === "already_released" ? "This sale release was already approved." : "Sale release approved and recorded in the immutable TS Pay ledger.",
+    });
+  } catch (error) { next(error); }
+});
 
 export default router;

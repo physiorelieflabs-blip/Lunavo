@@ -46,7 +46,14 @@ const paths = [
   "artifacts/api-server/src/routes/admin-integrations.ts",
   "artifacts/api-server/src/routes/automation-workflows.ts",
   "artifacts/api-server/src/routes/advanced-commerce.ts",
+  "artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/routes/flutterwave-payment-processor.ts",
+  "artifacts/api-server/src/lib/store-auction-settlement.ts",
+  "artifacts/api-server/src/lib/product-auction-settlement.ts",
   "artifacts/api-server/src/bootstrap-master-admin.ts",
+  "lib/db/src/migration-runner.ts",
+  "lib/db/migrations/0129_merchant_sale_release_gate.sql",
+  "artifacts/ts-commerce/src/pages/admin-transactions.tsx",
   "scripts/production-preflight.mjs",
   ".github/workflows/ci.yml",
   "docker-compose.yml",
@@ -69,6 +76,13 @@ const preflight = sources.get("scripts/production-preflight.mjs") ?? "";
 const compose = sources.get("docker-compose.yml") ?? "";
 const caddy = sources.get("Caddyfile") ?? "";
 const ciWorkflow = sources.get(".github/workflows/ci.yml") ?? "";
+const saleReleaseApi = sources.get("artifacts/api-server/src/routes/dashboard-transactions.ts") ?? "";
+const saleReleasePayments = sources.get("artifacts/api-server/src/routes/flutterwave-payment-processor.ts") ?? "";
+const storeAuctionSettlement = sources.get("artifacts/api-server/src/lib/store-auction-settlement.ts") ?? "";
+const productAuctionSettlement = sources.get("artifacts/api-server/src/lib/product-auction-settlement.ts") ?? "";
+const releaseMigration = sources.get("lib/db/migrations/0129_merchant_sale_release_gate.sql") ?? "";
+const releaseUi = sources.get("artifacts/ts-commerce/src/pages/admin-transactions.tsx") ?? "";
+const migrationRunner = sources.get("lib/db/src/migration-runner.ts") ?? "";
 
 // The brain and its specialist ensemble must use the maintained local model
 // router. Do not pin this audit to removed model-pool names or implementation
@@ -182,6 +196,51 @@ requireMarkers("Production edge compose profile", compose, [
 requireMarkers("CI production-preflight fixture", ciWorkflow, [
   'LUNAVO_PREFLIGHT_TEST_MODE: "1"',
   "pnpm run preflight:production",
+]);
+requireMarkers("Database-enforced sale release gate", releaseMigration, [
+  "CREATE TABLE IF NOT EXISTS merchant_sale_release_requests",
+  "NEW.entry_type = 'sale' AND NEW.amount_minor > 0",
+  "sale_release_hold",
+  "legacy_balance",
+  "Pre-cutover positive balance frozen for Master Admin review",
+]);
+requireMarkers("Release migration registration", migrationRunner, [
+  "0129_merchant_sale_release_gate",
+]);
+requireMarkers("Master Admin sale-release API", saleReleaseApi, [
+  "pendingSaleReleases",
+  '/admin/dashboard/sale-releases/:id/approve',
+  "requireMasterAdmin(userId)",
+  "sale_release",
+  "open_reconciliation_exception",
+  "reviewed_by",
+  "sale_hold_missing_or_mismatch",
+  "sale_ledger_mismatch",
+  "release_marker_exists",
+  "provider_transaction_reference_mismatch",
+  "provider_payment_reference_mismatch",
+  "provider_amount_below_release_amount",
+]);
+requireMarkers("Sale-reversal and dispute safety", saleReleasePayments, [
+  "sale-release-cancel:",
+  "sale-dispute-hold:",
+  "sale-dispute-cancel:",
+  "merchant_sale_release_requests",
+  '["successful", "verified", "disputed"]',
+]);
+requireMarkers("Store auction release evidence", storeAuctionSettlement, [
+  "merchant_sale_release_requests",
+  "provider_transaction_id",
+]);
+requireMarkers("Product auction release evidence", productAuctionSettlement, [
+  "merchant_sale_release_requests",
+  "provider_transaction_id",
+]);
+requireMarkers("Master Admin release UI", releaseUi, [
+  "Mandatory pre-release gate",
+  "Approve release",
+  "Finance review note",
+  "/api/admin/dashboard/sale-releases/",
 ]);
 
 try {

@@ -40,6 +40,7 @@ const financialBoundaryFiles = new Set([
   "artifacts/api-server/src/routes/customer-subscriptions.ts",
   "artifacts/api-server/src/lib/customer-subscription-worker.ts",
   "artifacts/api-server/src/routes/flutterwave-payment-processor.ts",
+  "artifacts/api-server/src/routes/dashboard-transactions.ts",
 ]);
 
 const providerDomains = [
@@ -68,12 +69,26 @@ async function walk(dir) {
   return files;
 }
 
+const dashboardSaleReleasePath = "artifacts/api-server/src/routes/dashboard-transactions.ts";
+
 for (const dir of apiRoots) {
   for (const file of await walk(dir)) {
     const rel = path.relative(root, file).replaceAll(path.sep, "/");
     const source = await readFile(file, "utf8");
     if (financialMutationMarkers.some((marker) => marker.test(source)) && !financialBoundaryFiles.has(rel)) {
       failures.push(`Financial mutation outside an approved server boundary: ${rel}`);
+    }
+    if (rel === dashboardSaleReleasePath && financialMutationMarkers.some((marker) => marker.test(source))) {
+      const releaseRoute = 'router.post("/admin/dashboard/sale-releases/:id/approve"';
+      const routeStart = source.indexOf(releaseRoute);
+      const readOnlyPrefix = routeStart < 0 ? source : source.slice(0, routeStart);
+      if (routeStart < 0 ||
+          financialMutationMarkers.some((marker) => marker.test(readOnlyPrefix)) ||
+          !source.includes("await requireMasterAdmin(userId)") ||
+          !source.includes("open_reconciliation_exception") ||
+          !source.includes("reviewed_by")) {
+        failures.push("Dashboard sale-release mutation is missing its dedicated MFA/admin, reconciliation, or review-audit guard.");
+      }
     }
   }
 }

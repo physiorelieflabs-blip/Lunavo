@@ -63,6 +63,11 @@ export async function settleVerifiedProductAuctionPayment(transaction: ProviderT
     await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.merchant_id},${grossMinor},${currency},'sale',${`product-auction:${auctionId}:${bidId}:sale`}) ON CONFLICT (reference_key) DO NOTHING`);
     if (lunavoFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.merchant_id},${-lunavoFeeMinor},${currency},'fee',${`product-auction:${auctionId}:${bidId}:lunavo-fee`}) ON CONFLICT (reference_key) DO NOTHING`);
     if (providerFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.merchant_id},${-providerFeeMinor},${currency},'fee',${`product-auction:${auctionId}:${bidId}:provider-fee`}) ON CONFLICT (reference_key) DO NOTHING`);
+    await tx.execute(sql`UPDATE merchant_sale_release_requests
+      SET provider_reference=${providerReference},provider_transaction_id=${transactionId},updated_at=now()
+      WHERE source_type='product_auction_sale'
+        AND source_reference=${`product-auction:${auctionId}:${bidId}:sale`}
+        AND status='pending_review'`);
 
     await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${auction.merchant_id},'product_auction_sale','sale','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${transactionId},${`PRODUCT-AUC-${auctionId}-${bidId}`},${`product-auction:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,providerTransactionId:transactionId,providerReference,role:'seller',sellerNetMinor})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',verification_state='verified',verified_at=now(),provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
 
