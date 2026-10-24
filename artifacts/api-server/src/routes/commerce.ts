@@ -3038,7 +3038,7 @@ async function verifyPublicFlutterwaveInvoice(token: string, checkoutId: string 
     const current = (await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoice.id)).limit(1))[0];
     const currentIntent = (await tx.select().from(paymentIntentsTable).where(eq(paymentIntentsTable.id, intent.id)).limit(1))[0];
     if (!current || !currentIntent) throw new Error("Invoice payment session is no longer available");
-    if (current.status === "paid" || currentIntent.status === "verified") return current;
+    if (current.status === "paid" || ["verified", "successful"].includes(currentIntent.status)) return current;
     const [record] = await tx.insert(paymentRecordsTable).values({
       intentId: currentIntent.id,
       merchantId: current.merchantId,
