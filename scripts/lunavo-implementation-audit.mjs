@@ -334,5 +334,28 @@ for(const marker of ["migration:0128:paid-withdrawal-debit:","w.status = 'paid'"
 const migrationRunner=await read("lib/db/src/migration-runner.ts");
 if(!migrationRunner.includes("0128_withdrawal_balance_integrity"))failures.push("Canonical/bootstrap migration registry is missing 0128_withdrawal_balance_integrity");
 
+// Master Admin must have one platform-wide financial activity feed and a visible
+// pending-payout queue. It is intentionally read-only and gated by master-admin MFA.
+const globalMoneyApi=await read("artifacts/api-server/src/routes/dashboard-transactions.ts");
+for(const marker of [
+  'router.get("/admin/dashboard/transactions"',
+  "requireMasterAdmin(userId)",
+  "FROM lunavo_dashboard_transactions t",
+  "pendingWithdrawals",
+  "moneyMovement: \"read_only\"",
+])if(!globalMoneyApi.includes(marker))failures.push("Master Admin money-control feed invariant missing: "+marker);
+const globalMoneyUi=await read("artifacts/ts-commerce/src/pages/admin-transactions.tsx");
+for(const marker of [
+  "/api/admin/dashboard/transactions",
+  "Needs attention",
+  "Provider-verified",
+  "Withdrawals awaiting provider settlement",
+  "read-only",
+])if(!globalMoneyUi.includes(marker))failures.push("Master Admin money-control UI invariant missing: "+marker);
+const globalMoneyApp=await read("artifacts/ts-commerce/src/App.tsx");
+if(!globalMoneyApp.includes('path="/admin/transactions"')||!globalMoneyApp.includes("<AdminTransactions />"))failures.push("Master Admin money-control route is not registered");
+const globalMoneyNav=await read("artifacts/ts-commerce/src/components/app-shell.tsx");
+if(!globalMoneyNav.includes("Global Money Control")||!globalMoneyNav.includes("/admin/transactions"))failures.push("Master Admin money-control screen is not in admin navigation");
+
 if(failures.length){console.error("Lunavo implementation audit: FAIL");for(const f of failures)console.error(`- ${f}`);process.exit(1)}console.log("Lunavo implementation audit: PASS");
 
