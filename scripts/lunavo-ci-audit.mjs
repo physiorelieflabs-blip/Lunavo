@@ -212,6 +212,7 @@ requireMarkers("Merchant fund-release schema", fundReleaseMigration, [
   "Merchant fund-release review history is immutable",
 ]);
 requireMarkers("Master Admin fund-release endpoint", fundReleaseApi, [
+  "/admin/dashboard/fund-releases/:id/recheck",
   "/admin/dashboard/fund-releases/:id/release",
   "await requireMasterAdmin(userId)",
   "verifyFlutterwaveTransaction",
@@ -249,6 +250,7 @@ requireMarkers("Global Money Control release UI", globalMoneyUi, [
   "releaseFund(row)",
   "/api/admin/dashboard/fund-releases/",
   "Release proceeds",
+  "Recheck & reopen",
   "Proceeds remain locked",
   "legacy_hold",
 ]);
