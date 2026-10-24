@@ -2592,6 +2592,14 @@ async function verifyPublicFlutterwaveOrder(
 
     const settlementAmountMinor = currentIntent.settlementAmountMinor ?? currentIntent.amountMinor;
     const settlementCurrency = currentIntent.settlementCurrency ?? currentOrder.currency;
+    const merchantProviderFeeMinor = provider.providerFeeEvidenceMinor == null
+      ? Number(currentIntent.providerFeeMinor ?? 0)
+      : Math.round(provider.providerFeeEvidenceMinor * settlementAmountMinor / Number(currentIntent.amountMinor));
+    const tsFeeMinor = calculateTsCommerceFeeMinor(settlementAmountMinor);
+    const merchantNetMinor = settlementAmountMinor - merchantProviderFeeMinor - tsFeeMinor;
+    if (!Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0) {
+      throw new Error("The verified payment did not produce a safe non-negative merchant settlement");
+    }
     const [record] = await tx
       .insert(paymentRecordsTable)
       .values({
@@ -2642,14 +2650,6 @@ async function verifyPublicFlutterwaveOrder(
         verifiedAt: new Date(),
       })
       .where(eq(paymentRecordsTable.id, paymentRecord.id));
-    const merchantProviderFeeMinor = provider.providerFeeEvidenceMinor == null
-      ? Number(currentIntent.providerFeeMinor ?? 0)
-      : Math.round(provider.providerFeeEvidenceMinor * settlementAmountMinor / Number(currentIntent.amountMinor));
-    const tsFeeMinor = calculateTsCommerceFeeMinor(settlementAmountMinor);
-    const merchantNetMinor = settlementAmountMinor - merchantProviderFeeMinor - tsFeeMinor;
-    if (!Number.isSafeInteger(merchantNetMinor) || merchantNetMinor < 0) {
-      throw new Error("The verified payment did not produce a safe non-negative merchant settlement");
-    }
     await tx.execute(sql`
       INSERT INTO merchant_fund_release_reviews (
         merchant_id,source_type,source_reference,payment_intent_id,order_id,invoice_id,payment_record_id,
