@@ -146,16 +146,33 @@ SELECT
   GREATEST(0,COALESCE(-lunavo_fee.amount_minor,COALESCE(p.ts_commerce_fee_minor,floor(sale.amount_minor::numeric/100 + 0.5)::bigint))),
   GREATEST(0,COALESCE(current_net.amount_minor,0)),
   CASE
-    WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN 'pending'
+    WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM payment_reconciliation_exceptions e
+      WHERE e.payment_intent_id=p.id AND e.resolved_at IS NULL
+        AND e.status NOT IN ('resolved','closed','dismissed')
+    ) THEN 'pending'
     ELSE 'reconciliation_required'
   END,
   CASE
     WHEN NULLIF(p.provider_transaction_id,'') IS NULL THEN 'Legacy sale is missing provider transaction evidence'
-    WHEN p.status NOT IN ('successful','verified') THEN 'Legacy payment state requires Finance reconciliation'
+    WHEN EXISTS (
+      SELECT 1 FROM payment_reconciliation_exceptions e
+      WHERE e.payment_intent_id=p.id AND e.resolved_at IS NULL
+        AND e.status NOT IN ('resolved','closed','dismissed')
+    ) THEN 'Legacy sale has an unresolved provider reconciliation exception'
+    WHEN p.status <> 'successful' OR pr.status <> 'successful' THEN 'Legacy payment state requires Finance reconciliation'
     ELSE NULL
   END,
-  CASE WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN NULL ELSE 'migration:0130' END,
-  CASE WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL THEN NULL ELSE now() END,
+  CASE WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM payment_reconciliation_exceptions e
+      WHERE e.payment_intent_id=p.id AND e.resolved_at IS NULL
+        AND e.status NOT IN ('resolved','closed','dismissed')
+    ) THEN NULL ELSE 'migration:0130' END,
+  CASE WHEN p.status='successful' AND pr.status='successful' AND NULLIF(p.provider_transaction_id,'') IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM payment_reconciliation_exceptions e
+      WHERE e.payment_intent_id=p.id AND e.resolved_at IS NULL
+        AND e.status NOT IN ('resolved','closed','dismissed')
+    ) THEN NULL ELSE now() END,
   TRUE
 FROM payment_intents p
 JOIN orders o ON o.id=p.order_id AND o.merchant_id=p.merchant_id
