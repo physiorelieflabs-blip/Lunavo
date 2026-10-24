@@ -254,7 +254,7 @@ router.post("/admin/dashboard/sale-releases/:id/approve", async (req, res, next)
 
       if (intentId > 0) {
         const intentResult = await tx.execute(sql`
-          SELECT pi.id,pi.merchant_id,pi.currency,pi.status,pi.provider_transaction_id,
+          SELECT pi.id,pi.merchant_id,pi.currency,pi.status,pi.amount_minor,pi.provider_transaction_id,
                  pi.evidence_reference,pr.status AS payment_record_status,
                  pr.evidence_reference AS payment_record_evidence,m.status AS merchant_status
           FROM payment_intents pi
@@ -273,8 +273,24 @@ router.post("/admin/dashboard/sale-releases/:id/approve", async (req, res, next)
           return { kind: "conflict" as const, status: "payment_not_verified" };
         }
         merchantStatus = String(intent.merchant_status);
-        providerTransactionId ||= String(intent.provider_transaction_id ?? "").trim();
-        providerReference ||= String(intent.payment_record_evidence ?? intent.evidence_reference ?? "").trim();
+        const recordedProviderTransactionId = String(intent.provider_transaction_id ?? "").trim();
+        const recordedProviderReference = String(intent.payment_record_evidence ?? intent.evidence_reference ?? "").trim();
+        if ((providerTransactionId || recordedProviderTransactionId) &&
+            providerTransactionId !== recordedProviderTransactionId) {
+          return { kind: "conflict" as const, status: "provider_transaction_reference_mismatch" };
+        }
+        if ((providerReference || recordedProviderReference) &&
+            providerReference !== recordedProviderReference) {
+          return { kind: "conflict" as const, status: "provider_payment_reference_mismatch" };
+        }
+        const requestedReleaseAmount = Number(peek.release_amount_minor);
+        const providerCapturedAmount = Number(intent.amount_minor);
+        if (!Number.isSafeInteger(requestedReleaseAmount) || requestedReleaseAmount <= 0 ||
+            !Number.isSafeInteger(providerCapturedAmount) || providerCapturedAmount < requestedReleaseAmount) {
+          return { kind: "conflict" as const, status: "provider_amount_below_release_amount" };
+        }
+        providerTransactionId = recordedProviderTransactionId;
+        providerReference = recordedProviderReference;
         if (!providerTransactionId && !providerReference) {
           return { kind: "conflict" as const, status: "provider_evidence_missing" };
         }
