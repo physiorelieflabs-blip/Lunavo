@@ -105,13 +105,14 @@ router.get("/admin/dashboard/transactions", async (req, res, next) => {
   const currency = typeof req.query.currency === "string" ? req.query.currency.trim().toUpperCase() : "";
   const status = typeof req.query.status === "string" ? req.query.status.trim().toLowerCase() : "";
   const verificationState = typeof req.query.verificationState === "string" ? req.query.verificationState.trim().toLowerCase() : "";
-  const merchantId = req.query.merchantId === undefined ? 0 : Number(req.query.merchantId);
+  const hasMerchantFilter = req.query.merchantId !== undefined;
+  const merchantId = hasMerchantFilter ? Number(req.query.merchantId) : 0;
   if (currency && !/^[A-Z]{3}$/.test(currency)) { res.status(400).json({ error: "Currency must be a 3-letter ISO code" }); return; }
   if (status && !/^[a-z_]{1,40}$/.test(status)) { res.status(400).json({ error: "Invalid transaction status filter" }); return; }
   if (verificationState && !["unverified", "verified", "reversed", "reconciliation_required"].includes(verificationState)) {
     res.status(400).json({ error: "Invalid verification state filter" }); return;
   }
-  if (merchantId && (!Number.isSafeInteger(merchantId) || merchantId < 1)) {
+  if (hasMerchantFilter && (!Number.isSafeInteger(merchantId) || merchantId < 1)) {
     res.status(400).json({ error: "Merchant ID must be a positive integer" }); return;
   }
 
