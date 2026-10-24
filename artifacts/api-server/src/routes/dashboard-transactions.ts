@@ -372,6 +372,13 @@ router.post("/admin/dashboard/fund-releases/:id/manual-release", async (req, res
         WHERE id=${id} AND status='reconciliation_required' RETURNING id
       `);
       if (!reopened.rows.length) return { outcome:"replay" as const };
+      const finalized = await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews
+        SET status='released',reviewed_at=now(),reviewed_by=${userId},
+            review_note=${(reviewNote + " [External receipt reference: " + externalReference + "]").slice(0,700)}
+        WHERE id=${id} AND status='pending' RETURNING id
+      `);
+      if (!finalized.rows.length) return { outcome:"replay" as const };
 
       if (Boolean(row.legacy_hold)) {
         if (heldAmount > 0) await tx.execute(sql`
@@ -419,12 +426,6 @@ router.post("/admin/dashboard/fund-releases/:id/manual-release", async (req, res
           ON CONFLICT (reference_key) DO NOTHING
         `);
       }
-      await tx.execute(sql`
-        UPDATE merchant_fund_release_reviews
-        SET status='released',reviewed_at=now(),reviewed_by=${userId},
-            review_note=${reviewNote}
-        WHERE id=${id} AND status='pending'
-      `);
       await tx.execute(sql`
         INSERT INTO audit_logs (
           user_id,merchant_id,action,resource_type,resource_id,changes,
@@ -919,6 +920,15 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         return await blockRelease("Unsupported fund-release source type.");
       }
 
+      // Finalize this immutable review before creating any positive sale/fund-release
+      // ledger row. PostgreSQL's ledger trigger requires that status in the same tx.
+      const finalized = await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews
+        SET status='released',reviewed_at=now(),reviewed_by=${userId},review_note=${note}
+        WHERE id=${id} AND status='pending' RETURNING id
+      `);
+      if (!finalized.rows.length) return { outcome: "duplicate" as const };
+
       if (Boolean(row.legacy_hold)) {
         const heldAmountMinor = Number(row.held_amount_minor ?? 0);
         const missingProviderFeeMinor = providerFeeMinor - Number(row.legacy_provider_fee_posted_minor ?? 0);
@@ -985,12 +995,6 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
           `);
         }
       }
-      const updated = await tx.execute(sql`
-        UPDATE merchant_fund_release_reviews
-        SET status='released',reviewed_at=now(),reviewed_by=${userId},review_note=${note}
-        WHERE id=${id} AND status='pending' RETURNING id
-      `);
-      if (!updated.rows.length) return { outcome: "duplicate" as const };
       await tx.execute(sql`
         UPDATE lunavo_dashboard_transactions
         SET metadata=COALESCE(metadata,'{}'::jsonb) || ${JSON.stringify({fundsReleased:true,releaseReviewStatus:"released"})}::jsonb,
