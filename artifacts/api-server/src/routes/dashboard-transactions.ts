@@ -36,9 +36,9 @@ router.get("/merchant/dashboard/transactions", async (req, res, next) => {
     // are subtracted from the ledger total to produce available earnings.
     const balance = await db.execute(sql`
       SELECT currency,
-             COALESCE(SUM(amount_minor),0)::bigint AS ledger_balance_minor,
-             COALESCE(SUM(CASE WHEN amount_minor > 0 THEN amount_minor ELSE 0 END),0)::bigint AS credits_minor,
-             COALESCE(SUM(CASE WHEN amount_minor < 0 THEN ABS(amount_minor) ELSE 0 END),0)::bigint AS debits_minor
+             COALESCE(SUM(CASE WHEN entry_type NOT IN ('withdrawal_reserve','withdrawal_release') THEN amount_minor ELSE 0 END),0)::bigint AS ledger_balance_minor,
+             COALESCE(SUM(CASE WHEN entry_type NOT IN ('withdrawal_reserve','withdrawal_release') AND amount_minor > 0 THEN amount_minor ELSE 0 END),0)::bigint AS credits_minor,
+             COALESCE(SUM(CASE WHEN entry_type NOT IN ('withdrawal_reserve','withdrawal_release') AND amount_minor < 0 THEN ABS(amount_minor) ELSE 0 END),0)::bigint AS debits_minor
       FROM ledger_entries
       WHERE merchant_id=${id} ${currency ? sql`AND currency=${currency}` : sql``}
       GROUP BY currency
@@ -46,9 +46,9 @@ router.get("/merchant/dashboard/transactions", async (req, res, next) => {
     `);
     const holds = await db.execute(sql`
       SELECT currency,
-        COALESCE(SUM(CASE WHEN entry_type='withdrawal_reserve' THEN amount_minor ELSE 0 END),0)::bigint AS withdrawal_hold_minor
-      FROM ledger_entries
-      WHERE merchant_id=${id}
+        COALESCE(SUM(ROUND(CAST(amount AS numeric)*100)),0)::bigint AS withdrawal_hold_minor
+      FROM withdrawals
+      WHERE merchant_id=${id} AND status IN ('pending','approved')
       GROUP BY currency
     `);
     const earnings = await db.execute(sql`
