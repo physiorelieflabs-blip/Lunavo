@@ -15,16 +15,10 @@ ALTER TABLE merchant_fund_release_reviews
 CREATE OR REPLACE FUNCTION lunavo_guard_fund_release_review()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'Merchant fund-release review history is immutable';
-  END IF;
-  IF OLD.status <> 'pending' THEN
-    RAISE EXCEPTION 'A finalized merchant fund-release review cannot be changed';
-  END IF;
-  IF NEW.status NOT IN ('released','cancelled','reconciliation_required') THEN
-    RAISE EXCEPTION 'Invalid merchant fund-release state transition';
   END IF;
   IF NEW.id IS DISTINCT FROM OLD.id
      OR NEW.merchant_id IS DISTINCT FROM OLD.merchant_id
@@ -45,12 +39,29 @@ BEGIN
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'Merchant fund-release source and amount are immutable';
   END IF;
+
+  -- A quarantined row may be re-opened only to pending after the API has
+  -- re-verified the external provider and internal evidence; audit logs keep
+  -- the prior reviewer/decision because the pending state has no reviewer.
+  IF OLD.status = 'reconciliation_required' AND NEW.status = 'pending' THEN
+    IF NEW.reviewed_at IS NOT NULL OR NEW.reviewed_by IS NOT NULL THEN
+      RAISE EXCEPTION 'Re-opened review must clear the prior decision fields';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF OLD.status <> 'pending' THEN
+    RAISE EXCEPTION 'A finalized merchant fund-release review cannot be changed';
+  END IF;
+  IF NEW.status NOT IN ('released','cancelled','reconciliation_required') THEN
+    RAISE EXCEPTION 'Invalid merchant fund-release state transition';
+  END IF;
   IF NEW.reviewed_at IS NULL OR NEW.reviewed_by IS NULL THEN
     RAISE EXCEPTION 'Every fund-release decision requires reviewer identity and timestamp';
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 ALTER TABLE ledger_entries
   DROP CONSTRAINT IF EXISTS ledger_entries_entry_type_check;
