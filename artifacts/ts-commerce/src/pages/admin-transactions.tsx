@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, ShieldCheck, WalletCards, AlertTriangle, Activity, Search } from 'lucide-react';
+import { RefreshCw, ShieldCheck, WalletCards, AlertTriangle, Activity } from 'lucide-react';
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, MetricCard, SectionHeading } from '@/components/primitives';
 
