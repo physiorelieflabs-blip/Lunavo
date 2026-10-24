@@ -83,3 +83,9 @@ The money-control hardening work on branch `codex/lunavo-money-flow-hardening-20
 The same active-hold calculation is being applied to merchant dashboard balance reads, dashboard transaction reads, withdrawal requests, TS Pay transfers, supplier-cost allocation, and earnings-funded advertising. Balance-changing requests serialize on the merchant row so a concurrent payout request cannot reuse funds already reserved by a transfer or other spend path. Migration 0128 records a traceable, reconciliation-required adjustment for historical paid withdrawals missing an actual negative payout debit, without mutating immutable ledger entries.
 
 These are code changes, not a claim that all money paths are proven complete. The release must pass the migration registry and PostgreSQL smoke test, financial boundary and implementation audits, unit tests, typecheck, builds, and deployed concurrent-withdrawal/payout reconciliation tests before accepting live orders.
+
+## Master Admin global money control feed
+
+The Master Admin `/admin/transactions` surface exposes the platform-wide dashboard transaction projection, provider verification state, fee/net fields, merchant reference, and pending/approved payout queue. The server route requires the Master Admin identity with MFA and is read-only: it does not create ledger entries, verify a provider transaction, or mark a payout paid. It complements—not replaces—the immutable TS Pay ledger, provider re-query, existing audited withdrawal approval endpoint, and webhook reconciliation. Provider-backed transactions remain untrusted until verified; payout status remains pending/approved until the provider confirms settlement.
+
+This feed is a visibility and control improvement, not proof that the platform's real-world domain, Flutterwave account, bank routing, or external backups are configured. The exact branch must pass CI and the dashboard must be exercised with provider test transactions before enabling live orders.
