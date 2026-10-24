@@ -5,12 +5,13 @@
 CREATE TABLE IF NOT EXISTS merchant_fund_release_reviews (
   id BIGSERIAL PRIMARY KEY,
   merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE RESTRICT,
-  source_type TEXT NOT NULL CHECK (source_type IN ('order_payment','store_auction','product_auction')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('order_payment','invoice_payment','store_auction','product_auction')),
   source_reference TEXT NOT NULL UNIQUE,
   payment_intent_id INTEGER REFERENCES payment_intents(id) ON DELETE RESTRICT,
   order_id INTEGER REFERENCES orders(id) ON DELETE RESTRICT,
+  invoice_id INTEGER REFERENCES invoices(id) ON DELETE RESTRICT,
   payment_record_id INTEGER REFERENCES payment_records(id) ON DELETE RESTRICT,
-  provider TEXT NOT NULL DEFAULT 'flutterwave' CHECK (provider = 'flutterwave'),
+  provider TEXT NOT NULL DEFAULT 'flutterwave' CHECK (provider IN ('flutterwave','manual_evidence')),
   provider_transaction_id TEXT NOT NULL,
   provider_reference TEXT,
   amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
@@ -18,6 +19,9 @@ CREATE TABLE IF NOT EXISTS merchant_fund_release_reviews (
   provider_fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (provider_fee_minor >= 0),
   lunavo_fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (lunavo_fee_minor >= 0),
   merchant_net_minor BIGINT NOT NULL CHECK (merchant_net_minor >= 0),
+  held_amount_minor BIGINT NOT NULL DEFAULT 0 CHECK (held_amount_minor >= 0),
+  legacy_provider_fee_posted_minor BIGINT NOT NULL DEFAULT 0 CHECK (legacy_provider_fee_posted_minor >= 0),
+  legacy_lunavo_fee_posted_minor BIGINT NOT NULL DEFAULT 0 CHECK (legacy_lunavo_fee_posted_minor >= 0),
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending','released','cancelled','reconciliation_required')),
   review_note TEXT,
@@ -30,8 +34,9 @@ CREATE TABLE IF NOT EXISTS merchant_fund_release_reviews (
     (status <> 'pending' AND reviewed_at IS NOT NULL)
   ),
   CHECK (
-    (source_type = 'order_payment' AND payment_intent_id IS NOT NULL AND order_id IS NOT NULL) OR
-    (source_type <> 'order_payment' AND payment_intent_id IS NULL)
+    (source_type = 'order_payment' AND payment_intent_id IS NOT NULL AND order_id IS NOT NULL AND invoice_id IS NULL) OR
+    (source_type = 'invoice_payment' AND payment_intent_id IS NOT NULL AND invoice_id IS NOT NULL) OR
+    (source_type IN ('store_auction','product_auction') AND payment_intent_id IS NULL AND order_id IS NULL AND invoice_id IS NULL)
   )
 );
 
@@ -64,6 +69,7 @@ BEGIN
      OR NEW.source_reference IS DISTINCT FROM OLD.source_reference
      OR NEW.payment_intent_id IS DISTINCT FROM OLD.payment_intent_id
      OR NEW.order_id IS DISTINCT FROM OLD.order_id
+     OR NEW.invoice_id IS DISTINCT FROM OLD.invoice_id
      OR NEW.payment_record_id IS DISTINCT FROM OLD.payment_record_id
      OR NEW.provider IS DISTINCT FROM OLD.provider
      OR NEW.provider_transaction_id IS DISTINCT FROM OLD.provider_transaction_id
@@ -73,6 +79,9 @@ BEGIN
      OR NEW.provider_fee_minor IS DISTINCT FROM OLD.provider_fee_minor
      OR NEW.lunavo_fee_minor IS DISTINCT FROM OLD.lunavo_fee_minor
      OR NEW.merchant_net_minor IS DISTINCT FROM OLD.merchant_net_minor
+     OR NEW.held_amount_minor IS DISTINCT FROM OLD.held_amount_minor
+     OR NEW.legacy_provider_fee_posted_minor IS DISTINCT FROM OLD.legacy_provider_fee_posted_minor
+     OR NEW.legacy_lunavo_fee_posted_minor IS DISTINCT FROM OLD.legacy_lunavo_fee_posted_minor
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'Merchant fund-release source and amount are immutable';
   END IF;
