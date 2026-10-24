@@ -23,6 +23,7 @@ import Withdrawals from '@/pages/withdrawals';
 import Suppliers from '@/pages/suppliers';
 import AdminWithdrawals from '@/pages/admin-withdrawals';
 import AdminKyc from '@/pages/admin-kyc';
+import AdminTransactions from '@/pages/admin-transactions';
 import AdminMfaSetup from '@/pages/admin-mfa-setup';
 import Dropshipping from '@/pages/dropshipping';
 import Checkout from '@/pages/checkout';
