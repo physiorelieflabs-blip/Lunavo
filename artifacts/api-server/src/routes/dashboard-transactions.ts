@@ -298,26 +298,29 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
   });
 
   if (releaseFailure) {
-    await db.execute(sql`
-      UPDATE merchant_fund_release_reviews
-      SET status='reconciliation_required', reviewed_at=now(), reviewed_by=${userId},
-          review_note=${releaseFailure.slice(0,500)}
-      WHERE id=${id} AND status='pending'
-    `);
-    await db.execute(sql`
-      INSERT INTO audit_logs (
-        user_id,merchant_id,action,resource_type,resource_id,changes,
-        ip_address,user_agent,status,created_at
-      ) VALUES (
-        ${userId},${String(initial.merchant_id)},'merchant_funds_release_blocked','merchant_fund_release_review',
-        ${String(id)},${JSON.stringify({reason: releaseFailure, sourceReference: String(initial.source_reference)})}::jsonb,
-        ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'blocked',now()
-      )
-    `);
+    await db.transaction(async (tx) => {
+      const flagged = await tx.execute(sql`
+        UPDATE merchant_fund_release_reviews
+        SET status='reconciliation_required', reviewed_at=now(), reviewed_by=${userId},
+            review_note=${releaseFailure.slice(0,500)}
+        WHERE id=${id} AND status='pending' RETURNING merchant_id,source_reference
+      `);
+      if (!flagged.rows.length) return;
+      const row = flagged.rows[0] as { merchant_id:number|string; source_reference:string };
+      await tx.execute(sql`
+        INSERT INTO audit_logs (
+          user_id,merchant_id,action,resource_type,resource_id,changes,
+          ip_address,user_agent,status,created_at
+        ) VALUES (
+          ${userId},${String(row.merchant_id)},'merchant_funds_release_blocked','merchant_fund_release_review',
+          ${String(id)},${JSON.stringify({reason:releaseFailure,sourceReference:String(row.source_reference)})}::jsonb,
+          ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
+        )
+      `);
+    });
     res.status(409).json({ error: releaseFailure + " Proceeds remain locked and the row was sent to reconciliation." });
     return;
   }
-
   try {
     const result = await db.transaction(async (tx) => {
       const lockedResult = await tx.execute(sql`
@@ -343,7 +346,7 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
           ) VALUES (
             ${userId},${String(row.merchant_id)},'merchant_funds_release_blocked','merchant_fund_release_review',
             ${String(id)},${JSON.stringify({reason,sourceReference:String(row.source_reference)})}::jsonb,
-            ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'blocked',now()
+            ${req.ip ?? null},${req.get("user-agent")?.slice(0,500) ?? null},'success',now()
           )
         `);
         return { outcome: "blocked" as const, reason };
@@ -451,6 +454,12 @@ router.post("/admin/dashboard/fund-releases/:id/release", async (req, res): Prom
         WHERE id=${id} AND status='pending' RETURNING id
       `);
       if (!updated.rows.length) return { outcome: "duplicate" as const };
+      await tx.execute(sql`
+        UPDATE lunavo_dashboard_transactions
+        SET metadata=COALESCE(metadata,'{}'::jsonb) || ${JSON.stringify({fundsReleased:true,releaseReviewStatus:"released"})}::jsonb,
+            updated_at=now()
+        WHERE merchant_id=${Number(row.merchant_id)} AND idempotency_key=${String(row.source_reference)}
+      `);
       await tx.execute(sql`
         INSERT INTO audit_logs (
           user_id,merchant_id,action,resource_type,resource_id,changes,
