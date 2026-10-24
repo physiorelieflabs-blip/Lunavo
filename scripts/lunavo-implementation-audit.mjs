@@ -331,8 +331,8 @@ for(const marker of [
 ])if(!commerceWithdrawalAccounting.includes(marker))failures.push("Commerce financial path is missing payout-hold protection: "+marker);
 const withdrawalRepair=await read("lib/db/migrations/0128_withdrawal_balance_integrity.sql");
 for(const marker of ["migration:0128:paid-withdrawal-debit:","w.status = 'paid'","'adjustment'"])if(!withdrawalRepair.includes(marker))failures.push("Legacy paid-withdrawal balance correction missing: "+marker);
-const migrationRunner=await read("lib/db/src/migration-runner.ts");
-if(!migrationRunner.includes("0128_withdrawal_balance_integrity"))failures.push("Canonical/bootstrap migration registry is missing 0128_withdrawal_balance_integrity");
+const withdrawalMigrationRunner=await read("lib/db/src/migration-runner.ts");
+if(!withdrawalMigrationRunner.includes("0128_withdrawal_balance_integrity"))failures.push("Canonical/bootstrap migration registry is missing 0128_withdrawal_balance_integrity");
 
 // Master Admin must have one platform-wide financial activity feed and a visible
 // pending-payout queue. It is intentionally read-only and gated by master-admin MFA.
