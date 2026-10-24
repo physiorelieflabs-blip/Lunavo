@@ -214,6 +214,9 @@ requireMarkers("Master Admin sale-release API", saleReleaseApi, [
   "sale_release",
   "open_reconciliation_exception",
   "reviewed_by",
+  "sale_hold_missing_or_mismatch",
+  "sale_ledger_mismatch",
+  "release_marker_exists",
 ]);
 requireMarkers("Sale-reversal and dispute safety", saleReleasePayments, [
   "sale-release-cancel:",

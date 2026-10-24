@@ -352,6 +352,42 @@ router.post("/admin/dashboard/sale-releases/:id/approve", async (req, res, next)
       if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
         return { kind: "conflict" as const, status: "invalid_release_amount" };
       }
+      const holdResult = await tx.execute(sql`
+        SELECT id,merchant_id,amount_minor,currency FROM ledger_entries
+        WHERE reference_key=${"sale-release-hold:" + String(release.source_reference)}
+        FOR UPDATE
+      `);
+      const hold = holdResult.rows[0] as Record<string, any> | undefined;
+      if (!hold || Number(hold.merchant_id) !== merchantId ||
+          Number(hold.amount_minor) !== -amountMinor ||
+          String(hold.currency).toUpperCase() !== String(release.currency).toUpperCase()) {
+        return { kind: "conflict" as const, status: "sale_hold_missing_or_mismatch" };
+      }
+      if (String(release.source_type) !== "legacy_balance") {
+        const saleResult = await tx.execute(sql`
+          SELECT id,merchant_id,amount_minor,currency,order_id,invoice_id,payment_record_id
+          FROM ledger_entries
+          WHERE entry_type='sale' AND reference_key=${String(release.source_reference)}
+          FOR UPDATE
+        `);
+        const sale = saleResult.rows[0] as Record<string, any> | undefined;
+        if (!sale || Number(sale.merchant_id) !== merchantId ||
+            Number(sale.amount_minor) !== amountMinor ||
+            String(sale.currency).toUpperCase() !== String(release.currency).toUpperCase() ||
+            Number(sale.order_id ?? 0) !== Number(release.order_id ?? 0) ||
+            Number(sale.invoice_id ?? 0) !== Number(release.invoice_id ?? 0) ||
+            Number(sale.payment_record_id ?? 0) !== Number(release.payment_record_id ?? 0)) {
+          return { kind: "conflict" as const, status: "sale_ledger_mismatch" };
+        }
+      }
+      const priorMarker = await tx.execute(sql`
+        SELECT id FROM ledger_entries
+        WHERE reference_key IN (${"sale-release:" + releaseId},${"sale-release-cancel:" + releaseId})
+        LIMIT 1
+      `);
+      if (priorMarker.rows.length) {
+        return { kind: "conflict" as const, status: "release_marker_exists" };
+      }
       await tx.execute(sql`
         INSERT INTO ledger_entries (
           merchant_id,order_id,invoice_id,payment_record_id,amount_minor,currency,entry_type,reference_key
