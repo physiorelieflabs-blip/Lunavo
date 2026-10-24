@@ -40,6 +40,18 @@ Lunavo is a self-hosted, multi-merchant commerce operating system. The repositor
 
 6. Check application health at `/healthz` and deployment readiness at `/readyz`. Readiness can report a degraded state when optional local AI, FX, social, or media workers are unavailable. Payment readiness remains false until both Flutterwave credentials are securely configured.
 
+For local development, the default Compose stack serves the app on `http://localhost:5000`. For a public deployment, set `LUNAVO_DOMAIN` to a real hostname you control and set `APP_BASE_URL=https://<that-hostname>`. Point the domain's DNS A/AAAA records at this host and permit inbound TCP 80/443 (plus UDP 443 for HTTP/3). Caddy is included as an optional production edge and requests/renews HTTPS certificates automatically:
+
+```sh
+pnpm preflight:production
+docker compose --profile production-edge config --quiet
+docker compose --profile production-edge up -d --build
+docker compose --profile production-edge ps
+docker compose --profile production-edge logs --tail=100 caddy lunavo
+```
+
+Do not use the production profile with a placeholder domain. Automatic certificate issuance still requires valid public DNS and reachable ports; Lunavo cannot register or control a domain on your behalf. Use `pnpm preflight:live-money` only when deliberately preparing real-money operation and the provider credentials are available to that preflight. Keep checkout/payout paths disabled until Flutterwave has passed provider verification and sandbox reconciliation.
+
 After the stack is healthy and database migrations have completed, provision the master administrator once with the isolated bootstrap profile:
 
    ```sh

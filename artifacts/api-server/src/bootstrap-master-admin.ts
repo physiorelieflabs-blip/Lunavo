@@ -34,27 +34,30 @@ try {
   const hash = await hashPassword(password);
   await pool.query("BEGIN");
   try {
-    const existing = await pool.query<{ id: string }>(
+    // Serialize bootstrap attempts and allow creation only when no Master Admin
+    // exists. Re-running this command can never reset an existing admin password.
+    await pool.query("SELECT pg_advisory_xact_lock(hashtext('lunavo-master-admin-bootstrap'))");
+    const existingMasterAdmin = await pool.query<{ id: string }>(
+      "SELECT id FROM local_auth_users WHERE role='master_admin' LIMIT 1 FOR UPDATE",
+    );
+    if (existingMasterAdmin.rowCount) {
+      throw new Error("A Master Admin already exists. Bootstrap is one-time only; use the authenticated account-recovery flow instead.");
+    }
+
+    const identityCollision = await pool.query<{ id: string }>(
       "SELECT id FROM local_auth_users WHERE lower(email)=lower($1) OR lower(username)=lower($2) LIMIT 1 FOR UPDATE",
       [email, username],
     );
-
-    let id: string;
-    if (existing.rowCount) {
-      id = existing.rows[0]!.id;
-      await pool.query(
-        "UPDATE local_auth_users SET email=$1, username=$2, password_hash=$3, email_verified=true, role='master_admin', updated_at=now() WHERE id=$4",
-        [email, username, hash, id],
-      );
-      console.log("Master Admin updated:", username);
-    } else {
-      id = randomUUID();
-      await pool.query(
-        "INSERT INTO local_auth_users (id,email,username,first_name,last_name,password_hash,email_verified,role) VALUES ($1,$2,$3,$4,$5,$6,true,'master_admin')",
-        [id, email, username, "TS", "Admin", hash],
-      );
-      console.log("Master Admin created:", username);
+    if (identityCollision.rowCount) {
+      throw new Error("The requested email or username already belongs to an account. Bootstrap will not overwrite existing accounts.");
     }
+
+    const id = randomUUID();
+    await pool.query(
+      "INSERT INTO local_auth_users (id,email,username,first_name,last_name,password_hash,email_verified,role) VALUES ($1,$2,$3,$4,$5,$6,true,'master_admin')",
+      [id, email, username, "TS", "Admin", hash],
+    );
+    console.log("Master Admin created:", username);
 
     const merchant = await pool.query<{ id: number }>(
       "SELECT id FROM merchants WHERE local_auth_user_id=$1 OR clerk_user_id=$1 LIMIT 1 FOR UPDATE",

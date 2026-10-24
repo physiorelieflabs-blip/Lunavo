@@ -46,6 +46,11 @@ const paths = [
   "artifacts/api-server/src/routes/admin-integrations.ts",
   "artifacts/api-server/src/routes/automation-workflows.ts",
   "artifacts/api-server/src/routes/advanced-commerce.ts",
+  "artifacts/api-server/src/bootstrap-master-admin.ts",
+  "scripts/production-preflight.mjs",
+  ".github/workflows/ci.yml",
+  "docker-compose.yml",
+  "Caddyfile",
 ];
 
 await Promise.all(paths.map(read));
@@ -59,6 +64,11 @@ const ledgerRules = sources.get("artifacts/api-server/src/lib/ts-pay-ledger-rule
 const publishing = sources.get("artifacts/api-server/src/routes/storefront-publishing.ts") ?? "";
 const localAuth = sources.get("artifacts/api-server/src/lib/local-auth.ts") ?? "";
 const automations = sources.get("artifacts/api-server/src/routes/automation-workflows.ts") ?? "";
+const bootstrap = sources.get("artifacts/api-server/src/bootstrap-master-admin.ts") ?? "";
+const preflight = sources.get("scripts/production-preflight.mjs") ?? "";
+const compose = sources.get("docker-compose.yml") ?? "";
+const caddy = sources.get("Caddyfile") ?? "";
+const ciWorkflow = sources.get(".github/workflows/ci.yml") ?? "";
 
 // The brain and its specialist ensemble must use the maintained local model
 // router. Do not pin this audit to removed model-pool names or implementation
@@ -139,6 +149,39 @@ requireMarkers("Automation safety", automations, [
   "approval",
   "idempot",
   "protectedFeatureKeyPrefixes",
+]);
+requireMarkers("One-time Master Admin bootstrap", bootstrap, [
+  "pg_advisory_xact_lock(hashtext('lunavo-master-admin-bootstrap'))",
+  "A Master Admin already exists",
+  "Bootstrap is one-time only",
+  "INSERT INTO local_auth_users",
+]);
+forbidMarkers("One-time Master Admin bootstrap", bootstrap, [
+  "UPDATE local_auth_users SET email=$1",
+]);
+requireMarkers("Production preflight", preflight, [
+  "POSTGRES_PASSWORD",
+  "SESSION_SECRET",
+  "LUNAVO_DOMAIN",
+  "APP_BASE_URL",
+  "reserved or placeholder hostname",
+  "--live-money",
+  "LUNAVO_PREFLIGHT_TEST_MODE",
+]);
+requireMarkers("Caddy automatic HTTPS config", caddy, [
+  "LUNAVO_DOMAIN",
+  "reverse_proxy lunavo:5000",
+  "encode zstd gzip",
+]);
+requireMarkers("Production edge compose profile", compose, [
+  'profiles: ["production-edge"]',
+  "caddy_data:/data",
+  '"80:80"',
+  '"443:443"',
+]);
+requireMarkers("CI production-preflight fixture", ciWorkflow, [
+  'LUNAVO_PREFLIGHT_TEST_MODE: "1"',
+  "pnpm run preflight:production",
 ]);
 
 try {
