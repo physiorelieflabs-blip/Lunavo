@@ -67,16 +67,23 @@ export async function settleVerifiedStoreAuctionPayment(transaction: Flutterwave
     const store = storeResult.rows[0] as Record<string, any> | undefined;
     if (!store || Number(store.merchant_id) !== Number(auction.seller_merchant_id)) return "reconciliation_required" as const;
 
-    // TS Pay ledger: record gross sale once, then separately debit actual
-    // provider/platform fees. This prevents fee double-counting.
+    // Keep auction proceeds out of spendable TS Pay balance until Master Admin
+    // re-verifies the provider transaction and explicitly releases the proceeds.
     const sellerSaleKey = `store-auction-sale:${auctionId}:${bidId}`;
-    const lunavoFeeKey = `store-auction-lunavo-fee:${auctionId}:${bidId}`;
-    const providerFeeKey = `store-auction-provider-fee:${auctionId}:${bidId}`;
-    await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${grossMinor},${currency},'sale',${sellerSaleKey}) ON CONFLICT (reference_key) DO NOTHING`);
-    if (lunavoFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${-lunavoFeeMinor},${currency},'fee',${lunavoFeeKey}) ON CONFLICT (reference_key) DO NOTHING`);
-    if (providerFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.seller_merchant_id},${-providerFeeMinor},${currency},'fee',${providerFeeKey}) ON CONFLICT (reference_key) DO NOTHING`);
+    await tx.execute(sql`
+      INSERT INTO merchant_fund_release_reviews (
+        merchant_id, source_type, source_reference, provider, provider_transaction_id,
+        provider_reference, amount_minor, currency, provider_fee_minor,
+        lunavo_fee_minor, merchant_net_minor, status
+      ) VALUES (
+        ${auction.seller_merchant_id}, 'store_auction', ${sellerSaleKey}, 'flutterwave',
+        ${providerTransactionId}, ${txRef}, ${grossMinor}, ${currency},
+        ${providerFeeMinor}, ${lunavoFeeMinor}, ${sellerNetMinor}, 'pending'
+      )
+      ON CONFLICT (source_reference) DO NOTHING
+    `);
 
-    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,counterparty_merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${auction.seller_merchant_id},${bid.bidder_merchant_id},'store_auction_sale','auction_acquisition','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${providerTransactionId},${`STORE-AUC-SALE-${auctionId}-${bidId}`},${`store-auction-sale:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,txRef,providerTransactionId,role:'seller',sellerNetMinor})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',verification_state='verified',verified_at=now(),provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
+    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,counterparty_merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${auction.seller_merchant_id},${bid.bidder_merchant_id},'store_auction_sale','auction_acquisition','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${providerTransactionId},${`STORE-AUC-SALE-${auctionId}-${bidId}`},${`store-auction-sale:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,txRef,providerTransactionId,role:'seller',sellerNetMinor,fundsReleased:false,releaseReviewStatus:'pending'})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',verification_state='verified',verified_at=now(),provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
 
     // The buyer's provider payment is also represented in their dashboard, but
     // it is not treated as a credit/debit against an internal balance.
