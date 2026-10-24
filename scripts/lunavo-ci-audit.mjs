@@ -50,7 +50,10 @@ const paths = [
   "artifacts/api-server/src/routes/flutterwave-payment-processor.ts",
   "artifacts/api-server/src/lib/store-auction-settlement.ts",
   "artifacts/api-server/src/lib/product-auction-settlement.ts",
+  "artifacts/api-server/src/lib/merchant-fund-release-policy.ts",
+  "artifacts/api-server/src/lib/merchant-fund-release-policy.test.ts",
   "lib/db/migrations/0129_merchant_fund_release_approval.sql",
+  "lib/db/migrations/0130_merchant_fund_release_legacy_holds.sql",
   "artifacts/ts-commerce/src/pages/admin-transactions.tsx",
   "artifacts/api-server/src/bootstrap-master-admin.ts",
   "scripts/production-preflight.mjs",
@@ -198,6 +201,9 @@ const orderPaymentProcessor = sources.get("artifacts/api-server/src/routes/flutt
 const storeAuctionSettlement = sources.get("artifacts/api-server/src/lib/store-auction-settlement.ts") ?? "";
 const productAuctionSettlement = sources.get("artifacts/api-server/src/lib/product-auction-settlement.ts") ?? "";
 const globalMoneyUi = sources.get("artifacts/ts-commerce/src/pages/admin-transactions.tsx") ?? "";
+const fundReleasePolicy = sources.get("artifacts/api-server/src/lib/merchant-fund-release-policy.ts") ?? "";
+const fundReleasePolicyTests = sources.get("artifacts/api-server/src/lib/merchant-fund-release-policy.test.ts") ?? "";
+const legacyHoldMigration = sources.get("lib/db/migrations/0130_merchant_fund_release_legacy_holds.sql") ?? "";
 requireMarkers("Merchant fund-release schema", fundReleaseMigration, [
   "merchant_fund_release_reviews",
   "provider_transaction_id",
@@ -244,10 +250,32 @@ requireMarkers("Global Money Control release UI", globalMoneyUi, [
   "/api/admin/dashboard/fund-releases/",
   "Release proceeds",
   "Proceeds remain locked",
+  "legacy_hold",
+]);
+requireMarkers("Fund-release verification policy", fundReleasePolicy, [
+  "merchantFundReleaseVerificationFailure",
+  "observedAmountMinor",
+  "expectedCurrency",
+  "expectedMerchantNetMinor",
+  "reversalOrDispute",
+]);
+requireMarkers("Fund-release verification tests", fundReleasePolicyTests, [
+  "accepts exact successful provider evidence",
+  "rejects unsuccessful, refunded, reversed, disputed, or mismatched payments",
+  "does not release without a real observed transaction id",
+]);
+requireMarkers("Legacy proceeds hold migration", legacyHoldMigration, [
+  "merchant_funds_hold",
+  "merchant_funds_release",
+  "legacy_hold",
+  "payment_intents",
+  "store_auction_payment_verifications",
+  "product_auction_settlements",
 ]);
 const migrationRunner = sources.get("lib/db/src/migration-runner.ts") ?? await read("lib/db/src/migration-runner.ts");
 requireMarkers("Fund-release migration registry", migrationRunner, [
   '"0129_merchant_fund_release_approval"',
+  '"0130_merchant_fund_release_legacy_holds"',
 ]);
 
 try {
