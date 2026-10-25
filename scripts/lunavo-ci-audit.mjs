@@ -46,6 +46,16 @@ const paths = [
   "artifacts/api-server/src/routes/admin-integrations.ts",
   "artifacts/api-server/src/routes/automation-workflows.ts",
   "artifacts/api-server/src/routes/advanced-commerce.ts",
+  "artifacts/api-server/src/routes/commerce.ts",
+  "artifacts/api-server/src/routes/dashboard-transactions.ts",
+  "artifacts/api-server/src/routes/flutterwave-payment-processor.ts",
+  "artifacts/api-server/src/lib/store-auction-settlement.ts",
+  "artifacts/api-server/src/lib/product-auction-settlement.ts",
+  "artifacts/api-server/src/lib/merchant-fund-release-policy.ts",
+  "artifacts/api-server/src/lib/merchant-fund-release-policy.test.ts",
+  "lib/db/migrations/0129_merchant_fund_release_approval.sql",
+  "lib/db/migrations/0130_merchant_fund_release_legacy_holds.sql",
+  "artifacts/ts-commerce/src/pages/admin-transactions.tsx",
   "artifacts/api-server/src/bootstrap-master-admin.ts",
   "scripts/production-preflight.mjs",
   ".github/workflows/ci.yml",
@@ -182,6 +192,118 @@ requireMarkers("Production edge compose profile", compose, [
 requireMarkers("CI production-preflight fixture", ciWorkflow, [
   'LUNAVO_PREFLIGHT_TEST_MODE: "1"',
   "pnpm run preflight:production",
+]);
+
+// Every externally verified merchant sale is held out of spendable balance
+// until an explicit, audited Master Admin release re-queries Flutterwave.
+const fundReleaseMigration = sources.get("lib/db/migrations/0129_merchant_fund_release_approval.sql") ?? "";
+const fundReleaseApi = sources.get("artifacts/api-server/src/routes/dashboard-transactions.ts") ?? "";
+const orderPaymentProcessor = sources.get("artifacts/api-server/src/routes/flutterwave-payment-processor.ts") ?? "";
+const storeAuctionSettlement = sources.get("artifacts/api-server/src/lib/store-auction-settlement.ts") ?? "";
+const productAuctionSettlement = sources.get("artifacts/api-server/src/lib/product-auction-settlement.ts") ?? "";
+const globalMoneyUi = sources.get("artifacts/ts-commerce/src/pages/admin-transactions.tsx") ?? "";
+const commerceSales = sources.get("artifacts/api-server/src/routes/commerce.ts") ?? "";
+const fundReleasePolicy = sources.get("artifacts/api-server/src/lib/merchant-fund-release-policy.ts") ?? "";
+const fundReleasePolicyTests = sources.get("artifacts/api-server/src/lib/merchant-fund-release-policy.test.ts") ?? "";
+const legacyHoldMigration = sources.get("lib/db/migrations/0130_merchant_fund_release_legacy_holds.sql") ?? "";
+requireMarkers("Merchant fund-release schema", fundReleaseMigration, [
+  "merchant_fund_release_reviews",
+  "provider_transaction_id",
+  "merchant_net_minor",
+  "merchant_fund_release_review_guard",
+  "Merchant fund-release review history is immutable",
+]);
+requireMarkers("Master Admin fund-release endpoint", fundReleaseApi, [
+  "/admin/dashboard/fund-releases/:id/manual-release",
+  "/admin/dashboard/fund-releases/:id/recheck",
+  "/admin/dashboard/fund-releases/:id/release",
+  "provider_amount_minor",
+  "provider_currency",
+  "invoice_payment",
+  "await requireMasterAdmin(userId)",
+  "verifyFlutterwaveTransaction",
+  "status='released'",
+  "merchant_funds_released",
+  "pendingFundReleases",
+]);
+requireMarkers("Verified checkout proceeds hold", orderPaymentProcessor, [
+  "INSERT INTO merchant_fund_release_reviews",
+  "'order_payment'",
+  "flutterwave_dispute",
+  "fundsWereReleased",
+]);
+forbidMarkers("Verified checkout proceeds hold", orderPaymentProcessor, [
+  'entryType: "sale", referenceKey: `payment:${currentIntent.id}`',
+]);
+requireMarkers("Store auction proceeds hold", storeAuctionSettlement, [
+  "merchant_fund_release_reviews",
+  "'store_auction'",
+  "releaseReviewStatus:'pending'",
+]);
+forbidMarkers("Store auction proceeds hold", storeAuctionSettlement, [
+  "${auction.seller_merchant_id},${grossMinor},${currency},'sale',${sellerSaleKey}",
+]);
+requireMarkers("Product auction proceeds hold", productAuctionSettlement, [
+  "merchant_fund_release_reviews",
+  "'product_auction'",
+  "releaseReviewStatus:'pending'",
+]);
+forbidMarkers("Product auction proceeds hold", productAuctionSettlement, [
+  "${auction.merchant_id},${grossMinor},${currency},'sale',${`product-auction:${auctionId}:${bidId}:sale`}",
+]);
+requireMarkers("Global Money Control release UI", globalMoneyUi, [
+  "pendingFundReleases",
+  "releaseFund(row)",
+  "/api/admin/dashboard/fund-releases/",
+  "Release proceeds",
+  "Recheck & reopen",
+  "Proceeds remain locked",
+  "legacy_hold",
+]);
+requireMarkers("Public order and invoice sales gate", commerceSales, [
+  "INSERT INTO merchant_fund_release_reviews",
+  "providerAmountMinor",
+  "providerFeeEvidenceMinor",
+  "'manual_evidence'",
+  "invoice-flutterwave:",
+  "MANUAL-INVOICE-SUBMISSION:",
+  "MANUAL-ORDER-EVIDENCE:",
+]);
+forbidMarkers("Public order and invoice sales gate", commerceSales, [
+  'entryType: "sale"',
+]);
+requireMarkers("Master Admin manual receipt UI", globalMoneyUi, [
+  "confirmManualFunds(row)",
+  "/manual-release",
+  "verifiedFundsReceived: true",
+  "Confirm receipt & release",
+  "provider_amount_minor",
+  "provider_currency",
+]);
+requireMarkers("Fund-release verification policy", fundReleasePolicy, [
+  "merchantFundReleaseVerificationFailure",
+  "observedAmountMinor",
+  "expectedCurrency",
+  "expectedMerchantNetMinor",
+  "reversalOrDispute",
+]);
+requireMarkers("Fund-release verification tests", fundReleasePolicyTests, [
+  "accepts exact successful provider evidence",
+  "rejects unsuccessful, refunded, reversed, disputed, or mismatched payments",
+  "does not release without a real observed transaction id",
+]);
+requireMarkers("Legacy proceeds hold migration", legacyHoldMigration, [
+  "merchant_funds_hold",
+  "merchant_funds_release",
+  "legacy_hold",
+  "payment_intents",
+  "store_auction_payment_verifications",
+  "product_auction_settlements",
+]);
+const migrationRunner = sources.get("lib/db/src/migration-runner.ts") ?? await read("lib/db/src/migration-runner.ts");
+requireMarkers("Fund-release migration registry", migrationRunner, [
+  '"0129_merchant_fund_release_approval"',
+  '"0130_merchant_fund_release_legacy_holds"',
 ]);
 
 try {

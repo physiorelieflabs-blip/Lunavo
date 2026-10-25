@@ -81,11 +81,41 @@ type ReconciliationException = {
   status: string;
   created_at: string;
 };
+type PendingFundRelease = {
+  id: number | string;
+  merchant_id: number | string;
+  merchant_name: string;
+  merchant_email: string;
+  source_type: 'order_payment' | 'invoice_payment' | 'store_auction' | 'product_auction';
+  source_reference: string;
+  payment_intent_id: number | string | null;
+  order_id: number | string | null;
+  invoice_id: number | string | null;
+  provider: 'flutterwave' | 'manual_evidence' | string;
+  provider_transaction_id: string;
+  provider_amount_minor: number | string;
+  provider_currency: string;
+  provider_fee_evidence_minor: number | string | null;
+  held_amount_minor: number | string;
+  legacy_provider_fee_posted_minor: number | string;
+  legacy_lunavo_fee_posted_minor: number | string;
+  provider_reference: string | null;
+  amount_minor: number | string;
+  currency: string;
+  provider_fee_minor: number | string;
+  lunavo_fee_minor: number | string;
+  merchant_net_minor: number | string;
+  legacy_hold: boolean;
+  status: 'pending' | 'reconciliation_required';
+  review_note: string | null;
+  created_at: string;
+};
 type Feed = {
   transactions: TxRow[];
   summary: SummaryRow[];
   pendingWithdrawals: PendingWithdrawal[];
   pendingPaymentIntents: PendingPaymentIntent[];
+  pendingFundReleases: PendingFundRelease[];
   openReconciliationExceptions: ReconciliationException[];
   sourceOfTruth: string;
   moneyMovement: 'read_only';
@@ -124,6 +154,8 @@ export default function AdminTransactions() {
   const [currency, setCurrency] = useState('');
   const [verificationState, setVerificationState] = useState('');
   const [status, setStatus] = useState('');
+  const [releasingId, setReleasingId] = useState<number | string | null>(null);
+  const [releaseMessage, setReleaseMessage] = useState<string | null>(null);
   const feed = useQuery({
     queryKey: ['admin-financial-control-feed', currency, verificationState, status],
     queryFn: () => loadFeed(currency, verificationState, status),
@@ -137,6 +169,89 @@ export default function AdminTransactions() {
     exceptions: sum.exceptions + Number(row.exception_count || 0),
   }), { transactions: 0, verified: 0, attention: 0, exceptions: 0 }), [feed.data?.summary]);
 
+  async function releaseFund(row: PendingFundRelease) {
+    if (row.status !== 'pending') return;
+    const amount = money(row.merchant_net_minor, row.currency);
+    if (!window.confirm(`Release ${amount} to merchant ${row.merchant_name || '#' + row.merchant_id}? Lunavo will re-verify the provider payment and record this decision in the audit log.`)) return;
+    setReleasingId(row.id);
+    setReleaseMessage(null);
+    try {
+      const response = await fetch(`/api/admin/dashboard/fund-releases/${encodeURIComponent(String(row.id))}/release`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewNote: 'Master Admin verified and released proceeds from Global Money Control' }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'The proceeds could not be released.');
+      setReleaseMessage(`Release #${row.id} completed. The payment was re-verified and ledger postings were recorded.`);
+      await feed.refetch();
+    } catch (error) {
+      setReleaseMessage(error instanceof Error ? error.message : 'The proceeds could not be released. They remain locked unless the server confirms otherwise.');
+      await feed.refetch();
+    } finally {
+      setReleasingId(null);
+    }
+  }
+
+  async function confirmManualFunds(row: PendingFundRelease) {
+    if (row.status !== 'reconciliation_required' || row.provider !== 'manual_evidence') return;
+    const externalReference = window.prompt('Enter the bank/provider statement reference you independently checked. Do not enter a password, API key, PIN, or account credential.')?.trim() ?? '';
+    if (externalReference.length < 4) {
+      setReleaseMessage('Manual receipt was not released. Enter a real external bank/provider statement reference.');
+      return;
+    }
+    const reviewNote = window.prompt('Write at least 30 characters describing how you independently confirmed the funds arrived in Lunavo’s receiving account.')?.trim() ?? '';
+    if (reviewNote.length < 30) {
+      setReleaseMessage('Manual receipt was not released. Add a review note of at least 30 characters.');
+      return;
+    }
+    if (!window.confirm('ATTENTION: Confirm that you independently checked the actual bank/provider statement and the funds are received, settled, and not reversed. This action releases spendable merchant proceeds and is audit logged.')) return;
+    setReleasingId(row.id);
+    setReleaseMessage(null);
+    try {
+      const response = await fetch(`/api/admin/dashboard/fund-releases/${encodeURIComponent(String(row.id))}/manual-release`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verifiedFundsReceived: true, externalReference, reviewNote }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Manual receipt was not released.');
+      setReleaseMessage(`Manual receipt #${row.id} was released after the Admin attestation was recorded.`);
+      await feed.refetch();
+    } catch (error) {
+      setReleaseMessage(error instanceof Error ? error.message : 'Manual receipt remains locked.');
+      await feed.refetch();
+    } finally {
+      setReleasingId(null);
+    }
+  }
+
+  async function reopenFund(row: PendingFundRelease) {
+    if (row.status !== 'reconciliation_required' || row.provider === 'manual_evidence') return;
+    if (!window.confirm(`Recheck quarantined proceeds #${row.id}? This re-queries Flutterwave and rechecks internal evidence. It does not move money; a separate Release proceeds action is still required.`)) return;
+    setReleasingId(row.id);
+    setReleaseMessage(null);
+    try {
+      const response = await fetch(`/api/admin/dashboard/fund-releases/${encodeURIComponent(String(row.id))}/recheck`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'The row could not be rechecked.');
+      setReleaseMessage(`Review #${row.id} passed fresh checks and returned to the pending queue. No money moved; release it separately after review.`);
+      await feed.refetch();
+    } catch (error) {
+      setReleaseMessage(error instanceof Error ? error.message : 'The review remains quarantined. No money was released.');
+      await feed.refetch();
+    } finally {
+      setReleasingId(null);
+    }
+  }
+
   return <AppShell admin>
     <div className="mx-auto max-w-[1380px] space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -149,7 +264,7 @@ export default function AdminTransactions() {
       </div>
 
       <div className="rounded-xl border border-[#dfc27a] bg-[#fff7df] p-4 text-sm leading-6 text-[#765817]">
-        <div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0"/><p><strong>Control-plane only.</strong> This screen is read-only. A dashboard row is not proof that funds moved; provider verification and the immutable TS Pay ledger are authoritative. Payouts stay pending until the payout provider confirms settlement.</p></div>
+        <div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0"/><p><strong>Financial control.</strong> Customer payment confirmation is not an automatic merchant credit. Verified sales remain non-spendable until an authorized Master Admin releases the proceeds here after a fresh provider re-check. Payouts remain pending until the payout provider confirms settlement.</p></div>
       </div>
 
       {feed.isLoading ? <LoadingState label="Loading platform money activity"/> :
@@ -179,6 +294,35 @@ export default function AdminTransactions() {
               </select>
             </label>
           </div>
+        </section>
+
+        <section className="rounded-2xl border border-[#dfc27a] bg-[#fffaf0] p-5 sm:p-6" data-testid="admin-fund-release-queue">
+          <SectionHeading eyebrow="Merchant earnings gate" title="Verified sales awaiting release" description="Verified customer or auction payments do not enter merchant spendable balance until you release proceeds. Each action re-queries Flutterwave, checks source records and unresolved exceptions, posts idempotent ledger entries, and records an audit event."/>
+          {releaseMessage ? <p role="status" className="mt-3 rounded-lg border border-[#d9d2c4] bg-white p-3 text-sm text-[#53647b]">{releaseMessage}</p> : null}
+          {feed.data?.pendingFundReleases.length ? <div className="mt-4 space-y-3">{feed.data.pendingFundReleases.map(row => <div key={String(row.id)} className="rounded-xl border border-[#ded8cd] bg-white p-4" data-testid={`admin-fund-release-${row.id}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold">{row.merchant_name || `Merchant #${row.merchant_id}`} · Review #{row.id}</p>
+                <p className="mt-1 text-xs text-[#697687]">{row.merchant_email} · {label(row.source_type)} · {when(row.created_at)}</p>
+                <p className="mt-1 break-all font-mono text-[10px] text-[#697687]">Internal: {row.source_reference} · Provider ID: {row.provider_transaction_id}</p>
+                {row.legacy_hold ? <p className="mt-1 text-xs font-semibold text-[#8d641c]">Legacy balance frozen for review; release reverses the hold without duplicating the sale.</p> : null}
+                <p className="mt-1 break-all font-mono text-[10px] text-[#697687]">Provider reference: {row.provider_reference || '—'} · Intent {row.payment_intent_id ?? '—'} · Order {row.order_id ?? '—'} · Invoice {row.invoice_id ?? '—'}</p>
+                <p className="mt-1 text-xs text-[#697687]">External charge: {money(row.provider_amount_minor,row.provider_currency)} · Ledger settlement: {money(row.amount_minor,row.currency)} · Provider: {row.provider}</p>
+              </div>
+              <Badge tone={row.status === 'pending' ? 'warning' : 'danger'}>{label(row.status)}</Badge>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg bg-[#f7f4ed] p-3"><p className="text-[10px] font-bold uppercase text-[#697687]">Gross</p><p className="mt-1 font-mono text-sm font-bold">{money(row.amount_minor,row.currency)}</p></div>
+              <div className="rounded-lg bg-[#f7f4ed] p-3"><p className="text-[10px] font-bold uppercase text-[#697687]">Provider fee</p><p className="mt-1 font-mono text-sm">{money(row.provider_fee_minor,row.currency)}</p></div>
+              <div className="rounded-lg bg-[#f7f4ed] p-3"><p className="text-[10px] font-bold uppercase text-[#697687]">Lunavo fee</p><p className="mt-1 font-mono text-sm">{money(row.lunavo_fee_minor,row.currency)}</p></div>
+              <div className="rounded-lg bg-[#f0ede5] p-3"><p className="text-[10px] font-bold uppercase text-[#53647b]">Merchant proceeds</p><p className="mt-1 font-mono text-sm font-extrabold">{money(row.merchant_net_minor,row.currency)}</p></div>
+            </div>
+            {row.status === 'reconciliation_required' ? <p className="mt-3 text-sm font-semibold text-[#9b3c31]">Locked: this row requires Finance reconciliation before it can be released. {row.review_note || ''}</p> : null}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="max-w-3xl text-xs leading-5 text-[#697687]">Release is a ledger credit, not a bank payout. A later merchant withdrawal still follows its separate approval and provider-settlement workflow.</p>
+              {row.status === 'pending' ? <Button variant="secondary" onClick={() => void releaseFund(row)} disabled={releasingId !== null}>{releasingId === row.id ? 'Re-verifying…' : 'Release proceeds'}</Button> : row.provider === 'manual_evidence' ? <Button variant="secondary" onClick={() => void confirmManualFunds(row)} disabled={releasingId !== null}>{releasingId === row.id ? 'Recording…' : 'Confirm receipt & release'}</Button> : <Button variant="secondary" onClick={() => void reopenFund(row)} disabled={releasingId !== null}>{releasingId === row.id ? 'Rechecking…' : 'Recheck & reopen'}</Button>}
+            </div>
+          </div>)}</div> : <EmptyState title="No verified sales awaiting release" description="All visible proceeds have been released or there are no pending provider-verified sales for the selected filters."/>}
         </section>
 
         <section className="rounded-2xl border border-[#d9d2c4] bg-[#fbfaf6] p-5 sm:p-6">

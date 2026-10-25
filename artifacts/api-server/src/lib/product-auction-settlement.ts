@@ -58,13 +58,23 @@ export async function settleVerifiedProductAuctionPayment(transaction: ProviderT
     const sellerNetMinor = grossMinor - lunavoFeeMinor - providerFeeMinor;
     if (sellerNetMinor < 0) throw new Error("Provider/platform fees exceed auction proceeds");
 
-    // One authoritative seller sale, followed by the actual platform/provider
-    // deductions. The dashboard is projected from this ledger activity.
-    await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.merchant_id},${grossMinor},${currency},'sale',${`product-auction:${auctionId}:${bidId}:sale`}) ON CONFLICT (reference_key) DO NOTHING`);
-    if (lunavoFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.merchant_id},${-lunavoFeeMinor},${currency},'fee',${`product-auction:${auctionId}:${bidId}:lunavo-fee`}) ON CONFLICT (reference_key) DO NOTHING`);
-    if (providerFeeMinor > 0) await tx.execute(sql`INSERT INTO ledger_entries (merchant_id,amount_minor,currency,entry_type,reference_key) VALUES (${auction.merchant_id},${-providerFeeMinor},${currency},'fee',${`product-auction:${auctionId}:${bidId}:provider-fee`}) ON CONFLICT (reference_key) DO NOTHING`);
+    // Provider-confirmed auction payment is not a spendable seller credit
+    // until Master Admin re-verifies and releases the seller proceeds.
+    const sourceReference = `product-auction:${auctionId}:${bidId}`;
+    await tx.execute(sql`
+      INSERT INTO merchant_fund_release_reviews (
+        merchant_id, source_type, source_reference, provider, provider_transaction_id,
+        provider_reference, provider_amount_minor, provider_currency, provider_fee_evidence_minor,
+        amount_minor, currency, provider_fee_minor, lunavo_fee_minor, merchant_net_minor, status
+      ) VALUES (
+        ${auction.merchant_id}, 'product_auction', ${sourceReference}, 'flutterwave',
+        ${transactionId}, ${providerReference}, ${grossMinor}, ${currency}, ${providerFeeMinor},
+        ${grossMinor}, ${currency}, ${providerFeeMinor}, ${lunavoFeeMinor}, ${sellerNetMinor}, 'pending'
+      )
+      ON CONFLICT (source_reference) DO NOTHING
+    `);
 
-    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${auction.merchant_id},'product_auction_sale','sale','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${transactionId},${`PRODUCT-AUC-${auctionId}-${bidId}`},${`product-auction:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,providerTransactionId:transactionId,providerReference,role:'seller',sellerNetMinor})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',verification_state='verified',verified_at=now(),provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
+    await tx.execute(sql`INSERT INTO lunavo_dashboard_transactions (merchant_id,transaction_type,transaction_kind,status,amount_minor,currency,lunavo_fee_minor,provider_fee_minor,merchant_net_minor,provider,provider_reference,internal_reference,idempotency_key,source,verification_state,verified_at,metadata) VALUES (${auction.merchant_id},'product_auction_sale','sale','confirmed',${grossMinor},${currency},${lunavoFeeMinor},${providerFeeMinor},${sellerNetMinor},'flutterwave',${transactionId},${`PRODUCT-AUC-${auctionId}-${bidId}`},${`product-auction:${auctionId}:${bidId}`},'ts_pay','verified',now(),${JSON.stringify({auctionId,bidId,providerTransactionId:transactionId,providerReference,role:'seller',sellerNetMinor,fundsReleased:false,releaseReviewStatus:'pending'})}::jsonb) ON CONFLICT (idempotency_key) DO UPDATE SET status='confirmed',verification_state='verified',verified_at=now(),provider_reference=EXCLUDED.provider_reference,merchant_net_minor=EXCLUDED.merchant_net_minor,updated_at=now()`);
 
     await tx.execute(sql`UPDATE auction_listings SET status='paid',settlement_status='verified',settlement_reference=${transactionId},updated_at=now() WHERE id=${auctionId} AND status='payment_pending'`);
     await tx.execute(sql`UPDATE auction_bids SET settlement_status='paid' WHERE id=${bidId} AND auction_id=${auctionId}`);

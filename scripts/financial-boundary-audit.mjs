@@ -75,6 +75,13 @@ for (const dir of apiRoots) {
     if (financialMutationMarkers.some((marker) => marker.test(source)) && !financialBoundaryFiles.has(rel)) {
       failures.push(`Financial mutation outside an approved server boundary: ${rel}`);
     }
+    // A sale credit is only permitted in the audited Master Admin proceeds-release
+    // endpoint. New checkout/webhook/auction handlers must queue proceeds first.
+    const directTypedSaleCredit = /entryType\s*:\s*["']sale["']/i.test(source);
+    const directSqlSaleCredit = /INSERT\s+INTO\s+ledger_entries[\s\S]{0,1000}?VALUES\s*\([\s\S]{0,700}?["']sale["']/i.test(source);
+    if ((directTypedSaleCredit || directSqlSaleCredit) && rel !== "artifacts/api-server/src/routes/dashboard-transactions.ts") {
+      failures.push(`Direct merchant sale-credit bypasses the Master Admin release gate: ${rel}`);
+    }
   }
 }
 

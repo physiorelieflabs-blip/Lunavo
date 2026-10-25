@@ -89,6 +89,12 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
 - [ ] Use your provider's test/sandbox credentials and transactions first where supported. Confirm server-side transaction re-query, webhook signature validation, replay/idempotency handling, currency/amount matching, and settlement reconciliation.
 - [ ] Verify that the ledger records sale, provider fee (when returned), and Lunavo's 1% platform fee as distinct entries. Test duplicate webhook delivery, payment failure, late payment, refund, subscription renewal/cancellation, and manual withdrawal review.
 - [ ] Confirm that discount reservations are redeemed once only after provider-verified payment; a client event alone must never redeem a discount.
+- [ ] Verify every order checkout, store-auction sale, and product-auction sale appears in Master Admin → Global Money Control as a provider-verified sale awaiting release. The merchant's spendable ledger must remain unchanged while the review is pending.
+- [ ] Release one sandbox sale through Global Money Control and confirm the server re-queries Flutterwave, validates transaction ID/reference/amount/currency/fee split, checks order/payment state and open reconciliation exceptions, and atomically posts exactly one sale credit plus fee debits with an audit event.
+- [ ] On an upgrade with historical successful order/auction sales already in the immutable ledger, verify migration 0130 creates one review row and one negative hold per outstanding legacy net credit. Confirm the pre-existing sale is not duplicated on release and the equal positive `merchant_funds_release` marker restores exactly the frozen net amount.
+- [ ] Resolve a sandbox-only provider mismatch and test “Recheck & reopen”: it must freshly verify provider and internal payment evidence, return the row to pending without any ledger movement, and require a separate release action. An unresolved exception, dispute, missing provider ID, or refund must remain blocked.
+- [ ] Replay the release request and duplicate the payment webhook; neither may duplicate ledger entries or merchant proceeds. A refunded, disputed, mismatched, or reconciliation-required row must remain non-spendable and un-releasable.
+- [ ] Confirm a provider-confirmed refund/chargeback before release cancels the pending credit without creating an unmatched ledger debit; after release, confirm the reversal debits the released proceeds and produces expected reconciliation/audit records.
 - [ ] Do not accept live orders until the test transactions and financial reports reconcile to the provider. Leave the Flutterwave fields blank if this test cannot be completed; payment-dependent actions should remain unavailable.
 
 ## 8. Test the connected commerce loop
@@ -113,6 +119,6 @@ Then verify `/healthz` and `/readyz` locally and through your HTTPS domain. Read
 
 ## 10. Final go/no-go
 
-Launch only when the exact code revision has green CI; HTTPS and firewall controls are proven; administrator recovery is tested; Flutterwave settlement and ledger reconciliation have passed; local models/FX have been tested for every capability being enabled; backups have an independent copy and a successful restore drill; and tenant-isolation/permission checks pass.
+Launch only when the exact code revision has green CI; HTTPS and firewall controls are proven; administrator recovery is tested; the verified-sale release gate and its refund/chargeback/replay tests above pass; Flutterwave settlement and ledger reconciliation have passed; local models/FX have been tested for every capability being enabled; backups have an independent copy and a successful restore drill; and tenant-isolation/permission checks pass.
 
 Caddy automates certificate issuance/renewal, but a green CI run cannot create or control your DNS zone, open host firewall ports, provide a real Flutterwave account, supply social-provider OAuth credentials, add server capacity, guarantee third-party supplier purchasing, or provide independent disaster-recovery storage. These are external prerequisites. Keep every capability that has not passed its live verification disabled.
