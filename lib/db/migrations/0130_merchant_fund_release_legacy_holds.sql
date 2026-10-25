@@ -116,7 +116,7 @@ ALTER TABLE ledger_entries
 CREATE OR REPLACE FUNCTION lunavo_guard_fund_release_review_insert()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   IF NEW.status NOT IN ('pending','reconciliation_required') THEN
     RAISE EXCEPTION 'Fund-release reviews must be created pending or quarantined';
@@ -129,7 +129,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS merchant_fund_release_review_insert_guard ON merchant_fund_release_reviews;
 CREATE TRIGGER merchant_fund_release_review_insert_guard
@@ -141,7 +141,7 @@ FOR EACH ROW EXECUTE FUNCTION lunavo_guard_fund_release_review_insert();
 CREATE OR REPLACE FUNCTION lunavo_guard_merchant_fund_ledger_credit()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 DECLARE
   review merchant_fund_release_reviews%ROWTYPE;
 BEGIN
@@ -197,7 +197,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS merchant_fund_ledger_credit_guard ON ledger_entries;
 CREATE TRIGGER merchant_fund_ledger_credit_guard
